@@ -1,23 +1,55 @@
-import { getAssetsGroupedByChain } from "@/lib/queries";
+import { getAssetsGroupedByTicker } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
+import { CheckboxLink } from "@/components/ui/CheckboxLink";
+import { AssetGroupSection } from "@/components/AssetGroupSection";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
 
+const LOW_VALUE_USD = 10;
+
+function buildHref(hideUnpriced: boolean, hideLow: boolean): string {
+  const params = new URLSearchParams();
+  // Both default to checked/true — only recorded in the URL when turned
+  // off, so a bare link (e.g. the sidebar) lands on the clean default view.
+  if (!hideUnpriced) params.set("hideUnpriced", "0");
+  if (!hideLow) params.set("hideLow", "0");
+  const qs = params.toString();
+  return qs ? `/assets?${qs}` : "/assets";
+}
+
 export default async function AssetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string }>;
+  searchParams: Promise<{ hideUnpriced?: string; hideLow?: string }>;
 }) {
-  const { chain: selectedChain, hideUnpriced, hideLow } = await searchParams;
-  const { groups, grand } = await getAssetsGroupedByChain();
+  const { hideUnpriced: hideUnpricedParam, hideLow: hideLowParam } = await searchParams;
+  const hideUnpriced = hideUnpricedParam !== "0";
+  const hideLow = hideLowParam !== "0";
+
+  const { groups, grand } = await getAssetsGroupedByTicker();
+
+  // Same semantics as ChainGroupedHoldings: filter which contributing
+  // holdings show in a group's breakdown table, but the group's own
+  // total/unpricedCount stay as originally computed (not recomputed from
+  // the filtered subset) — an asset that's entirely unpriced/low-value
+  // drops out of the list entirely once nothing's left to show.
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      holdings: group.holdings.filter((h) => {
+        if (h.valuation.kind === "unpriced") return !hideUnpriced;
+        if (hideLow && h.valuation.usd < LOW_VALUE_USD) return false;
+        return true;
+      }),
+    }))
+    .filter((group) => group.holdings.length > 0);
 
   return (
     <>
-      <PageHeader title="Assets" subtitle="Every holding across all your wallets, grouped by chain" />
+      <PageHeader title="Assets" subtitle="Every token you hold, aggregated across all your wallets" />
 
       <Panel className="mb-6">
         <p className="text-sm text-fg-muted">Total value</p>
@@ -30,15 +62,40 @@ export default async function AssetsPage({
         )}
       </Panel>
 
-      <ChainGroupedHoldings
-        groups={groups}
-        grandTotal={grand.total}
-        selectedChain={selectedChain}
-        hideUnpriced={hideUnpriced !== "0"}
-        hideLow={hideLow !== "0"}
-        baseHref="/assets"
-        emptyMessage="No holdings yet — add or sync a wallet to see your assets here."
-      />
+      {groups.length === 0 ? (
+        <Panel className="text-center">
+          <p className="text-sm text-fg-muted">
+            No holdings yet — add or sync a wallet to see your assets here.
+          </p>
+        </Panel>
+      ) : (
+        <>
+          <div className="mb-4 flex justify-end gap-4">
+            <CheckboxLink
+              href={buildHref(!hideUnpriced, hideLow)}
+              checked={hideUnpriced}
+              label="Hide unpriced"
+            />
+            <CheckboxLink
+              href={buildHref(hideUnpriced, !hideLow)}
+              checked={hideLow}
+              label={`Hide low price tokens (< $${LOW_VALUE_USD})`}
+            />
+          </div>
+
+          {visibleGroups.length === 0 ? (
+            <Panel className="text-center">
+              <p className="text-sm text-fg-muted">Nothing to show here.</p>
+            </Panel>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {visibleGroups.map((group) => (
+                <AssetGroupSection key={group.tickerKey} group={group} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </>
   );
 }

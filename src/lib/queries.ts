@@ -9,6 +9,7 @@ import {
   type Valuation,
 } from "./valuation";
 import { chainDisplayName, defaultChainId } from "./chainNames";
+import { formatTicker } from "./format";
 import type { Holding, Price, Tag, Wallet, WalletWithTag } from "./types";
 
 /** Every tag that's ever been created — populates the datalist for the
@@ -219,6 +220,108 @@ export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
     })),
   );
   const groups = groupByChain(entries, prices);
+
+  const allHoldings = rows.flatMap((w) => w.holdings);
+  const grand = aggregate(allHoldings, prices);
+
+  return { groups, grand };
+}
+
+/** A holding as it appears inside an AssetGroup's breakdown — same shape
+ * plus which wallet it came from, since that context is otherwise lost
+ * once holdings from many wallets get merged into one ticker's group. */
+export interface AssetHoldingEntry extends HoldingWithValuation {
+  walletId: string;
+  walletName: string;
+  /** Resolved display chain — the holding's own `chain` when set (auto
+   * holdings), else the wallet's chain normalized to the adapter-native
+   * slug (see defaultChainId) for a manual holding with none of its own. */
+  chainId: string;
+}
+
+export interface AssetGroup {
+  /** Uppercased ticker — the actual grouping key. */
+  tickerKey: string;
+  /** Display ticker (formatTicker applied to whichever holding was seen
+   * first) — cosmetic only, never used for grouping/lookup. */
+  ticker: string;
+  iconUrl: string | null;
+  /** Null if not a single contributing holding had a parseable qty
+   * (shouldn't happen in practice, but never silently shown as 0 — see
+   * valuation.ts's top-of-file philosophy). */
+  totalQty: number | null;
+  total: number;
+  unpricedCount: number;
+  holdings: AssetHoldingEntry[];
+}
+
+export interface AssetsByTickerResult {
+  groups: AssetGroup[];
+  grand: PortfolioTotal;
+}
+
+/**
+ * Every holding across every active wallet, grouped by ticker — the same
+ * BTC held in two different wallets is one row here (see getAssetsGroupedByChain
+ * above for the "same coin, wherever it is" location-first cut instead).
+ * Grouped by ticker rather than a stricter per-token identity (e.g.
+ * CoinGecko's coin id, which would correctly merge USDC-on-Ethereum and
+ * USDC-on-Base as the literal same asset while never conflating two
+ * unrelated tokens that happen to share a symbol) — ticker is what the rest
+ * of this app already keys pricing and display on (see the `prices` table),
+ * so this stays consistent with that rather than introducing a second,
+ * stricter notion of "same asset" just for this one page.
+ */
+export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
+  const [{ data: wallets, error }, prices] = await Promise.all([
+    portfolioDb().from("wallets").select("*, holdings(*)").eq("active", true),
+    getPriceMap(),
+  ]);
+  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
+
+  type WalletRow = Wallet & { holdings: Holding[] };
+  const rows = wallets as WalletRow[];
+
+  const byTicker = new Map<string, AssetGroup>();
+  for (const wallet of rows) {
+    for (const holding of wallet.holdings) {
+      const valuation = valueHolding(holding, prices);
+      const entry: AssetHoldingEntry = {
+        ...holding,
+        valuation,
+        price: effectivePrice(holding, prices),
+        walletId: wallet.id,
+        walletName: wallet.name,
+        chainId: holding.chain ?? defaultChainId(wallet.chain),
+      };
+
+      const key = holding.ticker.toUpperCase();
+      let group = byTicker.get(key);
+      if (!group) {
+        group = {
+          tickerKey: key,
+          ticker: formatTicker(holding.ticker),
+          iconUrl: null,
+          totalQty: null,
+          total: 0,
+          unpricedCount: 0,
+          holdings: [],
+        };
+        byTicker.set(key, group);
+      }
+
+      group.holdings.push(entry);
+      if (!group.iconUrl && holding.icon_url) group.iconUrl = holding.icon_url;
+      const qty = parseNumeric(holding.qty);
+      if (qty !== null) group.totalQty = (group.totalQty ?? 0) + qty;
+      if (valuation.kind === "priced") group.total += valuation.usd;
+      else group.unpricedCount += 1;
+    }
+  }
+
+  const groups = [...byTicker.values()]
+    .map((group) => ({ ...group, holdings: group.holdings.sort(byValueDesc) }))
+    .sort((a, b) => b.total - a.total);
 
   const allHoldings = rows.flatMap((w) => w.holdings);
   const grand = aggregate(allHoldings, prices);

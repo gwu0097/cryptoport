@@ -6,6 +6,7 @@ import { formatUsd } from "@/lib/format";
 import { Panel } from "./ui/Panel";
 import { HoldingsTable } from "./HoldingsTable";
 import { TokenIcon } from "./TokenIcon";
+import { CheckboxLink } from "./ui/CheckboxLink";
 
 const LOW_VALUE_USD = 10;
 
@@ -37,34 +38,6 @@ function buildHref(
   else params.delete("hideLow");
   const qs = params.toString();
   return qs ? `${path}?${qs}` : path;
-}
-
-/** A checkbox that's actually a link: `pointer-events-none` on the `<input>`
- * stops it from toggling itself on click (native checkboxes ignore
- * `readOnly`), so the click passes through to the wrapping `<Link>` instead.
- * Keeps the whole page server-rendered with URL state, no client JS,
- * matching the rest of this component (and the codebase's established
- * pattern of searchParams-based filtering over client state). */
-function CheckboxLink({
-  href,
-  checked,
-  label,
-}: {
-  href: string;
-  checked: boolean;
-  label: string;
-}) {
-  return (
-    <Link href={href} className="flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
-      <input
-        type="checkbox"
-        checked={checked}
-        readOnly
-        className="pointer-events-none size-4 rounded border-border accent-accent"
-      />
-      {label}
-    </Link>
-  );
 }
 
 /**

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Briefcase,
   Wallet,
   LayoutDashboard,
   ChartLine,
@@ -14,10 +15,11 @@ import {
 } from "lucide-react";
 
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/portfolio", label: "Portfolio", icon: Briefcase },
   { href: "/wallets", label: "Wallets", icon: Wallet },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/analytics", label: "Analytics", icon: ChartLine },
   { href: "/assets", label: "Assets", icon: Coins },
+  { href: "/analytics", label: "Analytics", icon: ChartLine },
   { href: "/defi", label: "DeFi", icon: Layers },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
 ];
