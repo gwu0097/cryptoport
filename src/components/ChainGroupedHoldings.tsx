@@ -14,20 +14,27 @@ function cardClass(active: boolean): string {
     : `${base} border-border bg-surface hover:border-accent/50 hover:bg-surface-raised`;
 }
 
+// baseHref may itself already carry a query string (the lookup page bakes
+// `address` into it, since that has to survive every filter/chain click) —
+// parsed out and merged rather than assumed empty.
 function buildHref(
   baseHref: string,
   chain: string | undefined,
   hideUnpriced: boolean,
   hideLow: boolean,
 ): string {
-  const params = new URLSearchParams();
+  const [path, existingQs] = baseHref.split("?");
+  const params = new URLSearchParams(existingQs);
   if (chain) params.set("chain", chain);
+  else params.delete("chain");
   // Both default to checked/true — only recorded in the URL when turned off,
   // so a bare link (e.g. the sidebar) lands on the clean default view.
   if (!hideUnpriced) params.set("hideUnpriced", "0");
+  else params.delete("hideUnpriced");
   if (!hideLow) params.set("hideLow", "0");
+  else params.delete("hideLow");
   const qs = params.toString();
-  return qs ? `${baseHref}?${qs}` : baseHref;
+  return qs ? `${path}?${qs}` : path;
 }
 
 /** A checkbox that's actually a link: `pointer-events-none` on the `<input>`

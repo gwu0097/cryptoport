@@ -11,7 +11,7 @@ import {
 import { chainDisplayName } from "./chainNames";
 import type { Holding, Price, Wallet } from "./types";
 
-async function getPriceMap(): Promise<PriceMap> {
+export async function getPriceMap(): Promise<PriceMap> {
   const { data, error } = await portfolioDb().from("prices").select("ticker, usd");
   if (error) throw new Error(`Failed to load prices: ${error.message}`);
 
@@ -124,12 +124,38 @@ function groupByChain(
     .sort((a, b) => b.total - a.total);
 }
 
-export interface WalletDetailResult {
-  wallet: Wallet;
+export interface ValuatedHoldings {
   holdings: HoldingWithValuation[];
   chainGroups: ChainGroup[];
   total: number;
   unpricedCount: number;
+}
+
+/** Shared by every "one entity, many chains" view — a saved wallet
+ * (getWalletDetail) and an ad-hoc, unsaved address lookup (lib/lookup.ts)
+ * alike. `fallbackChain` covers holdings with no `chain` of their own
+ * (manual rows, or pre-chain-column sync rows). */
+export function valuateHoldings(
+  holdings: Holding[],
+  fallbackChain: string,
+  prices: PriceMap,
+): ValuatedHoldings {
+  const holdingsWithValuation: HoldingWithValuation[] = holdings.map((holding) => ({
+    ...holding,
+    valuation: valueHolding(holding, prices),
+    price: effectivePrice(holding, prices),
+  }));
+  const chainGroups = groupByChain(
+    holdingsWithValuation.map((holding) => ({ holding, fallbackChain })),
+    prices,
+  );
+  const { total, unpricedCount } = aggregate(holdings, prices);
+
+  return { holdings: holdingsWithValuation, chainGroups, total, unpricedCount };
+}
+
+export interface WalletDetailResult extends ValuatedHoldings {
+  wallet: Wallet;
 }
 
 export async function getWalletDetail(id: string): Promise<WalletDetailResult | null> {
@@ -141,18 +167,7 @@ export async function getWalletDetail(id: string): Promise<WalletDetailResult | 
   if (!wallet) return null;
 
   const { holdings, ...rest } = wallet as Wallet & { holdings: Holding[] };
-  const holdingsWithValuation: HoldingWithValuation[] = holdings.map((holding) => ({
-    ...holding,
-    valuation: valueHolding(holding, prices),
-    price: effectivePrice(holding, prices),
-  }));
-  const chainGroups = groupByChain(
-    holdingsWithValuation.map((holding) => ({ holding, fallbackChain: rest.chain })),
-    prices,
-  );
-  const { total, unpricedCount } = aggregate(holdings, prices);
-
-  return { wallet: rest, holdings: holdingsWithValuation, chainGroups, total, unpricedCount };
+  return { wallet: rest, ...valuateHoldings(holdings, rest.chain, prices) };
 }
 
 export interface AssetsResult {
