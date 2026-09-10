@@ -2,7 +2,7 @@ import { getCredentials } from "@/lib/authCredentials";
 import { changeCredentials } from "./actions";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { Button } from "@/components/ui/Button";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, inputClass, selectClass } from "@/components/ui/Field";
 
 export default async function SettingsPage({
@@ -95,9 +95,7 @@ export default async function SettingsPage({
               />
             </Field>
 
-            <Button type="submit" className="self-start">
-              Update login
-            </Button>
+            <SubmitButton className="self-start">Update login</SubmitButton>
           </form>
         </Panel>
       </div>

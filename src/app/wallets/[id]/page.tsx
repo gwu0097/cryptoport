@@ -5,10 +5,11 @@ import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { Button } from "@/components/ui/Button";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Field, inputClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
-import { addHolding, deleteHolding, updateHolding } from "../actions";
+import { addHolding, deleteHolding, deleteWallet, updateHolding } from "../actions";
 
 function ValueCell({ holding }: { holding: HoldingWithValuation }) {
   if (holding.valuation.kind === "unpriced") {
@@ -38,9 +39,9 @@ function EditForm({ holding, walletId }: { holding: HoldingWithValuation; wallet
           className={`${inputClass} w-28`}
         />
       )}
-      <Button type="submit" variant="secondary" size="sm">
+      <SubmitButton variant="secondary" size="sm">
         Save
-      </Button>
+      </SubmitButton>
     </form>
   );
 }
@@ -69,6 +70,16 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
             {wallet.address && <> · {wallet.address}</>}
             {" · "}Refreshed: {formatStaleness(wallet.last_refresh_at)}
           </>
+        }
+        actions={
+          <form action={deleteWallet.bind(null, wallet.id)}>
+            <ConfirmDeleteButton
+              confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
+            >
+              <Trash className="size-3.5" aria-hidden="true" />
+              Delete wallet
+            </ConfirmDeleteButton>
+          </form>
         }
       />
 
@@ -123,9 +134,12 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
                     <div className="flex items-center gap-2">
                       <EditForm holding={holding} walletId={wallet.id} />
                       <form action={deleteHolding.bind(null, holding.id, wallet.id)}>
-                        <Button type="submit" variant="danger" size="sm" aria-label="Delete holding">
+                        <ConfirmDeleteButton
+                          confirmMessage={`Delete the ${holding.ticker} holding?`}
+                          aria-label="Delete holding"
+                        >
                           <Trash className="size-3.5" aria-hidden="true" />
-                        </Button>
+                        </ConfirmDeleteButton>
                       </form>
                     </div>
                   )}
@@ -153,9 +167,7 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
             <Field label="Quantity">
               <input name="qty" type="text" inputMode="decimal" required className={inputClass} />
             </Field>
-            <Button type="submit" className="self-start">
-              Add by quantity
-            </Button>
+            <SubmitButton className="self-start">Add by quantity</SubmitButton>
           </form>
         </Panel>
 
@@ -174,9 +186,7 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
                 className={inputClass}
               />
             </Field>
-            <Button type="submit" className="self-start">
-              Add fixed USD value
-            </Button>
+            <SubmitButton className="self-start">Add fixed USD value</SubmitButton>
           </form>
         </Panel>
       </div>

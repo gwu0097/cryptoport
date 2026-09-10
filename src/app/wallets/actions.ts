@@ -136,3 +136,17 @@ export async function deleteHolding(holdingId: string, walletId: string) {
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");
 }
+
+// Soft delete: wallets.active already exists for exactly this (the wallets
+// list already filters on it) — no schema change needed, and it keeps a
+// wallet's holding history around instead of cascading a hard delete.
+export async function deleteWallet(walletId: string) {
+  const { error } = await portfolioDb()
+    .from("wallets")
+    .update({ active: false })
+    .eq("id", walletId);
+  if (error) throw new Error(`Failed to delete wallet: ${error.message}`);
+
+  revalidatePath("/wallets");
+  redirect("/wallets");
+}

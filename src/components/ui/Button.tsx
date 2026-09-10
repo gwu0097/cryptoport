@@ -23,12 +23,14 @@ export function buttonClass(variant: Variant = "primary", size: Size = "md"): st
   return `${BASE_CLASSES} ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]}`;
 }
 
+export type ButtonProps = { variant?: Variant; size?: Size } & ComponentProps<"button">;
+
 export function Button({
   variant = "primary",
   size = "md",
   className = "",
   ...props
-}: { variant?: Variant; size?: Size } & ComponentProps<"button">) {
+}: ButtonProps) {
   return (
     <button
       className={`${BASE_CLASSES} ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}

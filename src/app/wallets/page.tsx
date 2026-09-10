@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Trash } from "lucide-react";
 import { getWalletsWithTotals } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { Button, buttonClass } from "@/components/ui/Button";
+import { buttonClass } from "@/components/ui/Button";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
-import { refreshPricesAction } from "./actions";
+import { deleteWallet, refreshPricesAction } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
 // runtime APIs or cookies to force dynamic rendering the old way) and Vercel
@@ -27,10 +29,10 @@ export default async function WalletsPage() {
               + Add wallet
             </Link>
             <form action={refreshPricesAction}>
-              <Button type="submit" variant="secondary" size="sm">
+              <SubmitButton variant="secondary" size="sm">
                 <RefreshCw className="size-3.5" aria-hidden="true" />
                 Refresh prices
-              </Button>
+              </SubmitButton>
             </form>
           </>
         }
@@ -67,6 +69,7 @@ export default async function WalletsPage() {
                 <th className={thClass}>Mode</th>
                 <th className={thClass}>Value</th>
                 <th className={thClass}>Refreshed</th>
+                <th className={thClass}></th>
               </tr>
             </thead>
             <tbody>
@@ -101,6 +104,16 @@ export default async function WalletsPage() {
                   </td>
                   <td className={`${tdClass} text-fg-muted`}>
                     {formatStaleness(wallet.last_refresh_at)}
+                  </td>
+                  <td className={tdClass}>
+                    <form action={deleteWallet.bind(null, wallet.id)}>
+                      <ConfirmDeleteButton
+                        confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
+                        aria-label={`Delete ${wallet.name}`}
+                      >
+                        <Trash className="size-3.5" aria-hidden="true" />
+                      </ConfirmDeleteButton>
+                    </form>
                   </td>
                 </tr>
               ))}

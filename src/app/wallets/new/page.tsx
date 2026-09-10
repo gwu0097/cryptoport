@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createWallet } from "../actions";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { Button } from "@/components/ui/Button";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, inputClass, selectClass } from "@/components/ui/Field";
 
 export default function NewWalletPage() {
@@ -54,9 +54,7 @@ export default function NewWalletPage() {
             <input name="address" type="text" className={inputClass} />
           </Field>
 
-          <Button type="submit" className="self-start">
-            Create wallet
-          </Button>
+          <SubmitButton className="self-start">Create wallet</SubmitButton>
         </form>
       </Panel>
     </>
