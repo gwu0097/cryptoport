@@ -54,12 +54,6 @@ export default async function WalletsPage() {
         <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
           {formatUsd(grand.total)}
         </p>
-        {grand.unpricedCount > 0 && (
-          <p className="mt-2 text-sm text-warning">
-            {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
-            excluded from the total ({grand.unpricedTickers.join(", ")})
-          </p>
-        )}
       </Panel>
 
       {wallets.length === 0 ? (
@@ -107,17 +101,10 @@ export default async function WalletsPage() {
                     </span>
                   </td>
                   <td className={`${tdClass} tabular-nums`}>
-                    {wallet.total > 0 ? formatUsd(wallet.total) : null}
-                    {wallet.unpricedCount > 0 && (
-                      <span className="text-warning"> ({wallet.unpricedCount} unpriced)</span>
-                    )}
-                    {wallet.total === 0 && wallet.unpricedCount === 0 && "—"}
+                    {wallet.total > 0 ? formatUsd(wallet.total) : "—"}
                   </td>
                   <td className={`${tdClass} text-fg-muted`}>
                     {formatStaleness(wallet.last_refresh_at)}
-                    {wallet.last_refresh_status && wallet.last_refresh_status !== "ok" && (
-                      <span className="text-warning"> ({wallet.last_refresh_status})</span>
-                    )}
                   </td>
                   <td className={tdClass}>
                     <form action={deleteWallet.bind(null, wallet.id)}>

@@ -10,9 +10,9 @@ export const metadata = { title: "Assets · CryptoPort" };
 export default async function AssetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ chain?: string; hideSmall?: string }>;
+  searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string }>;
 }) {
-  const { chain: selectedChain, hideSmall } = await searchParams;
+  const { chain: selectedChain, hideUnpriced, hideLow } = await searchParams;
   const { groups, grand } = await getAssetsGroupedByChain();
 
   return (
@@ -34,7 +34,8 @@ export default async function AssetsPage({
         groups={groups}
         grandTotal={grand.total}
         selectedChain={selectedChain}
-        hideSmallActive={hideSmall === "1"}
+        hideUnpriced={hideUnpriced !== "0"}
+        hideLow={hideLow !== "0"}
         baseHref="/assets"
         emptyMessage="No holdings yet — add or sync a wallet to see your assets here."
       />

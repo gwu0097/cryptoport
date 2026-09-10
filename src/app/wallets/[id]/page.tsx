@@ -62,11 +62,11 @@ function EditForm({ holding, walletId }: { holding: HoldingWithValuation; wallet
 
 export default async function WalletDetailPage(
   props: PageProps<"/wallets/[id]"> & {
-    searchParams: Promise<{ chain?: string; hideSmall?: string }>;
+    searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string }>;
   },
 ) {
   const { id } = await props.params;
-  const { chain: selectedChain, hideSmall } = await props.searchParams;
+  const { chain: selectedChain, hideUnpriced, hideLow } = await props.searchParams;
   const detail = await getWalletDetail(id);
   if (!detail) notFound();
 
@@ -136,7 +136,8 @@ export default async function WalletDetailPage(
             groups={chainGroups}
             grandTotal={total}
             selectedChain={selectedChain}
-            hideSmallActive={hideSmall === "1"}
+            hideUnpriced={hideUnpriced !== "0"}
+            hideLow={hideLow !== "0"}
             baseHref={`/wallets/${wallet.id}`}
             emptyMessage="No holdings yet — click “Sync holdings” above."
           />
