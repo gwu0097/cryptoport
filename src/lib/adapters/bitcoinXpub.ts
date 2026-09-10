@@ -4,7 +4,7 @@ import { p2pkh, p2sh, p2wpkh } from "@scure/btc-signer";
 import { mapWithConcurrency } from "./http";
 import { fetchAddressStats, satsFromStats } from "./bitcoinShared";
 
-type ScriptType = "p2pkh" | "p2sh-p2wpkh" | "p2wpkh";
+export type ScriptType = "p2pkh" | "p2sh-p2wpkh" | "p2wpkh";
 
 // SLIP-132 extended-key version bytes. @scure/bip32's HDKey.fromExtendedKey
 // only recognizes the plain BIP32 xpub/xprv bytes by default — ypub/zpub
@@ -15,7 +15,8 @@ type ScriptType = "p2pkh" | "p2sh-p2wpkh" | "p2wpkh";
 // though — confirmed against a real Ledger Native SegWit account: Ledger's
 // own xpub-export feature uses the generic "xpub" prefix regardless of the
 // account's actual type, so a plain xpub is derived and checked under all
-// three script types below rather than assumed to be legacy P2PKH.
+// three script types below (unless a cached type is already known — see
+// scanExtendedKey) rather than assumed to be legacy P2PKH.
 const XPUB_VERSIONS = { private: 0x0488ade4, public: 0x0488b21e };
 const EXTENDED_KEY_FORMATS: Record<
   string,
@@ -50,11 +51,11 @@ function deriveAddress(hdkey: HDKey, scriptType: ScriptType): string {
 const GAP_LIMIT = 20;
 const MAX_INDEX = 2000; // hard ceiling per chain — safety valve, not a real-world limit
 // Lower than the EVM adapter's CHUNK_CONCURRENCY (5) — confirmed empirically
-// (see commit message) that mempool.space's anonymous tier 429s under fully
-// unthrottled sequential calls, and this is a brand-new adapter with no
-// prior tuning history the way the EVM one had. fetchWithRetry's backoff is
-// still the main defense; this and the inter-batch pause just reduce how
-// often it needs to kick in.
+// that mempool.space's anonymous tier 429s under fully unthrottled
+// sequential calls, and this is a brand-new adapter with no prior tuning
+// history the way the EVM one had. fetchWithRetry's backoff is still the
+// main defense; this and the inter-batch pause just reduce how often it
+// needs to kick in.
 const ADDRESS_CONCURRENCY = 3;
 const BATCH_PAUSE_MS = 500;
 
@@ -62,8 +63,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function scanChain(chainKey: HDKey, scriptType: ScriptType): Promise<number> {
+async function scanChain(chainKey: HDKey, scriptType: ScriptType): Promise<{ sats: number; used: boolean }> {
   let totalSats = 0;
+  let anyUsed = false;
 
   for (let batchStart = 0; batchStart < MAX_INDEX; batchStart += GAP_LIMIT) {
     if (batchStart > 0) await sleep(BATCH_PAUSE_MS);
@@ -77,10 +79,22 @@ async function scanChain(chainKey: HDKey, scriptType: ScriptType): Promise<numbe
     });
 
     totalSats += batch.reduce((sum, r) => sum + r.sats, 0);
+    if (batch.some((r) => r.used)) anyUsed = true;
     if (batch.every((r) => !r.used)) break; // a full gap-limit window with nothing used — done
   }
 
-  return totalSats;
+  return { sats: totalSats, used: anyUsed };
+}
+
+export interface ScanResult {
+  sats: number;
+  /** Which script type actually has activity — null only when the key is
+   * genuinely ambiguous *and* nothing was found under any type checked
+   * (either a fresh/empty wallet, or real funds spread across more than
+   * one format, which is rare but real: caching a single type there would
+   * silently under-report the other from then on, so it's deliberately
+   * left uncached and every sync keeps checking all three). */
+  detectedScriptType: ScriptType | null;
 }
 
 /**
@@ -90,12 +104,19 @@ async function scanChain(chainKey: HDKey, scriptType: ScriptType): Promise<numbe
  * a balance. Public-key-only derivation (BIP32 CKDpub) — no private key
  * material is ever involved, this can only ever read balances.
  *
- * A plain xpub is scanned under all three script types (see
- * EXTENDED_KEY_FORMATS above) rather than one guessed type — real funds
- * only ever show up under the one the account was actually built with, the
- * other two just cost a quick empty gap-limit batch each.
+ * `cachedScriptType` (from a wallet's previously-detected btc_script_type —
+ * see wallets/actions.ts) skips straight to that one format instead of
+ * checking all three, since real funds only ever show up under the format
+ * the account was actually built with — cuts the address-lookup count
+ * (and the wall-clock time, given each one is a real, deliberately-paced
+ * network call) by roughly two-thirds on every sync after the first.
+ * `forceFullScan` ignores the cache and re-checks everything, for e.g. a
+ * wallet that's switched to a different address format.
  */
-export async function scanExtendedKey(extendedKey: string): Promise<number> {
+export async function scanExtendedKey(
+  extendedKey: string,
+  options: { cachedScriptType?: ScriptType | null; forceFullScan?: boolean } = {},
+): Promise<ScanResult> {
   const format = EXTENDED_KEY_FORMATS[extendedKey.slice(0, 4)];
   if (!format) throw new Error(`Unrecognized extended public key prefix in "${extendedKey.slice(0, 4)}...".`);
 
@@ -103,15 +124,25 @@ export async function scanExtendedKey(extendedKey: string): Promise<number> {
   const external = account.deriveChild(0);
   const internal = account.deriveChild(1);
 
-  const chainScans = format.scriptTypes.flatMap((scriptType) => [
-    () => scanChain(external, scriptType),
-    () => scanChain(internal, scriptType),
-  ]);
-  // A plain xpub means up to 6 chain-scans (3 script types x 2 chains) —
-  // capped so this can't multiply with ADDRESS_CONCURRENCY into a much
-  // bigger burst than the ypub/zpub (1 script type, 2 chains) case already
-  // runs safely.
-  const totals = await mapWithConcurrency(chainScans, 2, (scan) => scan());
+  const scriptTypes =
+    !options.forceFullScan && options.cachedScriptType ? [options.cachedScriptType] : format.scriptTypes;
 
-  return totals.reduce((sum, sats) => sum + sats, 0);
+  const chainScans = scriptTypes.flatMap((scriptType) => [
+    { scriptType, run: () => scanChain(external, scriptType) },
+    { scriptType, run: () => scanChain(internal, scriptType) },
+  ]);
+  // A plain xpub with no cache means up to 6 chain-scans (3 script types x
+  // 2 chains) — concurrency capped so this can't multiply with
+  // ADDRESS_CONCURRENCY into a much bigger burst than the single-type
+  // (cached, ypub, or zpub) case already runs safely.
+  const results = await mapWithConcurrency(chainScans, 2, (s) =>
+    s.run().then((r) => ({ ...r, scriptType: s.scriptType })),
+  );
+
+  const sats = results.reduce((sum, r) => sum + r.sats, 0);
+  const usedTypes = [...new Set(results.filter((r) => r.used).map((r) => r.scriptType))];
+  const detectedScriptType =
+    scriptTypes.length === 1 ? scriptTypes[0] : usedTypes.length === 1 ? usedTypes[0] : null;
+
+  return { sats, detectedScriptType };
 }

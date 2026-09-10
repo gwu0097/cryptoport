@@ -29,6 +29,15 @@ export interface Wallet {
   active: boolean;
   last_refresh_at: string | null;
   last_refresh_status: string | null;
+  /** Set the moment a sync begins (before the background work even starts)
+   * — used to compute last_sync_duration_ms once it finishes. */
+  sync_started_at: string | null;
+  last_sync_duration_ms: number | null;
+  /** Cached from a prior full BTC xpub scan (see bitcoinXpub.ts) — which of
+   * the three address formats actually has this wallet's funds, so later
+   * syncs can go straight to it instead of checking all three again. Only
+   * ever meaningful for chain='BTC' wallets whose address is an xpub. */
+  btc_script_type: "p2pkh" | "p2sh-p2wpkh" | "p2wpkh" | null;
   created_at: string;
 }
 

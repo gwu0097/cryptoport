@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Trash } from "lucide-react";
 import type { WalletWithTotal } from "@/lib/queries";
-import { formatStaleness, formatUsd } from "@/lib/format";
+import { formatStaleness, formatUsd, formatDuration } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
 import { buttonClass } from "./ui/Button";
 import { SubmitButton } from "./ui/SubmitButton";
@@ -13,7 +13,7 @@ import { EditWalletModal } from "./EditWalletModal";
 import { AutoRefreshWhileSyncing } from "./AutoRefreshWhileSyncing";
 import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/wallets/actions";
 
-type SortKey = "name" | "chain" | "tag" | "mode" | "value" | "refreshed";
+type SortKey = "name" | "chain" | "tag" | "mode" | "value" | "refreshed" | "duration";
 
 const STORAGE_KEY = "cryptoport:walletsSort";
 const DEFAULT_SORT: { key: SortKey; dir: "asc" | "desc" } = { key: "value", dir: "desc" };
@@ -32,6 +32,8 @@ function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
       return wallet.total;
     case "refreshed":
       return wallet.last_refresh_at ?? "";
+    case "duration":
+      return wallet.last_sync_duration_ms ?? -1;
   }
 }
 
@@ -124,6 +126,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
           <Header label="Mode" sortKeyValue="mode" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Refreshed" sortKeyValue="refreshed" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header label="Synced for" sortKeyValue="duration" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <th className={thClass}></th>
         </tr>
       </thead>
@@ -162,6 +165,9 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
                 formatStaleness(wallet.last_refresh_at)
               )}
             </td>
+            <td className={`${tdClass} tabular-nums text-fg-muted`}>
+              {formatDuration(wallet.last_sync_duration_ms)}
+            </td>
             <td className={tdClass}>
               <div className="flex items-center gap-2">
                 <EditWalletModal
@@ -189,7 +195,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
                     <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
                   </span>
                 ) : (
-                  <form action={syncWalletHoldings.bind(null, wallet.id)}>
+                  <form action={syncWalletHoldings.bind(null, wallet.id, false)}>
                     <SubmitButton variant="secondary" size="sm" aria-label={`Sync ${wallet.name}`}>
                       <RefreshCw className="size-3.5" aria-hidden="true" />
                     </SubmitButton>

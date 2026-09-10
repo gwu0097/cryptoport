@@ -270,3 +270,13 @@ grant all on cryptoport.tags to service_role;
 
 alter table cryptoport.wallets add column tag_id uuid references cryptoport.tags(id) on delete set null;
 alter table cryptoport.wallets drop column account;
+
+-- Sync duration tracking (shown in the wallets list and on the wallet
+-- detail page) and BTC xpub script-type caching (see bitcoinXpub.ts) — a
+-- plain "xpub" is ambiguous about which of the three address formats it
+-- actually uses, so the first sync has to check all three; once one comes
+-- back with real activity, it's cached here so every later sync goes
+-- straight to the right one instead of re-scanning all three every time.
+alter table cryptoport.wallets add column sync_started_at timestamptz;
+alter table cryptoport.wallets add column last_sync_duration_ms integer;
+alter table cryptoport.wallets add column btc_script_type text; -- 'p2pkh' | 'p2sh-p2wpkh' | 'p2wpkh' | null

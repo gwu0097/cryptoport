@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
 import { getWalletDetail, getTags, type HoldingWithValuation } from "@/lib/queries";
-import { formatStaleness, formatUsd, formatQty, formatTicker } from "@/lib/format";
+import { formatStaleness, formatUsd, formatQty, formatTicker, formatDuration } from "@/lib/format";
+import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
@@ -71,6 +72,10 @@ export default async function WalletDetailPage(
   const { wallet, holdings, chainGroups, total, unpricedCount } = detail;
   const addHoldingForWallet = addHolding.bind(null, wallet.id);
   const tagNames = tags.map((t) => t.name);
+  // Only a plain/ambiguous-format xpub scan needs "which address format is
+  // this" figured out (and cached) at all — a single address or an
+  // unambiguous ypub/zpub never goes through that.
+  const isBtcXpub = wallet.chain === "BTC" && !!wallet.address && isExtendedPublicKey(wallet.address);
 
   return (
     <>
@@ -145,12 +150,29 @@ export default async function WalletDetailPage(
                   Syncing…
                 </span>
               ) : (
-                <form action={syncWalletHoldings.bind(null, wallet.id)}>
-                  <SubmitButton variant="secondary" size="sm">
-                    <RefreshCw className="size-3.5" aria-hidden="true" />
-                    Sync holdings
-                  </SubmitButton>
-                </form>
+                <>
+                  <form action={syncWalletHoldings.bind(null, wallet.id, false)}>
+                    <SubmitButton variant="secondary" size="sm">
+                      <RefreshCw className="size-3.5" aria-hidden="true" />
+                      Sync holdings
+                    </SubmitButton>
+                  </form>
+                  {/* Only worth offering once a cache exists to override —
+                      without one, plain "Sync holdings" already does the
+                      full check. For e.g. a wallet that switched address
+                      format and needs re-detecting. */}
+                  {isBtcXpub && wallet.btc_script_type && (
+                    <form action={syncWalletHoldings.bind(null, wallet.id, true)}>
+                      <SubmitButton
+                        variant="secondary"
+                        size="sm"
+                        title="Re-check all address formats instead of using the cached one — use this if the wallet's address format changed."
+                      >
+                        Full sync
+                      </SubmitButton>
+                    </form>
+                  )}
+                </>
               ))}
             <form action={deleteWallet.bind(null, wallet.id)}>
               <ConfirmDeleteButton
@@ -165,9 +187,20 @@ export default async function WalletDetailPage(
             {wallet.last_refresh_status === "syncing" ? (
               "Syncing…"
             ) : (
-              <>Refreshed: {formatStaleness(wallet.last_refresh_at)}</>
+              <>
+                Refreshed: {formatStaleness(wallet.last_refresh_at)}
+                {wallet.last_sync_duration_ms !== null && (
+                  <> · took {formatDuration(wallet.last_sync_duration_ms)}</>
+                )}
+              </>
             )}
           </p>
+          {isBtcXpub && !wallet.btc_script_type && wallet.last_refresh_status !== "syncing" && (
+            <p className="max-w-xs text-right text-xs text-fg-muted">
+              First sync checks all 3 Bitcoin address formats and can take a few minutes — once it
+              finds where your funds are, every sync after that will be much faster.
+            </p>
+          )}
         </div>
       </div>
 

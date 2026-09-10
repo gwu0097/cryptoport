@@ -50,6 +50,15 @@ export function formatTicker(ticker: string): string {
   return TICKER_DISPLAY_OVERRIDES[ticker.toUpperCase()] ?? ticker;
 }
 
+export function formatDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms)) return "—";
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${seconds}s`;
+}
+
 export function formatStaleness(lastRefreshAt: string | null): string {
   if (!lastRefreshAt) return "never refreshed";
   const diffMs = Date.now() - new Date(lastRefreshAt).getTime();

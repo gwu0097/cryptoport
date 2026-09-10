@@ -7,7 +7,8 @@ import { portfolioDb } from "@/lib/supabase";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
-import { fetchBitcoinHoldings } from "@/lib/adapters/bitcoin";
+import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
+import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Chain, WalletMode } from "@/lib/types";
@@ -220,11 +221,12 @@ interface AdapterFetchResult {
   warnings: string[];
 }
 
-async function fetchAdapterHoldings(chain: Chain, address: string): Promise<AdapterFetchResult> {
+// BTC isn't dispatched through here — see syncWalletHoldings, which calls
+// fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached
+// script type through and get the detected one back.
+async function fetchAdapterHoldings(chain: "ETH" | "SOL", address: string): Promise<AdapterFetchResult> {
   if (chain === "ETH") return fetchEvmHoldings(address);
-  if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
-  if (chain === "BTC") return { holdings: await fetchBitcoinHoldings(address), warnings: [] };
-  throw new Error(`No auto adapter for chain "${chain}".`);
+  return { holdings: await fetchJupiterHoldings(address), warnings: [] };
 }
 
 // Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
@@ -250,25 +252,44 @@ async function fetchAdapterHoldings(chain: Chain, address: string): Promise<Adap
 // immediately — the wallet is marked 'syncing' first so the UI reflects
 // that a sync is in progress, and gets its real status once the
 // background work finishes.
-export async function syncWalletHoldings(walletId: string) {
+// forceFullScan is the "Full sync" action's escape hatch (BTC xpub wallets
+// only) — ignores a cached btc_script_type and re-checks all three address
+// formats, for a wallet that's switched to a different one. Bound
+// directly as a second argument before the form's own FormData (see
+// updateHolding/deleteHolding above for the same .bind(null, ...) shape).
+export async function syncWalletHoldings(walletId: string, forceFullScan = false) {
   const { data: wallet, error: walletError } = await portfolioDb()
     .from("wallets")
-    .select("chain, address, mode")
+    .select("chain, address, mode, btc_script_type")
     .eq("id", walletId)
     .single();
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (wallet.mode !== "auto") throw new Error("Only auto wallets can be synced.");
   if (!wallet.address) throw new Error("This wallet has no address set.");
 
+  const syncStartedAt = Date.now();
   const { error: markError } = await portfolioDb()
     .from("wallets")
-    .update({ last_refresh_status: "syncing" })
+    .update({ last_refresh_status: "syncing", sync_started_at: new Date(syncStartedAt).toISOString() })
     .eq("id", walletId);
   if (markError) throw new Error(`Failed to start sync: ${markError.message}`);
 
   after(async () => {
     try {
-      const { holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address!);
+      let holdings: AdapterHolding[];
+      let warnings: string[] = [];
+      let detectedScriptType: ScriptType | null = wallet.btc_script_type as ScriptType | null;
+
+      if (wallet.chain === "BTC") {
+        ({ holdings, detectedScriptType } = await fetchBitcoinHoldingsForSync(
+          wallet.address!,
+          wallet.btc_script_type as ScriptType | null,
+          forceFullScan,
+        ));
+      } else {
+        ({ holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address!));
+      }
+
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
       const { error: syncError } = await portfolioDb().rpc("sync_auto_holdings", {
         p_wallet_id: walletId,
@@ -280,10 +301,19 @@ export async function syncWalletHoldings(walletId: string) {
       if (wallet.chain === "SOL") {
         await portfolioDb().from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
       }
+
+      const updates: { last_sync_duration_ms: number; btc_script_type?: ScriptType | null } = {
+        last_sync_duration_ms: Date.now() - syncStartedAt,
+      };
+      if (wallet.chain === "BTC") updates.btc_script_type = detectedScriptType;
+      await portfolioDb().from("wallets").update(updates).eq("id", walletId);
     } catch (e) {
       await portfolioDb()
         .from("wallets")
-        .update({ last_refresh_status: `error: ${(e as Error).message}` })
+        .update({
+          last_refresh_status: `error: ${(e as Error).message}`,
+          last_sync_duration_ms: Date.now() - syncStartedAt,
+        })
         .eq("id", walletId);
     } finally {
       revalidatePath(`/wallets/${walletId}`);
