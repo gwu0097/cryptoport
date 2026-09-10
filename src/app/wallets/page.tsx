@@ -116,7 +116,11 @@ export default async function WalletsPage() {
                     {wallet.total > 0 ? formatUsd(wallet.total) : "—"}
                   </td>
                   <td className={`${tdClass} text-fg-muted`}>
-                    {formatStaleness(wallet.last_refresh_at)}
+                    {wallet.last_refresh_status === "syncing" ? (
+                      <span className="text-fg">Syncing…</span>
+                    ) : (
+                      formatStaleness(wallet.last_refresh_at)
+                    )}
                   </td>
                   <td className={tdClass}>
                     <div className="flex items-center gap-2">
@@ -133,7 +137,25 @@ export default async function WalletsPage() {
                           <Trash className="size-3.5" aria-hidden="true" />
                         </ConfirmDeleteButton>
                       </form>
-                      {wallet.mode === "auto" ? (
+                      {wallet.mode !== "auto" ? (
+                        // Same box as the sync button below, just invisible
+                        // — reserves its width so manual wallets' edit/delete
+                        // icons still line up with auto wallets' below them.
+                        <span className={`${buttonClass("secondary", "sm")} invisible`} aria-hidden="true">
+                          <RefreshCw className="size-3.5" aria-hidden="true" />
+                        </span>
+                      ) : wallet.last_refresh_status === "syncing" ? (
+                        // A sync already in flight (runs in the background —
+                        // see syncWalletHoldings — so the form below returns
+                        // almost instantly and would otherwise let a second
+                        // click queue up a redundant duplicate sync).
+                        <span
+                          className={`${buttonClass("secondary", "sm")} cursor-not-allowed opacity-50`}
+                          aria-label={`${wallet.name} is syncing`}
+                        >
+                          <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
+                        </span>
+                      ) : (
                         <form action={syncWalletHoldings.bind(null, wallet.id)}>
                           <SubmitButton
                             variant="secondary"
@@ -143,13 +165,6 @@ export default async function WalletsPage() {
                             <RefreshCw className="size-3.5" aria-hidden="true" />
                           </SubmitButton>
                         </form>
-                      ) : (
-                        // Same box as the sync button above, just invisible
-                        // — reserves its width so manual wallets' edit/delete
-                        // icons still line up with auto wallets' below them.
-                        <span className={`${buttonClass("secondary", "sm")} invisible`} aria-hidden="true">
-                          <RefreshCw className="size-3.5" aria-hidden="true" />
-                        </span>
                       )}
                     </div>
                   </td>

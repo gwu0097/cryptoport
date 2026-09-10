@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { portfolioDb } from "@/lib/supabase";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
@@ -227,16 +228,28 @@ async function fetchAdapterHoldings(chain: Chain, address: string): Promise<Adap
 }
 
 // Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
-// Hyperliquid for ETH, Jupiter for SOL) and atomically replaces its
-// auto-sourced holdings — see cryptoport.sync_auto_holdings in schema.sql
-// for why this has to be a single DB function call rather than separate
-// delete/insert calls from here. On a total failure (every source errored,
-// nothing to save), holdings and last_refresh_at are left completely
-// untouched (only last_refresh_status records that an attempt failed) —
-// per the "a wallet that errors keeps its previous holdings and previous
-// timestamp" rule, a failed sync must never be worse than not syncing. A
-// partial failure (some chains ok, one flaked) still saves what succeeded,
-// with the failure recorded in the status rather than silently dropped.
+// Hyperliquid for ETH, Jupiter for SOL, mempool.space/xpub-scan for BTC)
+// and atomically replaces its auto-sourced holdings — see
+// cryptoport.sync_auto_holdings in schema.sql for why this has to be a
+// single DB function call rather than separate delete/insert calls from
+// here. On a total failure (every source errored, nothing to save),
+// holdings and last_refresh_at are left completely untouched (only
+// last_refresh_status records that an attempt failed) — per the "a wallet
+// that errors keeps its previous holdings and previous timestamp" rule, a
+// failed sync must never be worse than not syncing. A partial failure
+// (some chains ok, one flaked) still saves what succeeded, with the
+// failure recorded in the status rather than silently dropped.
+//
+// The actual fetch runs in next/server's after() rather than being awaited
+// inline — a multi-chain EVM wallet or a full xpub scan can take minutes,
+// and awaiting that directly in a form-bound Server Action ties up the
+// whole page's interactivity for that entire time (submitting a form
+// action is a router-level transition, not scoped to just that one
+// button). after() keeps the serverless function alive past this
+// function's own return, so the triggering request completes almost
+// immediately — the wallet is marked 'syncing' first so the UI reflects
+// that a sync is in progress, and gets its real status once the
+// background work finishes.
 export async function syncWalletHoldings(walletId: string) {
   const { data: wallet, error: walletError } = await portfolioDb()
     .from("wallets")
@@ -247,32 +260,36 @@ export async function syncWalletHoldings(walletId: string) {
   if (wallet.mode !== "auto") throw new Error("Only auto wallets can be synced.");
   if (!wallet.address) throw new Error("This wallet has no address set.");
 
-  let holdings: AdapterHolding[];
-  let warnings: string[];
-  try {
-    ({ holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address));
-  } catch (e) {
-    const message = (e as Error).message;
-    await portfolioDb()
-      .from("wallets")
-      .update({ last_refresh_status: `error: ${message}` })
-      .eq("id", walletId);
-    revalidatePath(`/wallets/${walletId}`);
-    revalidatePath("/wallets");
-    throw new Error(`Sync failed: ${message}`);
-  }
+  const { error: markError } = await portfolioDb()
+    .from("wallets")
+    .update({ last_refresh_status: "syncing" })
+    .eq("id", walletId);
+  if (markError) throw new Error(`Failed to start sync: ${markError.message}`);
 
-  const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
-  const { error: syncError } = await portfolioDb().rpc("sync_auto_holdings", {
-    p_wallet_id: walletId,
-    p_holdings: holdings,
-    p_status: status,
+  after(async () => {
+    try {
+      const { holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address!);
+      const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
+      const { error: syncError } = await portfolioDb().rpc("sync_auto_holdings", {
+        p_wallet_id: walletId,
+        p_holdings: holdings,
+        p_status: status,
+      });
+      if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
+
+      if (wallet.chain === "SOL") {
+        await portfolioDb().from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
+      }
+    } catch (e) {
+      await portfolioDb()
+        .from("wallets")
+        .update({ last_refresh_status: `error: ${(e as Error).message}` })
+        .eq("id", walletId);
+    } finally {
+      revalidatePath(`/wallets/${walletId}`);
+      revalidatePath("/wallets");
+    }
   });
-  if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
-
-  if (wallet.chain === "SOL") {
-    await portfolioDb().from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
-  }
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");

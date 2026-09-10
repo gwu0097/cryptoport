@@ -8,7 +8,7 @@ import {
   type PriceMap,
   type Valuation,
 } from "./valuation";
-import { chainDisplayName } from "./chainNames";
+import { chainDisplayName, defaultChainId } from "./chainNames";
 import type { Holding, Price, Tag, Wallet, WalletWithTag } from "./types";
 
 /** Every tag that's ever been created — populates the datalist for the
@@ -189,7 +189,7 @@ export async function getWalletDetail(id: string): Promise<WalletDetailResult | 
   if (!wallet) return null;
 
   const { holdings, ...rest } = wallet as WalletWithTag & { holdings: Holding[] };
-  return { wallet: rest, ...valuateHoldings(holdings, rest.chain, prices) };
+  return { wallet: rest, ...valuateHoldings(holdings, defaultChainId(rest.chain), prices) };
 }
 
 export interface AssetsResult {
@@ -215,7 +215,7 @@ export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
         valuation: valueHolding(holding, prices),
         price: effectivePrice(holding, prices),
       },
-      fallbackChain: wallet.chain,
+      fallbackChain: defaultChainId(wallet.chain),
     })),
   );
   const groups = groupByChain(entries, prices);

@@ -74,9 +74,13 @@ function CheckboxLink({
  * for the shell — only the table rows inside are interactive, for
  * sorting). Shared by the cross-wallet Assets page and a single auto
  * wallet's detail page, both of which have the same "one entity spans many
- * chains" shape. Read-only — a manual wallet (single-chain by definition,
- * with editable holdings) uses its own plain table instead of this
- * component.
+ * chains" shape.
+ *
+ * `walletId`, when given, makes any manually-added holding in the mix
+ * editable/deletable (see HoldingsTable) — omitted on the Assets and
+ * lookup pages, where a holding either spans many wallets or belongs to no
+ * saved wallet, so there's no single wallet_id an edit/delete action could
+ * target.
  */
 export async function ChainGroupedHoldings({
   groups,
@@ -86,6 +90,7 @@ export async function ChainGroupedHoldings({
   hideLow,
   baseHref,
   emptyMessage = "No holdings yet.",
+  walletId,
 }: {
   groups: ChainGroup[];
   grandTotal: number;
@@ -94,6 +99,7 @@ export async function ChainGroupedHoldings({
   hideLow: boolean;
   baseHref: string;
   emptyMessage?: string;
+  walletId?: string;
 }) {
   if (groups.length === 0) {
     return (
@@ -181,7 +187,7 @@ export async function ChainGroupedHoldings({
                 <span className="tabular-nums text-fg">{formatUsd(group.total)}</span>
               </summary>
               <div className="border-t border-border">
-                <HoldingsTable holdings={group.holdings} />
+                <HoldingsTable holdings={group.holdings} walletId={walletId} />
               </div>
             </details>
           ))}

@@ -132,14 +132,23 @@ export default async function WalletDetailPage(
 
         <div className="flex shrink-0 flex-col items-end gap-2">
           <div className="flex items-center gap-2">
-            {wallet.mode === "auto" && (
-              <form action={syncWalletHoldings.bind(null, wallet.id)}>
-                <SubmitButton variant="secondary" size="sm">
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Sync holdings
-                </SubmitButton>
-              </form>
-            )}
+            {wallet.mode === "auto" &&
+              (wallet.last_refresh_status === "syncing" ? (
+                // A sync already in flight (runs in the background — see
+                // syncWalletHoldings — so a fresh click would otherwise
+                // queue up a redundant duplicate sync).
+                <span className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-2.5 py-1.5 text-xs font-medium text-fg opacity-50">
+                  <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
+                  Syncing…
+                </span>
+              ) : (
+                <form action={syncWalletHoldings.bind(null, wallet.id)}>
+                  <SubmitButton variant="secondary" size="sm">
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                    Sync holdings
+                  </SubmitButton>
+                </form>
+              ))}
             <form action={deleteWallet.bind(null, wallet.id)}>
               <ConfirmDeleteButton
                 confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
@@ -149,7 +158,13 @@ export default async function WalletDetailPage(
               </ConfirmDeleteButton>
             </form>
           </div>
-          <p className="text-xs text-fg-muted">Refreshed: {formatStaleness(wallet.last_refresh_at)}</p>
+          <p className="text-xs text-fg-muted">
+            {wallet.last_refresh_status === "syncing" ? (
+              "Syncing…"
+            ) : (
+              <>Refreshed: {formatStaleness(wallet.last_refresh_at)}</>
+            )}
+          </p>
         </div>
       </div>
 
@@ -178,6 +193,7 @@ export default async function WalletDetailPage(
             hideLow={hideLow !== "0"}
             baseHref={`/wallets/${wallet.id}`}
             emptyMessage="No holdings yet — click “Sync holdings” above."
+            walletId={wallet.id}
           />
         </div>
       ) : (
@@ -249,61 +265,59 @@ export default async function WalletDetailPage(
         </Panel>
       )}
 
-      {wallet.mode === "manual" ? (
-        <>
-          <h2 className="mb-3 text-base font-semibold text-fg">Add holding</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Panel>
-              <form action={addHoldingForWallet} className="flex flex-col gap-3">
-                <input type="hidden" name="kind" value="qty" />
-                <Field label="Ticker">
-                  <input
-                    name="ticker"
-                    type="text"
-                    required
-                    defaultValue={wallet.chain}
-                    className={inputClass}
-                  />
-                </Field>
-                <Field label="Quantity">
-                  <input
-                    name="qty"
-                    type="text"
-                    inputMode="decimal"
-                    required
-                    className={inputClass}
-                  />
-                </Field>
-                <SubmitButton className="self-start">Add by quantity</SubmitButton>
-              </form>
-            </Panel>
-
-            <Panel>
-              <form action={addHoldingForWallet} className="flex flex-col gap-3">
-                <input type="hidden" name="kind" value="usd" />
-                <Field label="Ticker">
-                  <input name="ticker" type="text" required className={inputClass} />
-                </Field>
-                <Field label="Fixed USD value">
-                  <input
-                    name="usd_override"
-                    type="text"
-                    inputMode="decimal"
-                    required
-                    className={inputClass}
-                  />
-                </Field>
-                <SubmitButton className="self-start">Add fixed USD value</SubmitButton>
-              </form>
-            </Panel>
-          </div>
-        </>
-      ) : (
-        <p className="text-sm text-fg-muted">
-          This wallet&apos;s holdings come from &ldquo;Sync holdings&rdquo; above, not manual
-          entry.
+      <h2 className="mb-1 text-base font-semibold text-fg">Add holding</h2>
+      {wallet.mode === "auto" && (
+        <p className="mb-3 text-sm text-fg-muted">
+          Supplements the auto-synced holdings above — use this for anything the adapter doesn&apos;t
+          pick up (e.g. a DeFi position). Manually-added holdings get their own edit/delete controls
+          in the table above; synced ones stay read-only.
         </p>
       )}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Panel>
+          <form action={addHoldingForWallet} className="flex flex-col gap-3">
+            <input type="hidden" name="kind" value="qty" />
+            <Field label="Ticker">
+              <input
+                name="ticker"
+                type="text"
+                required
+                defaultValue={wallet.mode === "manual" ? wallet.chain : ""}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Quantity">
+              <input
+                name="qty"
+                type="text"
+                inputMode="decimal"
+                required
+                className={inputClass}
+              />
+            </Field>
+            <SubmitButton className="self-start">Add by quantity</SubmitButton>
+          </form>
+        </Panel>
+
+        <Panel>
+          <form action={addHoldingForWallet} className="flex flex-col gap-3">
+            <input type="hidden" name="kind" value="usd" />
+            <Field label="Ticker">
+              <input name="ticker" type="text" required className={inputClass} />
+            </Field>
+            <Field label="Fixed USD value">
+              <input
+                name="usd_override"
+                type="text"
+                inputMode="decimal"
+                required
+                className={inputClass}
+              />
+            </Field>
+            <SubmitButton className="self-start">Add fixed USD value</SubmitButton>
+          </form>
+        </Panel>
+      </div>
     </>
   );
 }

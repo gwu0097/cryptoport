@@ -5,6 +5,7 @@ import { fetchBitcoinHoldings } from "./adapters/bitcoin";
 import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
+import { defaultChainId } from "./chainNames";
 import type { Chain, Holding } from "./types";
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -81,5 +82,5 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 
   const holdings = adapterHoldings.map(toHolding);
-  return { chain, address, ...valuateHoldings(holdings, chain, prices) };
+  return { chain, address, ...valuateHoldings(holdings, defaultChainId(chain), prices) };
 }

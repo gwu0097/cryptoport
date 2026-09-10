@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronsUpDown, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { inputClass } from "./ui/Field";
+import { SubmitButton } from "./ui/SubmitButton";
+import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { TokenIcon } from "./TokenIcon";
+import { updateHolding, deleteHolding } from "@/app/wallets/actions";
 
 type SortKey = "ticker" | "qty" | "price" | "value" | "category";
 
@@ -61,11 +65,67 @@ function Header({
   );
 }
 
+// A holding manually added into an otherwise-auto wallet (see
+// wallets/[id]/page.tsx — the adapter doesn't always catch everything, e.g.
+// a DeFi position) — editable/deletable in place, same as the plain
+// manual-wallet table's own edit form. Auto-sourced holdings stay
+// read-only: their values come from the last sync, not something to
+// hand-edit.
+function ManualHoldingActions({ holding, walletId }: { holding: HoldingWithValuation; walletId: string }) {
+  const update = updateHolding.bind(null, holding.id, walletId);
+  return (
+    <div className="flex items-center gap-2">
+      <form action={update} className="flex items-center gap-2">
+        {holding.source === "manual_usd" ? (
+          <input
+            name="usd_override"
+            type="text"
+            inputMode="decimal"
+            defaultValue={holding.usd_override ?? ""}
+            className={`${inputClass} w-24`}
+          />
+        ) : (
+          <input
+            name="qty"
+            type="text"
+            inputMode="decimal"
+            defaultValue={holding.qty ?? ""}
+            className={`${inputClass} w-24`}
+          />
+        )}
+        <SubmitButton variant="secondary" size="sm">
+          Save
+        </SubmitButton>
+      </form>
+      <form action={deleteHolding.bind(null, holding.id, walletId)}>
+        <ConfirmDeleteButton
+          confirmMessage={`Delete the ${holding.ticker} holding?`}
+          aria-label="Delete holding"
+        >
+          <Trash className="size-3.5" aria-hidden="true" />
+        </ConfirmDeleteButton>
+      </form>
+    </div>
+  );
+}
+
 /** Only the table body is interactive (re-sorting already-fetched rows in
  * the browser, no server round-trip) — everything around it (the chain
  * sections, the filter pills) stays server-rendered. Defaults to Value
- * descending, matching the server-side default sort in queries.ts. */
-export function HoldingsTable({ holdings }: { holdings: HoldingWithValuation[] }) {
+ * descending, matching the server-side default sort in queries.ts.
+ *
+ * `walletId` is optional and, when given, adds an edit/delete column for
+ * this wallet's manually-added holdings (auto-sourced ones stay read-only)
+ * — omitted by the Assets and lookup pages, where holdings either span
+ * many wallets or belong to no saved wallet at all, so there's no single
+ * wallet_id an edit/delete action could target. */
+export function HoldingsTable({
+  holdings,
+  walletId,
+}: {
+  holdings: HoldingWithValuation[];
+  walletId?: string;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -94,6 +154,7 @@ export function HoldingsTable({ holdings }: { holdings: HoldingWithValuation[] }
           <Header label="Price" sortKeyValue="price" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Category" sortKeyValue="category" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          {walletId && <th className={thClass}></th>}
         </tr>
       </thead>
       <tbody>
@@ -119,6 +180,13 @@ export function HoldingsTable({ holdings }: { holdings: HoldingWithValuation[] }
                 {holding.category}
               </span>
             </td>
+            {walletId && (
+              <td className={tdClass}>
+                {holding.source !== "auto" && (
+                  <ManualHoldingActions holding={holding} walletId={walletId} />
+                )}
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
