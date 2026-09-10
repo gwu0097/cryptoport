@@ -237,6 +237,10 @@ export interface AssetHoldingEntry extends HoldingWithValuation {
    * holdings), else the wallet's chain normalized to the adapter-native
    * slug (see defaultChainId) for a manual holding with none of its own. */
   chainId: string;
+  /** chainDisplayName(chainId), pre-resolved here rather than called from
+   * AssetsTable — that's a client component, and chainDisplayName
+   * transitively imports "server-only" code (evmChains.ts). */
+  chainName: string;
 }
 
 export interface AssetGroup {
@@ -286,13 +290,15 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
   for (const wallet of rows) {
     for (const holding of wallet.holdings) {
       const valuation = valueHolding(holding, prices);
+      const chainId = holding.chain ?? defaultChainId(wallet.chain);
       const entry: AssetHoldingEntry = {
         ...holding,
         valuation,
         price: effectivePrice(holding, prices),
         walletId: wallet.id,
         walletName: wallet.name,
-        chainId: holding.chain ?? defaultChainId(wallet.chain),
+        chainId,
+        chainName: chainDisplayName(chainId),
       };
 
       const key = holding.ticker.toUpperCase();

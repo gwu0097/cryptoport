@@ -3,7 +3,7 @@ import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
-import { AssetGroupSection } from "@/components/AssetGroupSection";
+import { AssetsTable } from "@/components/AssetsTable";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
@@ -88,11 +88,7 @@ export default async function AssetsPage({
               <p className="text-sm text-fg-muted">Nothing to show here.</p>
             </Panel>
           ) : (
-            <div className="flex flex-col gap-4">
-              {visibleGroups.map((group) => (
-                <AssetGroupSection key={group.tickerKey} group={group} />
-              ))}
-            </div>
+            <AssetsTable groups={visibleGroups} />
           )}
         </>
       )}
