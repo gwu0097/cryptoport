@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { getChainIconMap, type ChainGroup } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
@@ -81,6 +82,11 @@ function CheckboxLink({
  * lookup pages, where a holding either spans many wallets or belongs to no
  * saved wallet, so there's no single wallet_id an edit/delete action could
  * target.
+ *
+ * `actions`, when given, renders next to the hide-unpriced/hide-low
+ * checkboxes — "under chains, before the token list" (e.g. the wallet
+ * detail page's "+ Add holding" button). Rendered even when there are no
+ * holdings yet, since adding the first one is exactly when it matters most.
  */
 export async function ChainGroupedHoldings({
   groups,
@@ -91,6 +97,7 @@ export async function ChainGroupedHoldings({
   baseHref,
   emptyMessage = "No holdings yet.",
   walletId,
+  actions,
 }: {
   groups: ChainGroup[];
   grandTotal: number;
@@ -100,12 +107,16 @@ export async function ChainGroupedHoldings({
   baseHref: string;
   emptyMessage?: string;
   walletId?: string;
+  actions?: ReactNode;
 }) {
   if (groups.length === 0) {
     return (
-      <Panel className="text-center">
-        <p className="text-sm text-fg-muted">{emptyMessage}</p>
-      </Panel>
+      <>
+        {actions && <div className="mb-4">{actions}</div>}
+        <Panel className="text-center">
+          <p className="text-sm text-fg-muted">{emptyMessage}</p>
+        </Panel>
+      </>
     );
   }
 
@@ -151,17 +162,20 @@ export async function ChainGroupedHoldings({
         ))}
       </div>
 
-      <div className="mb-4 flex justify-end gap-4">
-        <CheckboxLink
-          href={buildHref(baseHref, selectedChain, !hideUnpriced, hideLow)}
-          checked={hideUnpriced}
-          label="Hide unpriced"
-        />
-        <CheckboxLink
-          href={buildHref(baseHref, selectedChain, hideUnpriced, !hideLow)}
-          checked={hideLow}
-          label={`Hide low price tokens (< $${LOW_VALUE_USD})`}
-        />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+        <div>{actions}</div>
+        <div className="flex gap-4">
+          <CheckboxLink
+            href={buildHref(baseHref, selectedChain, !hideUnpriced, hideLow)}
+            checked={hideUnpriced}
+            label="Hide unpriced"
+          />
+          <CheckboxLink
+            href={buildHref(baseHref, selectedChain, hideUnpriced, !hideLow)}
+            checked={hideLow}
+            label={`Hide low price tokens (< $${LOW_VALUE_USD})`}
+          />
+        </div>
       </div>
 
       {visibleGroups.length === 0 ? (

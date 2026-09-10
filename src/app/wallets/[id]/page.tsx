@@ -6,12 +6,13 @@ import { formatStaleness, formatUsd, formatQty, formatTicker } from "@/lib/forma
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
-import { Field, inputClass } from "@/components/ui/Field";
+import { inputClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { TokenIcon } from "@/components/TokenIcon";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
+import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { addHolding, deleteHolding, deleteWallet, syncWalletHoldings, updateHolding, updateWallet } from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
@@ -194,9 +195,14 @@ export default async function WalletDetailPage(
             baseHref={`/wallets/${wallet.id}`}
             emptyMessage="No holdings yet — click “Sync holdings” above."
             walletId={wallet.id}
+            actions={<AddHoldingModal addHolding={addHoldingForWallet} />}
           />
         </div>
       ) : (
+        <>
+        <div className="mb-4">
+          <AddHoldingModal addHolding={addHoldingForWallet} defaultTicker={wallet.chain} />
+        </div>
         <Panel padding={false} className="mb-6 overflow-hidden">
           <table className={tableClass}>
             <thead>
@@ -263,61 +269,8 @@ export default async function WalletDetailPage(
             </tbody>
           </table>
         </Panel>
+        </>
       )}
-
-      <h2 className="mb-1 text-base font-semibold text-fg">Add holding</h2>
-      {wallet.mode === "auto" && (
-        <p className="mb-3 text-sm text-fg-muted">
-          Supplements the auto-synced holdings above — use this for anything the adapter doesn&apos;t
-          pick up (e.g. a DeFi position). Manually-added holdings get their own edit/delete controls
-          in the table above; synced ones stay read-only.
-        </p>
-      )}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Panel>
-          <form action={addHoldingForWallet} className="flex flex-col gap-3">
-            <input type="hidden" name="kind" value="qty" />
-            <Field label="Ticker">
-              <input
-                name="ticker"
-                type="text"
-                required
-                defaultValue={wallet.mode === "manual" ? wallet.chain : ""}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Quantity">
-              <input
-                name="qty"
-                type="text"
-                inputMode="decimal"
-                required
-                className={inputClass}
-              />
-            </Field>
-            <SubmitButton className="self-start">Add by quantity</SubmitButton>
-          </form>
-        </Panel>
-
-        <Panel>
-          <form action={addHoldingForWallet} className="flex flex-col gap-3">
-            <input type="hidden" name="kind" value="usd" />
-            <Field label="Ticker">
-              <input name="ticker" type="text" required className={inputClass} />
-            </Field>
-            <Field label="Fixed USD value">
-              <input
-                name="usd_override"
-                type="text"
-                inputMode="decimal"
-                required
-                className={inputClass}
-              />
-            </Field>
-            <SubmitButton className="self-start">Add fixed USD value</SubmitButton>
-          </form>
-        </Panel>
-      </div>
     </>
   );
 }
