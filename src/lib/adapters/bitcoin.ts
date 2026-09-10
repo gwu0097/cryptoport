@@ -1,47 +1,12 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
 import { fetchTokenImages } from "./coingecko";
+import { scanExtendedKey, isExtendedPublicKey } from "./bitcoinXpub";
+import { fetchAddressStats, satsFromStats, SATS_PER_BTC } from "./bitcoinShared";
 import type { AdapterHolding } from "./types";
 
-// mempool.space's Esplora-derived REST API — free, keyless, no per-IP rate
-// limit tighter than a normal wallet app would hit (a single address
-// lookup per sync, nothing like the EVM adapter's thousands-of-tokens
-// scan). Bitcoin has no account-balance RPC without running your own
-// address-indexed node, so — same reasoning as Jupiter for Solana — this
-// is a trusted third-party API rather than a direct chain read.
-const API_BASE = "https://mempool.space/api";
-
-interface AddressStats {
-  chain_stats: { funded_txo_sum: number; spent_txo_sum: number };
-  mempool_stats: { funded_txo_sum: number; spent_txo_sum: number };
-}
-
-const SATS_PER_BTC = 100_000_000;
-
-/**
- * A BTC wallet only ever has one holding (native BTC — no tokens, no
- * contracts). Balance = confirmed UTXOs + unconfirmed mempool UTXOs, same
- * "funded minus spent" arithmetic Esplora-family explorers all use.
- * Includes unconfirmed activity rather than only confirmed, matching how
- * Rabby/DeBank show a wallet's balance as soon as a transaction is seen,
- * not after the next block.
- *
- * Priced via the shared ticker-keyed `prices` table (usd_override: null,
- * not fetched here) — BTC is already priced there today for manual
- * holdings, same as every other ticker (see prices.ts).
- */
-export async function fetchBitcoinHoldings(address: string): Promise<AdapterHolding[]> {
-  const res = await fetchWithRetry(`${API_BASE}/address/${address}`);
-  if (!res.ok) throw new Error(`mempool.space address lookup failed: HTTP ${res.status}`);
-  const stats: AddressStats = await res.json();
-
-  const confirmedSats = stats.chain_stats.funded_txo_sum - stats.chain_stats.spent_txo_sum;
-  const mempoolSats = stats.mempool_stats.funded_txo_sum - stats.mempool_stats.spent_txo_sum;
-  const sats = confirmedSats + mempoolSats;
+async function buildBtcHolding(sats: number): Promise<AdapterHolding[]> {
   if (sats <= 0) return [];
-
   const images = await fetchTokenImages(["bitcoin"]).catch(() => new Map<string, string>());
-
   return [
     {
       ticker: "BTC",
@@ -53,4 +18,34 @@ export async function fetchBitcoinHoldings(address: string): Promise<AdapterHold
       icon_url: images.get("bitcoin") ?? null,
     },
   ];
+}
+
+/**
+ * A BTC wallet only ever has one holding (native BTC — no tokens, no
+ * contracts). Two input shapes:
+ *
+ * - A single address: balance = confirmed UTXOs + unconfirmed mempool
+ *   UTXOs, same "funded minus spent" arithmetic Esplora-family explorers
+ *   all use. Includes unconfirmed activity, matching how Rabby/DeBank show
+ *   a wallet's balance as soon as a transaction is seen, not after the
+ *   next block. Correct only if this literally is the address holding the
+ *   funds — most HD wallets (Ledger included) rotate to a new receive
+ *   address per deposit, so a single address usually undercounts.
+ * - An extended public key (xpub/ypub/zpub): the correct way to track an
+ *   HD wallet account — derives and scans every address in that account
+ *   (see bitcoinXpub.ts) the same way Ledger Live/Electrum do, and sums
+ *   whatever has a balance.
+ *
+ * Priced via the shared ticker-keyed `prices` table (usd_override: null,
+ * not fetched here) — BTC is already priced there today for manual
+ * holdings, same as every other ticker (see prices.ts).
+ */
+export async function fetchBitcoinHoldings(addressOrXpub: string): Promise<AdapterHolding[]> {
+  if (isExtendedPublicKey(addressOrXpub)) {
+    const sats = await scanExtendedKey(addressOrXpub);
+    return buildBtcHolding(sats);
+  }
+
+  const stats = await fetchAddressStats(addressOrXpub);
+  return buildBtcHolding(satsFromStats(stats));
 }

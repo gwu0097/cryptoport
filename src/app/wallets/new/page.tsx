@@ -50,7 +50,10 @@ export default function NewWalletPage() {
             </select>
           </Field>
 
-          <Field label="Address" hint="Optional for manual">
+          <Field
+            label="Address"
+            hint="Optional for manual. For auto BTC: an xpub/ypub/zpub scans the whole HD wallet account, not just one address — use that instead of a single receive address unless you're sure that one address is where funds actually sit."
+          >
             <input name="address" type="text" className={inputClass} />
           </Field>
 

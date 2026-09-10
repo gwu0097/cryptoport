@@ -2,6 +2,7 @@ import "server-only";
 import { createPublicClient, http, formatUnits, type Address } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
 import { fetchNativePrice, fetchTokenPrices, fetchTokenImages } from "./coingecko";
+import { mapWithConcurrency } from "./http";
 import { portfolioDb } from "../supabase";
 import type { AdapterHolding } from "./types";
 
@@ -121,19 +122,6 @@ function sleep(ms: number): Promise<void> {
 // total volume. Capping how many chunk requests are in flight at once fixed
 // it without needing yet another provider swap.
 const CHUNK_CONCURRENCY = 5;
-
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
 
 // viem's multicall() return type is generic over the contracts array in a
 // way that fights being wrapped in a small reusable helper — pragmatically

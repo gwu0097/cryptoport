@@ -39,6 +39,30 @@ export async function fetchWithRetry(
 }
 
 /**
+ * Runs `fn` over `items` with at most `limit` calls in flight at once —
+ * shared by any adapter that needs to fire many requests at a free/keyless
+ * API without tripping its burst-rate limiting (originally built for the
+ * EVM adapter's chunked Multicall3 calls, reused by the BTC xpub scanner's
+ * per-address balance lookups).
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/**
  * Runs async calls one at a time with at least `spacingMs` between the
  * *start* of consecutive calls, collecting per-item results — one call's
  * rejection never stops the rest (same "one ticker's failure never touches

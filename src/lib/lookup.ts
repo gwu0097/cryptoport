@@ -2,6 +2,7 @@ import "server-only";
 import { fetchEvmHoldings } from "./adapters/evm";
 import { fetchJupiterHoldings } from "./adapters/jupiter";
 import { fetchBitcoinHoldings } from "./adapters/bitcoin";
+import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import type { Chain, Holding } from "./types";
@@ -17,11 +18,14 @@ const BTC_BECH32_RE = /^(bc1)[a-z0-9]{25,90}$/;
 const BTC_LEGACY_RE = /^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/;
 
 /** Every chain an auto-sync adapter exists for (evm.ts, jupiter.ts,
- * bitcoin.ts). */
+ * bitcoin.ts) — including an xpub/ypub/zpub, which behaves like a BTC
+ * address here (bitcoin.ts dispatches to full account scanning for one). */
 export function detectChain(address: string): Chain | null {
   if (EVM_ADDRESS_RE.test(address)) return "ETH";
   if (SOLANA_ADDRESS_RE.test(address)) return "SOL";
-  if (BTC_BECH32_RE.test(address) || BTC_LEGACY_RE.test(address)) return "BTC";
+  if (BTC_BECH32_RE.test(address) || BTC_LEGACY_RE.test(address) || isExtendedPublicKey(address)) {
+    return "BTC";
+  }
   return null;
 }
 
