@@ -120,17 +120,6 @@ export default async function WalletsPage() {
                   </td>
                   <td className={tdClass}>
                     <div className="flex items-center gap-2">
-                      {wallet.mode === "auto" && (
-                        <form action={syncWalletHoldings.bind(null, wallet.id)}>
-                          <SubmitButton
-                            variant="secondary"
-                            size="sm"
-                            aria-label={`Sync ${wallet.name}`}
-                          >
-                            <RefreshCw className="size-3.5" aria-hidden="true" />
-                          </SubmitButton>
-                        </form>
-                      )}
                       <EditWalletModal
                         wallet={wallet}
                         tagNames={tagNames}
@@ -144,6 +133,24 @@ export default async function WalletsPage() {
                           <Trash className="size-3.5" aria-hidden="true" />
                         </ConfirmDeleteButton>
                       </form>
+                      {wallet.mode === "auto" ? (
+                        <form action={syncWalletHoldings.bind(null, wallet.id)}>
+                          <SubmitButton
+                            variant="secondary"
+                            size="sm"
+                            aria-label={`Sync ${wallet.name}`}
+                          >
+                            <RefreshCw className="size-3.5" aria-hidden="true" />
+                          </SubmitButton>
+                        </form>
+                      ) : (
+                        // Same box as the sync button above, just invisible
+                        // — reserves its width so manual wallets' edit/delete
+                        // icons still line up with auto wallets' below them.
+                        <span className={`${buttonClass("secondary", "sm")} invisible`} aria-hidden="true">
+                          <RefreshCw className="size-3.5" aria-hidden="true" />
+                        </span>
+                      )}
                     </div>
                   </td>
                 </tr>
