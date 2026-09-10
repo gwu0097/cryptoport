@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { RefreshCw, Trash, Database } from "lucide-react";
+import { RefreshCw, Trash, Database, Pencil } from "lucide-react";
 import { getWalletsWithTotals } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -107,14 +107,23 @@ export default async function WalletsPage() {
                     {formatStaleness(wallet.last_refresh_at)}
                   </td>
                   <td className={tdClass}>
-                    <form action={deleteWallet.bind(null, wallet.id)}>
-                      <ConfirmDeleteButton
-                        confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
-                        aria-label={`Delete ${wallet.name}`}
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/wallets/${wallet.id}#edit-wallet`}
+                        aria-label={`Edit ${wallet.name}`}
+                        className={buttonClass("secondary", "sm")}
                       >
-                        <Trash className="size-3.5" aria-hidden="true" />
-                      </ConfirmDeleteButton>
-                    </form>
+                        <Pencil className="size-3.5" aria-hidden="true" />
+                      </Link>
+                      <form action={deleteWallet.bind(null, wallet.id)}>
+                        <ConfirmDeleteButton
+                          confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
+                          aria-label={`Delete ${wallet.name}`}
+                        >
+                          <Trash className="size-3.5" aria-hidden="true" />
+                        </ConfirmDeleteButton>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}

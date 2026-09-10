@@ -38,7 +38,7 @@ function ValueCell({ holding }: { holding: HoldingWithValuation }) {
 function EditWalletDetails({ wallet }: { wallet: Wallet }) {
   const update = updateWallet.bind(null, wallet.id);
   return (
-    <details className="group mb-6 rounded-xl border border-border bg-surface">
+    <details id="edit-wallet" className="group mb-6 rounded-xl border border-border bg-surface">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-sm font-medium text-fg [&::-webkit-details-marker]:hidden">
         <ChevronDown
           className="size-4 text-fg-muted transition-transform group-open:rotate-180"
