@@ -3,13 +3,13 @@ import { notFound } from "next/navigation";
 import { Trash, RefreshCw } from "lucide-react";
 import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
-import { chainDisplayName } from "@/lib/chainNames";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Field, inputClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
+import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import {
   addHolding,
   deleteHolding,
@@ -18,12 +18,11 @@ import {
   updateHolding,
 } from "../actions";
 
-// The EVM adapter can call Rabby's token_list once per active chain, spaced
-// ~2.5s apart to stay under its rate limit (see adapters/rabby.ts) — a
-// wallet spread across ~20+ chains can take over a minute to sync. Ask
-// Vercel for the longest function duration available on the current plan;
-// on plans below that ceiling this is silently capped, so a very
-// multi-chain wallet may still need a retry.
+// The EVM adapter reads every configured chain via Multicall3 (see
+// adapters/multicallEvm.ts) — a wallet spread across all 15 chains can take
+// a while even with concurrency limits. Ask Vercel for the longest function
+// duration available on the current plan; on plans below that ceiling this
+// is silently capped, so a very multi-chain wallet may still need a retry.
 export const maxDuration = 300;
 
 function ValueCell({ holding }: { holding: HoldingWithValuation }) {
@@ -61,12 +60,17 @@ function EditForm({ holding, walletId }: { holding: HoldingWithValuation; wallet
   );
 }
 
-export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">) {
+export default async function WalletDetailPage(
+  props: PageProps<"/wallets/[id]"> & {
+    searchParams: Promise<{ chain?: string; hideSmall?: string }>;
+  },
+) {
   const { id } = await props.params;
+  const { chain: selectedChain, hideSmall } = await props.searchParams;
   const detail = await getWalletDetail(id);
   if (!detail) notFound();
 
-  const { wallet, holdings, total, unpricedCount } = detail;
+  const { wallet, holdings, chainGroups, total, unpricedCount } = detail;
   const addHoldingForWallet = addHolding.bind(null, wallet.id);
 
   return (
@@ -126,71 +130,79 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
         {wallet.notes && <p className="mt-2 text-sm text-fg-muted">{wallet.notes}</p>}
       </Panel>
 
-      <Panel padding={false} className="mb-6 overflow-hidden">
-        <table className={tableClass}>
-          <thead>
-            <tr className={theadRowClass}>
-              <th className={thClass}>Ticker</th>
-              <th className={thClass}>Chain</th>
-              <th className={thClass}>Qty</th>
-              <th className={thClass}>Price</th>
-              <th className={thClass}>Value</th>
-              <th className={thClass}>Source</th>
-              <th className={thClass}>Category</th>
-              <th className={thClass}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {holdings.length === 0 && (
-              <tr>
-                <td colSpan={8} className={`${tdClass} text-fg-muted`}>
-                  No holdings yet.
-                </td>
+      {wallet.mode === "auto" ? (
+        <div className="mb-6">
+          <ChainGroupedHoldings
+            groups={chainGroups}
+            selectedChain={selectedChain}
+            hideSmallActive={hideSmall === "1"}
+            baseHref={`/wallets/${wallet.id}`}
+            emptyMessage="No holdings yet — click “Sync holdings” above."
+          />
+        </div>
+      ) : (
+        <Panel padding={false} className="mb-6 overflow-hidden">
+          <table className={tableClass}>
+            <thead>
+              <tr className={theadRowClass}>
+                <th className={thClass}>Ticker</th>
+                <th className={thClass}>Qty</th>
+                <th className={thClass}>Price</th>
+                <th className={thClass}>Value</th>
+                <th className={thClass}>Source</th>
+                <th className={thClass}>Category</th>
+                <th className={thClass}></th>
               </tr>
-            )}
-            {holdings.map((holding) => (
-              <tr key={holding.id} className={trClass}>
-                <td className={tdClass}>{holding.ticker}</td>
-                <td className={`${tdClass} text-fg-muted`}>
-                  {holding.chain ? chainDisplayName(holding.chain) : "—"}
-                </td>
-                <td className={`${tdClass} tabular-nums`}>{holding.qty ?? "—"}</td>
-                <td className={`${tdClass} tabular-nums`}>
-                  {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}
-                </td>
-                <td className={`${tdClass} tabular-nums`}>
-                  <ValueCell holding={holding} />
-                </td>
-                <td className={tdClass}>
-                  <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                    {holding.source}
-                  </span>
-                </td>
-                <td className={tdClass}>
-                  <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                    {holding.category}
-                  </span>
-                </td>
-                <td className={tdClass}>
-                  {holding.source === "auto" ? null : (
-                    <div className="flex items-center gap-2">
-                      <EditForm holding={holding} walletId={wallet.id} />
-                      <form action={deleteHolding.bind(null, holding.id, wallet.id)}>
-                        <ConfirmDeleteButton
-                          confirmMessage={`Delete the ${holding.ticker} holding?`}
-                          aria-label="Delete holding"
-                        >
-                          <Trash className="size-3.5" aria-hidden="true" />
-                        </ConfirmDeleteButton>
-                      </form>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
+            </thead>
+            <tbody>
+              {holdings.length === 0 && (
+                <tr>
+                  <td colSpan={7} className={`${tdClass} text-fg-muted`}>
+                    No holdings yet.
+                  </td>
+                </tr>
+              )}
+              {holdings.map((holding) => (
+                <tr key={holding.id} className={trClass}>
+                  <td className={tdClass}>{holding.ticker}</td>
+                  <td className={`${tdClass} tabular-nums`}>{holding.qty ?? "—"}</td>
+                  <td className={`${tdClass} tabular-nums`}>
+                    {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}
+                  </td>
+                  <td className={`${tdClass} tabular-nums`}>
+                    <ValueCell holding={holding} />
+                  </td>
+                  <td className={tdClass}>
+                    <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                      {holding.source}
+                    </span>
+                  </td>
+                  <td className={tdClass}>
+                    <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                      {holding.category}
+                    </span>
+                  </td>
+                  <td className={tdClass}>
+                    {holding.source === "auto" ? null : (
+                      <div className="flex items-center gap-2">
+                        <EditForm holding={holding} walletId={wallet.id} />
+                        <form action={deleteHolding.bind(null, holding.id, wallet.id)}>
+                          <ConfirmDeleteButton
+                            confirmMessage={`Delete the ${holding.ticker} holding?`}
+                            aria-label="Delete holding"
+                          >
+                            <Trash className="size-3.5" aria-hidden="true" />
+                          </ConfirmDeleteButton>
+                        </form>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      )}
 
       {wallet.mode === "manual" ? (
         <>

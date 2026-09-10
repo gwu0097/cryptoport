@@ -77,9 +77,42 @@ export interface HoldingWithValuation extends Holding {
   price: number | null;
 }
 
+export interface ChainGroup {
+  chainId: string;
+  chainName: string;
+  total: number;
+  unpricedCount: number;
+  holdings: HoldingWithValuation[];
+}
+
+// A holding's own `chain` (set by auto adapters — one 'ETH' wallet spans
+// many EVM chains) wins; `fallbackChain` (the wallet's chain) covers manual
+// holdings and pre-chain-column sync rows. Sorted richest-first, matching
+// how Rabby/DeBank order theirs.
+function groupByChain(
+  entries: { holding: HoldingWithValuation; fallbackChain: string }[],
+  prices: PriceMap,
+): ChainGroup[] {
+  const byChain = new Map<string, HoldingWithValuation[]>();
+  for (const { holding, fallbackChain } of entries) {
+    const chainId = holding.chain ?? fallbackChain;
+    const list = byChain.get(chainId);
+    if (list) list.push(holding);
+    else byChain.set(chainId, [holding]);
+  }
+
+  return [...byChain.entries()]
+    .map(([chainId, holdings]) => {
+      const { total, unpricedCount } = aggregate(holdings, prices);
+      return { chainId, chainName: chainDisplayName(chainId), total, unpricedCount, holdings };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
 export interface WalletDetailResult {
   wallet: Wallet;
   holdings: HoldingWithValuation[];
+  chainGroups: ChainGroup[];
   total: number;
   unpricedCount: number;
 }
@@ -93,36 +126,26 @@ export async function getWalletDetail(id: string): Promise<WalletDetailResult | 
   if (!wallet) return null;
 
   const { holdings, ...rest } = wallet as Wallet & { holdings: Holding[] };
-  const holdingsWithValuation = holdings.map((holding) => ({
+  const holdingsWithValuation: HoldingWithValuation[] = holdings.map((holding) => ({
     ...holding,
     valuation: valueHolding(holding, prices),
     price: effectivePrice(holding, prices),
   }));
+  const chainGroups = groupByChain(
+    holdingsWithValuation.map((holding) => ({ holding, fallbackChain: rest.chain })),
+    prices,
+  );
   const { total, unpricedCount } = aggregate(holdings, prices);
 
-  return { wallet: rest, holdings: holdingsWithValuation, total, unpricedCount };
-}
-
-export interface AssetChainGroup {
-  chainId: string;
-  chainName: string;
-  total: number;
-  unpricedCount: number;
-  holdings: HoldingWithValuation[];
+  return { wallet: rest, holdings: holdingsWithValuation, chainGroups, total, unpricedCount };
 }
 
 export interface AssetsResult {
-  groups: AssetChainGroup[];
+  groups: ChainGroup[];
   grand: PortfolioTotal;
 }
 
-/**
- * Every holding across every active wallet, grouped by chain rather than by
- * wallet — one auto 'ETH' wallet spans many chains (holding.chain), while a
- * manual wallet or a pre-chain-column sync row has none, so those fall back
- * to the wallet's own `chain` (BTC/ETH/SOL). Groups are sorted by total
- * value, richest first, matching how Rabby/DeBank order theirs.
- */
+/** Every holding across every active wallet, grouped by chain rather than by wallet. */
 export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
   const [{ data: wallets, error }, prices] = await Promise.all([
     portfolioDb().from("wallets").select("*, holdings(*)").eq("active", true),
@@ -133,27 +156,17 @@ export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
   type WalletRow = Wallet & { holdings: Holding[] };
   const rows = wallets as WalletRow[];
 
-  const byChain = new Map<string, HoldingWithValuation[]>();
-  for (const wallet of rows) {
-    for (const holding of wallet.holdings) {
-      const chainId = holding.chain ?? wallet.chain;
-      const withValuation: HoldingWithValuation = {
+  const entries = rows.flatMap((wallet) =>
+    wallet.holdings.map((holding) => ({
+      holding: {
         ...holding,
         valuation: valueHolding(holding, prices),
         price: effectivePrice(holding, prices),
-      };
-      const list = byChain.get(chainId);
-      if (list) list.push(withValuation);
-      else byChain.set(chainId, [withValuation]);
-    }
-  }
-
-  const groups: AssetChainGroup[] = [...byChain.entries()]
-    .map(([chainId, holdings]) => {
-      const { total, unpricedCount } = aggregate(holdings, prices);
-      return { chainId, chainName: chainDisplayName(chainId), total, unpricedCount, holdings };
-    })
-    .sort((a, b) => b.total - a.total);
+      },
+      fallbackChain: wallet.chain,
+    })),
+  );
+  const groups = groupByChain(entries, prices);
 
   const allHoldings = rows.flatMap((w) => w.holdings);
   const grand = aggregate(allHoldings, prices);
