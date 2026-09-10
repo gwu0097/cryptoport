@@ -70,6 +70,7 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       contract: null,
       category: "defi",
       chain: "hyperliquid",
+      icon_url: null, // no icon source for Hyperliquid holdings
     });
   }
 
@@ -83,6 +84,7 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       contract: null,
       category: "defi",
       chain: "hyperliquid",
+      icon_url: null,
     });
   }
 

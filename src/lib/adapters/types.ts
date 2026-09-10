@@ -16,4 +16,10 @@ export interface AdapterHolding {
    * adapter holding site without tagging it, rather than a silent gap that
    * only shows up as "ungrouped" on the Assets page. */
   chain: string;
+  /** Logo URL, when the adapter's own data source has one — CoinGecko
+   * (cached in token_registry.image_url) for EVM, Jupiter's own `icon`
+   * field (free, already fetched) for Solana. Required, not optional, for
+   * the same "no silent gap" reason as `chain`: Hyperliquid has no icon
+   * source and explicitly passes null rather than omitting the field. */
+  icon_url: string | null;
 }

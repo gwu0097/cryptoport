@@ -192,3 +192,50 @@ begin
   where id = p_wallet_id;
 end;
 $$;
+
+-- Token logo support (DeBank-style icons next to each holding). CoinGecko
+-- images are cached here (logos don't change, so this is fetched at most
+-- once per contract, ever) — Solana icons come free from Jupiter's own
+-- tokens/v2/search response instead and never touch this column.
+alter table cryptoport.token_registry
+  add column image_url text;
+
+-- Snapshotted onto the holding at sync time, same as usd_override — avoids
+-- a join at render time and means a holding's icon survives even if its
+-- token_registry row's cached image_url is later cleared/changed.
+alter table cryptoport.holdings
+  add column icon_url text;
+
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;

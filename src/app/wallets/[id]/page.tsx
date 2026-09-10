@@ -10,6 +10,7 @@ import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Field, inputClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
+import { TokenIcon } from "@/components/TokenIcon";
 import {
   addHolding,
   deleteHolding,
@@ -166,7 +167,12 @@ export default async function WalletDetailPage(
               )}
               {holdings.map((holding) => (
                 <tr key={holding.id} className={trClass}>
-                  <td className={tdClass}>{formatTicker(holding.ticker)}</td>
+                  <td className={tdClass}>
+                    <div className="flex items-center gap-2">
+                      <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
+                      {formatTicker(holding.ticker)}
+                    </div>
+                  </td>
                   <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
                   <td className={`${tdClass} tabular-nums`}>
                     {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}

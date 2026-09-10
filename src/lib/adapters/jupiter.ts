@@ -30,6 +30,9 @@ export interface JupiterTokenInfo {
   symbol?: string;
   usdPrice?: number;
   liquidity?: number;
+  /** Free — already part of tokens/v2/search's response, no extra call
+   * needed (unlike EVM, where icons come from a separate CoinGecko call). */
+  icon?: string;
 }
 
 const HEADERS = { "User-Agent": "cryptoport/1.0" };
@@ -101,6 +104,7 @@ export async function fetchJupiterHoldings(address: string): Promise<AdapterHold
       contract: key === "SOL" ? null : key,
       category: "token",
       chain: "solana",
+      icon_url: info?.icon ?? null,
     });
   }
 

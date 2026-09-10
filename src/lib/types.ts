@@ -39,6 +39,9 @@ export interface Holding {
    * manual holdings; callers grouping by chain should fall back to the
    * wallet's own `chain` field in that case. */
   chain: string | null;
+  /** Logo URL — see AdapterHolding.icon_url. Null for manual holdings and
+   * any auto holding whose source has no icon (Hyperliquid). */
+  icon_url: string | null;
   updated_at: string;
 }
 

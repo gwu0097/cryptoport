@@ -1,7 +1,7 @@
 import "server-only";
 import { createPublicClient, http, formatUnits, type Address } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
-import { fetchNativePrice, fetchTokenPrices } from "./coingecko";
+import { fetchNativePrice, fetchTokenPrices, fetchTokenImages } from "./coingecko";
 import { portfolioDb } from "../supabase";
 import type { AdapterHolding } from "./types";
 
@@ -36,6 +36,8 @@ interface RegistryToken {
   contract: string;
   symbol: string;
   decimals: number | null;
+  coingecko_id: string | null;
+  image_url: string | null;
 }
 
 const REGISTRY_PAGE_SIZE = 1000;
@@ -55,7 +57,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
   for (let from = 0; ; from += REGISTRY_PAGE_SIZE) {
     const { data, error } = await portfolioDb()
       .from("token_registry")
-      .select("contract, symbol, decimals")
+      .select("contract, symbol, decimals, coingecko_id, image_url")
       .eq("chain_id", chainId)
       .order("contract")
       .range(from, from + REGISTRY_PAGE_SIZE - 1);
@@ -80,6 +82,20 @@ async function saveDecimals(chainId: string, rows: { contract: string; symbol: s
       .from("token_registry")
       .upsert(chunk, { onConflict: "chain_id,contract" });
     if (error) throw new Error(`Failed to save decimals(${chainId}): ${error.message}`);
+  }
+}
+
+// Only ever sends {chain_id, contract, image_url} — PostgREST's upsert only
+// touches columns present in the payload, so this can't clobber a row's
+// symbol/decimals/coingecko_id the way a naive full-row upsert would.
+async function saveImageUrls(chainId: string, rows: { contract: string; image_url: string }[]) {
+  const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
+  for (let i = 0; i < deduped.length; i += 1000) {
+    const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
+    const { error } = await portfolioDb()
+      .from("token_registry")
+      .upsert(chunk, { onConflict: "chain_id,contract" });
+    if (error) throw new Error(`Failed to save image_url(${chainId}): ${error.message}`);
   }
 }
 
@@ -252,40 +268,71 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     priceable.map((x) => x.token.contract),
   );
 
-  const holdings: AdapterHolding[] = [];
+  const included: { token: RegistryToken; qty: number; usd: number }[] = [];
   for (const { token, result } of priceable) {
     const price = prices.get(token.contract.toLowerCase());
     if (price === undefined) continue; // no live price — dropped, see doc comment above
     const qty = Number(formatUnits(result.result as unknown as bigint, token.decimals!));
     const usd = qty * price;
     if (usd <= TOKEN_USD_FLOOR) continue;
-    holdings.push({
-      ticker: token.symbol,
-      qty,
-      usd_override: usd,
-      contract: token.contract,
-      category: "token",
-      chain: chain.id,
-    });
+    included.push({ token, qty, usd });
   }
 
   const nativeBalance = await nativeBalancePromise;
+  let native: { qty: number; usd: number } | null = null;
   if (nativeBalance > BigInt(0)) {
     const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId);
     if (nativePrice !== null) {
       const qty = Number(formatUnits(nativeBalance, 18));
       const usd = qty * nativePrice;
-      if (usd > TOKEN_USD_FLOOR) {
-        holdings.push({
-          ticker: chain.nativeSymbol,
-          qty,
-          usd_override: usd,
-          contract: null,
-          category: "token",
-          chain: chain.id,
-        });
-      }
+      if (usd > TOKEN_USD_FLOOR) native = { qty, usd };
     }
+  }
+
+  // Logos, batched: only for tokens actually ending up in `holdings` (not
+  // every registered token) and only those token_registry doesn't already
+  // have a cached image_url for — see saveImageUrls above. Native tokens
+  // (no token_registry row to cache against) are always re-fetched fresh;
+  // there are only ~15 distinct native ids across every configured chain,
+  // cheap enough not to need a cache table of its own.
+  const missingImageIds = new Set<string>();
+  for (const { token } of included) {
+    if (!token.image_url && token.coingecko_id) missingImageIds.add(token.coingecko_id);
+  }
+  if (native) missingImageIds.add(chain.nativeCoingeckoId);
+
+  const fetchedImages =
+    missingImageIds.size > 0 ? await fetchTokenImages([...missingImageIds]) : new Map<string, string>();
+
+  const toCache = included
+    .filter(({ token }) => !token.image_url && token.coingecko_id && fetchedImages.has(token.coingecko_id))
+    .map(({ token }) => ({ contract: token.contract, image_url: fetchedImages.get(token.coingecko_id!)! }));
+  if (toCache.length > 0) await saveImageUrls(chain.id, toCache);
+
+  function imageFor(token: RegistryToken): string | null {
+    return token.image_url ?? (token.coingecko_id ? (fetchedImages.get(token.coingecko_id) ?? null) : null);
+  }
+
+  const holdings: AdapterHolding[] = included.map(({ token, qty, usd }) => ({
+    ticker: token.symbol,
+    qty,
+    usd_override: usd,
+    contract: token.contract,
+    category: "token",
+    chain: chain.id,
+    icon_url: imageFor(token),
+  }));
+
+  if (native) {
+    holdings.push({
+      ticker: chain.nativeSymbol,
+      qty: native.qty,
+      usd_override: native.usd,
+      contract: null,
+      category: "token",
+      chain: chain.id,
+      icon_url: fetchedImages.get(chain.nativeCoingeckoId) ?? null,
+    });
   }
 
   return { holdings, unverifiedCount: unverified };

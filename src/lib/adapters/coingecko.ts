@@ -94,6 +94,30 @@ export async function fetchTokenPrices(
   return prices;
 }
 
+const IMAGE_BATCH_SIZE = 250; // coins/markets' own per-call ids cap
+
+/** coingecko_id -> logo URL, for whichever of the given ids CoinGecko has
+ * an image for. Used to populate token_registry.image_url (contract-based
+ * tokens) and for EVM native-token icons (fetched fresh each time — see
+ * multicallEvm.ts, there are only ~15 distinct native ids so this isn't
+ * worth a separate cache table). */
+export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<string, string>> {
+  const images = new Map<string, string>();
+  if (coingeckoIds.length === 0) return images;
+
+  for (const batch of chunk(coingeckoIds, IMAGE_BATCH_SIZE)) {
+    const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&sparkline=false`;
+    const res = await fetchWithRetry(url, { headers: headers() });
+    if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
+    const body: { id: string; image?: string }[] = await res.json();
+    for (const coin of body) {
+      if (coin.image) images.set(coin.id, coin.image);
+    }
+  }
+
+  return images;
+}
+
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
   const url = `${API_BASE}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
   const res = await fetchWithRetry(url, { headers: headers() });

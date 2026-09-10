@@ -5,6 +5,7 @@ import { ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { TokenIcon } from "./TokenIcon";
 
 type SortKey = "ticker" | "qty" | "price" | "value" | "category";
 
@@ -98,7 +99,12 @@ export function HoldingsTable({ holdings }: { holdings: HoldingWithValuation[] }
       <tbody>
         {sorted.map((holding) => (
           <tr key={holding.id} className={trClass}>
-            <td className={tdClass}>{formatTicker(holding.ticker)}</td>
+            <td className={tdClass}>
+              <div className="flex items-center gap-2">
+                <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
+                {formatTicker(holding.ticker)}
+              </div>
+            </td>
             <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
             <td className={`${tdClass} tabular-nums`}>{holding.price ?? "unpriced"}</td>
             <td className={`${tdClass} tabular-nums`}>

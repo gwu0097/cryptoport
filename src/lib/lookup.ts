@@ -31,6 +31,7 @@ function toHolding(h: AdapterHolding, index: number): Holding {
     contract: h.contract,
     category: h.category,
     chain: h.chain,
+    icon_url: h.icon_url,
     updated_at: new Date().toISOString(),
   };
 }
