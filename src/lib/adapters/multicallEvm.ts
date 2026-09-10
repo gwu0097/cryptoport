@@ -46,26 +46,51 @@ const REGISTRY_PAGE_SIZE = 1000;
 // PostgREST caps rows per request (1000 by default) regardless of a
 // .limit() above that — a chain with more registered tokens than that
 // (most of them, once the registry is populated) would otherwise only ever
-// check the first page. Paginates with .range() until a short page signals
-// the end. The .order() is load-bearing, not cosmetic: without a
-// deterministic sort, Postgres doesn't guarantee the same row lands on the
-// same page across separate range() calls, and a row that shifts between
-// pages gets returned twice — which is exactly what caused "ON CONFLICT DO
-// UPDATE command cannot affect row a second time" in saveDecimals below the
-// first time this ran against Ethereum's 5,800+ row registry.
+// check the first page. The .order() is load-bearing, not cosmetic: without
+// a deterministic sort, Postgres doesn't guarantee the same row lands on
+// the same page across separate range() calls, and a row that shifts
+// between pages gets returned twice — which is exactly what caused "ON
+// CONFLICT DO UPDATE command cannot affect row a second time" in
+// saveDecimals below the first time this ran against Ethereum's 5,800+ row
+// registry.
+//
+// The first page's exact `count` tells us how many more pages exist up
+// front, so the rest are fetched concurrently instead of one page at a
+// time in a loop — this was pure sequential latency on every single sync
+// for a large registry (Ethereum: ~6 round-trips end to end before
+// Multicall3 even starts), unrelated to anything on-chain and easy to
+// parallelize since every page is an independent, already-known range.
 async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
-  const all: RegistryToken[] = [];
-  for (let from = 0; ; from += REGISTRY_PAGE_SIZE) {
-    const { data, error } = await portfolioDb()
-      .from("token_registry")
-      .select("contract, symbol, decimals, coingecko_id, image_url")
-      .eq("chain_id", chainId)
-      .order("contract")
-      .range(from, from + REGISTRY_PAGE_SIZE - 1);
-    if (error) throw new Error(`Failed to load token_registry(${chainId}): ${error.message}`);
-    all.push(...(data as RegistryToken[]));
-    if (data.length < REGISTRY_PAGE_SIZE) break;
+  const { data: firstPage, error: firstError, count } = await portfolioDb()
+    .from("token_registry")
+    .select("contract, symbol, decimals, coingecko_id, image_url", { count: "exact" })
+    .eq("chain_id", chainId)
+    .order("contract")
+    .range(0, REGISTRY_PAGE_SIZE - 1);
+  if (firstError) throw new Error(`Failed to load token_registry(${chainId}): ${firstError.message}`);
+
+  const all: RegistryToken[] = [...(firstPage as RegistryToken[])];
+  const remainingPages = count && count > REGISTRY_PAGE_SIZE ? Math.ceil((count - REGISTRY_PAGE_SIZE) / REGISTRY_PAGE_SIZE) : 0;
+
+  if (remainingPages > 0) {
+    const pages = await mapWithConcurrency(
+      Array.from({ length: remainingPages }, (_, i) => i + 1),
+      5,
+      async (pageIndex) => {
+        const from = pageIndex * REGISTRY_PAGE_SIZE;
+        const { data, error } = await portfolioDb()
+          .from("token_registry")
+          .select("contract, symbol, decimals, coingecko_id, image_url")
+          .eq("chain_id", chainId)
+          .order("contract")
+          .range(from, from + REGISTRY_PAGE_SIZE - 1);
+        if (error) throw new Error(`Failed to load token_registry(${chainId}) page ${pageIndex}: ${error.message}`);
+        return data as RegistryToken[];
+      },
+    );
+    all.push(...pages.flat());
   }
+
   return all;
 }
 
