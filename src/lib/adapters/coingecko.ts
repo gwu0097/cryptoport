@@ -100,6 +100,15 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
     .map((r) => ({ chain_id: r.chain_id, image_url: platformImages.get(r.platformId) }))
     .filter((r): r is { chain_id: string; image_url: string } => Boolean(r.image_url));
 
+  // Bitcoin isn't an asset_platforms entry (it's not a smart-contract
+  // platform, so CoinGecko has no "chain" concept for it) — its coin image
+  // doubles as the chain icon instead, same idea as reusing a native EVM
+  // token's image where there's no separate chain-brand asset.
+  const bitcoinImage = (await fetchTokenImages(["bitcoin"]).catch(() => new Map<string, string>())).get(
+    "bitcoin",
+  );
+  if (bitcoinImage) chainIconRows.push({ chain_id: "bitcoin", image_url: bitcoinImage });
+
   if (chainIconRows.length > 0) {
     const { error } = await portfolioDb().from("chain_icons").upsert(chainIconRows, { onConflict: "chain_id" });
     if (error) throw new Error(`Failed to upsert chain_icons: ${error.message}`);

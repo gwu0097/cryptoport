@@ -7,6 +7,7 @@ export const CHAIN_NAMES: Record<string, string> = {
   ...Object.fromEntries(EVM_CHAINS.map((c) => [c.id, c.name])),
   hyperliquid: "Hyperliquid",
   solana: "Solana",
+  bitcoin: "Bitcoin",
   BTC: "Bitcoin",
   ETH: "Ethereum",
   SOL: "Solana",

@@ -6,6 +6,7 @@ import { portfolioDb } from "@/lib/supabase";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
+import { fetchBitcoinHoldings } from "@/lib/adapters/bitcoin";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Account, Chain, WalletMode } from "@/lib/types";
@@ -186,6 +187,7 @@ interface AdapterFetchResult {
 async function fetchAdapterHoldings(chain: Chain, address: string): Promise<AdapterFetchResult> {
   if (chain === "ETH") return fetchEvmHoldings(address);
   if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
+  if (chain === "BTC") return { holdings: await fetchBitcoinHoldings(address), warnings: [] };
   throw new Error(`No auto adapter for chain "${chain}".`);
 }
 
