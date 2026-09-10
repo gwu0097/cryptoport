@@ -8,7 +8,12 @@ import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
-import { deleteWallet, refreshPricesAction, refreshTokenRegistryAction } from "./actions";
+import {
+  deleteWallet,
+  refreshPricesAction,
+  refreshTokenRegistryAction,
+  syncWalletHoldings,
+} from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
 // runtime APIs or cookies to force dynamic rendering the old way) and Vercel
@@ -108,6 +113,17 @@ export default async function WalletsPage() {
                   </td>
                   <td className={tdClass}>
                     <div className="flex items-center gap-2">
+                      {wallet.mode === "auto" && (
+                        <form action={syncWalletHoldings.bind(null, wallet.id)}>
+                          <SubmitButton
+                            variant="secondary"
+                            size="sm"
+                            aria-label={`Sync ${wallet.name}`}
+                          >
+                            <RefreshCw className="size-3.5" aria-hidden="true" />
+                          </SubmitButton>
+                        </form>
+                      )}
                       <Link
                         href={`/wallets/${wallet.id}#edit-wallet`}
                         aria-label={`Edit ${wallet.name}`}
