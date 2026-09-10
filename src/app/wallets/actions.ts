@@ -47,6 +47,18 @@ export async function refreshPricesAction() {
   revalidatePath("/wallets");
 }
 
+// Same global refresh (prices are keyed by ticker, not wallet — there's no
+// such thing as "refresh prices for just this wallet") — just also
+// revalidates this one wallet's own page, so clicking "Refresh prices" from
+// the wallet detail page (came up directly: a freshly-synced ADA holding
+// showed unpriced with no obvious way to fix it short of navigating back
+// to the wallets list) reflects the update immediately instead of needing
+// a manual reload.
+export async function refreshPricesForWalletAction(walletId: string) {
+  await refreshPricesAction();
+  revalidatePath(`/wallets/${walletId}`);
+}
+
 // The only chains with an actual adapter — a wallet's `chain` field itself
 // isn't restricted to these (see Wallet.chain in types.ts): auto mode is,
 // checked both here (isAutoCapableChain, used by createWallet/updateWallet

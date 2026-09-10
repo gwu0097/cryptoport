@@ -15,7 +15,15 @@ import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
-import { addHolding, deleteHolding, deleteWallet, syncWalletHoldings, updateHolding, updateWallet } from "../actions";
+import {
+  addHolding,
+  deleteHolding,
+  deleteWallet,
+  refreshPricesForWalletAction,
+  syncWalletHoldings,
+  updateHolding,
+  updateWallet,
+} from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
 // adapters/multicallEvm.ts) — a wallet spread across all 15 chains can take
@@ -174,6 +182,12 @@ export default async function WalletDetailPage(
                   )}
                 </>
               ))}
+            <form action={refreshPricesForWalletAction.bind(null, wallet.id)}>
+              <SubmitButton variant="secondary" size="sm">
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                Refresh prices
+              </SubmitButton>
+            </form>
             <form action={deleteWallet.bind(null, wallet.id)}>
               <ConfirmDeleteButton
                 confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
