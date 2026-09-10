@@ -3,9 +3,10 @@ import { ChevronDown } from "lucide-react";
 import type { ChainGroup } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
 import { Panel } from "./ui/Panel";
-import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { HoldingsTable } from "./HoldingsTable";
 
 const MIN_USD = 5;
+const TOP_N_CHAINS = 10;
 
 function pillClass(active: boolean): string {
   const base = "rounded-full border px-3 py-1.5 text-sm transition";
@@ -23,23 +24,26 @@ function buildHref(baseHref: string, chain: string | undefined, hideSmall: boole
 }
 
 /**
- * Chain-pill filter (all chains, or dive into one — like DeBank's "All
- * Chain" dropdown, minus the dropdown) plus collapsible per-chain sections
- * (native <details>/<summary>, no client JS) — deliberately not DeBank's
- * flat list with the chain labeled next to each token. Shared by the
- * cross-wallet Assets page and a single auto wallet's detail page, both of
- * which have the same "one entity spans many chains" shape. Read-only — a
- * manual wallet (single-chain by definition, with editable holdings) uses
- * its own plain table instead, not this component.
+ * Chain-pill filter (top 10 by value directly, the rest behind a "More
+ * chains" dropdown that also shows each one's $ — like DeBank's chain
+ * switcher) plus a $/％ summary grid and collapsible per-chain sections
+ * (native <details>/<summary>, no client JS for the shell — only the table
+ * rows inside are interactive, for sorting). Shared by the cross-wallet
+ * Assets page and a single auto wallet's detail page, both of which have
+ * the same "one entity spans many chains" shape. Read-only — a manual
+ * wallet (single-chain by definition, with editable holdings) uses its own
+ * plain table instead of this component.
  */
 export function ChainGroupedHoldings({
   groups,
+  grandTotal,
   selectedChain,
   hideSmallActive,
   baseHref,
   emptyMessage = "No holdings yet.",
 }: {
   groups: ChainGroup[];
+  grandTotal: number;
   selectedChain?: string;
   hideSmallActive: boolean;
   baseHref: string;
@@ -53,6 +57,10 @@ export function ChainGroupedHoldings({
     );
   }
 
+  const topGroups = groups.slice(0, TOP_N_CHAINS);
+  const restGroups = groups.slice(TOP_N_CHAINS);
+  const restSelected = restGroups.some((g) => g.chainId === selectedChain);
+
   const visibleGroups = groups
     .filter((g) => !selectedChain || g.chainId === selectedChain)
     .map((g) => ({
@@ -65,11 +73,25 @@ export function ChainGroupedHoldings({
 
   return (
     <>
+      {!selectedChain && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+          {groups.map((g) => (
+            <div key={g.chainId} className="rounded-lg border border-border bg-surface px-3 py-2">
+              <p className="truncate text-sm font-medium text-fg">{g.chainName}</p>
+              <p className="tabular-nums text-xs text-fg-muted">
+                {formatUsd(g.total)}
+                {grandTotal > 0 && <> · {((g.total / grandTotal) * 100).toFixed(0)}%</>}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Link href={buildHref(baseHref, undefined, hideSmallActive)} className={pillClass(!selectedChain)}>
           All chains
         </Link>
-        {groups.map((g) => (
+        {topGroups.map((g) => (
           <Link
             key={g.chainId}
             href={buildHref(baseHref, g.chainId, hideSmallActive)}
@@ -78,6 +100,30 @@ export function ChainGroupedHoldings({
             {g.chainName}
           </Link>
         ))}
+        {restGroups.length > 0 && (
+          <details className="group/more relative">
+            <summary
+              className={`${pillClass(restSelected)} inline-flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden`}
+            >
+              More chains ({restGroups.length})
+              <ChevronDown className="size-3.5 transition-transform group-open/more:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="absolute z-10 mt-2 flex w-56 flex-col gap-0.5 rounded-lg border border-border bg-surface p-1.5 shadow-lg">
+              {restGroups.map((g) => (
+                <Link
+                  key={g.chainId}
+                  href={buildHref(baseHref, g.chainId, hideSmallActive)}
+                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 text-sm ${
+                    selectedChain === g.chainId ? "bg-surface-raised text-fg" : "text-fg-muted hover:bg-surface-raised hover:text-fg"
+                  }`}
+                >
+                  <span>{g.chainName}</span>
+                  <span className="tabular-nums">{formatUsd(g.total)}</span>
+                </Link>
+              ))}
+            </div>
+          </details>
+        )}
         <Link
           href={buildHref(baseHref, selectedChain, !hideSmallActive)}
           className="ml-auto text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline"
@@ -108,38 +154,7 @@ export function ChainGroupedHoldings({
                 <span className="tabular-nums text-fg">{formatUsd(group.total)}</span>
               </summary>
               <div className="border-t border-border">
-                <table className={tableClass}>
-                  <thead>
-                    <tr className={theadRowClass}>
-                      <th className={thClass}>Ticker</th>
-                      <th className={thClass}>Qty</th>
-                      <th className={thClass}>Price</th>
-                      <th className={thClass}>Value</th>
-                      <th className={thClass}>Category</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.holdings.map((holding) => (
-                      <tr key={holding.id} className={trClass}>
-                        <td className={tdClass}>{holding.ticker}</td>
-                        <td className={`${tdClass} tabular-nums`}>{holding.qty ?? "—"}</td>
-                        <td className={`${tdClass} tabular-nums`}>{holding.price ?? "unpriced"}</td>
-                        <td className={`${tdClass} tabular-nums`}>
-                          {holding.valuation.kind === "priced" ? (
-                            formatUsd(holding.valuation.usd)
-                          ) : (
-                            <span className="text-warning">unpriced</span>
-                          )}
-                        </td>
-                        <td className={tdClass}>
-                          <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                            {holding.category}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <HoldingsTable holdings={group.holdings} />
               </div>
             </details>
           ))}

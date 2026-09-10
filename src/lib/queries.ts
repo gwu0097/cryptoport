@@ -89,6 +89,15 @@ export interface ChainGroup {
 // many EVM chains) wins; `fallbackChain` (the wallet's chain) covers manual
 // holdings and pre-chain-column sync rows. Sorted richest-first, matching
 // how Rabby/DeBank order theirs.
+// Priced holdings first (richest first), unpriced last — can't rank what
+// has no known value, and dumping it at the top would bury what actually
+// matters.
+function byValueDesc(a: HoldingWithValuation, b: HoldingWithValuation): number {
+  const av = a.valuation.kind === "priced" ? a.valuation.usd : -Infinity;
+  const bv = b.valuation.kind === "priced" ? b.valuation.usd : -Infinity;
+  return bv - av;
+}
+
 function groupByChain(
   entries: { holding: HoldingWithValuation; fallbackChain: string }[],
   prices: PriceMap,
@@ -104,7 +113,13 @@ function groupByChain(
   return [...byChain.entries()]
     .map(([chainId, holdings]) => {
       const { total, unpricedCount } = aggregate(holdings, prices);
-      return { chainId, chainName: chainDisplayName(chainId), total, unpricedCount, holdings };
+      return {
+        chainId,
+        chainName: chainDisplayName(chainId),
+        total,
+        unpricedCount,
+        holdings: [...holdings].sort(byValueDesc),
+      };
     })
     .sort((a, b) => b.total - a.total);
 }

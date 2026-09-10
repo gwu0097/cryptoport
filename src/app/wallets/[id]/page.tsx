@@ -134,6 +134,7 @@ export default async function WalletDetailPage(
         <div className="mb-6">
           <ChainGroupedHoldings
             groups={chainGroups}
+            grandTotal={total}
             selectedChain={selectedChain}
             hideSmallActive={hideSmall === "1"}
             baseHref={`/wallets/${wallet.id}`}

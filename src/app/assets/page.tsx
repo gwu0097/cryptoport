@@ -32,6 +32,7 @@ export default async function AssetsPage({
 
       <ChainGroupedHoldings
         groups={groups}
+        grandTotal={grand.total}
         selectedChain={selectedChain}
         hideSmallActive={hideSmall === "1"}
         baseHref="/assets"
