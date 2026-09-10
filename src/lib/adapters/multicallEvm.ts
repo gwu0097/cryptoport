@@ -44,7 +44,12 @@ const REGISTRY_PAGE_SIZE = 1000;
 // .limit() above that — a chain with more registered tokens than that
 // (most of them, once the registry is populated) would otherwise only ever
 // check the first page. Paginates with .range() until a short page signals
-// the end.
+// the end. The .order() is load-bearing, not cosmetic: without a
+// deterministic sort, Postgres doesn't guarantee the same row lands on the
+// same page across separate range() calls, and a row that shifts between
+// pages gets returned twice — which is exactly what caused "ON CONFLICT DO
+// UPDATE command cannot affect row a second time" in saveDecimals below the
+// first time this ran against Ethereum's 5,800+ row registry.
 async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
   const all: RegistryToken[] = [];
   for (let from = 0; ; from += REGISTRY_PAGE_SIZE) {
@@ -52,6 +57,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
       .from("token_registry")
       .select("contract, symbol, decimals")
       .eq("chain_id", chainId)
+      .order("contract")
       .range(from, from + REGISTRY_PAGE_SIZE - 1);
     if (error) throw new Error(`Failed to load token_registry(${chainId}): ${error.message}`);
     all.push(...(data as RegistryToken[]));
@@ -61,8 +67,15 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
 }
 
 async function saveDecimals(chainId: string, rows: { contract: string; symbol: string; decimals: number }[]) {
-  for (let i = 0; i < rows.length; i += 1000) {
-    const chunk = rows.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
+  // Postgres' ON CONFLICT can't touch the same row twice within a single
+  // upsert statement — dedupe by contract regardless of how a caller built
+  // this list, since getRegisteredTokens's ordering fix addresses the one
+  // known cause but this is cheap, unconditional insurance against that
+  // whole class of error.
+  const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
+
+  for (let i = 0; i < deduped.length; i += 1000) {
+    const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
     const { error } = await portfolioDb()
       .from("token_registry")
       .upsert(chunk, { onConflict: "chain_id,contract" });
