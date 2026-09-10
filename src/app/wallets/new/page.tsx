@@ -1,60 +1,64 @@
 import Link from "next/link";
 import { createWallet } from "../actions";
+import { PageHeader } from "@/components/PageHeader";
+import { Panel } from "@/components/ui/Panel";
+import { Button } from "@/components/ui/Button";
+import { Field, inputClass, selectClass } from "@/components/ui/Field";
 
 export default function NewWalletPage() {
   return (
-    <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
-      <p>
-        <Link href="/">← Wallets</Link>
+    <>
+      <p className="mb-2">
+        <Link href="/wallets" className="text-sm text-fg-muted hover:text-fg">
+          ← Wallets
+        </Link>
       </p>
-      <h1>Add wallet</h1>
 
-      <form action={createWallet} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <label>
-          Name
-          <input name="name" type="text" required style={{ display: "block", width: "100%" }} />
-        </label>
+      <PageHeader title="Add wallet" />
 
-        <label>
-          Chain
-          <select name="chain" required defaultValue="" style={{ display: "block", width: "100%" }}>
-            <option value="" disabled>
-              Select a chain
-            </option>
-            <option value="BTC">BTC</option>
-            <option value="ETH">ETH</option>
-            <option value="SOL">SOL</option>
-          </select>
-        </label>
+      <Panel className="max-w-lg">
+        <form action={createWallet} className="flex flex-col gap-4">
+          <Field label="Name">
+            <input name="name" type="text" required className={inputClass} />
+          </Field>
 
-        <label>
-          Mode
-          <select name="mode" required defaultValue="" style={{ display: "block", width: "100%" }}>
-            <option value="" disabled>
-              Select a mode
-            </option>
-            <option value="manual">manual — enter holdings by hand</option>
-            <option value="auto">auto — adapter fetches holdings</option>
-          </select>
-        </label>
+          <Field label="Chain">
+            <select name="chain" required defaultValue="" className={selectClass}>
+              <option value="" disabled>
+                Select a chain
+              </option>
+              <option value="BTC">BTC</option>
+              <option value="ETH">ETH</option>
+              <option value="SOL">SOL</option>
+            </select>
+          </Field>
 
-        <label>
-          Account
-          <select name="account" defaultValue="personal" style={{ display: "block", width: "100%" }}>
-            <option value="personal">personal</option>
-            <option value="biz">biz</option>
-          </select>
-        </label>
+          <Field label="Mode">
+            <select name="mode" required defaultValue="" className={selectClass}>
+              <option value="" disabled>
+                Select a mode
+              </option>
+              <option value="manual">manual — enter holdings by hand</option>
+              <option value="auto">auto — adapter fetches holdings</option>
+            </select>
+          </Field>
 
-        <label>
-          Address <span style={{ opacity: 0.7 }}>(optional for manual)</span>
-          <input name="address" type="text" style={{ display: "block", width: "100%" }} />
-        </label>
+          <Field label="Account">
+            <select name="account" defaultValue="personal" className={selectClass}>
+              <option value="personal">personal</option>
+              <option value="biz">biz</option>
+            </select>
+          </Field>
 
-        <button type="submit" style={{ alignSelf: "start" }}>
-          Create wallet
-        </button>
-      </form>
-    </main>
+          <Field label="Address" hint="Optional for manual">
+            <input name="address" type="text" className={inputClass} />
+          </Field>
+
+          <Button type="submit" className="self-start">
+            Create wallet
+          </Button>
+        </form>
+      </Panel>
+    </>
   );
 }

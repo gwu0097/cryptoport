@@ -1,6 +1,9 @@
-import Link from "next/link";
 import { getCredentials } from "@/lib/authCredentials";
 import { changeCredentials } from "./actions";
+import { PageHeader } from "@/components/PageHeader";
+import { Panel } from "@/components/ui/Panel";
+import { Button } from "@/components/ui/Button";
+import { Field, inputClass, selectClass } from "@/components/ui/Field";
 
 export default async function SettingsPage({
   searchParams,
@@ -11,73 +14,93 @@ export default async function SettingsPage({
   const creds = await getCredentials();
 
   return (
-    <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
-      <p>
-        <Link href="/">← Wallets</Link>
-      </p>
-      <h1>Change login</h1>
+    <>
+      <PageHeader title="Settings" />
 
-      {changed && (
-        <p style={{ color: "#1a7f37" }}>
-          Login updated. Your browser will ask you to sign in again with the new credentials.
-        </p>
-      )}
+      <div className="flex max-w-2xl flex-col gap-6">
+        <Panel title="Appearance">
+          <Field label="Theme" hint="Light theme coming soon.">
+            <select disabled defaultValue="dark" className={selectClass}>
+              <option value="dark">Dark</option>
+            </select>
+          </Field>
+        </Panel>
 
-      <form
-        action={changeCredentials}
-        style={{ display: "flex", flexDirection: "column", gap: 12 }}
-      >
-        <label>
-          Current password
-          <input
-            name="currentPassword"
-            type="password"
-            required
-            autoComplete="current-password"
-            style={{ display: "block", width: "100%" }}
-          />
-        </label>
+        <Panel title="Preferences">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Language">
+              <select disabled defaultValue="en" className={selectClass}>
+                <option value="en">English</option>
+              </select>
+            </Field>
+            <Field label="Currency">
+              <select disabled defaultValue="usd" className={selectClass}>
+                <option value="usd">USD</option>
+              </select>
+            </Field>
+          </div>
+          <p className="mt-3 text-xs text-fg-muted">
+            More languages and currencies coming soon.
+          </p>
+        </Panel>
 
-        <label>
-          New username
-          <input
-            name="newUsername"
-            type="text"
-            required
-            defaultValue={creds?.username ?? ""}
-            autoComplete="username"
-            style={{ display: "block", width: "100%" }}
-          />
-        </label>
+        <Panel title="Login">
+          {changed && (
+            <p className="mb-4 rounded-lg border border-positive/30 bg-positive/10 px-4 py-3 text-sm text-positive">
+              Login updated. Your browser will ask you to sign in again with the new credentials.
+            </p>
+          )}
 
-        <label>
-          New password
-          <input
-            name="newPassword"
-            type="password"
-            required
-            minLength={8}
-            autoComplete="new-password"
-            style={{ display: "block", width: "100%" }}
-          />
-        </label>
+          <form action={changeCredentials} className="flex flex-col gap-4">
+            <Field label="Current password">
+              <input
+                name="currentPassword"
+                type="password"
+                required
+                autoComplete="current-password"
+                className={inputClass}
+              />
+            </Field>
 
-        <label>
-          Confirm new password
-          <input
-            name="confirmPassword"
-            type="password"
-            required
-            minLength={8}
-            autoComplete="new-password"
-            style={{ display: "block", width: "100%" }}
-          />
-        </label>
+            <Field label="New username">
+              <input
+                name="newUsername"
+                type="text"
+                required
+                defaultValue={creds?.username ?? ""}
+                autoComplete="username"
+                className={inputClass}
+              />
+            </Field>
 
-        <button type="submit" style={{ alignSelf: "start" }}>
-          Update login
-        </button>
-      </form>
-    </main>
+            <Field label="New password">
+              <input
+                name="newPassword"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Confirm new password">
+              <input
+                name="confirmPassword"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                className={inputClass}
+              />
+            </Field>
+
+            <Button type="submit" className="self-start">
+              Update login
+            </Button>
+          </form>
+        </Panel>
+      </div>
+    </>
   );
 }

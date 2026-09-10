@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { portfolioDb } from "@/lib/supabase";
+import { refreshPrices } from "@/lib/prices";
 import type { Account, Chain, WalletMode } from "@/lib/types";
+
+export async function refreshPricesAction() {
+  await refreshPrices();
+  revalidatePath("/wallets");
+}
 
 const CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL"];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
@@ -49,7 +55,7 @@ export async function createWallet(formData: FormData) {
     .single();
   if (error) throw new Error(`Failed to create wallet: ${error.message}`);
 
-  revalidatePath("/");
+  revalidatePath("/wallets");
   redirect(`/wallets/${data.id}`);
 }
 
@@ -88,7 +94,7 @@ export async function addHolding(walletId: string, formData: FormData) {
   if (error) throw new Error(`Failed to add holding: ${error.message}`);
 
   revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/");
+  revalidatePath("/wallets");
 }
 
 // Auto holdings are refresh-owned (source='auto'); the UI must never write to
@@ -118,7 +124,7 @@ export async function updateHolding(holdingId: string, walletId: string, formDat
   if (error) throw new Error(`Failed to update holding: ${error.message}`);
 
   revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/");
+  revalidatePath("/wallets");
 }
 
 export async function deleteHolding(holdingId: string, walletId: string) {
@@ -128,5 +134,5 @@ export async function deleteHolding(holdingId: string, walletId: string) {
   if (error) throw new Error(`Failed to delete holding: ${error.message}`);
 
   revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/");
+  revalidatePath("/wallets");
 }
