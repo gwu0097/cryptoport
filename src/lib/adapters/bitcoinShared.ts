@@ -10,14 +10,16 @@ import { fetchWithRetry } from "./http";
 // path and bitcoinXpub.ts's per-derived-address scanning (a separate
 // module so the two don't import each other).
 //
-// blockstream.info is a fallback, not a first choice — mempool.space
-// stayed the primary since it's the one already verified against real
-// syncs — but confirmed identical response schema (blockstream.info is
-// the esplora fork mempool.space itself descends from), and worth having:
-// seen mempool.space become briefly unreachable during development with
-// blockstream.info responding fine at the same moment.
-const PRIMARY_BASE = "https://mempool.space/api";
-const FALLBACK_BASE = "https://blockstream.info/api";
+// blockstream.info is primary now, not mempool.space — flipped after
+// timing a real xpub scan against both: mempool.space was hard rate-
+// limiting almost every request (repeated 429s, one call that hung for
+// 38s), the exact same scan against blockstream.info alone completed in
+// under 3 seconds total. Same response schema either way (blockstream.info
+// is the esplora fork mempool.space itself descends from), so this is a
+// pure swap — mempool.space kept as the fallback for whenever the
+// situation reverses.
+const PRIMARY_BASE = "https://blockstream.info/api";
+const FALLBACK_BASE = "https://mempool.space/api";
 
 export interface AddressStats {
   chain_stats: { funded_txo_sum: number; spent_txo_sum: number; tx_count: number };
