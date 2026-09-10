@@ -13,6 +13,7 @@ import { TokenIcon } from "@/components/TokenIcon";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
+import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { addHolding, deleteHolding, deleteWallet, syncWalletHoldings, updateHolding, updateWallet } from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
@@ -73,6 +74,7 @@ export default async function WalletDetailPage(
 
   return (
     <>
+      <AutoRefreshWhileSyncing syncing={wallet.last_refresh_status === "syncing"} />
       <p className="mb-2">
         <Link href="/wallets" className="text-sm text-fg-muted hover:text-fg">
           ← Wallets
