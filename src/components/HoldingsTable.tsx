@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
-import { formatUsd } from "@/lib/format";
+import { formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
 
 type SortKey = "ticker" | "qty" | "price" | "value" | "category";
@@ -98,8 +98,8 @@ export function HoldingsTable({ holdings }: { holdings: HoldingWithValuation[] }
       <tbody>
         {sorted.map((holding) => (
           <tr key={holding.id} className={trClass}>
-            <td className={tdClass}>{holding.ticker}</td>
-            <td className={`${tdClass} tabular-nums`}>{holding.qty ?? "—"}</td>
+            <td className={tdClass}>{formatTicker(holding.ticker)}</td>
+            <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
             <td className={`${tdClass} tabular-nums`}>{holding.price ?? "unpriced"}</td>
             <td className={`${tdClass} tabular-nums`}>
               {holding.valuation.kind === "priced" ? (

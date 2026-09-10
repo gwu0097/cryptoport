@@ -8,6 +8,48 @@ export function formatUsd(value: number): string {
   return usdFormatter.format(value);
 }
 
+const qtyFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
+
+/** Caps a holding's quantity to 4 decimal places for display — the raw
+ * qty (e.g. 23.337519169) is what's stored/summed, this is only a display
+ * rounding, same as formatUsd's own maximumFractionDigits. */
+export function formatQty(value: number | string | null): string {
+  const n = typeof value === "string" ? Number(value) : value;
+  if (n === null || !Number.isFinite(n)) return "—";
+  return qtyFormatter.format(n);
+}
+
+// CoinGecko's `symbol` field (the only ticker-casing source this app has,
+// see adapters/coingecko.ts) is always lowercase — there's no API that
+// returns a token's conventional display casing. Most tickers are fine
+// uppercased (BTC, ETH, USDC, AERO...), but a handful of liquid-staking /
+// restaking derivatives are conventionally written with a lowercase
+// prefix (weETH, stETH, wstETH...). No general rule reliably covers this
+// (WBTC is all-caps despite the same "w + asset" shape as weETH), so this
+// is a manually curated exception list, not a heuristic — extend it as
+// more show up.
+const TICKER_DISPLAY_OVERRIDES: Record<string, string> = {
+  WEETH: "weETH",
+  WEETHS: "weETHs",
+  STETH: "stETH",
+  WSTETH: "wstETH",
+  RETH: "rETH",
+  CBETH: "cbETH",
+  CBBTC: "cbBTC",
+  ANKRETH: "ankrETH",
+  FRXETH: "frxETH",
+  SFRXETH: "sfrxETH",
+  OSETH: "osETH",
+  SWETH: "swETH",
+  METH: "mETH",
+  PUFETH: "pufETH",
+  ETHX: "ETHx",
+};
+
+export function formatTicker(ticker: string): string {
+  return TICKER_DISPLAY_OVERRIDES[ticker.toUpperCase()] ?? ticker;
+}
+
 export function formatStaleness(lastRefreshAt: string | null): string {
   if (!lastRefreshAt) return "never refreshed";
   const diffMs = Date.now() - new Date(lastRefreshAt).getTime();

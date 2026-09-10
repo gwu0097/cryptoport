@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trash, RefreshCw } from "lucide-react";
 import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
-import { formatStaleness, formatUsd } from "@/lib/format";
+import { formatStaleness, formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -166,8 +166,8 @@ export default async function WalletDetailPage(
               )}
               {holdings.map((holding) => (
                 <tr key={holding.id} className={trClass}>
-                  <td className={tdClass}>{holding.ticker}</td>
-                  <td className={`${tdClass} tabular-nums`}>{holding.qty ?? "—"}</td>
+                  <td className={tdClass}>{formatTicker(holding.ticker)}</td>
+                  <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
                   <td className={`${tdClass} tabular-nums`}>
                     {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}
                   </td>
