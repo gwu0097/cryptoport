@@ -92,6 +92,23 @@ export async function createWallet(formData: FormData) {
   redirect(`/wallets/${data.id}`);
 }
 
+export async function updateWallet(walletId: string, formData: FormData) {
+  const name = requireString(formData, "name");
+  const chain = requireOneOf(formData, "chain", CHAINS);
+  const mode = requireOneOf(formData, "mode", MODES);
+  const account = requireOneOf(formData, "account", ACCOUNTS);
+  const address = optionalString(formData, "address");
+
+  const { error } = await portfolioDb()
+    .from("wallets")
+    .update({ name, chain, mode, account, address })
+    .eq("id", walletId);
+  if (error) throw new Error(`Failed to update wallet: ${error.message}`);
+
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+}
+
 // A manual wallet's holdings are entered by hand, as either a typed quantity
 // (priced on every refresh) or a fixed USD value (source='manual_usd', which
 // bypasses pricing entirely — see valuation.ts). This is the only place that

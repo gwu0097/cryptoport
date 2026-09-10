@@ -1,22 +1,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
+import { Trash, RefreshCw, TriangleAlert, ChevronDown } from "lucide-react";
 import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
-import { Field, inputClass } from "@/components/ui/Field";
+import { Field, inputClass, selectClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { TokenIcon } from "@/components/TokenIcon";
+import type { Wallet } from "@/lib/types";
 import {
   addHolding,
   deleteHolding,
   deleteWallet,
   syncWalletHoldings,
   updateHolding,
+  updateWallet,
 } from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
@@ -31,6 +33,59 @@ function ValueCell({ holding }: { holding: HoldingWithValuation }) {
     return <span className="text-warning">unpriced</span>;
   }
   return <>{formatUsd(holding.valuation.usd)}</>;
+}
+
+function EditWalletDetails({ wallet }: { wallet: Wallet }) {
+  const update = updateWallet.bind(null, wallet.id);
+  return (
+    <details className="group mb-6 rounded-xl border border-border bg-surface">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-sm font-medium text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronDown
+          className="size-4 text-fg-muted transition-transform group-open:rotate-180"
+          aria-hidden="true"
+        />
+        Edit wallet
+      </summary>
+      <div className="border-t border-border p-5">
+        <form action={update} className="flex flex-col gap-4">
+          <Field label="Name">
+            <input name="name" type="text" required defaultValue={wallet.name} className={inputClass} />
+          </Field>
+
+          <Field label="Chain">
+            <select name="chain" required defaultValue={wallet.chain} className={selectClass}>
+              <option value="BTC">BTC</option>
+              <option value="ETH">ETH</option>
+              <option value="SOL">SOL</option>
+            </select>
+          </Field>
+
+          <Field label="Mode">
+            <select name="mode" required defaultValue={wallet.mode} className={selectClass}>
+              <option value="manual">manual — enter holdings by hand</option>
+              <option value="auto">auto — adapter fetches holdings</option>
+            </select>
+          </Field>
+
+          <Field label="Account">
+            <select name="account" defaultValue={wallet.account} className={selectClass}>
+              <option value="personal">personal</option>
+              <option value="biz">biz</option>
+            </select>
+          </Field>
+
+          <Field
+            label="Address"
+            hint="For auto BTC: an xpub/ypub/zpub scans the whole HD wallet account, not just one address."
+          >
+            <input name="address" type="text" defaultValue={wallet.address ?? ""} className={inputClass} />
+          </Field>
+
+          <SubmitButton className="self-start">Save changes</SubmitButton>
+        </form>
+      </div>
+    </details>
+  );
 }
 
 function EditForm({ holding, walletId }: { holding: HoldingWithValuation; walletId: string }) {
@@ -128,6 +183,8 @@ export default async function WalletDetailPage(
           </>
         }
       />
+
+      <EditWalletDetails wallet={wallet} />
 
       <Panel className="mb-6">
         <p className="text-sm text-fg-muted">Total value</p>
