@@ -60,3 +60,23 @@ alter default privileges in schema cryptoport grant all on tables to service_rol
 alter default privileges in schema cryptoport grant all on sequences to service_role;
 
 -- No grants to anon or authenticated — the schema stays invisible to them.
+
+-- Singleton row holding the site's Basic Auth login (see src/lib/authCredentials.ts
+-- and src/proxy.ts). Lets the password be changed from the /settings page instead
+-- of requiring an env var edit + redeploy.
+create table cryptoport.app_credentials (
+  id            int primary key default 1,
+  username      text not null,
+  password_hash text not null,     -- "<salt-hex>:<scrypt-hash-hex>"
+  updated_at    timestamptz default now(),
+  constraint app_credentials_singleton check (id = 1)
+);
+
+alter table cryptoport.app_credentials enable row level security;
+grant all on cryptoport.app_credentials to service_role;
+
+-- Seed row: username 'rai', password '7l4F0Rd0O3pneZZT' (the one already
+-- handed to the user). Change it from /settings after first login instead of
+-- editing this file.
+insert into cryptoport.app_credentials (id, username, password_hash)
+values (1, 'rai', 'bb31532bdadd2df47dc92295d5da7824:603980f64d578ad0aa1a90df3445fa1fd1dcc57c70db7af04611851841f51bfc8d0e84fcd30ab5ba1a73c60a39124babf2e358bbef62da2da18a06cf7df097d8');

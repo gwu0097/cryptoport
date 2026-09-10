@@ -31,6 +31,7 @@ export default async function Home() {
         <form action={refreshPricesAction}>
           <button type="submit">Refresh prices</button>
         </form>
+        <Link href="/settings">Change login</Link>
       </p>
 
       {wallets.length === 0 ? (
