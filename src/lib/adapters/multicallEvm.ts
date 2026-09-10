@@ -85,10 +85,15 @@ async function saveDecimals(chainId: string, rows: { contract: string; symbol: s
   }
 }
 
-// Only ever sends {chain_id, contract, image_url} — PostgREST's upsert only
-// touches columns present in the payload, so this can't clobber a row's
-// symbol/decimals/coingecko_id the way a naive full-row upsert would.
-async function saveImageUrls(chainId: string, rows: { contract: string; image_url: string }[]) {
+// `symbol` has to be included even though this never changes it: Postgres
+// validates NOT NULL on the row an upsert would insert even when a
+// conflict is found and the actual write ends up being the DO UPDATE
+// branch instead — confirmed the hard way, this always threw without it.
+// Doesn't touch decimals/coingecko_id, matching saveDecimals' approach.
+async function saveImageUrls(
+  chainId: string,
+  rows: { contract: string; symbol: string; image_url: string }[],
+) {
   const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
   for (let i = 0; i < deduped.length; i += 1000) {
     const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
@@ -295,19 +300,37 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
   // (no token_registry row to cache against) are always re-fetched fresh;
   // there are only ~15 distinct native ids across every configured chain,
   // cheap enough not to need a cache table of its own.
-  const missingImageIds = new Set<string>();
-  for (const { token } of included) {
-    if (!token.image_url && token.coingecko_id) missingImageIds.add(token.coingecko_id);
+  //
+  // Wrapped so icon fetching/caching can never take down this chain's real
+  // balance data — a failure here (CoinGecko hiccup, a save error) just
+  // means this sync's holdings render without icons, not that the chain
+  // gets reported as failed and its holdings dropped. Learned the hard way:
+  // an earlier bug in saveImageUrls threw on every call, which silently
+  // wiped real holdings via the per-chain failure path in
+  // fetchEvmChainsHoldings before this try/catch existed.
+  let fetchedImages = new Map<string, string>();
+  try {
+    const missingImageIds = new Set<string>();
+    for (const { token } of included) {
+      if (!token.image_url && token.coingecko_id) missingImageIds.add(token.coingecko_id);
+    }
+    if (native) missingImageIds.add(chain.nativeCoingeckoId);
+
+    if (missingImageIds.size > 0) fetchedImages = await fetchTokenImages([...missingImageIds]);
+
+    const toCache = included
+      .filter(({ token }) => !token.image_url && token.coingecko_id && fetchedImages.has(token.coingecko_id))
+      .map(({ token }) => ({
+        contract: token.contract,
+        symbol: token.symbol,
+        image_url: fetchedImages.get(token.coingecko_id!)!,
+      }));
+    if (toCache.length > 0) await saveImageUrls(chain.id, toCache);
+  } catch {
+    // Icons are cosmetic — swallow and continue with whatever cached
+    // image_urls token_registry already had (fetchedImages may be partially
+    // populated above; that's fine, imageFor() below falls back to null).
   }
-  if (native) missingImageIds.add(chain.nativeCoingeckoId);
-
-  const fetchedImages =
-    missingImageIds.size > 0 ? await fetchTokenImages([...missingImageIds]) : new Map<string, string>();
-
-  const toCache = included
-    .filter(({ token }) => !token.image_url && token.coingecko_id && fetchedImages.has(token.coingecko_id))
-    .map(({ token }) => ({ contract: token.contract, image_url: fetchedImages.get(token.coingecko_id!)! }));
-  if (toCache.length > 0) await saveImageUrls(chain.id, toCache);
 
   function imageFor(token: RegistryToken): string | null {
     return token.image_url ?? (token.coingecko_id ? (fetchedImages.get(token.coingecko_id) ?? null) : null);
