@@ -50,10 +50,16 @@ export function valueHolding(
   holding: HoldingValuationInput,
   prices: PriceMap,
 ): Valuation {
+  // A usd_override always wins, regardless of source: manual_usd rows use it
+  // by definition, and an auto row can carry one too (e.g. the Hyperliquid
+  // adapter pins USDC/USDT0/USDE at $1 this way — no ticker-price lookup
+  // needed for a stablecoin it already knows the value of).
+  const override = parseNumeric(holding.usd_override);
+  if (override !== null) {
+    return { kind: "priced", usd: override };
+  }
   if (holding.source === "manual_usd") {
-    const usd = parseNumeric(holding.usd_override);
-    if (usd === null) return { kind: "unpriced", reason: "no_usd_override" };
-    return { kind: "priced", usd };
+    return { kind: "unpriced", reason: "no_usd_override" };
   }
 
   // manual_qty | auto

@@ -80,3 +80,74 @@ grant all on cryptoport.app_credentials to service_role;
 -- editing this file.
 insert into cryptoport.app_credentials (id, username, password_hash)
 values (1, 'rai', 'bb31532bdadd2df47dc92295d5da7824:603980f64d578ad0aa1a90df3445fa1fd1dcc57c70db7af04611851841f51bfc8d0e84fcd30ab5ba1a73c60a39124babf2e358bbef62da2da18a06cf7df097d8');
+
+-- C5/C6: auto adapters (Rabby+Hyperliquid for EVM, Jupiter for Solana).
+--
+-- category distinguishes a plain token balance from a DeFi position (e.g. a
+-- Hyperliquid perps account's net value isn't a token — it has no qty/price,
+-- just a dollar value). Defaults 'token' so every existing row (all
+-- manually-entered) is classified without a backfill. Used by the Assets/
+-- DeFi tabs later; not surfaced there yet.
+alter table cryptoport.holdings
+  add column category text not null default 'token'; -- 'token' | 'defi'
+
+-- Atomic delete+insert for one wallet's auto-sourced holdings, called by
+-- syncWalletHoldings(). Doing this as a single PL/pgSQL function call makes
+-- it one transaction: if the insert fails partway (bad row shape, etc.) the
+-- delete rolls back too, so a failed sync never leaves a wallet with zero
+-- holdings. The `source = 'auto'` predicate (never just wallet_id) is what
+-- keeps this from ever touching a manually-entered holding in the same
+-- wallet. Also stamps the wallet's refresh time/status in the same
+-- transaction as the holdings themselves.
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings (wallet_id, ticker, qty, usd_override, source, contract, category)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token')
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+grant execute on function cryptoport.sync_auto_holdings(uuid, jsonb, text) to service_role;
+
+-- EVM token registry: contract -> symbol/decimals per chain, refreshed from
+-- CoinGecko's coins/list (keyless, ~20k tokens with per-chain contract
+-- addresses in one call). Lets the Multicall3-based EVM sync check balances
+-- for every known token in one batched on-chain read, without depending on
+-- Rabby's indexer at all. `decimals` starts null and is filled in the first
+-- time a chain's sync actually reads it on-chain (cheaper than a separate
+-- CoinGecko call per token, and decimals never change once known).
+create table cryptoport.token_registry (
+  chain_id     text not null,   -- matches evmChains.ts EvmChain.id, e.g. 'eth', 'base'
+  contract     text not null,   -- lowercase contract address
+  symbol       text not null,
+  coingecko_id text,
+  decimals     int,
+  updated_at   timestamptz default now(),
+  primary key (chain_id, contract)
+);
+
+alter table cryptoport.token_registry enable row level security;
+grant all on cryptoport.token_registry to service_role;

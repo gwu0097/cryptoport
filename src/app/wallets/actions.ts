@@ -4,7 +4,22 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { portfolioDb } from "@/lib/supabase";
 import { refreshPrices } from "@/lib/prices";
+import { fetchEvmHoldings } from "@/lib/adapters/evm";
+import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
+import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
+import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Account, Chain, WalletMode } from "@/lib/types";
+
+// The EVM sync (evm.ts -> multicallEvm.ts) reads on-chain balances only for
+// tokens already in cryptoport.token_registry — this is what populates it,
+// from CoinGecko's coins/list. Manual/on-demand rather than automatic: it's
+// slow (every EVM chain's full token list, tens of thousands of rows for
+// Ethereum) and registry data doesn't need to be fresher than "before your
+// next EVM wallet sync."
+export async function refreshTokenRegistryAction() {
+  await refreshTokenRegistry();
+  revalidatePath("/wallets");
+}
 
 export async function refreshPricesAction() {
   const results = await refreshPrices();
@@ -149,6 +164,66 @@ export async function deleteHolding(holdingId: string, walletId: string) {
 
   const { error } = await portfolioDb().from("holdings").delete().eq("id", holdingId);
   if (error) throw new Error(`Failed to delete holding: ${error.message}`);
+
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+}
+
+// Solana sync only captures plain token balances — LP/DeFi positions
+// (Meteora, DLMM, etc.) aren't token accounts and Jupiter's balances
+// endpoint won't return them. Recorded in the wallet's notes rather than
+// silently under-reporting with no explanation.
+const SOL_SYNC_NOTE =
+  "Auto-synced token balances only — LP/DeFi positions (e.g. Meteora, DLMM) are not captured by this sync.";
+
+async function fetchAdapterHoldings(chain: Chain, address: string): Promise<AdapterHolding[]> {
+  if (chain === "ETH") return fetchEvmHoldings(address);
+  if (chain === "SOL") return fetchJupiterHoldings(address);
+  throw new Error(`No auto adapter for chain "${chain}".`);
+}
+
+// Fetches fresh holdings from the wallet's adapter (Rabby+Hyperliquid for
+// ETH, Jupiter for SOL) and atomically replaces its auto-sourced holdings —
+// see cryptoport.sync_auto_holdings in schema.sql for why this has to be a
+// single DB function call rather than separate delete/insert calls from
+// here. On failure, holdings and last_refresh_at are left completely
+// untouched (only last_refresh_status records that an attempt failed) —
+// per the "a wallet that errors keeps its previous holdings and previous
+// timestamp" rule, a failed sync must never be worse than not syncing.
+export async function syncWalletHoldings(walletId: string) {
+  const { data: wallet, error: walletError } = await portfolioDb()
+    .from("wallets")
+    .select("chain, address, mode")
+    .eq("id", walletId)
+    .single();
+  if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
+  if (wallet.mode !== "auto") throw new Error("Only auto wallets can be synced.");
+  if (!wallet.address) throw new Error("This wallet has no address set.");
+
+  let holdings: AdapterHolding[];
+  try {
+    holdings = await fetchAdapterHoldings(wallet.chain, wallet.address);
+  } catch (e) {
+    const message = (e as Error).message;
+    await portfolioDb()
+      .from("wallets")
+      .update({ last_refresh_status: `error: ${message}` })
+      .eq("id", walletId);
+    revalidatePath(`/wallets/${walletId}`);
+    revalidatePath("/wallets");
+    throw new Error(`Sync failed: ${message}`);
+  }
+
+  const { error: syncError } = await portfolioDb().rpc("sync_auto_holdings", {
+    p_wallet_id: walletId,
+    p_holdings: holdings,
+    p_status: "ok",
+  });
+  if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
+
+  if (wallet.chain === "SOL") {
+    await portfolioDb().from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
+  }
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");

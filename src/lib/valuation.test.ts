@@ -60,6 +60,14 @@ test("auto with no qty is unpriced even if a price exists", () => {
   assert.deepEqual(result, { kind: "unpriced", reason: "no_qty" });
 });
 
+// The Hyperliquid adapter pins stablecoins (USDC/USDT0/USDE) at $1 this way
+// instead of routing them through the ticker-price pipeline.
+test("auto with a usd_override is priced directly, ignoring qty*price", () => {
+  const h = holding({ source: "auto", qty: "10769.26", usd_override: "10769.26", ticker: "USDT0" });
+  const result = valueHolding(h, {}); // no price for USDT0 in the map at all
+  assert.deepEqual(result, { kind: "priced", usd: 10769.26 });
+});
+
 test("parseNumeric handles PostgREST numeric strings", () => {
   assert.equal(parseNumeric("1.5291763"), 1.5291763);
   assert.equal(parseNumeric("334840581"), 334840581);

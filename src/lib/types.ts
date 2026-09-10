@@ -8,6 +8,7 @@ export type Chain = "BTC" | "ETH" | "SOL";
 export type WalletMode = "manual" | "auto";
 export type Account = "personal" | "biz";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
+export type HoldingCategory = "token" | "defi";
 export type PriceSource = "coinbase" | "jupiter";
 
 export interface Wallet {
@@ -32,6 +33,7 @@ export interface Holding {
   usd_override: number | string | null;
   source: HoldingSource;
   contract: string | null;
+  category: HoldingCategory;
   updated_at: string;
 }
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trash } from "lucide-react";
+import { Trash, RefreshCw } from "lucide-react";
 import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -9,7 +9,21 @@ import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Field, inputClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
-import { addHolding, deleteHolding, deleteWallet, updateHolding } from "../actions";
+import {
+  addHolding,
+  deleteHolding,
+  deleteWallet,
+  syncWalletHoldings,
+  updateHolding,
+} from "../actions";
+
+// The EVM adapter can call Rabby's token_list once per active chain, spaced
+// ~2.5s apart to stay under its rate limit (see adapters/rabby.ts) — a
+// wallet spread across ~20+ chains can take over a minute to sync. Ask
+// Vercel for the longest function duration available on the current plan;
+// on plans below that ceiling this is silently capped, so a very
+// multi-chain wallet may still need a retry.
+export const maxDuration = 300;
 
 function ValueCell({ holding }: { holding: HoldingWithValuation }) {
   if (holding.valuation.kind === "unpriced") {
@@ -72,14 +86,24 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
           </>
         }
         actions={
-          <form action={deleteWallet.bind(null, wallet.id)}>
-            <ConfirmDeleteButton
-              confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
-            >
-              <Trash className="size-3.5" aria-hidden="true" />
-              Delete wallet
-            </ConfirmDeleteButton>
-          </form>
+          <>
+            {wallet.mode === "auto" && (
+              <form action={syncWalletHoldings.bind(null, wallet.id)}>
+                <SubmitButton variant="secondary" size="sm">
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  Sync holdings
+                </SubmitButton>
+              </form>
+            )}
+            <form action={deleteWallet.bind(null, wallet.id)}>
+              <ConfirmDeleteButton
+                confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
+              >
+                <Trash className="size-3.5" aria-hidden="true" />
+                Delete wallet
+              </ConfirmDeleteButton>
+            </form>
+          </>
         }
       />
 
@@ -92,6 +116,10 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
             total
           </p>
         )}
+        {wallet.last_refresh_status?.startsWith("error:") && (
+          <p className="mt-2 text-sm text-negative">Last sync failed: {wallet.last_refresh_status}</p>
+        )}
+        {wallet.notes && <p className="mt-2 text-sm text-fg-muted">{wallet.notes}</p>}
       </Panel>
 
       <Panel padding={false} className="mb-6 overflow-hidden">
@@ -103,13 +131,14 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
               <th className={thClass}>Price</th>
               <th className={thClass}>Value</th>
               <th className={thClass}>Source</th>
+              <th className={thClass}>Category</th>
               <th className={thClass}></th>
             </tr>
           </thead>
           <tbody>
             {holdings.length === 0 && (
               <tr>
-                <td colSpan={6} className={`${tdClass} text-fg-muted`}>
+                <td colSpan={7} className={`${tdClass} text-fg-muted`}>
                   No holdings yet.
                 </td>
               </tr>
@@ -127,6 +156,11 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
                 <td className={tdClass}>
                   <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                     {holding.source}
+                  </span>
+                </td>
+                <td className={tdClass}>
+                  <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                    {holding.category}
                   </span>
                 </td>
                 <td className={tdClass}>
@@ -150,46 +184,61 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
         </table>
       </Panel>
 
-      <h2 className="mb-3 text-base font-semibold text-fg">Add holding</h2>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Panel>
-          <form action={addHoldingForWallet} className="flex flex-col gap-3">
-            <input type="hidden" name="kind" value="qty" />
-            <Field label="Ticker">
-              <input
-                name="ticker"
-                type="text"
-                required
-                defaultValue={wallet.chain}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Quantity">
-              <input name="qty" type="text" inputMode="decimal" required className={inputClass} />
-            </Field>
-            <SubmitButton className="self-start">Add by quantity</SubmitButton>
-          </form>
-        </Panel>
+      {wallet.mode === "manual" ? (
+        <>
+          <h2 className="mb-3 text-base font-semibold text-fg">Add holding</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Panel>
+              <form action={addHoldingForWallet} className="flex flex-col gap-3">
+                <input type="hidden" name="kind" value="qty" />
+                <Field label="Ticker">
+                  <input
+                    name="ticker"
+                    type="text"
+                    required
+                    defaultValue={wallet.chain}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Quantity">
+                  <input
+                    name="qty"
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    className={inputClass}
+                  />
+                </Field>
+                <SubmitButton className="self-start">Add by quantity</SubmitButton>
+              </form>
+            </Panel>
 
-        <Panel>
-          <form action={addHoldingForWallet} className="flex flex-col gap-3">
-            <input type="hidden" name="kind" value="usd" />
-            <Field label="Ticker">
-              <input name="ticker" type="text" required className={inputClass} />
-            </Field>
-            <Field label="Fixed USD value">
-              <input
-                name="usd_override"
-                type="text"
-                inputMode="decimal"
-                required
-                className={inputClass}
-              />
-            </Field>
-            <SubmitButton className="self-start">Add fixed USD value</SubmitButton>
-          </form>
-        </Panel>
-      </div>
+            <Panel>
+              <form action={addHoldingForWallet} className="flex flex-col gap-3">
+                <input type="hidden" name="kind" value="usd" />
+                <Field label="Ticker">
+                  <input name="ticker" type="text" required className={inputClass} />
+                </Field>
+                <Field label="Fixed USD value">
+                  <input
+                    name="usd_override"
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    className={inputClass}
+                  />
+                </Field>
+                <SubmitButton className="self-start">Add fixed USD value</SubmitButton>
+              </form>
+            </Panel>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-fg-muted">
+          This wallet&apos;s holdings come from &ldquo;Sync holdings&rdquo; above, not manual
+          entry.
+        </p>
+      )}
     </>
   );
 }
