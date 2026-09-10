@@ -7,7 +7,24 @@ import { refreshPrices } from "@/lib/prices";
 import type { Account, Chain, WalletMode } from "@/lib/types";
 
 export async function refreshPricesAction() {
-  await refreshPrices();
+  const results = await refreshPrices();
+  const failed = results.filter((r) => !r.ok);
+  const status =
+    results.length === 0
+      ? "no priced holdings"
+      : failed.length === 0
+        ? "ok"
+        : `${failed.length}/${results.length} ticker(s) failed`;
+
+  // refreshPrices() updates the shared `prices` table (keyed by ticker, not
+  // wallet), so there's no single wallet it "belongs" to — stamp every
+  // active wallet so the "Refreshed" column reflects that a refresh ran.
+  const { error } = await portfolioDb()
+    .from("wallets")
+    .update({ last_refresh_at: new Date().toISOString(), last_refresh_status: status })
+    .eq("active", true);
+  if (error) throw new Error(`Failed to record refresh status: ${error.message}`);
+
   revalidatePath("/wallets");
 }
 

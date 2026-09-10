@@ -104,6 +104,9 @@ export default async function WalletsPage() {
                   </td>
                   <td className={`${tdClass} text-fg-muted`}>
                     {formatStaleness(wallet.last_refresh_at)}
+                    {wallet.last_refresh_status && wallet.last_refresh_status !== "ok" && (
+                      <span className="text-warning"> ({wallet.last_refresh_status})</span>
+                    )}
                   </td>
                   <td className={tdClass}>
                     <form action={deleteWallet.bind(null, wallet.id)}>
