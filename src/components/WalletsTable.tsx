@@ -125,7 +125,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
           <Header label="Tag" sortKeyValue="tag" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Mode" sortKeyValue="mode" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Refreshed" sortKeyValue="refreshed" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header label="Synced" sortKeyValue="refreshed" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Synced for" sortKeyValue="duration" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <th className={thClass}></th>
         </tr>

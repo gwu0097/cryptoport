@@ -12,6 +12,24 @@ import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
 import type { Holding, Price, Tag, Wallet, WalletWithTag } from "./types";
 
+export interface PriceRefreshState {
+  refreshedAt: string | null;
+  status: string | null;
+}
+
+/** The one global "prices last refreshed" timestamp — see
+ * price_refresh_state in schema.sql for why this is a singleton row rather
+ * than something stamped onto every wallet. */
+export async function getPriceRefreshState(): Promise<PriceRefreshState> {
+  const { data, error } = await portfolioDb()
+    .from("price_refresh_state")
+    .select("refreshed_at, status")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load price refresh state: ${error.message}`);
+  return { refreshedAt: data?.refreshed_at ?? null, status: data?.status ?? null };
+}
+
 /** Every tag that's ever been created — populates the datalist for the
  * free-text "tag" input on the wallet add/edit forms (see resolveTagId in
  * wallets/actions.ts, which creates one the first time its name is used). */

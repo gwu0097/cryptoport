@@ -15,7 +15,13 @@ export function PageHeader({
         <h1 className="text-xl font-semibold text-fg">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-fg-muted">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-3">{actions}</div>}
+      {/* items-start, not items-center — an action can be a button with a
+          caption underneath it (e.g. "Refresh prices" + "Last priced: Xm
+          ago" on the wallets page), which is taller than a plain button;
+          items-start keeps every action's own button top-aligned with the
+          rest regardless, instead of the whole row centering around
+          whichever action happens to be tallest. */}
+      {actions && <div className="flex items-start gap-3">{actions}</div>}
     </div>
   );
 }

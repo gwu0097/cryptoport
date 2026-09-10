@@ -35,14 +35,18 @@ export async function refreshPricesAction() {
         ? "ok"
         : `${failed.length}/${results.length} ticker(s) failed`;
 
-  // refreshPrices() updates the shared `prices` table (keyed by ticker, not
-  // wallet), so there's no single wallet it "belongs" to — stamp every
-  // active wallet so the "Refreshed" column reflects that a refresh ran.
+  // Prices are keyed by ticker, not wallet — refreshPrices() touches the
+  // shared `prices` table, never a specific wallet's own holdings. This
+  // used to stamp every active wallet's last_refresh_at/last_refresh_status
+  // instead of using its own state, which conflated "prices were refreshed"
+  // with "this wallet was synced" into one column (a wallet's real sync
+  // status kept getting overwritten by an unrelated price refresh). One
+  // singleton row instead — see price_refresh_state in schema.sql.
   const { error } = await portfolioDb()
-    .from("wallets")
-    .update({ last_refresh_at: new Date().toISOString(), last_refresh_status: status })
-    .eq("active", true);
-  if (error) throw new Error(`Failed to record refresh status: ${error.message}`);
+    .from("price_refresh_state")
+    .update({ refreshed_at: new Date().toISOString(), status })
+    .eq("id", 1);
+  if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
 
   revalidatePath("/wallets");
 }

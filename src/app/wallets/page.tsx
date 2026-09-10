@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { RefreshCw, Database } from "lucide-react";
-import { getWalletsWithTotals, getTags } from "@/lib/queries";
-import { formatUsd } from "@/lib/format";
+import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
+import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { buttonClass } from "@/components/ui/Button";
@@ -21,7 +21,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export default async function WalletsPage() {
-  const [{ wallets, grand }, tags] = await Promise.all([getWalletsWithTotals(), getTags()]);
+  const [{ wallets, grand }, tags, priceState] = await Promise.all([
+    getWalletsWithTotals(),
+    getTags(),
+    getPriceRefreshState(),
+  ]);
   const tagNames = tags.map((t) => t.name);
 
   return (
@@ -33,12 +37,15 @@ export default async function WalletsPage() {
             <Link href="/wallets/new" className={buttonClass("primary", "sm")}>
               + Add wallet
             </Link>
-            <form action={refreshPricesAction}>
-              <SubmitButton variant="secondary" size="sm">
-                <RefreshCw className="size-3.5" aria-hidden="true" />
-                Refresh prices
-              </SubmitButton>
-            </form>
+            <div className="flex flex-col items-center gap-1">
+              <form action={refreshPricesAction}>
+                <SubmitButton variant="secondary" size="sm">
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  Refresh prices
+                </SubmitButton>
+              </form>
+              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+            </div>
             <form action={refreshTokenRegistryAction}>
               <SubmitButton variant="secondary" size="sm">
                 <Database className="size-3.5" aria-hidden="true" />

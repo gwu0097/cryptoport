@@ -286,3 +286,21 @@ alter table cryptoport.wallets add column btc_script_type text; -- 'p2pkh' | 'p2
 -- the resolution call. Never goes stale (a payment address's staking
 -- credential is fixed at creation time), unlike BTC's script-type cache.
 alter table cryptoport.wallets add column cardano_stake_address text;
+
+-- Decouples "prices last refreshed" from per-wallet "Refreshed" — prices
+-- are keyed by ticker, not wallet (see refreshPrices in prices.ts), so
+-- stamping every active wallet's last_refresh_at/last_refresh_status on
+-- every price refresh was conflating two different events into one column
+-- (a wallet's real sync status kept getting overwritten by unrelated price
+-- refreshes). One singleton row instead.
+create table cryptoport.price_refresh_state (
+  id           int primary key default 1,
+  refreshed_at timestamptz,
+  status       text,
+  constraint price_refresh_state_singleton check (id = 1)
+);
+
+alter table cryptoport.price_refresh_state enable row level security;
+grant all on cryptoport.price_refresh_state to service_role;
+
+insert into cryptoport.price_refresh_state (id, refreshed_at, status) values (1, null, null);

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
-import { getWalletDetail, getTags, type HoldingWithValuation } from "@/lib/queries";
+import { getWalletDetail, getTags, getPriceRefreshState, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd, formatQty, formatTicker, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
 import { Panel } from "@/components/ui/Panel";
@@ -74,7 +74,11 @@ export default async function WalletDetailPage(
 ) {
   const { id } = await props.params;
   const { chain: selectedChain, hideUnpriced, hideLow } = await props.searchParams;
-  const [detail, tags] = await Promise.all([getWalletDetail(id), getTags()]);
+  const [detail, tags, priceState] = await Promise.all([
+    getWalletDetail(id),
+    getTags(),
+    getPriceRefreshState(),
+  ]);
   if (!detail) notFound();
 
   const { wallet, holdings, chainGroups, total, unpricedCount } = detail;
@@ -182,12 +186,15 @@ export default async function WalletDetailPage(
                   )}
                 </>
               ))}
-            <form action={refreshPricesForWalletAction.bind(null, wallet.id)}>
-              <SubmitButton variant="secondary" size="sm">
-                <RefreshCw className="size-3.5" aria-hidden="true" />
-                Refresh prices
-              </SubmitButton>
-            </form>
+            <div className="flex flex-col items-center gap-1">
+              <form action={refreshPricesForWalletAction.bind(null, wallet.id)}>
+                <SubmitButton variant="secondary" size="sm">
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  Refresh prices
+                </SubmitButton>
+              </form>
+              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+            </div>
             <form action={deleteWallet.bind(null, wallet.id)}>
               <ConfirmDeleteButton
                 confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
@@ -202,7 +209,7 @@ export default async function WalletDetailPage(
               "Syncing…"
             ) : (
               <>
-                Refreshed: {formatStaleness(wallet.last_refresh_at)}
+                Synced: {formatStaleness(wallet.last_refresh_at)}
                 {wallet.last_sync_duration_ms !== null && (
                   <> · took {formatDuration(wallet.last_sync_duration_ms)}</>
                 )}
