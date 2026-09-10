@@ -62,12 +62,17 @@ export async function fetchTokenInfo(mints: string[]): Promise<Map<string, Jupit
 
 /**
  * Every SPL balance the wallet holds, priced where Jupiter has a market for
- * it. Tokens Jupiter has no metadata for at all (common — includes NFTs and
- * dead/never-indexed mints, not just spam fungible tokens) are still
- * included as unpriced holdings rather than dropped: "no price" is a real,
- * visible state elsewhere in this app, not silence. Native SOL comes back
- * under the literal key "SOL" and is mapped to the wrapped-SOL mint only
- * for the metadata/price lookup — the stored ticker stays "SOL".
+ * it. A holding Jupiter has a *name* for but no live price is still
+ * included as unpriced — "no price" is a real, visible state elsewhere in
+ * this app, not silence, and a named-but-unpriced token (e.g. real but
+ * thinly traded) is still worth knowing about. A holding with no metadata
+ * at all — no symbol, nothing — is dropped entirely rather than shown as a
+ * bare mint address: in practice this is almost always an NFT (amount=1 is
+ * the classic tell) or a dead/never-indexed mint, and a raw base58 string
+ * with no name and no price tells the user nothing they can act on.
+ * Native SOL comes back under the literal key "SOL" and is mapped to the
+ * wrapped-SOL mint only for the metadata/price lookup — the stored ticker
+ * stays "SOL".
  */
 export async function fetchJupiterHoldings(address: string): Promise<AdapterHolding[]> {
   const balances = await fetchBalances(address);
@@ -85,8 +90,9 @@ export async function fetchJupiterHoldings(address: string): Promise<AdapterHold
     if (usd !== null) {
       if (usd <= TOKEN_USD_FLOOR) continue;
       if ((info?.liquidity ?? 0) < LIQUIDITY_FLOOR) continue;
+    } else if (key !== "SOL" && !info?.symbol) {
+      continue; // no name, no price — nothing to show, see doc comment above
     }
-    // usd === null: Jupiter can't price it — include unpriced, don't guess.
 
     holdings.push({
       ticker: key === "SOL" ? "SOL" : (info?.symbol ?? key),
