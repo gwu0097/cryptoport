@@ -21,7 +21,7 @@ export default async function LookupPage({
     <>
       <PageHeader
         title="Wallet lookup"
-        subtitle="Search any ETH, SOL, or BTC address — read-only, nothing is saved to your portfolio."
+        subtitle="Search any ETH, SOL, BTC, or ADA address — read-only, nothing is saved to your portfolio."
       />
 
       {!address ? (

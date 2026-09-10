@@ -3,6 +3,7 @@ import { fetchEvmHoldings } from "./adapters/evm";
 import { fetchJupiterHoldings } from "./adapters/jupiter";
 import { fetchBitcoinHoldings } from "./adapters/bitcoin";
 import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
+import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { defaultChainId } from "./chainNames";
@@ -19,14 +20,16 @@ const BTC_BECH32_RE = /^(bc1)[a-z0-9]{25,90}$/;
 const BTC_LEGACY_RE = /^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/;
 
 /** Every chain an auto-sync adapter exists for (evm.ts, jupiter.ts,
- * bitcoin.ts) — including an xpub/ypub/zpub, which behaves like a BTC
- * address here (bitcoin.ts dispatches to full account scanning for one). */
+ * bitcoin.ts, cardano.ts) — including an xpub/ypub/zpub, which behaves
+ * like a BTC address here (bitcoin.ts dispatches to full account scanning
+ * for one), and a Cardano stake address alongside its usual addr1... */
 export function detectChain(address: string): Chain | null {
   if (EVM_ADDRESS_RE.test(address)) return "ETH";
   if (SOLANA_ADDRESS_RE.test(address)) return "SOL";
   if (BTC_BECH32_RE.test(address) || BTC_LEGACY_RE.test(address) || isExtendedPublicKey(address)) {
     return "BTC";
   }
+  if (isCardanoAddress(address)) return "ADA";
   return null;
 }
 
@@ -56,20 +59,20 @@ export interface LookupResult extends ValuatedHoldings {
 
 /**
  * The top-bar "search any address" feature — read-only, live-fetched
- * on-chain balances for an arbitrary ETH, SOL, or BTC address, reusing the
- * exact same adapters as an auto wallet's "Sync holdings" (fetchEvmHoldings
- * / fetchJupiterHoldings / fetchBitcoinHoldings). Nothing is written to the
- * database: no wallet row, no holdings row, so this can't collide with (or
- * accidentally add to) the user's actual saved portfolio. Pricing still
- * uses the shared, already-cached `prices` table (read-only) rather than
- * fetching prices live, same as any other holding rendered elsewhere in
- * the app.
+ * on-chain balances for an arbitrary ETH, SOL, BTC, or ADA address, reusing
+ * the exact same adapters as an auto wallet's "Sync holdings"
+ * (fetchEvmHoldings / fetchJupiterHoldings / fetchBitcoinHoldings /
+ * fetchCardanoHoldings). Nothing is written to the database: no wallet
+ * row, no holdings row, so this can't collide with (or accidentally add
+ * to) the user's actual saved portfolio. Pricing still uses the shared,
+ * already-cached `prices` table (read-only) rather than fetching prices
+ * live, same as any other holding rendered elsewhere in the app.
  */
 export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const address = rawAddress.trim();
   const chain = detectChain(address);
   if (!chain) {
-    throw new Error("That doesn't look like a valid ETH, SOL, or BTC address.");
+    throw new Error("That doesn't look like a valid ETH, SOL, BTC, or ADA address.");
   }
 
   const fetchHoldings =
@@ -77,7 +80,9 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
       ? fetchEvmHoldings(address).then((r) => r.holdings)
       : chain === "SOL"
         ? fetchJupiterHoldings(address)
-        : fetchBitcoinHoldings(address);
+        : chain === "ADA"
+          ? fetchCardanoHoldings(address)
+          : fetchBitcoinHoldings(address);
 
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 

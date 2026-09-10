@@ -9,9 +9,11 @@ export const CHAIN_NAMES: Record<string, string> = {
   hyperliquid: "Hyperliquid",
   solana: "Solana",
   bitcoin: "Bitcoin",
+  cardano: "Cardano",
   BTC: "Bitcoin",
   ETH: "Ethereum",
   SOL: "Solana",
+  ADA: "Cardano",
 };
 
 export function chainDisplayName(chainId: string): string {
@@ -32,5 +34,6 @@ export function chainDisplayName(chainId: string): string {
 export function defaultChainId(chain: Chain): string {
   if (chain === "BTC") return "bitcoin";
   if (chain === "SOL") return "solana";
+  if (chain === "ADA") return "cardano";
   return "eth";
 }

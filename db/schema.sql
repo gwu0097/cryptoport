@@ -280,3 +280,9 @@ alter table cryptoport.wallets drop column account;
 alter table cryptoport.wallets add column sync_started_at timestamptz;
 alter table cryptoport.wallets add column last_sync_duration_ms integer;
 alter table cryptoport.wallets add column btc_script_type text; -- 'p2pkh' | 'p2sh-p2wpkh' | 'p2wpkh' | null
+
+-- Cardano (ADA) auto-sync — see adapters/cardano.ts. Caches the stake
+-- address a payment (addr1...) address resolves to, so later syncs skip
+-- the resolution call. Never goes stale (a payment address's staking
+-- credential is fixed at creation time), unlike BTC's script-type cache.
+alter table cryptoport.wallets add column cardano_stake_address text;

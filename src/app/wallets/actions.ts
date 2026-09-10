@@ -9,6 +9,7 @@ import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
+import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Chain, WalletMode } from "@/lib/types";
@@ -46,7 +47,7 @@ export async function refreshPricesAction() {
   revalidatePath("/wallets");
 }
 
-const CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL"];
+const CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL", "ADA"];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
 
@@ -260,7 +261,7 @@ async function fetchAdapterHoldings(chain: "ETH" | "SOL", address: string): Prom
 export async function syncWalletHoldings(walletId: string, forceFullScan = false) {
   const { data: wallet, error: walletError } = await portfolioDb()
     .from("wallets")
-    .select("chain, address, mode, btc_script_type")
+    .select("chain, address, mode, btc_script_type, cardano_stake_address")
     .eq("id", walletId)
     .single();
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
@@ -279,12 +280,18 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       let holdings: AdapterHolding[];
       let warnings: string[] = [];
       let detectedScriptType: ScriptType | null = wallet.btc_script_type as ScriptType | null;
+      let cardanoStakeAddress: string | null = wallet.cardano_stake_address;
 
       if (wallet.chain === "BTC") {
         ({ holdings, detectedScriptType } = await fetchBitcoinHoldingsForSync(
           wallet.address!,
           wallet.btc_script_type as ScriptType | null,
           forceFullScan,
+        ));
+      } else if (wallet.chain === "ADA") {
+        ({ holdings, stakeAddress: cardanoStakeAddress } = await fetchCardanoHoldingsForSync(
+          wallet.address!,
+          wallet.cardano_stake_address,
         ));
       } else {
         ({ holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address!));
@@ -302,10 +309,15 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         await portfolioDb().from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
       }
 
-      const updates: { last_sync_duration_ms: number; btc_script_type?: ScriptType | null } = {
+      const updates: {
+        last_sync_duration_ms: number;
+        btc_script_type?: ScriptType | null;
+        cardano_stake_address?: string | null;
+      } = {
         last_sync_duration_ms: Date.now() - syncStartedAt,
       };
       if (wallet.chain === "BTC") updates.btc_script_type = detectedScriptType;
+      if (wallet.chain === "ADA") updates.cardano_stake_address = cardanoStakeAddress;
       await portfolioDb().from("wallets").update(updates).eq("id", walletId);
     } catch (e) {
       await portfolioDb()

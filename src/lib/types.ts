@@ -4,7 +4,7 @@
 // treat it as either. Parsing/validating them lives in valuation.ts, not
 // here.
 
-export type Chain = "BTC" | "ETH" | "SOL";
+export type Chain = "BTC" | "ETH" | "SOL" | "ADA";
 export type WalletMode = "manual" | "auto";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
 export type HoldingCategory = "token" | "defi";
@@ -38,6 +38,12 @@ export interface Wallet {
    * syncs can go straight to it instead of checking all three again. Only
    * ever meaningful for chain='BTC' wallets whose address is an xpub. */
   btc_script_type: "p2pkh" | "p2sh-p2wpkh" | "p2wpkh" | null;
+  /** Cached from a prior sync (see adapters/cardano.ts) — the stake address
+   * a chain='ADA' payment address resolves to, so later syncs skip the
+   * resolution call and go straight to the account-level balance lookup.
+   * Never goes stale (a payment address's staking credential can't change
+   * once set), unlike BTC's script-type cache. */
+  cardano_stake_address: string | null;
   created_at: string;
 }
 

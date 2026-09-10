@@ -12,7 +12,7 @@ export default function LookupLoading() {
     <>
       <PageHeader
         title="Wallet lookup"
-        subtitle="Search any ETH, SOL, or BTC address — read-only, nothing is saved to your portfolio."
+        subtitle="Search any ETH, SOL, BTC, or ADA address — read-only, nothing is saved to your portfolio."
       />
       <Panel className="flex flex-col items-center gap-3 py-12 text-center">
         <Loader2 className="size-6 animate-spin text-accent" aria-hidden="true" />

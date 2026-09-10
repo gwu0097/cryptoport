@@ -55,6 +55,7 @@ export function EditWalletModal({
               <option value="BTC">BTC</option>
               <option value="ETH">ETH</option>
               <option value="SOL">SOL</option>
+              <option value="ADA">ADA</option>
             </select>
           </Field>
 

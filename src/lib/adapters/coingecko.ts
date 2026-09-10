@@ -35,6 +35,7 @@ interface AssetPlatform {
 const NON_EVM_PLATFORM_IDS: Record<string, string> = {
   solana: "solana",
   hyperliquid: "hyperliquid",
+  cardano: "cardano",
 };
 
 /**
