@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { createWallet } from "../actions";
+import { getTags } from "@/lib/queries";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, inputClass, selectClass } from "@/components/ui/Field";
 
-export default function NewWalletPage() {
+// Reads the live tags list — must never be frozen into a static build
+// artifact, same reasoning as the wallets list page.
+export const dynamic = "force-dynamic";
+
+export default async function NewWalletPage() {
+  const tags = await getTags();
+
   return (
     <>
       <p className="mb-2">
@@ -43,11 +50,13 @@ export default function NewWalletPage() {
             </select>
           </Field>
 
-          <Field label="Account">
-            <select name="account" defaultValue="personal" className={selectClass}>
-              <option value="personal">personal</option>
-              <option value="biz">biz</option>
-            </select>
+          <Field label="Tag" hint="Optional — type an existing tag to reuse it, or a new name to create one.">
+            <input name="tag" type="text" list="tags-datalist" className={inputClass} />
+            <datalist id="tags-datalist">
+              {tags.map((t) => (
+                <option key={t.id} value={t.name} />
+              ))}
+            </datalist>
           </Field>
 
           <Field

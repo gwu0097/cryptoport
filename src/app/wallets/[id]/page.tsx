@@ -1,25 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trash, RefreshCw, TriangleAlert, ChevronDown } from "lucide-react";
-import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
+import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
+import { getWalletDetail, getTags, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd, formatQty, formatTicker } from "@/lib/format";
-import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
-import { Field, inputClass, selectClass } from "@/components/ui/Field";
+import { Field, inputClass } from "@/components/ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { TokenIcon } from "@/components/TokenIcon";
-import type { Wallet } from "@/lib/types";
-import {
-  addHolding,
-  deleteHolding,
-  deleteWallet,
-  syncWalletHoldings,
-  updateHolding,
-  updateWallet,
-} from "../actions";
+import { TruncatedAddress } from "@/components/TruncatedAddress";
+import { EditWalletModal } from "@/components/EditWalletModal";
+import { addHolding, deleteHolding, deleteWallet, syncWalletHoldings, updateHolding, updateWallet } from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
 // adapters/multicallEvm.ts) — a wallet spread across all 15 chains can take
@@ -33,59 +26,6 @@ function ValueCell({ holding }: { holding: HoldingWithValuation }) {
     return <span className="text-warning">unpriced</span>;
   }
   return <>{formatUsd(holding.valuation.usd)}</>;
-}
-
-function EditWalletDetails({ wallet }: { wallet: Wallet }) {
-  const update = updateWallet.bind(null, wallet.id);
-  return (
-    <details id="edit-wallet" className="group mb-6 rounded-xl border border-border bg-surface">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-sm font-medium text-fg [&::-webkit-details-marker]:hidden">
-        <ChevronDown
-          className="size-4 text-fg-muted transition-transform group-open:rotate-180"
-          aria-hidden="true"
-        />
-        Edit wallet
-      </summary>
-      <div className="border-t border-border p-5">
-        <form action={update} className="flex flex-col gap-4">
-          <Field label="Name">
-            <input name="name" type="text" required defaultValue={wallet.name} className={inputClass} />
-          </Field>
-
-          <Field label="Chain">
-            <select name="chain" required defaultValue={wallet.chain} className={selectClass}>
-              <option value="BTC">BTC</option>
-              <option value="ETH">ETH</option>
-              <option value="SOL">SOL</option>
-            </select>
-          </Field>
-
-          <Field label="Mode">
-            <select name="mode" required defaultValue={wallet.mode} className={selectClass}>
-              <option value="manual">manual — enter holdings by hand</option>
-              <option value="auto">auto — adapter fetches holdings</option>
-            </select>
-          </Field>
-
-          <Field label="Account">
-            <select name="account" defaultValue={wallet.account} className={selectClass}>
-              <option value="personal">personal</option>
-              <option value="biz">biz</option>
-            </select>
-          </Field>
-
-          <Field
-            label="Address"
-            hint="For auto BTC: an xpub/ypub/zpub scans the whole HD wallet account, not just one address."
-          >
-            <input name="address" type="text" defaultValue={wallet.address ?? ""} className={inputClass} />
-          </Field>
-
-          <SubmitButton className="self-start">Save changes</SubmitButton>
-        </form>
-      </div>
-    </details>
-  );
 }
 
 function EditForm({ holding, walletId }: { holding: HoldingWithValuation; walletId: string }) {
@@ -123,11 +63,12 @@ export default async function WalletDetailPage(
 ) {
   const { id } = await props.params;
   const { chain: selectedChain, hideUnpriced, hideLow } = await props.searchParams;
-  const detail = await getWalletDetail(id);
+  const [detail, tags] = await Promise.all([getWalletDetail(id), getTags()]);
   if (!detail) notFound();
 
   const { wallet, holdings, chainGroups, total, unpricedCount } = detail;
   const addHoldingForWallet = addHolding.bind(null, wallet.id);
+  const tagNames = tags.map((t) => t.name);
 
   return (
     <>
@@ -137,13 +78,39 @@ export default async function WalletDetailPage(
         </Link>
       </p>
 
-      <PageHeader
-        title={wallet.name}
-        subtitle={
-          <>
-            {wallet.chain} · {wallet.account} · {wallet.mode}
-            {wallet.address && <> · {wallet.address}</>}
-            {" · "}Refreshed: {formatStaleness(wallet.last_refresh_at)}
+      {/* items-start (not items-center) + shrink-0 on the actions column is
+          what keeps Sync/Delete pinned top-right regardless of how long the
+          left column's content gets — a raw xpub/address is one unbreakable
+          token with no natural wrap points, which used to force the whole
+          header to wrap onto two rows instead of just the text underneath
+          it wrapping. TruncatedAddress below removes the giant unbroken
+          string entirely, but this stays robust either way. */}
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1">
+            <h1 className="text-xl font-semibold text-fg">{wallet.name}</h1>
+            <EditWalletModal
+              wallet={wallet}
+              tagNames={tagNames}
+              updateWallet={updateWallet.bind(null, wallet.id)}
+            />
+          </div>
+          <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
+            <span>{wallet.chain}</span>
+            {wallet.tag && (
+              <>
+                <span>·</span>
+                <span>{wallet.tag.name}</span>
+              </>
+            )}
+            <span>·</span>
+            <span>{wallet.mode}</span>
+            {wallet.address && (
+              <>
+                <span>·</span>
+                <TruncatedAddress address={wallet.address} />
+              </>
+            )}
             {wallet.last_refresh_status?.startsWith("partial") && (
               // Native `title` tooltip, not a full-text paragraph — a
               // handful of unverified balance checks (see
@@ -153,17 +120,18 @@ export default async function WalletDetailPage(
               // to live on a wrapping element — lucide-react's icon props
               // don't pass it through to the underlying <svg>.)
               <span
-                className="ml-1 inline-block align-text-bottom"
+                className="inline-block align-text-bottom"
                 title={wallet.last_refresh_status}
                 aria-label={wallet.last_refresh_status}
               >
                 <TriangleAlert className="size-3.5 text-warning" aria-hidden="true" />
               </span>
             )}
-          </>
-        }
-        actions={
-          <>
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
             {wallet.mode === "auto" && (
               <form action={syncWalletHoldings.bind(null, wallet.id)}>
                 <SubmitButton variant="secondary" size="sm">
@@ -180,11 +148,10 @@ export default async function WalletDetailPage(
                 Delete wallet
               </ConfirmDeleteButton>
             </form>
-          </>
-        }
-      />
-
-      <EditWalletDetails wallet={wallet} />
+          </div>
+          <p className="text-xs text-fg-muted">Refreshed: {formatStaleness(wallet.last_refresh_at)}</p>
+        </div>
+      </div>
 
       <Panel className="mb-6">
         <p className="text-sm text-fg-muted">Total value</p>

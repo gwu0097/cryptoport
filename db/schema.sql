@@ -254,3 +254,19 @@ begin
   where id = p_wallet_id;
 end;
 $$;
+
+-- Replaces the fixed personal/biz "account" enum with user-defined,
+-- free-text tags — a wallet has at most one (nullable FK), and a tag is
+-- created on the fly the first time its name is typed (see resolveTagId in
+-- wallets/actions.ts) rather than managed on a separate admin page.
+create table cryptoport.tags (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null unique,
+  created_at timestamptz default now()
+);
+
+alter table cryptoport.tags enable row level security;
+grant all on cryptoport.tags to service_role;
+
+alter table cryptoport.wallets add column tag_id uuid references cryptoport.tags(id) on delete set null;
+alter table cryptoport.wallets drop column account;

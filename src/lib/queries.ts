@@ -9,7 +9,16 @@ import {
   type Valuation,
 } from "./valuation";
 import { chainDisplayName } from "./chainNames";
-import type { Holding, Price, Wallet } from "./types";
+import type { Holding, Price, Tag, Wallet, WalletWithTag } from "./types";
+
+/** Every tag that's ever been created — populates the datalist for the
+ * free-text "tag" input on the wallet add/edit forms (see resolveTagId in
+ * wallets/actions.ts, which creates one the first time its name is used). */
+export async function getTags(): Promise<Tag[]> {
+  const { data, error } = await portfolioDb().from("tags").select("id, name").order("name");
+  if (error) throw new Error(`Failed to load tags: ${error.message}`);
+  return data as Tag[];
+}
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —
  * see coingecko.ts's refreshTokenRegistry for how this is kept populated. */
@@ -47,7 +56,7 @@ function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "ticker"
   return parseNumeric(prices[holding.ticker]);
 }
 
-export interface WalletWithTotal extends Wallet {
+export interface WalletWithTotal extends WalletWithTag {
   total: number;
   unpricedCount: number;
 }
@@ -62,14 +71,14 @@ export async function getWalletsWithTotals(): Promise<WalletListResult> {
   const [{ data: wallets, error: walletsError }, prices] = await Promise.all([
     portfolioDb()
       .from("wallets")
-      .select("*, holdings(*)")
+      .select("*, holdings(*), tag:tags(id,name)")
       .eq("active", true)
       .order("created_at", { ascending: true }),
     getPriceMap(),
   ]);
   if (walletsError) throw new Error(`Failed to load wallets: ${walletsError.message}`);
 
-  type WalletRow = Wallet & { holdings: Holding[] };
+  type WalletRow = WalletWithTag & { holdings: Holding[] };
   const rows = wallets as WalletRow[];
 
   const walletsWithTotals = rows.map((wallet) => {
@@ -168,18 +177,18 @@ export function valuateHoldings(
 }
 
 export interface WalletDetailResult extends ValuatedHoldings {
-  wallet: Wallet;
+  wallet: WalletWithTag;
 }
 
 export async function getWalletDetail(id: string): Promise<WalletDetailResult | null> {
   const [{ data: wallet, error: walletError }, prices] = await Promise.all([
-    portfolioDb().from("wallets").select("*, holdings(*)").eq("id", id).maybeSingle(),
+    portfolioDb().from("wallets").select("*, holdings(*), tag:tags(id,name)").eq("id", id).maybeSingle(),
     getPriceMap(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (!wallet) return null;
 
-  const { holdings, ...rest } = wallet as Wallet & { holdings: Holding[] };
+  const { holdings, ...rest } = wallet as WalletWithTag & { holdings: Holding[] };
   return { wallet: rest, ...valuateHoldings(holdings, rest.chain, prices) };
 }
 

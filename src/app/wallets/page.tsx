@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { RefreshCw, Trash, Database, Pencil } from "lucide-react";
-import { getWalletsWithTotals } from "@/lib/queries";
+import { RefreshCw, Trash, Database } from "lucide-react";
+import { getWalletsWithTotals, getTags } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -8,11 +8,13 @@ import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
+import { EditWalletModal } from "@/components/EditWalletModal";
 import {
   deleteWallet,
   refreshPricesAction,
   refreshTokenRegistryAction,
   syncWalletHoldings,
+  updateWallet,
 } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
@@ -27,7 +29,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export default async function WalletsPage() {
-  const { wallets, grand } = await getWalletsWithTotals();
+  const [{ wallets, grand }, tags] = await Promise.all([getWalletsWithTotals(), getTags()]);
+  const tagNames = tags.map((t) => t.name);
 
   return (
     <>
@@ -75,7 +78,7 @@ export default async function WalletsPage() {
               <tr className={theadRowClass}>
                 <th className={thClass}>Name</th>
                 <th className={thClass}>Chain</th>
-                <th className={thClass}>Account</th>
+                <th className={thClass}>Tag</th>
                 <th className={thClass}>Mode</th>
                 <th className={thClass}>Value</th>
                 <th className={thClass}>Refreshed</th>
@@ -96,9 +99,13 @@ export default async function WalletsPage() {
                     </span>
                   </td>
                   <td className={tdClass}>
-                    <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                      {wallet.account}
-                    </span>
+                    {wallet.tag ? (
+                      <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                        {wallet.tag.name}
+                      </span>
+                    ) : (
+                      <span className="text-fg-muted">—</span>
+                    )}
                   </td>
                   <td className={tdClass}>
                     <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
@@ -124,13 +131,11 @@ export default async function WalletsPage() {
                           </SubmitButton>
                         </form>
                       )}
-                      <Link
-                        href={`/wallets/${wallet.id}#edit-wallet`}
-                        aria-label={`Edit ${wallet.name}`}
-                        className={buttonClass("secondary", "sm")}
-                      >
-                        <Pencil className="size-3.5" aria-hidden="true" />
-                      </Link>
+                      <EditWalletModal
+                        wallet={wallet}
+                        tagNames={tagNames}
+                        updateWallet={updateWallet.bind(null, wallet.id)}
+                      />
                       <form action={deleteWallet.bind(null, wallet.id)}>
                         <ConfirmDeleteButton
                           confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}

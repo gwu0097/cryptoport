@@ -6,10 +6,14 @@
 
 export type Chain = "BTC" | "ETH" | "SOL";
 export type WalletMode = "manual" | "auto";
-export type Account = "personal" | "biz";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
 export type HoldingCategory = "token" | "defi";
 export type PriceSource = "coinbase" | "jupiter";
+
+export interface Tag {
+  id: string;
+  name: string;
+}
 
 export interface Wallet {
   id: string;
@@ -17,12 +21,21 @@ export interface Wallet {
   address: string | null;
   chain: Chain;
   mode: WalletMode;
-  account: Account;
+  /** User-defined, free-text categorization — replaced the old fixed
+   * personal/biz "account" enum (see resolveTagId in wallets/actions.ts:
+   * typing a new name creates the tag, an existing name reuses it). */
+  tag_id: string | null;
   notes: string | null;
   active: boolean;
   last_refresh_at: string | null;
   last_refresh_status: string | null;
   created_at: string;
+}
+
+/** A wallet row as actually queried — always comes back with its tag
+ * embedded (see queries.ts), never just the bare tag_id. */
+export interface WalletWithTag extends Wallet {
+  tag: Tag | null;
 }
 
 export interface Holding {

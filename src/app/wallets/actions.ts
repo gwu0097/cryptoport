@@ -9,7 +9,7 @@ import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
 import { fetchBitcoinHoldings } from "@/lib/adapters/bitcoin";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
-import type { Account, Chain, WalletMode } from "@/lib/types";
+import type { Chain, WalletMode } from "@/lib/types";
 
 // The EVM sync (evm.ts -> multicallEvm.ts) reads on-chain balances only for
 // tokens already in cryptoport.token_registry — this is what populates it,
@@ -46,7 +46,6 @@ export async function refreshPricesAction() {
 
 const CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL"];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
-const ACCOUNTS: readonly Account[] = ["personal", "biz"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
 
 function requireString(formData: FormData, field: string): string {
@@ -74,16 +73,35 @@ function requireOneOf<T extends string>(
   return value as T;
 }
 
+// Replaces the old fixed personal/biz "account" select with a free-text tag
+// — typing a name that already exists reuses that tag, typing a new one
+// creates it on the spot (no separate "manage tags" page). Upsert on the
+// unique `name` column rather than select-then-insert: atomic, so two
+// wallets saved with the same brand-new tag name at once can't race into
+// duplicate tag rows.
+async function resolveTagId(formData: FormData): Promise<string | null> {
+  const name = optionalString(formData, "tag");
+  if (!name) return null;
+
+  const { data, error } = await portfolioDb()
+    .from("tags")
+    .upsert({ name }, { onConflict: "name" })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Failed to resolve tag: ${error.message}`);
+  return data.id;
+}
+
 export async function createWallet(formData: FormData) {
   const name = requireString(formData, "name");
   const chain = requireOneOf(formData, "chain", CHAINS);
   const mode = requireOneOf(formData, "mode", MODES);
-  const account = requireOneOf(formData, "account", ACCOUNTS);
   const address = optionalString(formData, "address");
+  const tag_id = await resolveTagId(formData);
 
   const { data, error } = await portfolioDb()
     .from("wallets")
-    .insert({ name, chain, mode, account, address })
+    .insert({ name, chain, mode, tag_id, address })
     .select("id")
     .single();
   if (error) throw new Error(`Failed to create wallet: ${error.message}`);
@@ -96,12 +114,12 @@ export async function updateWallet(walletId: string, formData: FormData) {
   const name = requireString(formData, "name");
   const chain = requireOneOf(formData, "chain", CHAINS);
   const mode = requireOneOf(formData, "mode", MODES);
-  const account = requireOneOf(formData, "account", ACCOUNTS);
   const address = optionalString(formData, "address");
+  const tag_id = await resolveTagId(formData);
 
   const { error } = await portfolioDb()
     .from("wallets")
-    .update({ name, chain, mode, account, address })
+    .update({ name, chain, mode, tag_id, address })
     .eq("id", walletId);
   if (error) throw new Error(`Failed to update wallet: ${error.message}`);
 
