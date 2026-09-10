@@ -176,20 +176,30 @@ export async function deleteHolding(holdingId: string, walletId: string) {
 const SOL_SYNC_NOTE =
   "Auto-synced token balances only — LP/DeFi positions (e.g. Meteora, DLMM) are not captured by this sync.";
 
-async function fetchAdapterHoldings(chain: Chain, address: string): Promise<AdapterHolding[]> {
+interface AdapterFetchResult {
+  holdings: AdapterHolding[];
+  /** Partial, non-fatal failures (e.g. one EVM chain's public RPC had a bad
+   * moment) — the sync still saves whatever it did get. */
+  warnings: string[];
+}
+
+async function fetchAdapterHoldings(chain: Chain, address: string): Promise<AdapterFetchResult> {
   if (chain === "ETH") return fetchEvmHoldings(address);
-  if (chain === "SOL") return fetchJupiterHoldings(address);
+  if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
   throw new Error(`No auto adapter for chain "${chain}".`);
 }
 
-// Fetches fresh holdings from the wallet's adapter (Rabby+Hyperliquid for
-// ETH, Jupiter for SOL) and atomically replaces its auto-sourced holdings —
-// see cryptoport.sync_auto_holdings in schema.sql for why this has to be a
-// single DB function call rather than separate delete/insert calls from
-// here. On failure, holdings and last_refresh_at are left completely
+// Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
+// Hyperliquid for ETH, Jupiter for SOL) and atomically replaces its
+// auto-sourced holdings — see cryptoport.sync_auto_holdings in schema.sql
+// for why this has to be a single DB function call rather than separate
+// delete/insert calls from here. On a total failure (every source errored,
+// nothing to save), holdings and last_refresh_at are left completely
 // untouched (only last_refresh_status records that an attempt failed) —
 // per the "a wallet that errors keeps its previous holdings and previous
-// timestamp" rule, a failed sync must never be worse than not syncing.
+// timestamp" rule, a failed sync must never be worse than not syncing. A
+// partial failure (some chains ok, one flaked) still saves what succeeded,
+// with the failure recorded in the status rather than silently dropped.
 export async function syncWalletHoldings(walletId: string) {
   const { data: wallet, error: walletError } = await portfolioDb()
     .from("wallets")
@@ -201,8 +211,9 @@ export async function syncWalletHoldings(walletId: string) {
   if (!wallet.address) throw new Error("This wallet has no address set.");
 
   let holdings: AdapterHolding[];
+  let warnings: string[];
   try {
-    holdings = await fetchAdapterHoldings(wallet.chain, wallet.address);
+    ({ holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address));
   } catch (e) {
     const message = (e as Error).message;
     await portfolioDb()
@@ -214,10 +225,11 @@ export async function syncWalletHoldings(walletId: string) {
     throw new Error(`Sync failed: ${message}`);
   }
 
+  const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
   const { error: syncError } = await portfolioDb().rpc("sync_auto_holdings", {
     p_wallet_id: walletId,
     p_holdings: holdings,
-    p_status: "ok",
+    p_status: status,
   });
   if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
 

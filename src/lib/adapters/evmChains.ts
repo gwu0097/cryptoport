@@ -41,7 +41,7 @@ export const EVM_CHAINS: EvmChain[] = [
     id: "eth",
     name: "Ethereum",
     chainId: 1,
-    rpc: "https://cloudflare-eth.com",
+    rpc: "https://eth.rpc.blxrbdn.com",
     coingeckoPlatform: "ethereum",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",

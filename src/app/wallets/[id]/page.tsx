@@ -119,6 +119,9 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
         {wallet.last_refresh_status?.startsWith("error:") && (
           <p className="mt-2 text-sm text-negative">Last sync failed: {wallet.last_refresh_status}</p>
         )}
+        {wallet.last_refresh_status?.startsWith("partial") && (
+          <p className="mt-2 text-sm text-warning">Last sync was partial: {wallet.last_refresh_status}</p>
+        )}
         {wallet.notes && <p className="mt-2 text-sm text-fg-muted">{wallet.notes}</p>}
       </Panel>
 
