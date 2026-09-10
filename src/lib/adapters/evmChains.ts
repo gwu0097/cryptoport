@@ -6,9 +6,14 @@ import "server-only";
  * (unlike the Rabby indexer). Every `rpc` URL below was hand-verified
  * (matching `eth_chainId` against the real chain ID) before being added.
  *
- * This list is not exhaustive — it's the ~15 biggest EVM chains by activity,
- * not literally everything Ankr/PublicNode offer. Adding another chain is a
- * one-line addition here (id, name, chainId, a verified public RPC URL) —
+ * 30 chains as of this writing — every EVM chain PublicNode serves
+ * keylessly that responded correctly to a real eth_chainId check (a
+ * handful of others, e.g. Fantom/Moonbeam/Ronin/Flare, aren't on
+ * PublicNode's keyless tier and were left out rather than guessed at).
+ * Still not literally everything Ankr's paid tier offers (~75), but this
+ * covers every chain that showed up when reconciling a real multi-chain
+ * wallet against DeBank. Adding another chain is a one-line addition here
+ * (id, name, chainId, a verified public RPC URL, CoinGecko platform id) —
  * no other code changes, since the sync pipeline (evmChains.ts ->
  * multicallEvm.ts -> evm.ts) is entirely data-driven per chain.
  */
@@ -171,6 +176,141 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "opbnb",
     nativeCoingeckoId: "binancecoin",
     nativeSymbol: "BNB",
+  },
+  {
+    id: "zksync",
+    name: "zkSync Era",
+    chainId: 324,
+    rpc: "https://mainnet.era.zksync.io",
+    coingeckoPlatform: "zksync",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    id: "manta",
+    name: "Manta Pacific",
+    chainId: 169,
+    rpc: "https://manta-pacific.drpc.org",
+    coingeckoPlatform: "manta-pacific",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    id: "mode",
+    name: "Mode",
+    chainId: 34443,
+    rpc: "https://mainnet.mode.network",
+    coingeckoPlatform: "mode",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    id: "merlin",
+    name: "Merlin Chain",
+    chainId: 4200,
+    rpc: "https://rpc.merlinchain.io",
+    coingeckoPlatform: "merlin-chain",
+    nativeCoingeckoId: "wrapped-bitcoin",
+    nativeSymbol: "WBTC",
+  },
+  {
+    id: "zetachain",
+    name: "ZetaChain",
+    chainId: 7000,
+    rpc: "https://zetachain-evm.blockpi.network/v1/rpc/public",
+    coingeckoPlatform: "zetachain",
+    nativeCoingeckoId: "zetachain",
+    nativeSymbol: "ZETA",
+  },
+  {
+    id: "metis",
+    name: "Metis Andromeda",
+    chainId: 1088,
+    rpc: "https://metis-rpc.publicnode.com",
+    coingeckoPlatform: "metis-andromeda",
+    nativeCoingeckoId: "metis-token",
+    nativeSymbol: "METIS",
+  },
+  {
+    id: "pulsechain",
+    name: "PulseChain",
+    chainId: 369,
+    rpc: "https://pulsechain-rpc.publicnode.com",
+    coingeckoPlatform: "pulsechain",
+    nativeCoingeckoId: "pulsechain",
+    nativeSymbol: "PLS",
+  },
+  {
+    id: "fraxtal",
+    name: "Fraxtal",
+    chainId: 252,
+    rpc: "https://fraxtal-rpc.publicnode.com",
+    coingeckoPlatform: "fraxtal",
+    nativeCoingeckoId: "frax-share",
+    nativeSymbol: "FRAX",
+  },
+  {
+    id: "unichain",
+    name: "Unichain",
+    chainId: 130,
+    rpc: "https://unichain-rpc.publicnode.com",
+    coingeckoPlatform: "unichain",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    id: "berachain",
+    name: "Berachain",
+    chainId: 80094,
+    rpc: "https://berachain-rpc.publicnode.com",
+    coingeckoPlatform: "berachain",
+    nativeCoingeckoId: "berachain-bera",
+    nativeSymbol: "BERA",
+  },
+  {
+    id: "cronos",
+    name: "Cronos",
+    chainId: 25,
+    rpc: "https://cronos-evm-rpc.publicnode.com",
+    coingeckoPlatform: "cronos",
+    nativeCoingeckoId: "crypto-com-chain",
+    nativeSymbol: "CRO",
+  },
+  {
+    id: "kava",
+    name: "Kava",
+    chainId: 2222,
+    rpc: "https://kava-evm-rpc.publicnode.com",
+    coingeckoPlatform: "kava",
+    nativeCoingeckoId: "kava",
+    nativeSymbol: "KAVA",
+  },
+  {
+    id: "sei",
+    name: "Sei",
+    chainId: 1329,
+    rpc: "https://sei-evm-rpc.publicnode.com",
+    coingeckoPlatform: "sei-v2",
+    nativeCoingeckoId: "wrapped-sei",
+    nativeSymbol: "WSEI",
+  },
+  {
+    id: "chiliz",
+    name: "Chiliz",
+    chainId: 88888,
+    rpc: "https://chiliz-rpc.publicnode.com",
+    coingeckoPlatform: "chiliz",
+    nativeCoingeckoId: "chiliz",
+    nativeSymbol: "CHZ",
+  },
+  {
+    id: "soneium",
+    name: "Soneium",
+    chainId: 1868,
+    rpc: "https://soneium-rpc.publicnode.com",
+    coingeckoPlatform: "soneium",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
   },
 ];
 
