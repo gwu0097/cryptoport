@@ -24,17 +24,46 @@ interface CoinListEntry {
   platforms?: Record<string, string>;
 }
 
+interface AssetPlatform {
+  id: string;
+  image?: { small?: string };
+}
+
+// Chain ids this app has that aren't in EVM_CHAINS (so have no
+// `coingeckoPlatform` of their own to look up by) but still correspond to a
+// real CoinGecko asset_platforms entry, keyed by that platform's own id.
+const NON_EVM_PLATFORM_IDS: Record<string, string> = {
+  solana: "solana",
+  hyperliquid: "hyperliquid",
+};
+
 /**
  * Refreshes cryptoport.token_registry from CoinGecko's coins/list — one
  * call covers every chain in EVM_CHAINS (and every chain CoinGecko knows
  * about; this only keeps the ones matching a configured platform id).
  * Upsert, not replace: a token that drops out of a later CoinGecko listing
  * doesn't lose its already-known decimals.
+ *
+ * Also refreshes cryptoport.chain_icons from the same CoinGecko
+ * asset_platforms endpoint this app already trusts for coingeckoPlatform /
+ * nativeCoingeckoId (see evmChains.ts) — every chain currently configured
+ * has a real logo there (verified against all 30 + solana + hyperliquid),
+ * keyed by the same `coingeckoPlatform` id already stored per chain. This
+ * is what makes chain icons keep working without a hand-maintained URL
+ * list: add a chain to EVM_CHAINS, run this once, its icon is there too.
  */
 export async function refreshTokenRegistry(): Promise<{ chainId: string; count: number }[]> {
-  const res = await fetchWithRetry(`${API_BASE}/coins/list?include_platform=true`, { headers: headers() });
-  if (!res.ok) throw new Error(`CoinGecko coins/list failed: HTTP ${res.status}`);
-  const coins: CoinListEntry[] = await res.json();
+  const [coinsRes, platformsRes] = await Promise.all([
+    fetchWithRetry(`${API_BASE}/coins/list?include_platform=true`, { headers: headers() }),
+    fetchWithRetry(`${API_BASE}/asset_platforms`, { headers: headers() }),
+  ]);
+  if (!coinsRes.ok) throw new Error(`CoinGecko coins/list failed: HTTP ${coinsRes.status}`);
+  if (!platformsRes.ok) throw new Error(`CoinGecko asset_platforms failed: HTTP ${platformsRes.status}`);
+  const coins: CoinListEntry[] = await coinsRes.json();
+  const platforms: AssetPlatform[] = await platformsRes.json();
+  const platformImages = new Map(
+    platforms.filter((p) => p.image?.small).map((p) => [p.id, p.image!.small!]),
+  );
 
   const results: { chainId: string; count: number }[] = [];
 
@@ -62,6 +91,18 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
     }
 
     results.push({ chainId: chain.id, count: rows.length });
+  }
+
+  const chainIconRows = [
+    ...EVM_CHAINS.map((c) => ({ chain_id: c.id, platformId: c.coingeckoPlatform })),
+    ...Object.entries(NON_EVM_PLATFORM_IDS).map(([chainId, platformId]) => ({ chain_id: chainId, platformId })),
+  ]
+    .map((r) => ({ chain_id: r.chain_id, image_url: platformImages.get(r.platformId) }))
+    .filter((r): r is { chain_id: string; image_url: string } => Boolean(r.image_url));
+
+  if (chainIconRows.length > 0) {
+    const { error } = await portfolioDb().from("chain_icons").upsert(chainIconRows, { onConflict: "chain_id" });
+    if (error) throw new Error(`Failed to upsert chain_icons: ${error.message}`);
   }
 
   return results;

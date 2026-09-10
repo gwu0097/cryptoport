@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import type { ChainGroup } from "@/lib/queries";
+import { getChainIconMap, type ChainGroup } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
 import { Panel } from "./ui/Panel";
 import { HoldingsTable } from "./HoldingsTable";
+import { TokenIcon } from "./TokenIcon";
 
 const LOW_VALUE_USD = 10;
 
@@ -77,7 +78,7 @@ function CheckboxLink({
  * with editable holdings) uses its own plain table instead of this
  * component.
  */
-export function ChainGroupedHoldings({
+export async function ChainGroupedHoldings({
   groups,
   grandTotal,
   selectedChain,
@@ -101,6 +102,8 @@ export function ChainGroupedHoldings({
       </Panel>
     );
   }
+
+  const chainIcons = await getChainIconMap();
 
   const visibleGroups = groups
     .filter((g) => !selectedChain || g.chainId === selectedChain)
@@ -130,7 +133,10 @@ export function ChainGroupedHoldings({
             href={buildHref(baseHref, g.chainId, hideUnpriced, hideLow)}
             className={cardClass(selectedChain === g.chainId)}
           >
-            <p className="truncate text-sm font-medium text-fg">{g.chainName}</p>
+            <p className="flex items-center gap-1.5 truncate text-sm font-medium text-fg">
+              <TokenIcon ticker={g.chainName} url={chainIcons[g.chainId] ?? null} />
+              {g.chainName}
+            </p>
             <p className="tabular-nums text-xs text-fg-muted">
               {formatUsd(g.total)}
               {grandTotal > 0 && <> · {((g.total / grandTotal) * 100).toFixed(0)}%</>}
@@ -166,6 +172,7 @@ export function ChainGroupedHoldings({
                     className="size-4 text-fg-muted transition-transform group-open:rotate-180"
                     aria-hidden="true"
                   />
+                  <TokenIcon ticker={group.chainName} url={chainIcons[group.chainId] ?? null} />
                   {group.chainName}
                   <span className="text-sm font-normal text-fg-muted">
                     ({group.holdings.length} holding{group.holdings.length === 1 ? "" : "s"})

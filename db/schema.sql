@@ -193,6 +193,21 @@ begin
 end;
 $$;
 
+-- Chain logos (DeBank-style icons on the chain summary cards/section
+-- headers), from CoinGecko's asset_platforms — refreshed alongside
+-- token_registry by refreshTokenRegistry() (see coingecko.ts). Systematic,
+-- not hand-copied: a new chain added to evmChains.ts gets its icon here
+-- automatically on the next "Refresh token list" run, keyed by the same
+-- coingeckoPlatform id already stored per chain.
+create table cryptoport.chain_icons (
+  chain_id   text primary key, -- evmChains.ts EvmChain.id, or 'solana' | 'hyperliquid'
+  image_url  text not null,
+  updated_at timestamptz default now()
+);
+
+alter table cryptoport.chain_icons enable row level security;
+grant all on cryptoport.chain_icons to service_role;
+
 -- Token logo support (DeBank-style icons next to each holding). CoinGecko
 -- images are cached here (logos don't change, so this is fetched at most
 -- once per contract, ever) — Solana icons come free from Jupiter's own

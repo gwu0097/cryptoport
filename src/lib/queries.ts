@@ -11,6 +11,19 @@ import {
 import { chainDisplayName } from "./chainNames";
 import type { Holding, Price, Wallet } from "./types";
 
+/** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —
+ * see coingecko.ts's refreshTokenRegistry for how this is kept populated. */
+export async function getChainIconMap(): Promise<Record<string, string>> {
+  const { data, error } = await portfolioDb().from("chain_icons").select("chain_id, image_url");
+  if (error) throw new Error(`Failed to load chain_icons: ${error.message}`);
+
+  const icons: Record<string, string> = {};
+  for (const row of data as { chain_id: string; image_url: string }[]) {
+    icons[row.chain_id] = row.image_url;
+  }
+  return icons;
+}
+
 export async function getPriceMap(): Promise<PriceMap> {
   const { data, error } = await portfolioDb().from("prices").select("ticker, usd");
   if (error) throw new Error(`Failed to load prices: ${error.message}`);
