@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Trash, RefreshCw } from "lucide-react";
 import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
+import { chainDisplayName } from "@/lib/chainNames";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -130,6 +131,7 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
           <thead>
             <tr className={theadRowClass}>
               <th className={thClass}>Ticker</th>
+              <th className={thClass}>Chain</th>
               <th className={thClass}>Qty</th>
               <th className={thClass}>Price</th>
               <th className={thClass}>Value</th>
@@ -141,7 +143,7 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
           <tbody>
             {holdings.length === 0 && (
               <tr>
-                <td colSpan={7} className={`${tdClass} text-fg-muted`}>
+                <td colSpan={8} className={`${tdClass} text-fg-muted`}>
                   No holdings yet.
                 </td>
               </tr>
@@ -149,6 +151,9 @@ export default async function WalletDetailPage(props: PageProps<"/wallets/[id]">
             {holdings.map((holding) => (
               <tr key={holding.id} className={trClass}>
                 <td className={tdClass}>{holding.ticker}</td>
+                <td className={`${tdClass} text-fg-muted`}>
+                  {holding.chain ? chainDisplayName(holding.chain) : "—"}
+                </td>
                 <td className={`${tdClass} tabular-nums`}>{holding.qty ?? "—"}</td>
                 <td className={`${tdClass} tabular-nums`}>
                   {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}

@@ -11,4 +11,9 @@ export interface AdapterHolding {
   usd_override: number | null;
   contract: string | null;
   category: HoldingCategory;
+  /** Sub-chain this holding came from, e.g. 'eth' | 'base' | 'hyperliquid' |
+   * 'solana' — required (not optional) so it's a build error to add a new
+   * adapter holding site without tagging it, rather than a silent gap that
+   * only shows up as "ungrouped" on the Assets page. */
+  chain: string;
 }

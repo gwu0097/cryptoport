@@ -151,3 +151,44 @@ create table cryptoport.token_registry (
 
 alter table cryptoport.token_registry enable row level security;
 grant all on cryptoport.token_registry to service_role;
+
+-- A holding's sub-chain, distinct from wallets.chain: one 'ETH' auto wallet
+-- spans 15 EVM chains (eth, base, arb, ...), so grouping the Assets page by
+-- chain needs this on the holding, not just the wallet. Null for manual
+-- holdings and the pre-this-migration sync rows — the Assets query falls
+-- back to the wallet's chain for those, and the next sync repopulates it
+-- properly since sync_auto_holdings fully replaces a wallet's auto rows.
+alter table cryptoport.holdings
+  add column chain text; -- 'eth' | 'base' | ... | 'hyperliquid' | 'solana' | null
+
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings (wallet_id, ticker, qty, usd_override, source, contract, category, chain)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;

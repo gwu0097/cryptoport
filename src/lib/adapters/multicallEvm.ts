@@ -259,7 +259,14 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     const qty = Number(formatUnits(result.result as unknown as bigint, token.decimals!));
     const usd = qty * price;
     if (usd <= TOKEN_USD_FLOOR) continue;
-    holdings.push({ ticker: token.symbol, qty, usd_override: usd, contract: token.contract, category: "token" });
+    holdings.push({
+      ticker: token.symbol,
+      qty,
+      usd_override: usd,
+      contract: token.contract,
+      category: "token",
+      chain: chain.id,
+    });
   }
 
   const nativeBalance = await nativeBalancePromise;
@@ -275,6 +282,7 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
           usd_override: usd,
           contract: null,
           category: "token",
+          chain: chain.id,
         });
       }
     }

@@ -69,6 +69,7 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       usd_override: STABLECOINS.has(balance.coin) ? total : null,
       contract: null,
       category: "defi",
+      chain: "hyperliquid",
     });
   }
 
@@ -81,6 +82,7 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       usd_override: perpsExtra,
       contract: null,
       category: "defi",
+      chain: "hyperliquid",
     });
   }
 

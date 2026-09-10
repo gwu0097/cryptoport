@@ -94,6 +94,7 @@ export async function fetchJupiterHoldings(address: string): Promise<AdapterHold
       usd_override: null,
       contract: key === "SOL" ? null : key,
       category: "token",
+      chain: "solana",
     });
   }
 

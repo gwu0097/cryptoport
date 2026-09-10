@@ -34,6 +34,11 @@ export interface Holding {
   source: HoldingSource;
   contract: string | null;
   category: HoldingCategory;
+  /** Sub-chain within the wallet's chain (an 'ETH' auto wallet spans many
+   * EVM chains) — 'eth' | 'base' | ... | 'hyperliquid' | 'solana'. Null for
+   * manual holdings; callers grouping by chain should fall back to the
+   * wallet's own `chain` field in that case. */
+  chain: string | null;
   updated_at: string;
 }
 
