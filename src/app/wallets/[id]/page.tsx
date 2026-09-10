@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trash, RefreshCw } from "lucide-react";
+import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
 import { getWalletDetail, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -89,6 +89,22 @@ export default async function WalletDetailPage(
             {wallet.chain} · {wallet.account} · {wallet.mode}
             {wallet.address && <> · {wallet.address}</>}
             {" · "}Refreshed: {formatStaleness(wallet.last_refresh_at)}
+            {wallet.last_refresh_status?.startsWith("partial") && (
+              // Native `title` tooltip, not a full-text paragraph — a
+              // handful of unverified balance checks (see
+              // multicallEvm.ts's unverifiedCount) is expected noise from
+              // free RPC providers at this scale, not something wrong with
+              // the sync. Full detail is still one hover away. (title has
+              // to live on a wrapping element — lucide-react's icon props
+              // don't pass it through to the underlying <svg>.)
+              <span
+                className="ml-1 inline-block align-text-bottom"
+                title={wallet.last_refresh_status}
+                aria-label={wallet.last_refresh_status}
+              >
+                <TriangleAlert className="size-3.5 text-warning" aria-hidden="true" />
+              </span>
+            )}
           </>
         }
         actions={
@@ -124,9 +140,6 @@ export default async function WalletDetailPage(
         )}
         {wallet.last_refresh_status?.startsWith("error:") && (
           <p className="mt-2 text-sm text-negative">Last sync failed: {wallet.last_refresh_status}</p>
-        )}
-        {wallet.last_refresh_status?.startsWith("partial") && (
-          <p className="mt-2 text-sm text-warning">Last sync was partial: {wallet.last_refresh_status}</p>
         )}
         {wallet.notes && <p className="mt-2 text-sm text-fg-muted">{wallet.notes}</p>}
       </Panel>
