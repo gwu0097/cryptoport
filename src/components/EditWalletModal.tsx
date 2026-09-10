@@ -2,9 +2,10 @@
 
 import { useRef } from "react";
 import { Pencil } from "lucide-react";
-import { Field, inputClass, selectClass } from "./ui/Field";
+import { Field, inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
 import { Dialog } from "./ui/Dialog";
+import { ChainModeFields } from "./ChainModeFields";
 import type { WalletWithTag } from "@/lib/types";
 
 /**
@@ -50,21 +51,7 @@ export function EditWalletModal({
             <input name="name" type="text" required defaultValue={wallet.name} className={inputClass} />
           </Field>
 
-          <Field label="Chain">
-            <select name="chain" required defaultValue={wallet.chain} className={selectClass}>
-              <option value="BTC">BTC</option>
-              <option value="ETH">ETH</option>
-              <option value="SOL">SOL</option>
-              <option value="ADA">ADA</option>
-            </select>
-          </Field>
-
-          <Field label="Mode">
-            <select name="mode" required defaultValue={wallet.mode} className={selectClass}>
-              <option value="manual">manual — enter holdings by hand</option>
-              <option value="auto">auto — adapter fetches holdings</option>
-            </select>
-          </Field>
+          <ChainModeFields defaultChain={wallet.chain} defaultMode={wallet.mode} />
 
           <Field label="Tag" hint="Optional — type an existing tag to reuse it, or a new name to create one.">
             <input

@@ -4,7 +4,8 @@ import { getTags } from "@/lib/queries";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
-import { Field, inputClass, selectClass } from "@/components/ui/Field";
+import { Field, inputClass } from "@/components/ui/Field";
+import { ChainModeFields } from "@/components/ChainModeFields";
 
 // Reads the live tags list — must never be frozen into a static build
 // artifact, same reasoning as the wallets list page.
@@ -29,27 +30,7 @@ export default async function NewWalletPage() {
             <input name="name" type="text" required className={inputClass} />
           </Field>
 
-          <Field label="Chain">
-            <select name="chain" required defaultValue="" className={selectClass}>
-              <option value="" disabled>
-                Select a chain
-              </option>
-              <option value="BTC">BTC</option>
-              <option value="ETH">ETH</option>
-              <option value="SOL">SOL</option>
-              <option value="ADA">ADA</option>
-            </select>
-          </Field>
-
-          <Field label="Mode">
-            <select name="mode" required defaultValue="" className={selectClass}>
-              <option value="" disabled>
-                Select a mode
-              </option>
-              <option value="manual">manual — enter holdings by hand</option>
-              <option value="auto">auto — adapter fetches holdings</option>
-            </select>
-          </Field>
+          <ChainModeFields />
 
           <Field label="Tag" hint="Optional — type an existing tag to reuse it, or a new name to create one.">
             <input name="tag" type="text" list="tags-datalist" className={inputClass} />

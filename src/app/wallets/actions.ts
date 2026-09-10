@@ -47,9 +47,19 @@ export async function refreshPricesAction() {
   revalidatePath("/wallets");
 }
 
-const CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL", "ADA"];
+// The only chains with an actual adapter — a wallet's `chain` field itself
+// isn't restricted to these (see Wallet.chain in types.ts): auto mode is,
+// checked both here (isAutoCapableChain, used by createWallet/updateWallet
+// and again defensively in syncWalletHoldings) and client-side in
+// ChainModeFields (which disables the "auto" option for anything else, so
+// this server check is belt-and-suspenders rather than the only guard).
+const AUTO_CAPABLE_CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL", "ADA"];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
+
+function isAutoCapableChain(chain: string): chain is Chain {
+  return (AUTO_CAPABLE_CHAINS as readonly string[]).includes(chain);
+}
 
 function requireString(formData: FormData, field: string): string {
   const value = formData.get(field);
@@ -95,10 +105,24 @@ async function resolveTagId(formData: FormData): Promise<string | null> {
   return data.id;
 }
 
+// Chain is free text now (RON, NEAR, whatever — manual tracking works for
+// anything), but auto mode only actually works for AUTO_CAPABLE_CHAINS —
+// enforced here too, not just by ChainModeFields disabling the option
+// client-side, since a direct form POST could otherwise bypass that.
+function requireChainAndMode(formData: FormData): { chain: string; mode: WalletMode } {
+  const chain = requireString(formData, "chain").toUpperCase();
+  const mode = requireOneOf(formData, "mode", MODES);
+  if (mode === "auto" && !isAutoCapableChain(chain)) {
+    throw new Error(
+      `Auto mode isn't available for "${chain}" — only ${AUTO_CAPABLE_CHAINS.join(", ")} have a sync adapter. Use manual mode instead.`,
+    );
+  }
+  return { chain, mode };
+}
+
 export async function createWallet(formData: FormData) {
   const name = requireString(formData, "name");
-  const chain = requireOneOf(formData, "chain", CHAINS);
-  const mode = requireOneOf(formData, "mode", MODES);
+  const { chain, mode } = requireChainAndMode(formData);
   const address = optionalString(formData, "address");
   const tag_id = await resolveTagId(formData);
 
@@ -115,8 +139,7 @@ export async function createWallet(formData: FormData) {
 
 export async function updateWallet(walletId: string, formData: FormData) {
   const name = requireString(formData, "name");
-  const chain = requireOneOf(formData, "chain", CHAINS);
-  const mode = requireOneOf(formData, "mode", MODES);
+  const { chain, mode } = requireChainAndMode(formData);
   const address = optionalString(formData, "address");
   const tag_id = await resolveTagId(formData);
 
@@ -267,6 +290,13 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (wallet.mode !== "auto") throw new Error("Only auto wallets can be synced.");
   if (!wallet.address) throw new Error("This wallet has no address set.");
+  // Belt-and-suspenders — requireChainAndMode already prevents saving an
+  // auto wallet with a non-adapter chain, so this should be unreachable for
+  // any wallet actually created/edited through this app. Also narrows
+  // wallet.chain to Chain for the dispatch below.
+  if (!isAutoCapableChain(wallet.chain)) {
+    throw new Error(`Auto mode isn't available for chain "${wallet.chain}".`);
+  }
 
   const syncStartedAt = Date.now();
   const { error: markError } = await portfolioDb()

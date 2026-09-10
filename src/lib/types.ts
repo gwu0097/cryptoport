@@ -4,6 +4,9 @@
 // treat it as either. Parsing/validating them lives in valuation.ts, not
 // here.
 
+/** Chains an auto-sync adapter actually exists for. A wallet's own `chain`
+ * field is NOT restricted to this — see Wallet.chain below — this is
+ * narrower on purpose, for adapter dispatch. */
 export type Chain = "BTC" | "ETH" | "SOL" | "ADA";
 export type WalletMode = "manual" | "auto";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
@@ -19,7 +22,11 @@ export interface Wallet {
   id: string;
   name: string;
   address: string | null;
-  chain: Chain;
+  /** Free text, not restricted to Chain above — a manual wallet can track
+   * any chain ("RON", "NEAR", whatever), auto-sync just isn't available
+   * for anything outside Chain (enforced in wallets/actions.ts, both in
+   * the UI and again server-side). Always stored uppercase. */
+  chain: string;
   mode: WalletMode;
   /** User-defined, free-text categorization — replaced the old fixed
    * personal/biz "account" enum (see resolveTagId in wallets/actions.ts:
