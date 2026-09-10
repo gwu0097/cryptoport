@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { RefreshCw, Trash } from "lucide-react";
+import { RefreshCw, Trash, Database } from "lucide-react";
 import { getWalletsWithTotals } from "@/lib/queries";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -8,13 +8,18 @@ import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
-import { deleteWallet, refreshPricesAction } from "./actions";
+import { deleteWallet, refreshPricesAction, refreshTokenRegistryAction } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
 // runtime APIs or cookies to force dynamic rendering the old way) and Vercel
 // would serve that frozen snapshot until the next deploy — wrong for a page
 // whose entire job is showing current wallet values.
 export const dynamic = "force-dynamic";
+
+// refreshTokenRegistryAction pulls CoinGecko's full coin list (tens of
+// thousands of rows across every configured chain) — same reasoning as the
+// per-wallet sync's maxDuration in wallets/[id]/page.tsx.
+export const maxDuration = 300;
 
 export default async function WalletsPage() {
   const { wallets, grand } = await getWalletsWithTotals();
@@ -32,6 +37,12 @@ export default async function WalletsPage() {
               <SubmitButton variant="secondary" size="sm">
                 <RefreshCw className="size-3.5" aria-hidden="true" />
                 Refresh prices
+              </SubmitButton>
+            </form>
+            <form action={refreshTokenRegistryAction}>
+              <SubmitButton variant="secondary" size="sm">
+                <Database className="size-3.5" aria-hidden="true" />
+                Refresh token list
               </SubmitButton>
             </form>
           </>
