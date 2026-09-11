@@ -356,7 +356,7 @@ export async function getWalletDetail(id: string): Promise<WalletDetailResult | 
   return { wallet: rest, ...valuateHoldings(holdings, defaultChainId(rest.chain), prices) };
 }
 
-type WalletWithHoldings = Wallet & { holdings: Holding[] };
+export type WalletWithHoldings = Wallet & { holdings: Holding[] };
 
 /** Every active wallet, with its holdings — the exact same read used by
  * getAssetsGroupedByChain, getAssetsGroupedByTicker, and
@@ -365,7 +365,7 @@ type WalletWithHoldings = Wallet & { holdings: Holding[] };
  * getPriceMap's doc comment) — a page rendering more than one of those
  * three views in one request, which nothing currently does but nothing
  * rules out either, would otherwise fetch this identical data twice. */
-const getActiveWalletsWithHoldings = cache(async (): Promise<WalletWithHoldings[]> => {
+export const getActiveWalletsWithHoldings = cache(async (): Promise<WalletWithHoldings[]> => {
   const db = await userDb();
   const { data, error } = await db.from("wallets").select("*, holdings(*)").eq("active", true);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
@@ -624,21 +624,29 @@ export interface PortfolioHistoryPoint {
   total: number;
 }
 
-/** Daily value history for the Dashboard's trend chart, from
- * cryptoport.portfolio_snapshots (see src/lib/snapshots.ts — the only
- * writer, a once-a-day Vercel Cron). Through userDb(), not serviceDb():
- * that table's RLS policy scopes a select to the caller's own rows, same
- * as every other per-user read in this file. Empty until the cron has run
- * at least once since this table was created — there is no historical
- * backfill possible, see schema.sql's comment on this table. */
-export async function getPortfolioHistory(): Promise<PortfolioHistoryPoint[]> {
+/**
+ * Real daily value history: no `walletId` reads cryptoport.portfolio_snapshots
+ * (the Dashboard trend chart), a `walletId` reads cryptoport.wallet_snapshots
+ * (Analytics' per-wallet breakdown) — both written by the same once-a-day
+ * Vercel Cron (see src/lib/snapshots.ts, the only writer of either table).
+ * Through userDb() in both cases: each table's RLS policy scopes a select
+ * to the caller's own rows, same as every other per-user read in this
+ * file. Empty until the cron has run at least once since these tables were
+ * created — there is no real backfill possible; see analytics.ts for the
+ * estimated series Analytics stitches in front of this.
+ */
+export async function getValueHistory(walletId?: string): Promise<PortfolioHistoryPoint[]> {
   if (!(await getUser())) return [];
   const db = await userDb();
-  const { data, error } = await db
-    .from("portfolio_snapshots")
-    .select("snapshot_date, total_usd")
-    .order("snapshot_date", { ascending: true });
-  if (error) throw new Error(`Failed to load portfolio history: ${error.message}`);
+
+  const { data, error } = walletId
+    ? await db
+        .from("wallet_snapshots")
+        .select("snapshot_date, total_usd")
+        .eq("wallet_id", walletId)
+        .order("snapshot_date", { ascending: true })
+    : await db.from("portfolio_snapshots").select("snapshot_date, total_usd").order("snapshot_date", { ascending: true });
+  if (error) throw new Error(`Failed to load value history: ${error.message}`);
 
   return (data as { snapshot_date: string; total_usd: number | string }[]).map((row) => ({
     date: row.snapshot_date,

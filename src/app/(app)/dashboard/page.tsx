@@ -1,5 +1,5 @@
 import { Eye, RefreshCw } from "lucide-react";
-import { getAssetsGroupedByTicker, getPortfolioHistory, getPriceRefreshState } from "@/lib/queries";
+import { getAssetsGroupedByTicker, getValueHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
 import { blendedChange } from "@/lib/dashboard";
@@ -27,7 +27,7 @@ const LOW_VALUE_USD = 10;
 export default async function DashboardPage() {
   const [{ groups, grand }, history, priceState, user] = await Promise.all([
     getAssetsGroupedByTicker(),
-    getPortfolioHistory(),
+    getValueHistory(),
     getPriceRefreshState(),
     getUser(),
   ]);

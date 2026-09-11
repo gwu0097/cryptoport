@@ -3,6 +3,7 @@ import { fetchWithRetry } from "./http";
 import { EVM_CHAINS } from "./evmChains";
 import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
+import { NON_EVM_PLATFORM_IDS, NATIVE_ICON_CHAINS } from "./coingeckoIds";
 
 const API_BASE = "https://api.coingecko.com/api/v3";
 
@@ -29,35 +30,6 @@ interface AssetPlatform {
   id: string;
   image?: { small?: string };
 }
-
-// Chain ids this app has that aren't in EVM_CHAINS (so have no
-// `coingeckoPlatform` of their own to look up by) but still correspond to a
-// real CoinGecko asset_platforms entry, keyed by that platform's own id.
-const NON_EVM_PLATFORM_IDS: Record<string, string> = {
-  solana: "solana",
-  hyperliquid: "hyperliquid",
-  cardano: "cardano",
-};
-
-// Non-EVM chains with no CoinGecko asset_platforms entry at all — see the
-// native-icon fallback in refreshTokenRegistry below.
-const NATIVE_ICON_CHAINS: Record<string, string> = {
-  bitcoin: "bitcoin",
-  "solana-defi": "solana",
-  cosmoshub: "cosmos",
-  injective: "injective-protocol",
-  near: "near",
-  sui: "sui",
-  filecoin: "filecoin",
-  bitcoincash: "bitcoin-cash",
-  polkadot: "polkadot",
-  bittensor: "bittensor",
-  neo: "neo",
-  xrpl: "ripple",
-  ton: "the-open-network",
-  aptos: "aptos",
-  "internet-computer": "internet-computer",
-};
 
 /**
  * Refreshes cryptoport.token_registry from CoinGecko's coins/list — one
@@ -204,4 +176,53 @@ export async function fetchNativePrice(coingeckoId: string): Promise<number | nu
   if (!res.ok) throw new Error(`CoinGecko simple/price(${coingeckoId}) failed: HTTP ${res.status}`);
   const body: Record<string, { usd?: number }> = await res.json();
   return body[coingeckoId]?.usd ?? null;
+}
+
+export interface DailyPricePoint {
+  /** UTC calendar date, YYYY-MM-DD — matches portfolio_snapshots' and
+   * wallet_snapshots' own snapshot_date semantics. */
+  date: string;
+  usd: number;
+}
+
+/** A priceKey.ts key is either a bare coin id ("bitcoin") or
+ * "<platform>:<contract>" ("ethereum:0xc02aaa...") — this picks the
+ * matching free market_chart endpoint. */
+function marketChartUrl(key: string, days: number): string {
+  const sep = key.indexOf(":");
+  if (sep === -1) return `${API_BASE}/coins/${key}/market_chart?vs_currency=usd&days=${days}`;
+  const platform = key.slice(0, sep);
+  const contract = key.slice(sep + 1);
+  return `${API_BASE}/coins/${platform}/contract/${contract}/market_chart?vs_currency=usd&days=${days}`;
+}
+
+/**
+ * Daily USD close for the last `days` days, for one priceKey.ts key — both
+ * the coin-id endpoint (native tokens) and the contract-address endpoint
+ * (everything with a `contract`); see marketChartUrl above for which key
+ * shape routes to which, and priceKey.ts for how a holding produces a key.
+ * CoinGecko returns hourly-or-finer points for days<=90 and daily points
+ * beyond that (both free/keyless, verified live); this collapses either
+ * into one point per UTC calendar day (the latest price observed that
+ * day — its closing price), since `prices` arrives sorted ascending by
+ * timestamp, so it lines up with the once-a-day snapshot tables' shape.
+ * A 404 means CoinGecko doesn't have this asset at all — not a fetch
+ * failure, just zero coverage for it (see priceHistory.ts's caller).
+ */
+export async function fetchDailyHistory(key: string, days: number): Promise<DailyPricePoint[]> {
+  const url = marketChartUrl(key, days);
+  const res = await fetchWithRetry(url, { headers: headers() });
+  if (!res.ok) {
+    if (res.status === 404) return [];
+    throw new Error(`CoinGecko market_chart(${key}) failed: HTTP ${res.status}`);
+  }
+  const body: { prices?: [number, number][] } = await res.json();
+
+  const byDate = new Map<string, number>();
+  for (const [timestampMs, usd] of body.prices ?? []) {
+    byDate.set(new Date(timestampMs).toISOString().slice(0, 10), usd);
+  }
+  return [...byDate.entries()]
+    .map(([date, usd]) => ({ date, usd }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }

@@ -1,5 +1,6 @@
 import type { PortfolioHistoryPoint } from "@/lib/queries";
 import { formatUsdSigned, formatPercent } from "@/lib/format";
+import { scalePoints, linePath, areaPath } from "@/lib/chart";
 import { Panel } from "../ui/Panel";
 
 const WIDTH = 600;
@@ -32,17 +33,14 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
     );
   }
 
-  const values = points.map((p) => p.total);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1; // every point identical — avoid a divide-by-zero flat line
-
-  const coords = points.map((p, i) => ({
-    x: (i / (points.length - 1)) * WIDTH,
-    y: HEIGHT - PADDING_Y - ((p.total - min) / range) * (HEIGHT - PADDING_Y * 2),
-  }));
-  const linePath = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x},${c.y}`).join(" ");
-  const areaPath = `${linePath} L${WIDTH},${HEIGHT} L0,${HEIGHT} Z`;
+  const coords = scalePoints(
+    points.map((p) => p.total),
+    WIDTH,
+    HEIGHT,
+    PADDING_Y,
+  );
+  const line = linePath(coords);
+  const area = areaPath(coords, WIDTH, HEIGHT);
 
   const first = points[0].total;
   const last = points[points.length - 1].total;
@@ -60,9 +58,9 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
           role="img"
           aria-label="Portfolio value over time"
         >
-          <path d={areaPath} fill="currentColor" fillOpacity={0.12} stroke="none" />
+          <path d={area} fill="currentColor" fillOpacity={0.12} stroke="none" />
           <path
-            d={linePath}
+            d={line}
             fill="none"
             stroke="currentColor"
             strokeWidth={2}

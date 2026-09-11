@@ -403,3 +403,61 @@ grant select on cryptoport.portfolio_snapshots to authenticated;
 
 create policy "portfolio_snapshots: owner only" on cryptoport.portfolio_snapshots
   for select using (user_id = auth.uid());
+
+-- Same shape as portfolio_snapshots, one level down: per-wallet daily
+-- value, for Analytics' per-wallet breakdown (src/lib/snapshots.ts writes
+-- both tables in the same cron pass, from the same holdings/prices read,
+-- so a wallet's row and the user total it rolls into can never disagree).
+-- Ownership via a subquery on wallets.user_id (same pattern as
+-- holdings/RLS), not a duplicated user_id column here.
+create table cryptoport.wallet_snapshots (
+  id             uuid primary key default gen_random_uuid(),
+  wallet_id      uuid not null references cryptoport.wallets(id) on delete cascade,
+  snapshot_date  date not null,
+  total_usd      numeric not null,
+  unpriced_count int not null default 0,
+  created_at     timestamptz not null default now(),
+  unique (wallet_id, snapshot_date)
+);
+
+alter table cryptoport.wallet_snapshots enable row level security;
+grant all on cryptoport.wallet_snapshots to service_role;
+grant select on cryptoport.wallet_snapshots to authenticated;
+
+create policy "wallet_snapshots: owner only" on cryptoport.wallet_snapshots
+  for select using (
+    wallet_id in (select id from cryptoport.wallets where user_id = auth.uid())
+  );
+
+create index wallet_snapshots_wallet_date_idx
+  on cryptoport.wallet_snapshots (wallet_id, snapshot_date);
+
+-- Cached daily historical token prices, keyed by however priceKey.ts
+-- resolved the holding: "<coin-id>" (e.g. "bitcoin") for a native token, or
+-- "<platform>:<contract>" (e.g. "ethereum:0xc02aaa...") for a contract-
+-- based one — see src/lib/priceHistory.ts, the only writer (an explicit,
+-- user-triggered "Backfill history" action on /analytics, not a cron).
+-- Market data, not user data: shared across all users rather than
+-- duplicated per account — select is open to any authenticated user, same
+-- access level as token_registry/chain_icons.
+--
+-- One row per key with the whole year's series as jsonb ({"2026-01-01":
+-- 2000.12, ...}), not one row per (key, day): a portfolio with 100+
+-- distinct tokens would otherwise be ~36,500 rows, past PostgREST's
+-- default 1000-row response cap — reading it back would silently truncate
+-- instead of erroring. A row per key keeps a read to however many tokens
+-- are held, comfortably under that cap, and is a single request instead of
+-- a paginated one — "every click as fast as possible" applies to the read
+-- path, not just the backfill itself.
+create table cryptoport.price_history (
+  coingecko_key text primary key,
+  series        jsonb not null,
+  fetched_at    timestamptz not null default now()
+);
+
+alter table cryptoport.price_history enable row level security;
+grant all on cryptoport.price_history to service_role;
+grant select on cryptoport.price_history to authenticated;
+
+create policy "price_history: readable by all signed-in users"
+  on cryptoport.price_history for select to authenticated using (true);
