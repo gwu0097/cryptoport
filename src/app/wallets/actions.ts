@@ -13,6 +13,7 @@ import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
 import { fetchNearHoldings } from "@/lib/adapters/near";
 import { fetchSuiHoldings } from "@/lib/adapters/sui";
+import { fetchFilecoinHoldings } from "@/lib/adapters/filecoin";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Chain, WalletMode } from "@/lib/types";
@@ -72,7 +73,17 @@ export async function refreshPricesForWalletAction(walletId: string) {
 // and again defensively in syncWalletHoldings) and client-side in
 // ChainModeFields (which disables the "auto" option for anything else, so
 // this server check is belt-and-suspenders rather than the only guard).
-const AUTO_CAPABLE_CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL", "ADA", "ATOM", "INJ", "NEAR", "SUI"];
+const AUTO_CAPABLE_CHAINS: readonly Chain[] = [
+  "BTC",
+  "ETH",
+  "SOL",
+  "ADA",
+  "ATOM",
+  "INJ",
+  "NEAR",
+  "SUI",
+  "FIL",
+];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
 
@@ -268,13 +279,14 @@ interface AdapterFetchResult {
 // fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached
 // script type through and get the detected one back.
 async function fetchAdapterHoldings(
-  chain: "ETH" | "SOL" | "ATOM" | "INJ" | "NEAR" | "SUI",
+  chain: "ETH" | "SOL" | "ATOM" | "INJ" | "NEAR" | "SUI" | "FIL",
   address: string,
 ): Promise<AdapterFetchResult> {
   if (chain === "ETH") return fetchEvmHoldings(address);
   if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
   if (chain === "NEAR") return { holdings: await fetchNearHoldings(address), warnings: [] };
   if (chain === "SUI") return { holdings: await fetchSuiHoldings(address), warnings: [] };
+  if (chain === "FIL") return { holdings: await fetchFilecoinHoldings(address), warnings: [] };
   return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
 }
 

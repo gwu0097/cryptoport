@@ -8,7 +8,7 @@ import { Field, inputClass, selectClass } from "./ui/Field";
 // (datalist suggestions, disabling the "auto" option), so being out of
 // sync would just make the client-side hint wrong, never let an
 // unsupported chain actually get saved as auto (the server checks again).
-const AUTO_CAPABLE_CHAINS = ["BTC", "ETH", "SOL", "ADA", "ATOM", "INJ", "NEAR", "SUI"];
+const AUTO_CAPABLE_CHAINS = ["BTC", "ETH", "SOL", "ADA", "ATOM", "INJ", "NEAR", "SUI", "FIL"];
 
 /**
  * Chain is free text with autocomplete (same pattern as the Tag field) —
@@ -37,7 +37,7 @@ export function ChainModeFields({
     <>
       <Field
         label="Chain"
-        hint="Any chain works for manual tracking — auto-sync only exists for BTC, ETH, SOL, ADA, ATOM, INJ, NEAR, and SUI."
+        hint="Any chain works for manual tracking — auto-sync only exists for BTC, ETH, SOL, ADA, ATOM, INJ, NEAR, SUI, and FIL."
       >
         <input
           name="chain"

@@ -7,6 +7,7 @@ import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
 import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
 import { fetchNearHoldings, isNearAccountId } from "./adapters/near";
 import { fetchSuiHoldings, isSuiAddress } from "./adapters/sui";
+import { fetchFilecoinHoldings, isFilecoinAddress } from "./adapters/filecoin";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { defaultChainId } from "./chainNames";
@@ -38,6 +39,7 @@ export function detectChain(address: string): Chain | null {
   if (isCosmosAddress("ATOM", address)) return "ATOM";
   if (isCosmosAddress("INJ", address)) return "INJ";
   if (isSuiAddress(address)) return "SUI";
+  if (isFilecoinAddress(address)) return "FIL";
   if (isNearAccountId(address)) return "NEAR";
   return null;
 }
@@ -82,7 +84,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const chain = detectChain(address);
   if (!chain) {
     throw new Error(
-      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, NEAR, or SUI address.",
+      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, NEAR, SUI, or FIL address.",
     );
   }
 
@@ -99,7 +101,9 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
               ? fetchNearHoldings(address)
               : chain === "SUI"
                 ? fetchSuiHoldings(address)
-                : fetchBitcoinHoldings(address);
+                : chain === "FIL"
+                  ? fetchFilecoinHoldings(address)
+                  : fetchBitcoinHoldings(address);
 
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 

@@ -13,6 +13,7 @@ export const CHAIN_NAMES: Record<string, string> = {
   injective: "Injective",
   near: "NEAR",
   sui: "Sui",
+  filecoin: "Filecoin",
   BTC: "Bitcoin",
   ETH: "Ethereum",
   SOL: "Solana",
@@ -21,6 +22,7 @@ export const CHAIN_NAMES: Record<string, string> = {
   INJ: "Injective",
   NEAR: "NEAR",
   SUI: "Sui",
+  FIL: "Filecoin",
 };
 
 export function chainDisplayName(chainId: string): string {
@@ -53,5 +55,6 @@ export function defaultChainId(chain: string): string {
   if (chain === "INJ") return "injective";
   if (chain === "NEAR") return "near";
   if (chain === "SUI") return "sui";
+  if (chain === "FIL") return "filecoin";
   return chain.toLowerCase();
 }

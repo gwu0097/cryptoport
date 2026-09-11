@@ -46,6 +46,7 @@ const NATIVE_ICON_CHAINS: Record<string, string> = {
   injective: "injective-protocol",
   near: "near",
   sui: "sui",
+  filecoin: "filecoin",
 };
 
 /**
