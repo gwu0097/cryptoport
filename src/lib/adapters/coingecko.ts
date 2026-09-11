@@ -47,6 +47,7 @@ const NATIVE_ICON_CHAINS: Record<string, string> = {
   near: "near",
   sui: "sui",
   filecoin: "filecoin",
+  bitcoincash: "bitcoin-cash",
 };
 
 /**

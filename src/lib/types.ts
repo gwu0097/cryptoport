@@ -7,7 +7,7 @@
 /** Chains an auto-sync adapter actually exists for. A wallet's own `chain`
  * field is NOT restricted to this — see Wallet.chain below — this is
  * narrower on purpose, for adapter dispatch. */
-export type Chain = "BTC" | "ETH" | "SOL" | "ADA" | "ATOM" | "INJ" | "NEAR" | "SUI" | "FIL";
+export type Chain = "BTC" | "ETH" | "SOL" | "ADA" | "ATOM" | "INJ" | "NEAR" | "SUI" | "FIL" | "BCH";
 export type WalletMode = "manual" | "auto";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
 export type HoldingCategory = "token" | "defi";
