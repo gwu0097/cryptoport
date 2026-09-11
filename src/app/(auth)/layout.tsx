@@ -1,13 +1,12 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 
-// Deliberately no AppShell here (see the root layout's own comment) — a
-// plain centered card, no sidebar/top-bar chrome meant for someone who's
-// already signed in. The /lookup link below is what makes the public
-// address-search feature actually discoverable — it's reachable without an
-// account (see lookup/layout.tsx), but nothing on this page said so before,
-// so a signed-out visitor landing here had no way to find it short of
-// already knowing the URL.
+// Deliberately no AppShell here — a plain centered card, no sidebar/top-bar
+// chrome meant for someone who's already signed in. Every real page is
+// browsable without an account now (see (app)/layout.tsx), but /lookup is
+// still a distinct, narrower feature (raw address search, no saved
+// wallets/tags at all — see lookup/layout.tsx) worth surfacing directly
+// from the one place a signed-out visitor is guaranteed to land.
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12 text-fg">

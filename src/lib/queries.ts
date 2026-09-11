@@ -1,5 +1,6 @@
 import "server-only";
 import { serviceDb, userDb } from "./supabase";
+import { getUser } from "./auth";
 import {
   aggregate,
   parseNumeric,
@@ -36,6 +37,13 @@ export async function getPriceRefreshState(): Promise<PriceRefreshState> {
  * No explicit user filter here — RLS on cryptoport.tags already scopes
  * this to auth.uid(), see db/schema.sql. */
 export async function getTags(): Promise<Tag[]> {
+  // Every page is viewable without a session (see (app)/layout.tsx) — but
+  // anon has zero grants anywhere in the cryptoport schema (db/schema.sql),
+  // not even schema usage, so userDb() with no session would fail with a
+  // hard "permission denied" error, not an empty RLS-filtered result.
+  // Short-circuit before ever touching Postgres; every userDb()-based
+  // function in this file does the same for the same reason.
+  if (!(await getUser())) return [];
   const db = await userDb();
   const { data, error } = await db.from("tags").select("id, name").order("name");
   if (error) throw new Error(`Failed to load tags: ${error.message}`);
@@ -46,6 +54,7 @@ export async function getTags(): Promise<Tag[]> {
  * walletAuth.ts) — for the Settings "Linked wallets" panel. No explicit
  * user filter, same reasoning as getTags(): RLS already scopes this. */
 export async function getLinkedWallets(): Promise<LinkedWallet[]> {
+  if (!(await getUser())) return [];
   const db = await userDb();
   const { data, error } = await db
     .from("linked_wallets")
@@ -62,6 +71,7 @@ export async function getLinkedWallets(): Promise<LinkedWallet[]> {
  * already done. Same case-sensitivity split as the dedupe logic in
  * (auth)/walletActions.ts and (app)/settings/walletActions.ts. */
 export async function isWalletLinked(chain: "ETH" | "SOL", address: string): Promise<boolean> {
+  if (!(await getUser())) return false;
   const db = await userDb();
   const base = db.from("linked_wallets").select("id").eq("chain", chain);
   const query = chain === "ETH" ? base.ilike("address", address) : base.eq("address", address);
@@ -121,6 +131,7 @@ export interface WalletListResult {
 
 /** Wallets list, each with its own total, plus a grand total across all of them. */
 export async function getWalletsWithTotals(): Promise<WalletListResult> {
+  if (!(await getUser())) return { wallets: [], grand: aggregate([], {}) };
   const db = await userDb();
   const [{ data: wallets, error: walletsError }, prices] = await Promise.all([
     db
@@ -235,6 +246,10 @@ export interface WalletDetailResult extends ValuatedHoldings {
 }
 
 export async function getWalletDetail(id: string): Promise<WalletDetailResult | null> {
+  // Belt and suspenders — wallets/[id]/page.tsx checks getUser() itself and
+  // redirects a guest to /login before ever calling this, but this stays
+  // guarded too rather than relying solely on the caller to do it first.
+  if (!(await getUser())) return null;
   const db = await userDb();
   const [{ data: wallet, error: walletError }, prices] = await Promise.all([
     db.from("wallets").select("*, holdings(*), tag:tags(id,name)").eq("id", id).maybeSingle(),
@@ -254,6 +269,7 @@ export interface AssetsResult {
 
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
 export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
+  if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const db = await userDb();
   const [{ data: wallets, error }, prices] = await Promise.all([
     db.from("wallets").select("*, holdings(*)").eq("active", true),
@@ -332,6 +348,7 @@ export interface AssetsByTickerResult {
  * stricter notion of "same asset" just for this one page.
  */
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
+  if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const db = await userDb();
   const [{ data: wallets, error }, prices] = await Promise.all([
     db.from("wallets").select("*, holdings(*)").eq("active", true),
@@ -429,6 +446,7 @@ export interface DefiResult {
  * a plain token balance has none and is correctly invisible on this page.
  */
 export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
+  if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const db = await userDb();
   const [{ data: wallets, error }, prices] = await Promise.all([
     db.from("wallets").select("*, holdings(*)").eq("active", true),

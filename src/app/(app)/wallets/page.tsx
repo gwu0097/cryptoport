@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { RefreshCw, Database } from "lucide-react";
 import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
+import { getUser } from "@/lib/auth";
 import { formatStaleness, formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { WalletsTable } from "@/components/WalletsTable";
+import { SignInPrompt } from "@/components/SignInPrompt";
 import { refreshPricesAction, refreshTokenRegistryAction, syncAllWallets } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
@@ -21,10 +23,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export default async function WalletsPage() {
-  const [{ wallets, grand }, tags, priceState] = await Promise.all([
+  const [{ wallets, grand }, tags, priceState, user] = await Promise.all([
     getWalletsWithTotals(),
     getTags(),
     getPriceRefreshState(),
+    getUser(),
   ]);
   const tagNames = tags.map((t) => t.name);
 
@@ -33,49 +36,57 @@ export default async function WalletsPage() {
       <PageHeader
         title="Wallets"
         actions={
-          <>
-            <Link href="/wallets/new" className={buttonClass("primary", "sm")}>
-              + Add wallet
-            </Link>
-            <form action={syncAllWallets}>
-              <SubmitButton variant="secondary" size="sm">
-                <RefreshCw className="size-3.5" aria-hidden="true" />
-                Sync all
-              </SubmitButton>
-            </form>
-            <div className="flex flex-col items-center gap-1">
-              <form action={refreshPricesAction}>
+          user && (
+            <>
+              <Link href="/wallets/new" className={buttonClass("primary", "sm")}>
+                + Add wallet
+              </Link>
+              <form action={syncAllWallets}>
                 <SubmitButton variant="secondary" size="sm">
                   <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Refresh prices
+                  Sync all
                 </SubmitButton>
               </form>
-              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
-            </div>
-            <form action={refreshTokenRegistryAction}>
-              <SubmitButton variant="secondary" size="sm">
-                <Database className="size-3.5" aria-hidden="true" />
-                Refresh token list
-              </SubmitButton>
-            </form>
-          </>
+              <div className="flex flex-col items-center gap-1">
+                <form action={refreshPricesAction}>
+                  <SubmitButton variant="secondary" size="sm">
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                    Refresh prices
+                  </SubmitButton>
+                </form>
+                <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+              </div>
+              <form action={refreshTokenRegistryAction}>
+                <SubmitButton variant="secondary" size="sm">
+                  <Database className="size-3.5" aria-hidden="true" />
+                  Refresh token list
+                </SubmitButton>
+              </form>
+            </>
+          )
         }
       />
 
-      <Panel className="mb-6">
-        <p className="text-sm text-fg-muted">Total value</p>
-        <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
-          {formatUsd(grand.total)}
-        </p>
-      </Panel>
+      {user && (
+        <Panel className="mb-6">
+          <p className="text-sm text-fg-muted">Total value</p>
+          <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
+            {formatUsd(grand.total)}
+          </p>
+        </Panel>
+      )}
 
       {wallets.length === 0 ? (
-        <Panel className="text-center">
-          <p className="text-sm text-fg-muted">No wallets yet.</p>
-          <Link href="/wallets/new" className={`${buttonClass("primary", "sm")} mt-4`}>
-            + Add wallet
-          </Link>
-        </Panel>
+        user ? (
+          <Panel className="text-center">
+            <p className="text-sm text-fg-muted">No wallets yet.</p>
+            <Link href="/wallets/new" className={`${buttonClass("primary", "sm")} mt-4`}>
+              + Add wallet
+            </Link>
+          </Panel>
+        ) : (
+          <SignInPrompt message="Sign up or connect a wallet to start tracking your portfolio." />
+        )
       ) : (
         <Panel padding={false} className="overflow-hidden">
           <WalletsTable wallets={wallets} tagNames={tagNames} />

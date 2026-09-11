@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked, type HoldingWithValuation } from "@/lib/queries";
+import { getUser } from "@/lib/auth";
 import { formatStaleness, formatUsd, formatQty, formatTicker, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
@@ -78,11 +79,23 @@ export default async function WalletDetailPage(
 ) {
   const { id } = await props.params;
   const { chain: selectedChain, hideUnpriced, hideLow, autosync } = await props.searchParams;
+
+  // The one page that stays gated — unlike the list pages, there's no
+  // meaningful "sign in to see this" empty state for one specific wallet
+  // id, so a guest is sent straight to /login instead. Checked before the
+  // data fetch below rather than relying on getWalletDetail/getTags'/
+  // isWalletLinked's own no-session guards (queries.ts) to merely avoid
+  // throwing — this is the UX decision, those are the safety net.
+  if (!(await getUser())) redirect("/login");
+
   const [detail, tags, priceState] = await Promise.all([
     getWalletDetail(id),
     getTags(),
     getPriceRefreshState(),
   ]);
+  // A signed-in user hitting a wallet RLS hides (someone else's) still 404s
+  // — doesn't leak whether the id exists, unchanged from before this page
+  // was reachable by guests at all.
   if (!detail) notFound();
 
   const { wallet, holdings, chainGroups, total, unpricedCount } = detail;

@@ -35,11 +35,17 @@ import type { WalletMode } from "@/lib/types";
 // Ethereum) and registry data doesn't need to be fresher than "before your
 // next EVM wallet sync."
 export async function refreshTokenRegistryAction() {
+  // No cross-tenant data risk (token_registry is global, serviceDb()-only)
+  // but it's expensive and rate-limit-sensitive shared state — not
+  // something to leave open to an unauthenticated, unlimited trigger now
+  // that every page (and its buttons) renders for a guest too.
+  await requireUser();
   await refreshTokenRegistry();
   revalidatePath("/wallets");
 }
 
 export async function refreshPricesAction() {
+  await requireUser();
   const results = await refreshPrices();
   const failed = results.filter((r) => !r.ok);
   const status =

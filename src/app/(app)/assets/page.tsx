@@ -1,9 +1,11 @@
 import { getAssetsGroupedByTicker } from "@/lib/queries";
+import { getUser } from "@/lib/auth";
 import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
 import { AssetsTable } from "@/components/AssetsTable";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
@@ -29,7 +31,7 @@ export default async function AssetsPage({
   const hideUnpriced = hideUnpricedParam !== "0";
   const hideLow = hideLowParam !== "0";
 
-  const { groups, grand } = await getAssetsGroupedByTicker();
+  const [{ groups, grand }, user] = await Promise.all([getAssetsGroupedByTicker(), getUser()]);
 
   // Same semantics as ChainGroupedHoldings: filter which contributing
   // holdings show in a group's breakdown table, but the group's own
@@ -51,23 +53,29 @@ export default async function AssetsPage({
     <>
       <PageHeader title="Assets" subtitle="Every token you hold, aggregated across all your wallets" />
 
-      <Panel className="mb-6">
-        <p className="text-sm text-fg-muted">Total value</p>
-        <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">{formatUsd(grand.total)}</p>
-        {grand.unpricedCount > 0 && (
-          <p className="mt-2 text-sm text-warning">
-            {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
-            excluded from the total
-          </p>
-        )}
-      </Panel>
+      {user && (
+        <Panel className="mb-6">
+          <p className="text-sm text-fg-muted">Total value</p>
+          <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">{formatUsd(grand.total)}</p>
+          {grand.unpricedCount > 0 && (
+            <p className="mt-2 text-sm text-warning">
+              {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
+              excluded from the total
+            </p>
+          )}
+        </Panel>
+      )}
 
       {groups.length === 0 ? (
-        <Panel className="text-center">
-          <p className="text-sm text-fg-muted">
-            No holdings yet — add or sync a wallet to see your assets here.
-          </p>
-        </Panel>
+        user ? (
+          <Panel className="text-center">
+            <p className="text-sm text-fg-muted">
+              No holdings yet — add or sync a wallet to see your assets here.
+            </p>
+          </Panel>
+        ) : (
+          <SignInPrompt message="Sign up or connect a wallet to start tracking your portfolio." />
+        )
       ) : (
         <>
           <div className="mb-4 flex justify-end gap-4">

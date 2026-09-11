@@ -1,17 +1,21 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { requireUser } from "@/lib/auth";
+import { getUser } from "@/lib/auth";
 import { walletDisplayName } from "@/lib/walletAuth";
 
 // Every real page of the app lives under this route group (invisible in
-// the URL — /wallets is still /wallets) so it can share one layout that
-// (a) wraps everything in the sidebar/top-bar chrome and (b) enforces a
-// session before rendering anything below it. proxy.ts already redirects
-// an unauthenticated request before it gets here — this is the second,
-// data-layer line of defense the plan calls for, not the only one.
+// the URL — /wallets is still /wallets) so it can share one layout for the
+// sidebar/top-bar chrome. Deliberately getUser() (nullable), not
+// requireUser() — every page here is viewable without a session (see
+// db/schema.sql's linked_wallets comment and queries.ts's per-function
+// guest guards); only saving anything requires an account, enforced by
+// requireUser() inside each Server Action plus RLS underneath it, not by
+// gating pages. Same pattern lookup/layout.tsx already used.
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
+  const user = await getUser();
   // A wallet-only account's real "email" is a meaningless synthetic UUID
   // (see walletAuth.ts) — show its linked address instead wherever this
   // reaches TopBar.
-  return <AppShell userEmail={walletDisplayName(user) ?? user.email ?? null}>{children}</AppShell>;
+  return (
+    <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>
+  );
 }

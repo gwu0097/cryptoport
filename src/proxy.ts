@@ -10,19 +10,14 @@ export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
 
-// Reachable without a session. /auth/confirm has to be here — it's the
-// route that *creates* the session (Supabase's confirmation/reset email
-// links land there). /update-password is deliberately NOT here: reaching
-// it means following a password-reset email link, which itself creates a
-// temporary session via /auth/confirm first, so treating it as a normal
-// protected route is correct, not an oversight. /lookup is here on
-// purpose too — it's read-only (see its own layout's doc comment) and
-// meant to work for a signed-out visitor, same as DeBank/Rabby's address
-// search. "/" itself is here too, but only ever as a redirect (see
-// app/page.tsx) — a signed-out visitor bounces to /lookup, a signed-in one
-// to /wallets — so this being "public" never exposes anything, it just
-// stops the root URL itself from being forced through /login first.
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth/confirm", "/lookup", "/"];
+// Every page in the app is viewable without a session — only saving
+// anything requires an account, enforced by RLS + requireUser() at the
+// data layer (src/lib/queries.ts, every Server Action), not by gating
+// pages here. The one exception is /update-password: reaching it means
+// following a password-reset email link, which mints a temporary session
+// via /auth/confirm first — without that session there's nothing valid to
+// update, so it stays denylisted rather than open like everything else.
+const PROTECTED_PATHS = ["/update-password"];
 const AUTH_LANDING_PATHS = ["/login", "/signup", "/forgot-password"];
 
 function isPath(pathname: string, list: string[]): boolean {
@@ -30,19 +25,14 @@ function isPath(pathname: string, list: string[]): boolean {
 }
 
 /**
- * Optimistic only — a cheap cookie-based check that redirects obviously
- * unauthenticated requests before they render anything, per Next's own
- * guidance (node_modules/next/dist/docs/01-app/02-guides/authentication.md
- * — "Proxy should not be your only line of defense"). Real enforcement is
- * RLS at the data layer (see db/schema.sql, src/lib/supabase.ts's
- * userDb()) plus requireUser() in every Server Action (src/lib/auth.ts) —
- * this can't be bypassed by a client that skips Proxy some other way.
- *
- * supabase.auth.getUser() here also transparently refreshes an expiring
- * session token and rewrites the cookie onto the response — skipping this
- * is a well-known Supabase+Next.js gotcha that silently logs users out
- * once their access token expires, even though their refresh token is
- * still good.
+ * supabase.auth.getUser() runs unconditionally — it transparently refreshes
+ * an expiring session token and rewrites the cookie onto the response,
+ * which matters for every request regardless of whether the page itself
+ * needs a session (skipping this is a well-known Supabase+Next.js gotcha
+ * that silently logs users out once their access token expires, even
+ * though their refresh token is still good). PROTECTED_PATHS is checked
+ * only for the one page that actually needs to deny an unauthenticated
+ * visitor; every other route falls through untouched.
  */
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
@@ -74,7 +64,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   const path = request.nextUrl.pathname;
 
-  if (!user && !isPath(path, PUBLIC_PATHS)) {
+  if (!user && isPath(path, PROTECTED_PATHS)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

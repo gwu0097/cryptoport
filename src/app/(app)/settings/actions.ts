@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { userAuth } from "@/lib/supabase";
+import { requireUser } from "@/lib/auth";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -22,6 +23,11 @@ function requireString(formData: FormData, field: string): string {
 // Basic Auth scheme (no real session concept — every request re-sent the
 // password, so re-checking it here was the only proof available).
 export async function updateAccountPassword(formData: FormData) {
+  // Now that (app)/layout.tsx no longer gates pages, this is reachable by a
+  // guest POST — Supabase's own auth.updateUser() would reject it with no
+  // session anyway, but that's not the invariant to rely on; check here
+  // directly, same as every sibling action in this app.
+  await requireUser();
   const password = requireString(formData, "password");
   const confirmPassword = requireString(formData, "confirmPassword");
 
