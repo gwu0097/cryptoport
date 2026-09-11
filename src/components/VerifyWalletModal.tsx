@@ -2,23 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
-import { Dialog } from "./ui/Dialog";
 import { buttonClass } from "./ui/Button";
 import { useLazyDialog } from "./ui/useLazyDialog";
+import { WalletPickerDialog } from "./auth/WalletPickerDialog";
 import { WalletButton, type PinnedWalletTarget } from "./auth/WalletButton";
 
 /**
  * "Verify" as a small labeled trigger (next to the name on the wallet
- * detail page, or next to the Chain badge in WalletsTable) rather than a
- * full-width "Ethereum wallet" button and an always-visible explanatory
- * paragraph — the popup itself (see ui/Dialog.tsx, same shell as
- * EditWalletModal/AddHoldingModal) is where the actual wallet picker
- * (WalletButton, which can list several installed EVM wallets via
- * EIP-6963) lives, so the trigger stays compact regardless of how many
- * wallets are found. Always labeled "Verify" with the ShieldCheck icon,
- * never icon-only — a bare shield glyph with no text next to it reads as
- * decoration, not a button. The `title` on the trigger carries the
- * explanation in addition to the label.
+ * detail page, or next to the Chain badge in WalletsTable) — opens the
+ * shared WalletPickerDialog (see its comment) with the actual picker.
+ * Always labeled "Verify" with the ShieldCheck icon, never icon-only — a
+ * bare shield glyph with no text next to it reads as decoration, not a
+ * button. The `title` on the trigger carries the explanation in addition
+ * to the label.
  *
  * onLinked (not the default router.refresh()) is passed explicitly so the
  * dialog closes itself on success — WalletButton skips its own
@@ -40,11 +36,11 @@ export function VerifyWalletModal({ pinnedTarget }: { pinnedTarget: PinnedWallet
         Verify
       </button>
 
-      <Dialog ref={dialogRef} title="Verify this wallet">
-        <p className="mb-3 text-xs text-fg-muted">
-          Sign a message to prove you own this address — this lets you log in with it directly in the
-          future.
-        </p>
+      <WalletPickerDialog
+        ref={dialogRef}
+        heading="Verify your wallet"
+        description="Sign a message to prove you own this address — this lets you log in with it directly in the future."
+      >
         {open && (
           <WalletButton
             mode="link"
@@ -55,7 +51,7 @@ export function VerifyWalletModal({ pinnedTarget }: { pinnedTarget: PinnedWallet
             }}
           />
         )}
-      </Dialog>
+      </WalletPickerDialog>
     </>
   );
 }

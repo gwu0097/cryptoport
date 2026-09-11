@@ -1,23 +1,18 @@
 "use client";
 
 import { Wallet } from "lucide-react";
-import { Dialog } from "../ui/Dialog";
 import { buttonClass } from "../ui/Button";
 import { useLazyDialog } from "../ui/useLazyDialog";
+import { WalletPickerDialog } from "./WalletPickerDialog";
 import { WalletButton } from "./WalletButton";
 
 /**
- * Login/signup's "or sign in with a wallet" option as a popup trigger
- * instead of the row of wallet buttons sitting directly on the page — the
- * exact thing this app had originally (a single "Ethereum wallet" button
- * that popped a picker), lost when that button briefly became an
- * always-visible inline row during this session's EIP-6963 work, and
- * restored here now that every wallet-picker entry point in the app
- * (Verify, wallets/new's connect option, this) opens the same way. See
- * VerifyWalletModal's comment for why WalletButton is only mounted while
- * open. completeWalletSignIn's own router.push (see WalletButton.tsx)
- * navigates away on success, so there's no explicit close-the-dialog step
- * needed here.
+ * Login/signup's "or sign in with a wallet" option — opens the shared
+ * WalletPickerDialog (modeled on DeBank's own "Connect your wallet" modal
+ * at the user's request, see its comment) instead of a row of wallet
+ * buttons sitting directly on the page. completeWalletSignIn's own
+ * router.push (see WalletButton.tsx) navigates away on success, so there's
+ * no explicit close-the-dialog step needed here.
  */
 export function SignInWalletModal() {
   const { dialogRef, open, openDialog } = useLazyDialog();
@@ -29,13 +24,13 @@ export function SignInWalletModal() {
         Log in with wallet
       </button>
 
-      <Dialog ref={dialogRef} title="Log in with a wallet">
-        <p className="mb-3 text-xs text-fg-muted">
-          Sign a message to prove you own it — no password needed. If it isn&rsquo;t linked to an account
-          yet, one is created for it.
-        </p>
+      <WalletPickerDialog
+        ref={dialogRef}
+        heading="Connect your wallet with CryptoPort"
+        description='Connecting your wallet is like "logging in" to Web3. Select your wallet from the options to get started.'
+      >
         {open && <WalletButton mode="signin" />}
-      </Dialog>
+      </WalletPickerDialog>
     </>
   );
 }

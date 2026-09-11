@@ -1,13 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createStore, type EIP6963ProviderDetail } from "mipd";
 import type { EIP1193Provider, Hex } from "viem";
+import { Wallet as WalletIcon } from "lucide-react";
 import { requestWalletSignIn, completeWalletSignIn } from "@/app/(auth)/walletActions";
 import { requestWalletLink, completeWalletLink } from "@/app/(app)/settings/walletActions";
-import { Button } from "@/components/ui/Button";
 import type { WalletChain } from "@/lib/walletAuth";
+
+// Row styling for the picker list inside WalletPickerDialog — left-aligned,
+// full-width rows (icon + name), not the centered pill buttons ui/Button.tsx
+// makes; this component is only ever rendered inside that dialog's left
+// pane now; see WalletPickerDialog.tsx.
+const ROW_CLASS =
+  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-fg transition hover:bg-surface-raised disabled:opacity-50 disabled:pointer-events-none";
+
+function RowIconWrap({ children }: { children: ReactNode }) {
+  return (
+    <span className="grid size-6 shrink-0 place-items-center rounded-md bg-surface-raised text-fg-muted">
+      {children}
+    </span>
+  );
+}
 
 // This project's first browser-wallet integration — no wagmi/ethers/
 // RainbowKit dependency, just mipd (the standard EIP-6963 "Multi Injected
@@ -297,69 +312,69 @@ export function WalletButton({
       : evmProviders;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1">
       {error && (
-        <p className="rounded-lg border border-negative/30 bg-negative/10 px-3 py-2 text-xs text-negative">
+        <p className="mb-1 rounded-lg border border-negative/30 bg-negative/10 px-3 py-2 text-xs text-negative">
           {error}
         </p>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        {showEvm &&
-          sortedEvmProviders.map((detail) => (
-            <Button
+      {showEvm &&
+        sortedEvmProviders.map((detail) => {
+          const isLastUsed = lastWallet?.kind === "evm" && lastWallet.rdns === detail.info.rdns;
+          return (
+            <button
               key={detail.info.uuid}
               type="button"
-              variant="secondary"
-              className="flex-1 items-center gap-2"
               disabled={pending !== null}
               onClick={() => connectEthereum(detail.provider, detail.info.uuid, detail.info.rdns)}
+              className={ROW_CLASS}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- a wallet-supplied data: URI, not an optimizable asset */}
-              <img src={detail.info.icon} alt="" className="size-4 shrink-0" aria-hidden="true" />
-              {pending === detail.info.uuid
-                ? "Confirm in wallet…"
-                : lastWallet?.kind === "evm" && lastWallet.rdns === detail.info.rdns
-                  ? `${detail.info.name} · Last used`
-                  : detail.info.name}
-            </Button>
-          ))}
+              <img src={detail.info.icon} alt="" className="size-6 shrink-0 rounded-md" aria-hidden="true" />
+              <span className="flex-1 truncate">
+                {pending === detail.info.uuid ? "Confirm in wallet…" : detail.info.name}
+                {isLastUsed && pending !== detail.info.uuid && (
+                  <span className="block text-xs font-normal text-fg-muted">Last used</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
 
-        {showLegacyEth && (
-          <Button
-            type="button"
-            variant="secondary"
-            className="flex-1"
-            disabled={pending !== null}
-            onClick={() => connectEthereum(window.ethereum!, "legacy-eth")}
-          >
-            {pending === "legacy-eth" ? "Confirm in wallet…" : "Ethereum wallet"}
-          </Button>
-        )}
+      {showLegacyEth && (
+        <button
+          type="button"
+          disabled={pending !== null}
+          onClick={() => connectEthereum(window.ethereum!, "legacy-eth")}
+          className={ROW_CLASS}
+        >
+          <RowIconWrap>
+            <WalletIcon className="size-3.5" aria-hidden="true" />
+          </RowIconWrap>
+          {pending === "legacy-eth" ? "Confirm in wallet…" : "Ethereum wallet"}
+        </button>
+      )}
 
-        {showSol && !!ready?.sol && (
-          <Button
-            type="button"
-            variant="secondary"
-            className="flex-1"
-            disabled={pending !== null}
-            onClick={connectSolana}
-          >
-            {pending === "SOL" ? "Confirm in wallet…" : "Solana wallet"}
-          </Button>
-        )}
+      {showSol && !!ready?.sol && (
+        <button type="button" disabled={pending !== null} onClick={connectSolana} className={ROW_CLASS}>
+          <RowIconWrap>
+            <WalletIcon className="size-3.5" aria-hidden="true" />
+          </RowIconWrap>
+          {pending === "SOL" ? "Confirm in wallet…" : "Solana wallet"}
+        </button>
+      )}
 
-        {noEthFound && (
-          <p className="text-xs text-fg-muted">
-            No Ethereum wallet found — install Rabby, MetaMask, or another wallet.
-          </p>
-        )}
-        {noSolFound && (
-          <p className="text-xs text-fg-muted">
-            No Solana wallet found — install Phantom, Solflare, or Backpack.
-          </p>
-        )}
-      </div>
+      {noEthFound && (
+        <p className="px-3 py-2 text-xs text-fg-muted">
+          No Ethereum wallet found — install Rabby, MetaMask, or another wallet.
+        </p>
+      )}
+      {noSolFound && (
+        <p className="px-3 py-2 text-xs text-fg-muted">
+          No Solana wallet found — install Phantom, Solflare, or Backpack.
+        </p>
+      )}
     </div>
   );
 }
