@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Link, { useLinkStatus } from "next/link";
 import {
   Briefcase,
@@ -12,6 +13,7 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
+import { RecentWalletsNav } from "./RecentWalletsNav";
 
 // Shared between Sidebar.tsx (desktop, always visible) and MobileNav.tsx
 // (the phone-width drawer) so the two never drift out of sync — same list,
@@ -87,5 +89,27 @@ export function NavLink({
     >
       <NavLinkContent icon={icon} label={label} />
     </Link>
+  );
+}
+
+/**
+ * The full nav item list, shared verbatim by Sidebar.tsx and MobileNav.tsx
+ * (see this file's own top comment on why the two must never diverge) —
+ * nests RecentWalletsNav right after the Wallets link rather than each
+ * caller special-casing NAV_ITEMS' map to insert it, which would be
+ * exactly the kind of nav-structure duplication that comment exists to
+ * prevent. `onLinkClick` is only used by MobileNav, to close the drawer on
+ * navigation (recent-wallet links included).
+ */
+export function NavItemsList({ pathname, onLinkClick }: { pathname: string; onLinkClick?: () => void }) {
+  return (
+    <>
+      {NAV_ITEMS.map((item) => (
+        <Fragment key={item.href}>
+          <NavLink {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />
+          {item.href === "/wallets" && <RecentWalletsNav pathname={pathname} onLinkClick={onLinkClick} />}
+        </Fragment>
+      ))}
+    </>
   );
 }

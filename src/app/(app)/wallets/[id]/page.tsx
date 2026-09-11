@@ -17,6 +17,7 @@ import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
+import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import {
@@ -83,6 +84,7 @@ export default async function WalletDetailPage(
 
   return (
     <>
+      <RecordRecentWallet id={wallet.id} name={wallet.name} />
       <AutoRefreshWhileSyncing syncing={wallet.last_refresh_status === "syncing"} />
       <AutoSyncOnMount
         enabled={autosync === "1" && wallet.mode === "auto" && wallet.last_refresh_status !== "syncing"}

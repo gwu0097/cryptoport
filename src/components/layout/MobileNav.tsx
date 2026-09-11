@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-import { NAV_ITEMS, SETTINGS_ITEM, isActive, NavLink } from "./navItems";
+import { NavItemsList, SETTINGS_ITEM, isActive, NavLink } from "./navItems";
 
 /**
  * The phone-width replacement for Sidebar.tsx, which is `hidden` below
@@ -68,14 +68,7 @@ export function MobileNav() {
               </button>
             </div>
             <div className="flex flex-1 flex-col gap-1">
-              {NAV_ITEMS.map((item) => (
-                <NavLink
-                  key={item.href}
-                  {...item}
-                  active={isActive(pathname, item.href)}
-                  onClick={() => setOpen(false)}
-                />
-              ))}
+              <NavItemsList pathname={pathname} onLinkClick={() => setOpen(false)} />
             </div>
             <div className="mt-auto pt-3">
               <NavLink
