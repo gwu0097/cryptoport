@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractSpotAmount, isDelistedProduct } from "./coinbase.ts";
+import { extractSpotAmount, isDelistedProduct, extractPriceChange24h } from "./coinbase.ts";
 
 test("extractSpotAmount reads data.amount from a well-formed response", () => {
   const json = { data: { base: "BTC", currency: "USD", amount: "60000.12" } };
@@ -44,4 +44,24 @@ test("isDelistedProduct is false for a missing/malformed body (not evidence of d
   assert.equal(isDelistedProduct({}), false);
   assert.equal(isDelistedProduct(null), false);
   assert.equal(isDelistedProduct(undefined), false);
+});
+
+test("extractPriceChange24h computes percent change from open to last", () => {
+  // Round numbers so the expected value is exact, not a floating-point
+  // approximation to eyeball — real responses (e.g. Coinbase Exchange's
+  // /products/BTC-USD/stats: {"open":"77218.91","last":"78990.99",...})
+  // aren't round, but the formula is the same either way.
+  assert.equal(extractPriceChange24h({ open: "100", last: "105" }), 5);
+  assert.equal(extractPriceChange24h({ open: "100", last: "95" }), -5);
+});
+
+test("extractPriceChange24h returns null for a missing or zero open (division by zero)", () => {
+  assert.equal(extractPriceChange24h({ last: "105" }), null);
+  assert.equal(extractPriceChange24h({ open: "0", last: "105" }), null);
+});
+
+test("extractPriceChange24h returns null for a missing/malformed body", () => {
+  assert.equal(extractPriceChange24h({}), null);
+  assert.equal(extractPriceChange24h(null), null);
+  assert.equal(extractPriceChange24h({ open: "not-a-number", last: "105" }), null);
 });

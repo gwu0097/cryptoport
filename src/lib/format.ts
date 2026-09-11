@@ -8,6 +8,16 @@ export function formatUsd(value: number): string {
   return usdFormatter.format(value);
 }
 
+/** null covers both "no 24h data yet" and "not a number" — callers don't
+ * need to distinguish those, both just show as "—". Explicit "+" on a
+ * positive value since Intl's default formatting only signs negatives. */
+export function formatPercent(value: number | string | null): string {
+  const n = typeof value === "string" ? Number(value) : value;
+  if (n === null || !Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
 const qtyFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
 
 /** Caps a holding's quantity to 4 decimal places for display — the raw

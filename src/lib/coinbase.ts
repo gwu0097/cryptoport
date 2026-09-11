@@ -76,3 +76,39 @@ export async function fetchCoinbaseSpotPrice(ticker: string): Promise<string> {
   const json = await res.json();
   return extractSpotAmount(ticker, json);
 }
+
+interface CoinbaseStatsResponse {
+  open?: string;
+  last?: string;
+}
+
+/** Percent change from a 24h-stats response's `open` to `last`, or null if
+ * either field is missing/unusable — kept separate from the fetch for the
+ * same unit-testability reason as extractSpotAmount/isDelistedProduct.
+ * Returns null rather than throwing: unlike the spot price itself, this is
+ * a display nicety, not something a malformed response should fail the
+ * whole ticker's refresh over. */
+export function extractPriceChange24h(json: unknown): number | null {
+  const stats = json as CoinbaseStatsResponse | null;
+  const open = Number(stats?.open);
+  const last = Number(stats?.last);
+  if (!Number.isFinite(open) || open === 0 || !Number.isFinite(last)) return null;
+  return ((last - open) / open) * 100;
+}
+
+/** Never throws — a failure here (network, a ticker Coinbase's Exchange
+ * API doesn't have stats for) just means no 24h change this refresh, same
+ * "one field's failure shouldn't touch the price itself" reasoning as
+ * extractPriceChange24h. This is one extra request per Coinbase-priced
+ * ticker beyond what fetchCoinbaseSpotPrice/assertProductTradable already
+ * make — same public, unauthenticated Exchange API host as the delisting
+ * check, no separate rate-limit budget to weigh against. */
+export async function fetchCoinbase24hChange(ticker: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${EXCHANGE_BASE_URL}/${encodeURIComponent(ticker)}-USD/stats`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return extractPriceChange24h(await res.json());
+  } catch {
+    return null;
+  }
+}

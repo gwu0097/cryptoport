@@ -33,6 +33,10 @@ export interface JupiterTokenInfo {
   /** Free — already part of tokens/v2/search's response, no extra call
    * needed (unlike EVM, where icons come from a separate CoinGecko call). */
   icon?: string;
+  /** Also free — same response already carries 24h/6h/1h/5m stats; only
+   * the 24h price change is used (see prices.ts's Jupiter-fallback pricing
+   * path), the rest isn't captured here since nothing in this app uses it. */
+  stats24h?: { priceChange?: number };
 }
 
 const HEADERS = { "User-Agent": "cryptoport/1.0" };

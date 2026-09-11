@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceDb } from "./supabase";
-import { fetchCoinbaseSpotPrice, CoinbaseDelistedError } from "./coinbase";
+import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 
 export interface PriceRefreshResult {
@@ -45,10 +45,15 @@ async function getExistingPriceSources(): Promise<Map<string, string | null>> {
   return new Map((data as { ticker: string; source: string | null }[]).map((r) => [r.ticker, r.source]));
 }
 
-async function upsertPrice(ticker: string, usd: string, source: "coinbase" | "jupiter") {
+async function upsertPrice(
+  ticker: string,
+  usd: string,
+  source: "coinbase" | "jupiter",
+  change24h: number | null,
+) {
   const { error } = await serviceDb()
     .from("prices")
-    .upsert({ ticker, usd, source, updated_at: new Date().toISOString() });
+    .upsert({ ticker, usd, source, change_24h_pct: change24h, updated_at: new Date().toISOString() });
   if (error) throw new Error(error.message);
 }
 
@@ -80,8 +85,15 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const coinbaseResults = await Promise.all(
     holdingTickers.map(async ({ ticker }): Promise<PriceRefreshResult> => {
       try {
-        const usd = await fetchCoinbaseSpotPrice(ticker);
-        await upsertPrice(ticker, usd, "coinbase");
+        // 24h change is fetched alongside the spot price, not gated on it
+        // succeeding — fetchCoinbase24hChange never throws (see its own
+        // comment), so a failure there just means change24h is null this
+        // cycle, not a failed refresh.
+        const [usd, change24h] = await Promise.all([
+          fetchCoinbaseSpotPrice(ticker),
+          fetchCoinbase24hChange(ticker),
+        ]);
+        await upsertPrice(ticker, usd, "coinbase", change24h);
         return { ticker, ok: true, usd };
       } catch (e) {
         return { ticker, ok: false, error: (e as Error).message, delisted: e instanceof CoinbaseDelistedError };
@@ -113,7 +125,7 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
               }
               try {
                 const usd = String(info.usdPrice);
-                await upsertPrice(ticker, usd, "jupiter");
+                await upsertPrice(ticker, usd, "jupiter", info.stats24h?.priceChange ?? null);
                 return { ticker, ok: true, usd };
               } catch (e) {
                 return { ticker, ok: false, error: (e as Error).message };

@@ -4,17 +4,21 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
-import { formatUsd, formatQty } from "@/lib/format";
+import { formatUsd, formatQty, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 
-type SortKey = "ticker" | "qty" | "wallets" | "value";
+type SortKey = "ticker" | "price" | "change24h" | "qty" | "wallets" | "value";
 
 function sortValue(group: AssetGroup, key: SortKey): number | string {
   switch (key) {
     case "ticker":
       return group.ticker.toLowerCase();
+    case "price":
+      return group.price ?? -Infinity;
+    case "change24h":
+      return group.change24h ?? -Infinity;
     case "qty":
       return group.totalQty ?? -Infinity;
     case "wallets":
@@ -22,6 +26,14 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
     case "value":
       return group.total;
   }
+}
+
+/** Green/red/muted, matching this app's existing warning/positive/negative
+ * token colors elsewhere (e.g. HoldingsTable's "unpriced" warning text) —
+ * no color at all for null, since that's "no data", not "flat". */
+function ChangeCell({ value }: { value: number | null }) {
+  const className = value === null ? "text-fg-muted" : value > 0 ? "text-positive" : value < 0 ? "text-negative" : "text-fg-muted";
+  return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
 }
 
 // Same DeFi-position breakdown as HoldingsTable's ProtocolTag (which protocol,
@@ -157,6 +169,15 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
             <tr className={theadRowClass}>
               <th className={thClass}></th>
               <Header label="Asset" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Header label="Price" sortKeyValue="price" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Header
+                label="24h"
+                sortKeyValue="change24h"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className={hideOnMobileClass}
+              />
               <Header
                 label="Qty"
                 sortKeyValue="qty"
@@ -199,6 +220,12 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                         <span className="font-medium text-fg">{group.ticker}</span>
                       </div>
                     </td>
+                    <td className={`${tdClass} tabular-nums`}>
+                      {group.price !== null ? formatUsd(group.price) : "—"}
+                    </td>
+                    <td className={`${tdClass} ${hideOnMobileClass}`}>
+                      <ChangeCell value={group.change24h} />
+                    </td>
                     <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
                       {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
                     </td>
@@ -207,7 +234,7 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={5} className="border-b border-border bg-bg p-0">
+                      <td colSpan={7} className="border-b border-border bg-bg p-0">
                         <table className={tableClass}>
                           <thead>
                             <tr className={theadRowClass}>

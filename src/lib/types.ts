@@ -122,4 +122,5 @@ export interface Price {
   usd: number | string | null;
   source: PriceSource | null;
   updated_at: string | null;
+  change_24h_pct: number | string | null;
 }

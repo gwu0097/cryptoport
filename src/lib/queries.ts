@@ -108,6 +108,24 @@ export async function getPriceMap(): Promise<PriceMap> {
   return prices;
 }
 
+/** A separate query rather than folding into PriceMap/getPriceMap — that
+ * type is threaded through valuation.ts/aggregate/effectivePrice, all of
+ * which only ever want the raw usd value; changing its shape to also carry
+ * change_24h_pct would ripple into every one of those for a field only the
+ * Assets page currently needs. */
+export type PriceChangeMap = Record<string, number | null>;
+
+export async function getPriceChangeMap(): Promise<PriceChangeMap> {
+  const { data, error } = await serviceDb().from("prices").select("ticker, change_24h_pct");
+  if (error) throw new Error(`Failed to load price changes: ${error.message}`);
+
+  const changes: PriceChangeMap = {};
+  for (const row of data as Pick<Price, "ticker" | "change_24h_pct">[]) {
+    changes[row.ticker] = row.change_24h_pct === null ? null : Number(row.change_24h_pct);
+  }
+  return changes;
+}
+
 // The ticker-keyed `prices` table is deliberately never consulted for a
 // holding that already carries usd_override (see valuation.ts) — but the
 // per-unit "Price" column still wants a number to show instead of a
@@ -357,6 +375,13 @@ export interface AssetGroup {
   totalQty: number | null;
   total: number;
   unpricedCount: number;
+  /** Per-unit price for this ticker — a single global number (see the
+   * `prices` table), not a per-holding value, so it's on the group rather
+   * than something callers derive from `holdings`. Null when unpriced. */
+  price: number | null;
+  /** 24h % change (see prices.change_24h_pct) — null when unavailable,
+   * same "don't distinguish why" reasoning as `price`. */
+  change24h: number | null;
   holdings: AssetHoldingEntry[];
 }
 
@@ -380,9 +405,10 @@ export interface AssetsByTickerResult {
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const db = await userDb();
-  const [{ data: wallets, error }, prices] = await Promise.all([
+  const [{ data: wallets, error }, prices, priceChanges] = await Promise.all([
     db.from("wallets").select("*, holdings(*)").eq("active", true),
     getPriceMap(),
+    getPriceChangeMap(),
   ]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
 
@@ -414,6 +440,8 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
           totalQty: null,
           total: 0,
           unpricedCount: 0,
+          price: null,
+          change24h: null,
           holdings: [],
         };
         byTicker.set(key, group);
@@ -421,6 +449,19 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
 
       group.holdings.push(entry);
       if (!group.iconUrl && holding.icon_url) group.iconUrl = holding.icon_url;
+      // Filled in from each holding's own already-resolved price/24h-change
+      // (entry.price via effectivePrice, priceChanges keyed the same
+      // exact-case way as `prices` itself) rather than a second lookup by
+      // the group's uppercased key — a group can merge holdings whose raw
+      // ticker casing differs (that's the whole reason grouping uppercases
+      // at all), and `prices`/priceChanges are keyed by that raw, possibly
+      // mixed-case string, so an uppercase-key lookup here could miss a
+      // real price/change that only exists under the original casing.
+      if (group.price === null && entry.price !== null) group.price = entry.price;
+      if (group.change24h === null) {
+        const change = priceChanges[holding.ticker];
+        if (change != null) group.change24h = change;
+      }
       const qty = parseNumeric(holding.qty);
       if (qty !== null) group.totalQty = (group.totalQty ?? 0) + qty;
       if (valuation.kind === "priced") group.total += valuation.usd;

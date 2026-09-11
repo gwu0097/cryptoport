@@ -38,10 +38,18 @@ create table cryptoport.holdings (
 );
 
 create table cryptoport.prices (
-  ticker     text primary key,
-  usd        numeric,
-  source     text,            -- 'coinbase' | 'jupiter'
-  updated_at timestamptz
+  ticker         text primary key,
+  usd            numeric,
+  source         text,            -- 'coinbase' | 'jupiter'
+  updated_at     timestamptz,
+  -- 24h % change, e.g. 1.81 for +1.81%. Coinbase-sourced tickers: computed
+  -- from the Exchange API's /products/{id}/stats (open vs last) — a call
+  -- Coinbase doesn't otherwise need, added only for this. Jupiter-sourced
+  -- tickers: free — tokens/v2/search (already called for pricing) returns
+  -- stats24h.priceChange in the same response. Null when unavailable
+  -- (a fetch failure, or a ticker with no 24h stats) — never blocks the
+  -- price itself from refreshing, see prices.ts's refreshPrices.
+  change_24h_pct numeric
 );
 
 -- Deny-by-default: no policies means no role can read or write through
