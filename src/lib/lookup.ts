@@ -4,6 +4,7 @@ import { fetchJupiterHoldings } from "./adapters/jupiter";
 import { fetchBitcoinHoldings } from "./adapters/bitcoin";
 import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
 import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
+import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { defaultChainId } from "./chainNames";
@@ -20,9 +21,11 @@ const BTC_BECH32_RE = /^(bc1)[a-z0-9]{25,90}$/;
 const BTC_LEGACY_RE = /^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/;
 
 /** Every chain an auto-sync adapter exists for (evm.ts, jupiter.ts,
- * bitcoin.ts, cardano.ts) — including an xpub/ypub/zpub, which behaves
- * like a BTC address here (bitcoin.ts dispatches to full account scanning
- * for one), and a Cardano stake address alongside its usual addr1... */
+ * bitcoin.ts, cardano.ts, cosmos.ts) — including an xpub/ypub/zpub, which
+ * behaves like a BTC address here (bitcoin.ts dispatches to full account
+ * scanning for one), a Cardano stake address alongside its usual addr1...,
+ * and Cosmos SDK chains disambiguated by bech32 prefix (cosmos1... vs
+ * inj1...). */
 export function detectChain(address: string): Chain | null {
   if (EVM_ADDRESS_RE.test(address)) return "ETH";
   if (SOLANA_ADDRESS_RE.test(address)) return "SOL";
@@ -30,6 +33,8 @@ export function detectChain(address: string): Chain | null {
     return "BTC";
   }
   if (isCardanoAddress(address)) return "ADA";
+  if (isCosmosAddress("ATOM", address)) return "ATOM";
+  if (isCosmosAddress("INJ", address)) return "INJ";
   return null;
 }
 
@@ -72,7 +77,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const address = rawAddress.trim();
   const chain = detectChain(address);
   if (!chain) {
-    throw new Error("That doesn't look like a valid ETH, SOL, BTC, or ADA address.");
+    throw new Error("That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, or INJ address.");
   }
 
   const fetchHoldings =
@@ -82,7 +87,9 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
         ? fetchJupiterHoldings(address)
         : chain === "ADA"
           ? fetchCardanoHoldings(address)
-          : fetchBitcoinHoldings(address);
+          : chain === "ATOM" || chain === "INJ"
+            ? fetchCosmosHoldings(chain, address)
+            : fetchBitcoinHoldings(address);
 
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 

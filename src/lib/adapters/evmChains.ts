@@ -6,10 +6,13 @@ import "server-only";
  * (unlike the Rabby indexer). Every `rpc` URL below was hand-verified
  * (matching `eth_chainId` against the real chain ID) before being added.
  *
- * 30 chains as of this writing — every EVM chain PublicNode serves
+ * 31 chains as of this writing — every EVM chain PublicNode serves
  * keylessly that responded correctly to a real eth_chainId check (a
- * handful of others, e.g. Fantom/Moonbeam/Ronin/Flare, aren't on
- * PublicNode's keyless tier and were left out rather than guessed at).
+ * handful of others, e.g. Fantom/Moonbeam/Flare, aren't on PublicNode's
+ * keyless tier and were left out rather than guessed at). Ronin is the one
+ * exception — PublicNode doesn't serve it, so it uses the official Ronin
+ * RPC instead, verified the same way (eth_chainId, and a live eth_getCode
+ * check confirming Multicall3 is actually deployed there).
  * Still not literally everything Ankr's paid tier offers (~75), but this
  * covers every chain that showed up when reconciling a real multi-chain
  * wallet against DeBank. Adding another chain is a one-line addition here
@@ -311,6 +314,15 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "soneium",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
+  },
+  {
+    id: "ron",
+    name: "Ronin",
+    chainId: 2020,
+    rpc: "https://api.roninchain.com/rpc",
+    coingeckoPlatform: "ronin",
+    nativeCoingeckoId: "ronin",
+    nativeSymbol: "RON",
   },
 ];
 

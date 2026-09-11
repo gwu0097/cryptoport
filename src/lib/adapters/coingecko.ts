@@ -38,6 +38,14 @@ const NON_EVM_PLATFORM_IDS: Record<string, string> = {
   cardano: "cardano",
 };
 
+// Non-EVM chains with no CoinGecko asset_platforms entry at all — see the
+// native-icon fallback in refreshTokenRegistry below.
+const NATIVE_ICON_CHAINS: Record<string, string> = {
+  bitcoin: "bitcoin",
+  cosmoshub: "cosmos",
+  injective: "injective-protocol",
+};
+
 /**
  * Refreshes cryptoport.token_registry from CoinGecko's coins/list — one
  * call covers every chain in EVM_CHAINS (and every chain CoinGecko knows
@@ -101,14 +109,18 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
     .map((r) => ({ chain_id: r.chain_id, image_url: platformImages.get(r.platformId) }))
     .filter((r): r is { chain_id: string; image_url: string } => Boolean(r.image_url));
 
-  // Bitcoin isn't an asset_platforms entry (it's not a smart-contract
-  // platform, so CoinGecko has no "chain" concept for it) — its coin image
-  // doubles as the chain icon instead, same idea as reusing a native EVM
-  // token's image where there's no separate chain-brand asset.
-  const bitcoinImage = (await fetchTokenImages(["bitcoin"]).catch(() => new Map<string, string>())).get(
-    "bitcoin",
+  // Chains with no CoinGecko asset_platforms entry (not smart-contract
+  // platforms — no concept of "tokens on this chain" in CoinGecko's model)
+  // — their own native coin's image doubles as the chain-brand icon
+  // instead. Extend this as new non-platform chains get adapters (started
+  // with just Bitcoin; Cosmos SDK chains added alongside cosmos.ts).
+  const nativeIconImages = await fetchTokenImages(Object.values(NATIVE_ICON_CHAINS)).catch(
+    () => new Map<string, string>(),
   );
-  if (bitcoinImage) chainIconRows.push({ chain_id: "bitcoin", image_url: bitcoinImage });
+  for (const [chainId, coingeckoId] of Object.entries(NATIVE_ICON_CHAINS)) {
+    const image = nativeIconImages.get(coingeckoId);
+    if (image) chainIconRows.push({ chain_id: chainId, image_url: image });
+  }
 
   if (chainIconRows.length > 0) {
     const { error } = await portfolioDb().from("chain_icons").upsert(chainIconRows, { onConflict: "chain_id" });

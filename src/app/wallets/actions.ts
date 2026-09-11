@@ -10,6 +10,7 @@ import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
+import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Chain, WalletMode } from "@/lib/types";
@@ -69,7 +70,7 @@ export async function refreshPricesForWalletAction(walletId: string) {
 // and again defensively in syncWalletHoldings) and client-side in
 // ChainModeFields (which disables the "auto" option for anything else, so
 // this server check is belt-and-suspenders rather than the only guard).
-const AUTO_CAPABLE_CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL", "ADA"];
+const AUTO_CAPABLE_CHAINS: readonly Chain[] = ["BTC", "ETH", "SOL", "ADA", "ATOM", "INJ"];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
 
@@ -264,9 +265,13 @@ interface AdapterFetchResult {
 // BTC isn't dispatched through here — see syncWalletHoldings, which calls
 // fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached
 // script type through and get the detected one back.
-async function fetchAdapterHoldings(chain: "ETH" | "SOL", address: string): Promise<AdapterFetchResult> {
+async function fetchAdapterHoldings(
+  chain: "ETH" | "SOL" | "ATOM" | "INJ",
+  address: string,
+): Promise<AdapterFetchResult> {
   if (chain === "ETH") return fetchEvmHoldings(address);
-  return { holdings: await fetchJupiterHoldings(address), warnings: [] };
+  if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
+  return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
 }
 
 // Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
