@@ -42,12 +42,21 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     ...(hyperliquidResult.error ? [`hyperliquid: ${hyperliquidResult.error}`] : []),
   ];
 
-  // Nothing succeeded anywhere and something actually went wrong (as
-  // opposed to a wallet that's genuinely empty, which has warnings.length
-  // === 0) — treat as a hard failure so syncWalletHoldings leaves the
-  // wallet's previous holdings untouched instead of overwriting them with
-  // an empty set.
-  if (holdings.length === 0 && warnings.length > 0) {
+  // Nothing succeeded anywhere and something actually went wrong badly
+  // enough to distrust the whole result (a whole chain's fetch threw, or
+  // Hyperliquid errored) — treat as a hard failure so syncWalletHoldings
+  // leaves the wallet's previous holdings untouched instead of overwriting
+  // them with an empty set. Deliberately NOT triggered by an
+  // unverifiedCount-only warning (some individual balance-of calls flaky
+  // after retries, but the chain's own fetch completed) — a wallet that's
+  // genuinely empty on every chain used to get its correct "$0 here"
+  // result thrown away just because one unrelated chain had a handful of
+  // flaky token checks, which made it look like the sync failed outright
+  // for a wallet that in fact synced correctly (real bug: found via a
+  // wallet with a real, if dust-level, native balance that never made it
+  // into holdings because of exactly this).
+  const hardFailure = chainsResult.failedChains.some((f) => f.hard) || hyperliquidResult.error !== null;
+  if (holdings.length === 0 && hardFailure) {
     throw new Error(`Every source failed: ${warnings.join("; ")}`);
   }
 

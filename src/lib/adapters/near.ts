@@ -31,7 +31,8 @@ export function isNearAccountId(value: string): boolean {
 interface ViewAccountResult {
   amount: string; // yoctoNEAR
 }
-interface RpcErrorBody {
+interface RpcResponseBody {
+  result?: ViewAccountResult;
   error?: { cause?: { name?: string } };
 }
 
@@ -55,14 +56,15 @@ export async function fetchNearHoldings(accountId: string): Promise<AdapterHoldi
     }),
   });
   if (!res.ok) throw new Error(`NEAR RPC failed: HTTP ${res.status}`);
-  const body: ViewAccountResult & RpcErrorBody = await res.json();
+  const body: RpcResponseBody = await res.json();
 
   if (body.error) {
     if (body.error.cause?.name === "UNKNOWN_ACCOUNT") return [];
     throw new Error(`NEAR RPC error: ${JSON.stringify(body.error)}`);
   }
+  if (!body.result) throw new Error(`NEAR RPC returned no result: ${JSON.stringify(body)}`);
 
-  const qty = Number(formatUnits(BigInt(body.amount), YOCTO_PER_NEAR));
+  const qty = Number(formatUnits(BigInt(body.result.amount), YOCTO_PER_NEAR));
   if (qty <= 0) return [];
 
   const images = await fetchTokenImages(["near"]).catch(() => new Map<string, string>());

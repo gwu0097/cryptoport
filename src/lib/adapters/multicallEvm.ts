@@ -382,7 +382,18 @@ export interface EvmChainsResult {
    * chain's holdings might be incomplete, surfaced rather than hidden. One
    * flaky chain never discards another chain's successfully-read
    * balances. */
-  failedChains: { chainId: string; error: string }[];
+  failedChains: {
+    chainId: string;
+    error: string;
+    /** true = this chain's whole fetch threw (network down, RPC
+     * unreachable) — real grounds to distrust the overall result. false =
+     * the chain completed fine, just with some individual balance-of
+     * calls unverified after retries (see evm.ts's zero-holdings guard for
+     * why this distinction matters: a wallet that's genuinely empty
+     * everywhere shouldn't get treated as "everything failed" just
+     * because one unrelated chain had a flaky token check). */
+    hard: boolean;
+  }[];
 }
 
 type ChainOutcome =
@@ -403,12 +414,13 @@ export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChain
 
   const holdings = results.flatMap((r) => (r.ok ? r.holdings : []));
   const failedChains = [
-    ...results.filter((r) => !r.ok).map((r) => ({ chainId: r.chainId, error: r.error })),
+    ...results.filter((r) => !r.ok).map((r) => ({ chainId: r.chainId, error: r.error, hard: true })),
     ...results
       .filter((r) => r.ok && r.unverifiedCount > 0)
       .map((r) => ({
         chainId: r.chainId,
         error: `${(r as { unverifiedCount: number }).unverifiedCount} balance check(s) unverified after retries`,
+        hard: false,
       })),
   ];
 
