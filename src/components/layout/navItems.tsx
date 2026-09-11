@@ -24,9 +24,9 @@ export interface NavItemData {
 }
 
 export const NAV_ITEMS: NavItemData[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase },
   { href: "/wallets", label: "Wallets", icon: Wallet },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/assets", label: "Assets", icon: Coins },
   { href: "/analytics", label: "Analytics", icon: ChartLine },
   { href: "/defi", label: "DeFi", icon: Layers },
