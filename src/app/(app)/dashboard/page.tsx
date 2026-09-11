@@ -1,10 +1,11 @@
 import { Eye, RefreshCw } from "lucide-react";
 import { getAssetsGroupedByTicker, getPortfolioHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsd, formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
+import { formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
 import { blendedChange } from "@/lib/dashboard";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
+import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { SignInPrompt } from "@/components/SignInPrompt";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
@@ -73,9 +74,7 @@ export default async function DashboardPage() {
         }
       />
 
-      <Panel className="mb-6">
-        <p className="text-sm text-fg-muted">Total value</p>
-        <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">{formatUsd(grand.total)}</p>
+      <TotalValuePanel total={grand.total}>
         {change && (
           <p
             className={`mt-2 text-sm tabular-nums ${
@@ -92,7 +91,7 @@ export default async function DashboardPage() {
             the total
           </p>
         )}
-      </Panel>
+      </TotalValuePanel>
 
       <div className="mb-6">
         <ValueHistoryChart points={history} />

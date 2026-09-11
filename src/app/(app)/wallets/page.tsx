@@ -2,9 +2,10 @@ import Link from "next/link";
 import { RefreshCw, Database } from "lucide-react";
 import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatStaleness, formatUsd } from "@/lib/format";
+import { formatStaleness } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
+import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { WalletsTable } from "@/components/WalletsTable";
@@ -68,12 +69,14 @@ export default async function WalletsPage() {
       />
 
       {user && (
-        <Panel className="mb-6">
-          <p className="text-sm text-fg-muted">Total value</p>
-          <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
-            {formatUsd(grand.total)}
-          </p>
-        </Panel>
+        <TotalValuePanel total={grand.total}>
+          {grand.unpricedCount > 0 && (
+            <p className="mt-2 text-sm text-warning">
+              {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
+              excluded from the total
+            </p>
+          )}
+        </TotalValuePanel>
       )}
 
       {wallets.length === 0 ? (

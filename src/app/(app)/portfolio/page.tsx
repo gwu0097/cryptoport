@@ -1,8 +1,7 @@
 import { getAssetsGroupedByChain } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
-import { Panel } from "@/components/ui/Panel";
+import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { SignInPrompt } from "@/components/SignInPrompt";
 
@@ -22,16 +21,14 @@ export default async function PortfolioPage({
       <PageHeader title="Portfolio" subtitle="Every holding across all your wallets, grouped by chain" />
 
       {user && (
-        <Panel className="mb-6">
-          <p className="text-sm text-fg-muted">Total value</p>
-          <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">{formatUsd(grand.total)}</p>
+        <TotalValuePanel total={grand.total}>
           {grand.unpricedCount > 0 && (
             <p className="mt-2 text-sm text-warning">
               {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
               excluded from the total
             </p>
           )}
-        </Panel>
+        </TotalValuePanel>
       )}
 
       {groups.length === 0 && !user ? (

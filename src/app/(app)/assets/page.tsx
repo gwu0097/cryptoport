@@ -1,9 +1,10 @@
 import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByTicker, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsd, formatStaleness } from "@/lib/format";
+import { formatStaleness } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
+import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { AssetsTable } from "@/components/AssetsTable";
@@ -83,16 +84,14 @@ export default async function AssetsPage({
       />
 
       {user && (
-        <Panel className="mb-6">
-          <p className="text-sm text-fg-muted">Total value</p>
-          <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">{formatUsd(grand.total)}</p>
+        <TotalValuePanel total={grand.total}>
           {grand.unpricedCount > 0 && (
             <p className="mt-2 text-sm text-warning">
               {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
               excluded from the total
             </p>
           )}
-        </Panel>
+        </TotalValuePanel>
       )}
 
       {groups.length === 0 ? (

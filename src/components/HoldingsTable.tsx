@@ -219,7 +219,14 @@ export function HoldingsTable({
               </div>
             </td>
             <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatQty(holding.qty)}</td>
-            <td className={`${tdClass} tabular-nums`}>{holding.price ?? "unpriced"}</td>
+            <td className={`${tdClass} tabular-nums`}>
+              {/* manual_usd holdings have no meaningful per-unit price — a
+                  ticker that happens to coincide with a real tracked ticker
+                  (e.g. "BTC") would otherwise show an unrelated market price
+                  next to a value the user entered directly, which reads as
+                  "this is where that number came from" when it isn't. */}
+              {holding.source === "manual_usd" ? "—" : holding.price !== null ? formatUsd(holding.price) : "unpriced"}
+            </td>
             <td className={`${tdClass} tabular-nums`}>
               {holding.valuation.kind === "priced" ? (
                 formatUsd(holding.valuation.usd)

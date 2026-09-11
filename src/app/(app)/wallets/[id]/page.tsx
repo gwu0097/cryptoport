@@ -1,18 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
-import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked, type HoldingWithValuation } from "@/lib/queries";
+import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatStaleness, formatUsd, formatQty, formatTicker, formatDuration } from "@/lib/format";
+import { formatStaleness, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
 import { pinnedWalletChain } from "@/lib/walletAuth";
 import { Panel } from "@/components/ui/Panel";
+import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
-import { inputClass } from "@/components/ui/Field";
-import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
-import { TokenIcon } from "@/components/TokenIcon";
+import { HoldingsTable } from "@/components/HoldingsTable";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
@@ -22,11 +21,9 @@ import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import {
   addHolding,
-  deleteHolding,
   deleteWallet,
   refreshPricesForWalletAction,
   syncWalletHoldings,
-  updateHolding,
   updateWallet,
 } from "../actions";
 
@@ -36,41 +33,6 @@ import {
 // duration available on the current plan; on plans below that ceiling this
 // is silently capped, so a very multi-chain wallet may still need a retry.
 export const maxDuration = 300;
-
-function ValueCell({ holding }: { holding: HoldingWithValuation }) {
-  if (holding.valuation.kind === "unpriced") {
-    return <span className="text-warning">unpriced</span>;
-  }
-  return <>{formatUsd(holding.valuation.usd)}</>;
-}
-
-function EditForm({ holding, walletId }: { holding: HoldingWithValuation; walletId: string }) {
-  const update = updateHolding.bind(null, holding.id, walletId);
-  return (
-    <form action={update} className="flex items-center gap-2">
-      {holding.source === "manual_usd" ? (
-        <input
-          name="usd_override"
-          type="text"
-          inputMode="decimal"
-          defaultValue={holding.usd_override ?? ""}
-          className={`${inputClass} w-28`}
-        />
-      ) : (
-        <input
-          name="qty"
-          type="text"
-          inputMode="decimal"
-          defaultValue={holding.qty ?? ""}
-          className={`${inputClass} w-28`}
-        />
-      )}
-      <SubmitButton variant="secondary" size="sm">
-        Save
-      </SubmitButton>
-    </form>
-  );
-}
 
 export default async function WalletDetailPage(
   props: PageProps<"/wallets/[id]"> & {
@@ -264,9 +226,7 @@ export default async function WalletDetailPage(
         </div>
       </div>
 
-      <Panel className="mb-6">
-        <p className="text-sm text-fg-muted">Total value</p>
-        <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">{formatUsd(total)}</p>
+      <TotalValuePanel total={total}>
         {unpricedCount > 0 && (
           <p className="mt-2 text-sm text-warning">
             {unpricedCount} holding{unpricedCount === 1 ? "" : "s"} unpriced and excluded from the
@@ -277,7 +237,7 @@ export default async function WalletDetailPage(
           <p className="mt-2 text-sm text-negative">Last sync failed: {wallet.last_refresh_status}</p>
         )}
         {wallet.notes && <p className="mt-2 text-sm text-fg-muted">{wallet.notes}</p>}
-      </Panel>
+      </TotalValuePanel>
 
       {wallet.mode === "auto" ? (
         <div className="mb-6">
@@ -298,77 +258,15 @@ export default async function WalletDetailPage(
         <div className="mb-4">
           <AddHoldingModal addHolding={addHoldingForWallet} defaultTicker={wallet.chain} />
         </div>
-        <Panel padding={false} className="mb-6 overflow-hidden">
-          {/* overflow-x-auto — same "let the table scroll on a narrow
-              viewport instead of the Panel's own overflow-hidden silently
-              clipping it" fix as WalletsTable/HoldingsTable/AssetsTable. */}
-          <div className="overflow-x-auto">
-          <table className={tableClass}>
-            <thead>
-              <tr className={theadRowClass}>
-                <th className={thClass}>Ticker</th>
-                <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
-                <th className={thClass}>Price</th>
-                <th className={thClass}>Value</th>
-                <th className={`${thClass} ${hideOnMobileClass}`}>Source</th>
-                <th className={`${thClass} ${hideOnMobileClass}`}>Category</th>
-                <th className={thClass}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.length === 0 && (
-                <tr>
-                  <td colSpan={7} className={`${tdClass} text-fg-muted`}>
-                    No holdings yet.
-                  </td>
-                </tr>
-              )}
-              {holdings.map((holding) => (
-                <tr key={holding.id} className={trClass}>
-                  <td className={tdClass}>
-                    <div className="flex items-center gap-2">
-                      <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
-                      {formatTicker(holding.ticker)}
-                    </div>
-                  </td>
-                  <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatQty(holding.qty)}</td>
-                  <td className={`${tdClass} tabular-nums`}>
-                    {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}
-                  </td>
-                  <td className={`${tdClass} tabular-nums`}>
-                    <ValueCell holding={holding} />
-                  </td>
-                  <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                      {holding.source}
-                    </span>
-                  </td>
-                  <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                      {holding.category}
-                    </span>
-                  </td>
-                  <td className={tdClass}>
-                    {holding.source === "auto" ? null : (
-                      <div className="flex items-center gap-2">
-                        <EditForm holding={holding} walletId={wallet.id} />
-                        <form action={deleteHolding.bind(null, holding.id, wallet.id)}>
-                          <ConfirmDeleteButton
-                            confirmMessage={`Delete the ${holding.ticker} holding?`}
-                            aria-label="Delete holding"
-                          >
-                            <Trash className="size-3.5" aria-hidden="true" />
-                          </ConfirmDeleteButton>
-                        </form>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </Panel>
+        {holdings.length === 0 ? (
+          <Panel className="text-center">
+            <p className="text-sm text-fg-muted">No holdings yet.</p>
+          </Panel>
+        ) : (
+          <Panel padding={false} className="mb-6 overflow-hidden">
+            <HoldingsTable holdings={holdings} walletId={wallet.id} />
+          </Panel>
+        )}
         </>
       )}
     </>
