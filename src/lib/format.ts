@@ -8,6 +8,14 @@ export function formatUsd(value: number): string {
   return usdFormatter.format(value);
 }
 
+/** Same explicit "+" convention as formatPercent (Intl's own formatting
+ * only signs negatives) — for a delta like a 24h portfolio change, not a
+ * plain total. formatUsd itself stays unsigned; nowhere else needs a "+". */
+export function formatUsdSigned(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${usdFormatter.format(value)}`;
+}
+
 /** null covers both "no 24h data yet" and "not a number" — callers don't
  * need to distinguish those, both just show as "—". Explicit "+" on a
  * positive value since Intl's default formatting only signs negatives. */
