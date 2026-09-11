@@ -99,45 +99,13 @@ values (1, 'rai', 'bb31532bdadd2df47dc92295d5da7824:603980f64d578ad0aa1a90df3445
 alter table cryptoport.holdings
   add column category text not null default 'token'; -- 'token' | 'defi'
 
--- Atomic delete+insert for one wallet's auto-sourced holdings, called by
--- syncWalletHoldings(). Doing this as a single PL/pgSQL function call makes
--- it one transaction: if the insert fails partway (bad row shape, etc.) the
--- delete rolls back too, so a failed sync never leaves a wallet with zero
--- holdings. The `source = 'auto'` predicate (never just wallet_id) is what
--- keeps this from ever touching a manually-entered holding in the same
--- wallet. Also stamps the wallet's refresh time/status in the same
--- transaction as the holdings themselves.
-create or replace function cryptoport.sync_auto_holdings(
-  p_wallet_id uuid,
-  p_holdings jsonb,
-  p_status text
-)
-returns void
-language plpgsql
-security definer
-set search_path = cryptoport
-as $$
-begin
-  delete from cryptoport.holdings
-  where wallet_id = p_wallet_id and source = 'auto';
-
-  insert into cryptoport.holdings (wallet_id, ticker, qty, usd_override, source, contract, category)
-  select
-    p_wallet_id,
-    h->>'ticker',
-    (h->>'qty')::numeric,
-    (h->>'usd_override')::numeric,
-    'auto',
-    h->>'contract',
-    coalesce(h->>'category', 'token')
-  from jsonb_array_elements(p_holdings) as h;
-
-  update cryptoport.wallets
-  set last_refresh_at = now(), last_refresh_status = p_status
-  where id = p_wallet_id;
-end;
-$$;
-
+-- sync_auto_holdings (the RPC syncWalletHoldings() calls) is defined once,
+-- further down this file — search for "Atomic delete+insert". It used to
+-- be redundantly restated in full at every point its column list changed;
+-- squashed to one canonical definition, see that comment for why. This
+-- grant is kept in its original place since it really was applied at this
+-- point in the schema's history (a later grant, to `authenticated`, is
+-- alongside the canonical definition itself).
 grant execute on function cryptoport.sync_auto_holdings(uuid, jsonb, text) to service_role;
 
 -- EVM token registry: contract -> symbol/decimals per chain, refreshed from
@@ -168,38 +136,6 @@ grant all on cryptoport.token_registry to service_role;
 -- properly since sync_auto_holdings fully replaces a wallet's auto rows.
 alter table cryptoport.holdings
   add column chain text; -- 'eth' | 'base' | ... | 'hyperliquid' | 'solana' | null
-
-create or replace function cryptoport.sync_auto_holdings(
-  p_wallet_id uuid,
-  p_holdings jsonb,
-  p_status text
-)
-returns void
-language plpgsql
-security definer
-set search_path = cryptoport
-as $$
-begin
-  delete from cryptoport.holdings
-  where wallet_id = p_wallet_id and source = 'auto';
-
-  insert into cryptoport.holdings (wallet_id, ticker, qty, usd_override, source, contract, category, chain)
-  select
-    p_wallet_id,
-    h->>'ticker',
-    (h->>'qty')::numeric,
-    (h->>'usd_override')::numeric,
-    'auto',
-    h->>'contract',
-    coalesce(h->>'category', 'token'),
-    h->>'chain'
-  from jsonb_array_elements(p_holdings) as h;
-
-  update cryptoport.wallets
-  set last_refresh_at = now(), last_refresh_status = p_status
-  where id = p_wallet_id;
-end;
-$$;
 
 -- Chain logos (DeBank-style icons on the chain summary cards/section
 -- headers), from CoinGecko's asset_platforms — refreshed alongside
@@ -238,40 +174,6 @@ alter table cryptoport.token_registry
 -- token_registry row's cached image_url is later cleared/changed.
 alter table cryptoport.holdings
   add column icon_url text;
-
-create or replace function cryptoport.sync_auto_holdings(
-  p_wallet_id uuid,
-  p_holdings jsonb,
-  p_status text
-)
-returns void
-language plpgsql
-security definer
-set search_path = cryptoport
-as $$
-begin
-  delete from cryptoport.holdings
-  where wallet_id = p_wallet_id and source = 'auto';
-
-  insert into cryptoport.holdings
-    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url)
-  select
-    p_wallet_id,
-    h->>'ticker',
-    (h->>'qty')::numeric,
-    (h->>'usd_override')::numeric,
-    'auto',
-    h->>'contract',
-    coalesce(h->>'category', 'token'),
-    h->>'chain',
-    h->>'icon_url'
-  from jsonb_array_elements(p_holdings) as h;
-
-  update cryptoport.wallets
-  set last_refresh_at = now(), last_refresh_status = p_status
-  where id = p_wallet_id;
-end;
-$$;
 
 -- Replaces the fixed personal/biz "account" enum with user-defined,
 -- free-text tags — a wallet has at most one (nullable FK), and a tag is
@@ -330,42 +232,6 @@ alter table cryptoport.holdings
   add column protocol text,
   add column protocol_url text;
 
-create or replace function cryptoport.sync_auto_holdings(
-  p_wallet_id uuid,
-  p_holdings jsonb,
-  p_status text
-)
-returns void
-language plpgsql
-security definer
-set search_path = cryptoport
-as $$
-begin
-  delete from cryptoport.holdings
-  where wallet_id = p_wallet_id and source = 'auto';
-
-  insert into cryptoport.holdings
-    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url)
-  select
-    p_wallet_id,
-    h->>'ticker',
-    (h->>'qty')::numeric,
-    (h->>'usd_override')::numeric,
-    'auto',
-    h->>'contract',
-    coalesce(h->>'category', 'token'),
-    h->>'chain',
-    h->>'icon_url',
-    h->>'protocol',
-    h->>'protocol_url'
-  from jsonb_array_elements(p_holdings) as h;
-
-  update cryptoport.wallets
-  set last_refresh_at = now(), last_refresh_status = p_status
-  where id = p_wallet_id;
-end;
-$$;
-
 -- Multi-tenant: Supabase Auth + real RLS, replacing the single shared
 -- Basic Auth login. user_id is nullable for now, not "not null" yet —
 -- existing rows have no owner until the one-time backfill script (run
@@ -409,10 +275,27 @@ grant select, insert, update, delete on cryptoport.wallets to authenticated;
 grant select, insert, update, delete on cryptoport.holdings to authenticated;
 grant select, insert, update, delete on cryptoport.tags to authenticated;
 
--- sync_auto_holdings is security definer (runs with elevated privileges),
--- so RLS does NOT protect it internally — without this explicit check, any
--- authenticated user could call the RPC with someone else's wallet_id and
--- overwrite their holdings. Ownership is checked up front instead.
+-- Atomic delete+insert for one wallet's auto-sourced holdings, called by
+-- syncWalletHoldings(). Doing this as a single PL/pgSQL function call makes
+-- it one transaction: if the insert fails partway (bad row shape, etc.) the
+-- delete rolls back too, so a failed sync never leaves a wallet with zero
+-- holdings. The `source = 'auto'` predicate (never just wallet_id) is what
+-- keeps this from ever touching a manually-entered holding in the same
+-- wallet. Also stamps the wallet's refresh time/status in the same
+-- transaction as the holdings themselves.
+--
+-- security definer (runs with elevated privileges), so RLS does NOT
+-- protect it internally — without the ownership check below, any
+-- authenticated user could call this RPC with someone else's wallet_id and
+-- overwrite their holdings.
+--
+-- This function's column list grew across several migrations (chain,
+-- icon_url, protocol/protocol_url were each added later, alongside the
+-- holdings columns of the same names). Previously left as several
+-- separate stacked `create or replace function` blocks scattered through
+-- this file — each one redefining the whole function from scratch, with
+-- nothing marking which was actually current — squashed to this one
+-- canonical definition; only the very last such block was ever live.
 create or replace function cryptoport.sync_auto_holdings(
   p_wallet_id uuid,
   p_holdings jsonb,
