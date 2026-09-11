@@ -13,6 +13,12 @@ import { refreshPricesAction } from "../wallets/actions";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
 
+// refreshPricesAction now also re-prices every EVM holding directly from
+// CoinGecko (see refreshEvmHoldingPrices) on top of the Coinbase/Jupiter
+// ticker pass — same reasoning as wallets/page.tsx's maxDuration for the
+// same action.
+export const maxDuration = 300;
+
 const LOW_VALUE_USD = 10;
 
 function buildHref(hideUnpriced: boolean, hideLow: boolean): string {

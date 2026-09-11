@@ -4,6 +4,34 @@
 // `node --test` outside of Next's bundler (which is what makes "server-only"
 // a no-op; run standalone it throws unconditionally).
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Retries on 429 with backoff. Small and local rather than importing
+ * adapters/http.ts's fetchWithRetry: that file pulls in "server-only",
+ * which throws unconditionally outside Next's bundler (see the top-of-file
+ * comment) and would break this file's own unit tests. Needed because
+ * Coinbase's Exchange API host (api.exchange.coinbase.com — used for the
+ * delisting check and 24h stats below) throttles hard: verified live that
+ * firing one request per distinct holding ticker concurrently (this file's
+ * actual caller, prices.ts's refreshPrices) got 429'd on the large majority
+ * of /stats calls, even ones for perfectly ordinary, actively-traded
+ * products (TAO, JitoSOL, ATOM) — not a per-product gap, a burst-rate-limit
+ * one. prices.ts also caps how many tickers run concurrently for the same
+ * reason; this retry is the second, complementary layer for whatever still
+ * gets throttled through that.
+ */
+async function fetchWithRetry(url: string, attempts = 3, baseDelayMs = 500): Promise<Response> {
+  let res: Response;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await sleep(baseDelayMs * 2 ** (attempt - 1));
+    res = await fetch(url, { cache: "no-store" });
+    if (res.status !== 429) return res;
+  }
+  return res!;
+}
+
 const BASE_URL = "https://api.coinbase.com/v2/prices";
 // The public Exchange API (separate host/shape from the v2 prices endpoint
 // above) — used only to check a product's trading status. Its `/products`
@@ -54,7 +82,7 @@ export function isDelistedProduct(json: unknown): boolean {
 export class CoinbaseDelistedError extends Error {}
 
 async function assertProductTradable(ticker: string): Promise<void> {
-  const res = await fetch(`${EXCHANGE_BASE_URL}/${encodeURIComponent(ticker)}-USD`, { cache: "no-store" });
+  const res = await fetchWithRetry(`${EXCHANGE_BASE_URL}/${encodeURIComponent(ticker)}-USD`);
   // A failure here (network, 404 for a ticker Coinbase never listed) isn't
   // evidence of delisting — don't block the price fetch on it, the spot
   // call below is the real source of truth for "does this work at all".
@@ -69,7 +97,7 @@ async function assertProductTradable(ticker: string): Promise<void> {
 
 export async function fetchCoinbaseSpotPrice(ticker: string): Promise<string> {
   const url = `${BASE_URL}/${encodeURIComponent(ticker)}-USD/spot`;
-  const [res] = await Promise.all([fetch(url, { cache: "no-store" }), assertProductTradable(ticker)]);
+  const [res] = await Promise.all([fetchWithRetry(url), assertProductTradable(ticker)]);
   if (!res.ok) {
     throw new Error(`Coinbase ${ticker}-USD spot request failed: HTTP ${res.status}`);
   }
@@ -105,7 +133,7 @@ export function extractPriceChange24h(json: unknown): number | null {
  * check, no separate rate-limit budget to weigh against. */
 export async function fetchCoinbase24hChange(ticker: string): Promise<number | null> {
   try {
-    const res = await fetch(`${EXCHANGE_BASE_URL}/${encodeURIComponent(ticker)}-USD/stats`, { cache: "no-store" });
+    const res = await fetchWithRetry(`${EXCHANGE_BASE_URL}/${encodeURIComponent(ticker)}-USD/stats`);
     if (!res.ok) return null;
     return extractPriceChange24h(await res.json());
   } catch {

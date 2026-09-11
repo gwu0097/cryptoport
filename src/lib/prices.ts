@@ -3,6 +3,16 @@ import { serviceDb } from "./supabase";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { refreshEvmHoldingPrices } from "./adapters/multicallEvm";
+import { mapWithConcurrency } from "./adapters/http";
+
+// Coinbase's Exchange API host (used for the delisting check + 24h stats,
+// see coinbase.ts) throttles hard under an unbounded burst — verified live
+// that firing every distinct holding ticker's requests at once (previously
+// a plain Promise.all here) got the large majority of /stats calls 429'd,
+// even for perfectly ordinary, actively-traded tickers. This is the first
+// of two mitigations (coinbase.ts's own retry-with-backoff is the second,
+// for whatever still gets throttled through this).
+const COINBASE_CONCURRENCY = 4;
 
 export interface PriceRefreshResult {
   ticker: string;
@@ -92,8 +102,10 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
   const existingSources = await getExistingPriceSources();
 
-  const coinbaseResults = await Promise.all(
-    holdingTickers.map(async ({ ticker }): Promise<PriceRefreshResult> => {
+  const coinbaseResults = await mapWithConcurrency(
+    holdingTickers,
+    COINBASE_CONCURRENCY,
+    async ({ ticker }): Promise<PriceRefreshResult> => {
       try {
         // 24h change is fetched alongside the spot price, not gated on it
         // succeeding — fetchCoinbase24hChange never throws (see its own
@@ -108,7 +120,7 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
       } catch (e) {
         return { ticker, ok: false, error: (e as Error).message, delisted: e instanceof CoinbaseDelistedError };
       }
-    }),
+    },
   );
 
   const coinbaseFailedTickers = new Set(coinbaseResults.filter((r) => !r.ok).map((r) => r.ticker));
