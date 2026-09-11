@@ -57,7 +57,7 @@ async function mintSession(email: string): Promise<void> {
 // any of the 31 EVM chain labels (RON, SEI, ARB, ...) holds the exact same
 // address as one labeled plain ETH — the label is just which chain the
 // wallet is "focused" on for display, not which chains its 0x address
-// actually gets scanned across (see AUTO_CAPABLE_CHAINS' comment in
+// actually gets scanned across (see isAutoCapableChain's comment in
 // (app)/wallets/actions.ts). Filtering by chain='ETH' here would miss those
 // and create a duplicate, double-counted wallet with identical holdings —
 // a 0x-format address is unambiguous, no other chain's address format

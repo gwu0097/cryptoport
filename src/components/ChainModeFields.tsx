@@ -3,44 +3,28 @@
 import { useId, useState } from "react";
 import { Field, inputClass, selectClass } from "./ui/Field";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
+import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 
-// Kept in sync by hand with the non-EVM half of AUTO_CAPABLE_CHAINS in
-// wallets/actions.ts (the real, server-enforced source of truth) — this
-// copy only drives the UI (datalist suggestions, disabling the "auto"
-// option), so being out of sync would just make the client-side hint
-// wrong, never let an unsupported chain actually get saved as auto (the
-// server checks again). The EVM half isn't hand-copied — isEvmChainId
-// (imported directly from evmChains.ts, the same list evm.ts scans)
-// recognizes any of the 31 configured EVM chains, so typing "RON" or
-// "SEI" enables Auto mode exactly like "ETH" does, without needing every
-// EVM chain cluttering the datalist below.
-const NON_EVM_AUTO_CAPABLE_CHAINS = [
-  "BTC",
-  "SOL",
-  "ADA",
-  "ATOM",
-  "INJ",
-  "NEAR",
-  "SUI",
-  "FIL",
-  "BCH",
-  "DOT",
-  "TAO",
-  "NEO",
-  "XRP",
-  "TON",
-  "APT",
-  "ICP",
-];
+// Drawn from nonEvmChains.ts — the same list wallets/actions.ts's
+// isAutoCapableChain checks server-side (the real, server-enforced source
+// of truth). This copy only drives the UI (datalist suggestions, disabling
+// the "auto" option), so it can safely import the plain-data half of that
+// module (no adapters, no server-only) — being out of sync would just make
+// the client-side hint wrong, never let an unsupported chain actually get
+// saved as auto (the server checks again). The EVM half isn't in that
+// list — isEvmChainId (imported directly from evmChains.ts, the same list
+// evm.ts scans) recognizes any of the 31 configured EVM chains, so typing
+// "RON" or "SEI" enables Auto mode exactly like "ETH" does, without
+// needing every EVM chain cluttering the datalist below.
 // "ETH" stands in for "any EVM chain" in the suggestion list — listing all
 // 31 would be noisy for a text-autocomplete; typing another EVM chain id
 // (RON, SEI, ARB, ...) still works via isEvmChainId below, just isn't
 // suggested here.
-const DATALIST_CHAINS = ["ETH", ...NON_EVM_AUTO_CAPABLE_CHAINS];
+const DATALIST_CHAINS = ["ETH", ...NON_EVM_CHAINS.map((c) => c.id)];
 
 function isAutoCapableChain(chain: string): boolean {
   const upper = chain.trim().toUpperCase();
-  return NON_EVM_AUTO_CAPABLE_CHAINS.includes(upper) || isEvmChainId(upper);
+  return findNonEvmChain(upper) !== undefined || isEvmChainId(upper);
 }
 
 /**

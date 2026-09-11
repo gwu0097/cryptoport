@@ -1,72 +1,38 @@
 import "server-only";
 import { fetchEvmHoldings } from "./adapters/evm";
-import { fetchJupiterHoldings } from "./adapters/jupiter";
-import { fetchSolDefiPositions } from "./adapters/solDefiPositions";
 import { fetchBitcoinHoldings } from "./adapters/bitcoin";
 import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
 import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
 import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
-import { fetchNearHoldings, isNearAccountId } from "./adapters/near";
-import { fetchSuiHoldings, isSuiAddress } from "./adapters/sui";
-import { fetchFilecoinHoldings, isFilecoinAddress } from "./adapters/filecoin";
-import { fetchBitcoinCashHoldings, isBitcoinCashAddress } from "./adapters/bitcoincash";
-import { fetchSubstrateHoldings, isSubstrateAddress } from "./adapters/substrate";
-import { fetchNeoHoldings, isNeoAddress } from "./adapters/neo";
-import { fetchXrpHoldings, isXrpAddress } from "./adapters/xrp";
-import { fetchTonHoldings, isTonAddress } from "./adapters/ton";
+import { NON_EVM_DISPATCH, detectNonEvmChain } from "./adapters/nonEvmDispatch";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { defaultChainId } from "./chainNames";
 import type { Chain, Holding } from "./types";
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-// A Solana pubkey is always 32 raw bytes, which base58-encodes to 43-44
-// characters in practice (32 only for the rare address with several
-// leading zero bytes) — checked narrower than a generic "base58, some
-// length" range specifically so it doesn't swallow a legacy/P2SH BTC
-// address (also base58, but 25-34 raw bytes -> ~26-35 chars) below.
-const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{43,44}$/;
 const BTC_BECH32_RE = /^(bc1)[a-z0-9]{25,90}$/;
 const BTC_LEGACY_RE = /^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/;
 
-/** Every chain an auto-sync adapter exists for (evm.ts, jupiter.ts,
- * bitcoin.ts, cardano.ts, cosmos.ts) — including an xpub/ypub/zpub, which
- * behaves like a BTC address here (bitcoin.ts dispatches to full account
- * scanning for one), a Cardano stake address alongside its usual addr1...,
- * and Cosmos SDK chains disambiguated by bech32 prefix (cosmos1... vs
- * inj1...). */
+/** Every chain an auto-sync adapter exists for (evm.ts, cardano.ts, plus
+ * whatever's in nonEvmDispatch.ts's shared table — see that file's header)
+ * — including an xpub/ypub/zpub, which behaves like a BTC address here
+ * (bitcoin.ts dispatches to full account scanning for one), a Cardano
+ * stake address alongside its usual addr1..., and Sei's Cosmos-native side
+ * disambiguated by bech32 prefix from the generic EVM 0x... side. */
 export function detectChain(address: string): Chain | null {
   if (EVM_ADDRESS_RE.test(address)) return "ETH";
-  if (SOLANA_ADDRESS_RE.test(address)) return "SOL";
   if (BTC_BECH32_RE.test(address) || BTC_LEGACY_RE.test(address) || isExtendedPublicKey(address)) {
     return "BTC";
   }
   if (isCardanoAddress(address)) return "ADA";
-  if (isCosmosAddress("ATOM", address)) return "ATOM";
-  if (isCosmosAddress("INJ", address)) return "INJ";
   // Sei's Cosmos-native side (sei1...) — a bech32 address here is never
   // ambiguous with the EVM 0x... side (already caught above), unlike
   // fetchAdapterHoldings in wallets/actions.ts, which has to disambiguate
   // by address format because both share the wallet.chain value "SEI".
+  // Not in NON_EVM_DISPATCH for the same reason (see that file's header).
   if (isCosmosAddress("SEI", address)) return "SEI";
-  if (isSuiAddress(address)) return "SUI";
-  if (isFilecoinAddress(address)) return "FIL";
-  if (isBitcoinCashAddress(address)) return "BCH";
-  if (isNearAccountId(address)) return "NEAR";
-  // TAO isn't auto-detected here — Bittensor reuses the generic Substrate
-  // SS58 prefix (42) shared by dozens of other chains, so a bare address
-  // alone isn't enough to tell it apart; DOT's prefix (0) is unique enough
-  // to trust.
-  if (isSubstrateAddress("DOT", address)) return "DOT";
-  if (isNeoAddress(address)) return "NEO";
-  if (isXrpAddress(address)) return "XRP";
-  if (isTonAddress(address)) return "TON";
-  // Aptos and ICP aren't auto-detected here — both are bare hex with no
-  // distinguishing marker (Aptos addresses can coincide in length with an
-  // EVM address; ICP's 64-char account identifier is the exact same shape
-  // as a NEAR implicit account), so a wallet's explicit "APT"/"ICP" chain
-  // label is the only reliable way to know which adapter to use.
-  return null;
+  return (detectNonEvmChain(address) as Chain | undefined) ?? null;
 }
 
 // Gives every looked-up holding the shape valuateHoldings()/HoldingsTable
@@ -115,34 +81,20 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
     );
   }
 
-  const fetchHoldings =
+  // ETH/BTC/ADA/SEI are handled directly (not through NON_EVM_DISPATCH —
+  // see nonEvmDispatch.ts's and detectChain's doc comments for why each is
+  // special-cased); everything else comes from the same shared dispatch
+  // table syncWalletHoldings uses.
+  const fetchHoldings: Promise<AdapterHolding[]> =
     chain === "ETH"
       ? fetchEvmHoldings(address).then((r) => r.holdings)
-      : chain === "SOL"
-        ? Promise.all([fetchJupiterHoldings(address), fetchSolDefiPositions(address).then((r) => r.holdings)]).then(
-            ([tokens, positions]) => [...tokens, ...positions],
-          )
+      : chain === "BTC"
+        ? fetchBitcoinHoldings(address)
         : chain === "ADA"
           ? fetchCardanoHoldings(address)
-          : chain === "ATOM" || chain === "INJ" || chain === "SEI"
-            ? fetchCosmosHoldings(chain, address)
-            : chain === "NEAR"
-              ? fetchNearHoldings(address)
-              : chain === "SUI"
-                ? fetchSuiHoldings(address)
-                : chain === "FIL"
-                  ? fetchFilecoinHoldings(address)
-                  : chain === "BCH"
-                    ? fetchBitcoinCashHoldings(address)
-                    : chain === "DOT" || chain === "TAO"
-                      ? fetchSubstrateHoldings(chain, address)
-                      : chain === "NEO"
-                        ? fetchNeoHoldings(address)
-                        : chain === "XRP"
-                          ? fetchXrpHoldings(address)
-                          : chain === "TON"
-                            ? fetchTonHoldings(address)
-                            : fetchBitcoinHoldings(address);
+          : chain === "SEI"
+            ? fetchCosmosHoldings("SEI", address)
+            : NON_EVM_DISPATCH[chain].fetch(address).then((r) => r.holdings);
 
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 

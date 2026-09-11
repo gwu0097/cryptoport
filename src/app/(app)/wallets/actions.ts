@@ -7,22 +7,12 @@ import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
-import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
-import { fetchSolDefiPositions } from "@/lib/adapters/solDefiPositions";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
-import { fetchNearHoldings } from "@/lib/adapters/near";
-import { fetchSuiHoldings } from "@/lib/adapters/sui";
-import { fetchFilecoinHoldings } from "@/lib/adapters/filecoin";
-import { fetchBitcoinCashHoldings } from "@/lib/adapters/bitcoincash";
-import { fetchSubstrateHoldings } from "@/lib/adapters/substrate";
-import { fetchNeoHoldings } from "@/lib/adapters/neo";
-import { fetchTonHoldings } from "@/lib/adapters/ton";
-import { fetchAptosHoldings } from "@/lib/adapters/aptos";
-import { fetchXrpHoldings } from "@/lib/adapters/xrp";
-import { fetchIcpHoldings } from "@/lib/adapters/icp";
+import { NON_EVM_DISPATCH, type AdapterFetchResult } from "@/lib/adapters/nonEvmDispatch";
+import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
@@ -90,41 +80,25 @@ export async function refreshPricesForWalletAction(walletId: string) {
   revalidatePath(`/wallets/${walletId}`);
 }
 
-// The non-EVM chains with an actual adapter — a wallet's `chain` field
-// itself isn't restricted to these (see Wallet.chain in types.ts): auto
-// mode is, checked both here (isAutoCapableChain, used by
-// createWallet/updateWallet and again defensively in syncWalletHoldings)
-// and client-side in ChainModeFields (which disables the "auto" option
-// for anything else, so this server check is belt-and-suspenders rather
-// than the only guard). EVM chains aren't listed here — any of the 31
+// A wallet's `chain` field itself isn't restricted to a fixed set (see
+// Wallet.chain in types.ts) — auto mode is, checked both here
+// (isAutoCapableChain, used by createWallet/updateWallet and again
+// defensively in syncWalletHoldings) and client-side in ChainModeFields
+// (which disables the "auto" option for anything else, so this server
+// check is belt-and-suspenders rather than the only guard). Non-EVM chains
+// come from nonEvmChains.ts's single list (see that file's header — this
+// used to be its own hand-copied array, kept in sync by hand with
+// ChainModeFields's copy). EVM chains aren't in that list — any of the 31
 // chains in evmChains.ts is auto-capable, checked dynamically via
 // isEvmChainId, since a wallet's EVM-format address is scanned across
 // every configured EVM chain regardless of which one it's labeled with
 // (e.g. a Ronin-focused wallet can say "RON" instead of the generic
 // "ETH" and still auto-sync exactly the same way).
-const AUTO_CAPABLE_CHAINS = [
-  "BTC",
-  "SOL",
-  "ADA",
-  "ATOM",
-  "INJ",
-  "NEAR",
-  "SUI",
-  "FIL",
-  "BCH",
-  "DOT",
-  "TAO",
-  "NEO",
-  "XRP",
-  "TON",
-  "APT",
-  "ICP",
-] as const;
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
 
 function isAutoCapableChain(chain: string): boolean {
-  return (AUTO_CAPABLE_CHAINS as readonly string[]).includes(chain) || isEvmChainId(chain);
+  return findNonEvmChain(chain) !== undefined || isEvmChainId(chain);
 }
 
 function requireString(formData: FormData, field: string): string {
@@ -177,15 +151,17 @@ async function resolveTagId(formData: FormData): Promise<string | null> {
 }
 
 // Chain is free text now (RON, NEAR, whatever — manual tracking works for
-// anything), but auto mode only actually works for AUTO_CAPABLE_CHAINS —
-// enforced here too, not just by ChainModeFields disabling the option
-// client-side, since a direct form POST could otherwise bypass that.
+// anything), but auto mode only actually works for a chain isAutoCapableChain
+// recognizes — enforced here too, not just by ChainModeFields disabling
+// the option client-side, since a direct form POST could otherwise bypass
+// that.
 function requireChainAndMode(formData: FormData): { chain: string; mode: WalletMode } {
   const chain = requireString(formData, "chain").toUpperCase();
   const mode = requireOneOf(formData, "mode", MODES);
   if (mode === "auto" && !isAutoCapableChain(chain)) {
+    const supported = NON_EVM_CHAINS.map((c) => c.id).join(", ");
     throw new Error(
-      `Auto mode isn't available for "${chain}" — only ${AUTO_CAPABLE_CHAINS.join(", ")}, or any EVM chain (ETH, RON, SEI, ARB, ...), have a sync adapter. Use manual mode instead.`,
+      `Auto mode isn't available for "${chain}" — only ${supported}, or any EVM chain (ETH, RON, SEI, ARB, ...), have a sync adapter. Use manual mode instead.`,
     );
   }
   return { chain, mode };
@@ -325,51 +301,25 @@ export async function deleteHolding(holdingId: string, walletId: string) {
 const SOL_SYNC_NOTE =
   "Auto-synced token balances + DeFi positions from Jupiter (Earn, Limit Order, Perps, DAO staking), Kamino (lending, multiply, leverage, earn, liquidity, staking), Wormhole (staked W), Meteora (open DLMM positions), and Parcl (margin) — other protocols are not yet captured by this sync.";
 
-interface AdapterFetchResult {
-  holdings: AdapterHolding[];
-  /** Partial, non-fatal failures (e.g. one EVM chain's public RPC had a bad
-   * moment) — the sync still saves whatever it did get. */
-  warnings: string[];
-}
-
-async function fetchSolHoldings(address: string): Promise<AdapterFetchResult> {
-  const [tokenHoldings, positions] = await Promise.all([
-    fetchJupiterHoldings(address),
-    fetchSolDefiPositions(address),
-  ]);
-  return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings };
-}
-
 // BTC isn't dispatched through here — see syncWalletHoldings, which calls
 // fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached
-// script type through and get the detected one back.
+// script type through and get the detected one back. ADA is the same
+// story (fetchCardanoHoldingsForSync, cached stake address). Every other
+// chain goes through NON_EVM_DISPATCH (nonEvmDispatch.ts) — the single
+// table shared with lookup.ts's "search any address" feature.
 async function fetchAdapterHoldings(chain: string, address: string): Promise<AdapterFetchResult> {
   // Sei is the one chain with two entirely different address formats
   // pointing at two different balances (see cosmos.ts's "SEI" entry) — a
   // bech32 sei1... address can only ever mean the Cosmos-native side,
   // checked before the generic EVM check below (which would otherwise
   // also claim "SEI" — evmChains.ts has its own "sei" entry for the EVM
-  // side of the same chain).
+  // side of the same chain). Not in NON_EVM_DISPATCH for the same reason.
   if (chain === "SEI" && address.startsWith("sei1")) {
     return { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] };
   }
   if (isEvmChainId(chain)) return fetchEvmHoldings(address);
-  if (chain === "SOL") return fetchSolHoldings(address);
-  if (chain === "NEAR") return { holdings: await fetchNearHoldings(address), warnings: [] };
-  if (chain === "SUI") return { holdings: await fetchSuiHoldings(address), warnings: [] };
-  if (chain === "FIL") return { holdings: await fetchFilecoinHoldings(address), warnings: [] };
-  if (chain === "BCH") return { holdings: await fetchBitcoinCashHoldings(address), warnings: [] };
-  if (chain === "DOT" || chain === "TAO") {
-    return { holdings: await fetchSubstrateHoldings(chain, address), warnings: [] };
-  }
-  if (chain === "ATOM" || chain === "INJ") {
-    return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
-  }
-  if (chain === "NEO") return { holdings: await fetchNeoHoldings(address), warnings: [] };
-  if (chain === "XRP") return { holdings: await fetchXrpHoldings(address), warnings: [] };
-  if (chain === "TON") return { holdings: await fetchTonHoldings(address), warnings: [] };
-  if (chain === "APT") return { holdings: await fetchAptosHoldings(address), warnings: [] };
-  if (chain === "ICP") return { holdings: await fetchIcpHoldings(address), warnings: [] };
+  const entry = NON_EVM_DISPATCH[chain];
+  if (entry) return entry.fetch(address);
   throw new Error(`No sync adapter for chain "${chain}".`);
 }
 
