@@ -10,6 +10,9 @@ import { fetchSuiHoldings, isSuiAddress } from "./adapters/sui";
 import { fetchFilecoinHoldings, isFilecoinAddress } from "./adapters/filecoin";
 import { fetchBitcoinCashHoldings, isBitcoinCashAddress } from "./adapters/bitcoincash";
 import { fetchSubstrateHoldings, isSubstrateAddress } from "./adapters/substrate";
+import { fetchNeoHoldings, isNeoAddress } from "./adapters/neo";
+import { fetchXrpHoldings, isXrpAddress } from "./adapters/xrp";
+import { fetchTonHoldings, isTonAddress } from "./adapters/ton";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { defaultChainId } from "./chainNames";
@@ -54,6 +57,14 @@ export function detectChain(address: string): Chain | null {
   // alone isn't enough to tell it apart; DOT's prefix (0) is unique enough
   // to trust.
   if (isSubstrateAddress("DOT", address)) return "DOT";
+  if (isNeoAddress(address)) return "NEO";
+  if (isXrpAddress(address)) return "XRP";
+  if (isTonAddress(address)) return "TON";
+  // Aptos and ICP aren't auto-detected here — both are bare hex with no
+  // distinguishing marker (Aptos addresses can coincide in length with an
+  // EVM address; ICP's 64-char account identifier is the exact same shape
+  // as a NEAR implicit account), so a wallet's explicit "APT"/"ICP" chain
+  // label is the only reliable way to know which adapter to use.
   return null;
 }
 
@@ -97,7 +108,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const chain = detectChain(address);
   if (!chain) {
     throw new Error(
-      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, SEI, NEAR, SUI, FIL, BCH, or DOT address.",
+      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, SEI, NEAR, SUI, FIL, BCH, DOT, NEO, XRP, or TON address.",
     );
   }
 
@@ -120,7 +131,13 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
                     ? fetchBitcoinCashHoldings(address)
                     : chain === "DOT" || chain === "TAO"
                       ? fetchSubstrateHoldings(chain, address)
-                      : fetchBitcoinHoldings(address);
+                      : chain === "NEO"
+                        ? fetchNeoHoldings(address)
+                        : chain === "XRP"
+                          ? fetchXrpHoldings(address)
+                          : chain === "TON"
+                            ? fetchTonHoldings(address)
+                            : fetchBitcoinHoldings(address);
 
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 

@@ -16,6 +16,11 @@ import { fetchSuiHoldings } from "@/lib/adapters/sui";
 import { fetchFilecoinHoldings } from "@/lib/adapters/filecoin";
 import { fetchBitcoinCashHoldings } from "@/lib/adapters/bitcoincash";
 import { fetchSubstrateHoldings } from "@/lib/adapters/substrate";
+import { fetchNeoHoldings } from "@/lib/adapters/neo";
+import { fetchTonHoldings } from "@/lib/adapters/ton";
+import { fetchAptosHoldings } from "@/lib/adapters/aptos";
+import { fetchXrpHoldings } from "@/lib/adapters/xrp";
+import { fetchIcpHoldings } from "@/lib/adapters/icp";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
@@ -94,6 +99,11 @@ const AUTO_CAPABLE_CHAINS = [
   "BCH",
   "DOT",
   "TAO",
+  "NEO",
+  "XRP",
+  "TON",
+  "APT",
+  "ICP",
 ] as const;
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
@@ -311,6 +321,11 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
   if (chain === "ATOM" || chain === "INJ") {
     return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
   }
+  if (chain === "NEO") return { holdings: await fetchNeoHoldings(address), warnings: [] };
+  if (chain === "XRP") return { holdings: await fetchXrpHoldings(address), warnings: [] };
+  if (chain === "TON") return { holdings: await fetchTonHoldings(address), warnings: [] };
+  if (chain === "APT") return { holdings: await fetchAptosHoldings(address), warnings: [] };
+  if (chain === "ICP") return { holdings: await fetchIcpHoldings(address), warnings: [] };
   throw new Error(`No sync adapter for chain "${chain}".`);
 }
 

@@ -26,6 +26,11 @@ const NON_EVM_AUTO_CAPABLE_CHAINS = [
   "BCH",
   "DOT",
   "TAO",
+  "NEO",
+  "XRP",
+  "TON",
+  "APT",
+  "ICP",
 ];
 // "ETH" stands in for "any EVM chain" in the suggestion list — listing all
 // 31 would be noisy for a text-autocomplete; typing another EVM chain id
@@ -65,7 +70,7 @@ export function ChainModeFields({
     <>
       <Field
         label="Chain"
-        hint="Any chain works for manual tracking — auto-sync exists for BTC, SOL, ADA, ATOM, INJ, NEAR, SUI, FIL, BCH, DOT, TAO, and any EVM chain (ETH, RON, SEI, ARB, ...)."
+        hint="Any chain works for manual tracking — auto-sync exists for BTC, SOL, ADA, ATOM, INJ, NEAR, SUI, FIL, BCH, DOT, TAO, NEO, XRP, TON, APT, ICP, and any EVM chain (ETH, RON, SEI, ARB, ...)."
       >
         <input
           name="chain"

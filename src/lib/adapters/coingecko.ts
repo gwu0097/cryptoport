@@ -50,6 +50,11 @@ const NATIVE_ICON_CHAINS: Record<string, string> = {
   bitcoincash: "bitcoin-cash",
   polkadot: "polkadot",
   bittensor: "bittensor",
+  neo: "neo",
+  xrpl: "ripple",
+  ton: "the-open-network",
+  aptos: "aptos",
+  "internet-computer": "internet-computer",
 };
 
 /**
