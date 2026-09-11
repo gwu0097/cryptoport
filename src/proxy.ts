@@ -15,8 +15,11 @@ export const config = {
 // links land there). /update-password is deliberately NOT here: reaching
 // it means following a password-reset email link, which itself creates a
 // temporary session via /auth/confirm first, so treating it as a normal
-// protected route is correct, not an oversight.
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth/confirm"];
+// protected route is correct, not an oversight. /lookup is here on
+// purpose too — it's read-only (see its own layout's doc comment) and
+// meant to work for a signed-out visitor, same as DeBank/Rabby's address
+// search.
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth/confirm", "/lookup"];
 const AUTH_LANDING_PATHS = ["/login", "/signup", "/forgot-password"];
 
 function isPath(pathname: string, list: string[]): boolean {
