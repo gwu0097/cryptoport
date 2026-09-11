@@ -2,7 +2,8 @@
 
 import { serviceDb, serviceAuth, userAuth } from "@/lib/supabase";
 import { createChallenge, completeChallenge } from "@/lib/walletChallenge";
-import { generateSyntheticEmail, truncateAddress, type WalletChain } from "@/lib/walletAuth";
+import { generateSyntheticEmail, type WalletChain } from "@/lib/walletAuth";
+import { ensureTrackedWallet } from "@/lib/trackedWallet";
 
 // Called directly from WalletButton.tsx's click handlers, not through a
 // <form action>, so these take plain arguments rather than the
@@ -53,61 +54,20 @@ async function mintSession(email: string): Promise<void> {
   if (verifyError) throw new Error(`Failed to sign in: ${verifyError.message}`);
 }
 
-// EVM dedupe deliberately does NOT filter on chain: a wallet tracked under
-// any of the 31 EVM chain labels (RON, SEI, ARB, ...) holds the exact same
-// address as one labeled plain ETH — the label is just which chain the
-// wallet is "focused" on for display, not which chains its 0x address
-// actually gets scanned across (see isAutoCapableChain's comment in
-// (app)/wallets/actions.ts). Filtering by chain='ETH' here would miss those
-// and create a duplicate, double-counted wallet with identical holdings —
-// a 0x-format address is unambiguous, no other chain's address format
-// overlaps with it, so matching on address alone is safe. Solana's 'SOL' is
-// the one literal chain value this app ever uses for that chain (per
-// types.ts), so an exact chain filter there is correct, not a guess.
-// wallets.address is stored exactly as typed elsewhere (see
-// (app)/wallets/actions.ts's optionalString), so EVM's match is
-// case-insensitive; Solana's base58 is case-sensitive, exact match.
-// .limit(1) instead of .maybeSingle() — .maybeSingle() errors on more than
-// one match, which a user who already tracks the same address under two
-// different EVM labels (or created a duplicate by hand) would trigger.
-// .eq("active", true) + a deterministic order — same reasoning as the
-// matching function in (app)/settings/walletActions.ts: without them, a
-// soft-deleted duplicate (deleteWallet sets active=false, never removes
-// the row) could be the one returned instead of the real tracked wallet.
-async function findExistingTrackedWallet(
-  userId: string,
-  chain: WalletChain,
-  address: string,
-): Promise<string | null> {
-  const base = serviceDb()
-    .from("wallets")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("active", true)
-    .order("created_at", { ascending: true });
-  const query = chain === "ETH" ? base.ilike("address", address) : base.eq("chain", chain).eq("address", address);
-  const { data } = await query.limit(1);
-  return data?.[0]?.id ?? null;
-}
-
 // Runs under service_role with no session (see completeWalletSignIn below)
-// — user_id is passed explicitly on every write here, never left to the
-// column's `default auth.uid()`, which only fires under a real session
-// (the link flow in (app)/settings/walletActions.ts is the one that can
-// rely on it).
+// — userId is passed explicitly into ensureTrackedWallet, never left to the
+// wallets.user_id column's `default auth.uid()`, which only fires under a
+// real session (the link flow in (app)/settings/walletActions.ts is the one
+// that can rely on it). See trackedWallet.ts's own doc comment for the
+// dedupe/lookup reasoning shared with that flow.
 async function autoAddWallet(userId: string, chain: WalletChain, address: string): Promise<string | null> {
-  const existing = await findExistingTrackedWallet(userId, chain, address);
-  if (existing) return existing;
-
-  const { data, error } = await serviceDb()
-    .from("wallets")
-    .insert({ user_id: userId, chain, address, mode: "auto", name: truncateAddress(address) })
-    .select("id")
-    .single();
-  // A failed portfolio-tracking insert shouldn't block sign-in — it just
-  // means the address won't show up automatically this time.
-  if (error) return null;
-  return data.id;
+  try {
+    return await ensureTrackedWallet(serviceDb(), chain, address, userId);
+  } catch {
+    // A failed portfolio-tracking insert shouldn't block sign-in — it just
+    // means the address won't show up automatically this time.
+    return null;
+  }
 }
 
 export async function completeWalletSignIn(signatureHex: string): Promise<WalletSignInResult> {

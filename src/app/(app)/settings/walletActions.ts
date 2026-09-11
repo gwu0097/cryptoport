@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { userDb } from "@/lib/supabase";
 import { createChallenge, completeChallenge } from "@/lib/walletChallenge";
-import { truncateAddress, isSyntheticEmail, type WalletChain } from "@/lib/walletAuth";
+import { isSyntheticEmail, type WalletChain } from "@/lib/walletAuth";
+import { ensureTrackedWallet } from "@/lib/trackedWallet";
 
 // {ok, error} return values, NOT throw-on-error — unlike settings/actions.ts
 // (which is form-bound), these two are called directly from
@@ -39,41 +40,17 @@ export async function requestWalletLink(
   }
 }
 
-// Same "don't filter EVM by chain label" reasoning as
-// (auth)/walletActions.ts's version — see its comment. Scoped by RLS
-// (userDb() only ever sees this user's rows), no explicit user_id filter
-// needed. .limit(1) not .maybeSingle() for the same more-than-one-match
-// reason as that file too.
-//
-// .eq("active", true) + a deterministic order matter here specifically:
-// without them, a soft-deleted duplicate (deleteWallet sets active=false,
-// never removes the row — see its own comment) could be the one returned,
-// silently relinking/re-syncing a stale leftover instead of the real
-// tracked wallet the user actually has open. Bit us live: verifying a
-// wallet with an old inactive duplicate lying around (same chain+address,
-// from some earlier duplicate-add) navigated to that empty duplicate
-// instead of the populated active one, which then looked like the synced
-// holdings had vanished until a fresh sync repopulated it.
-async function findExistingTrackedWallet(chain: WalletChain, address: string): Promise<string | null> {
+// Scoped by RLS (userDb() only ever sees this user's rows), so no explicit
+// userId is passed to ensureTrackedWallet here — see trackedWallet.ts's own
+// doc comment for the full reasoning (dedupe rules, why active+order
+// matter, the real bug this already caused once).
+async function ensureTrackedWalletForCurrentUser(chain: WalletChain, address: string): Promise<string> {
   const db = await userDb();
-  const base = db.from("wallets").select("id").eq("active", true).order("created_at", { ascending: true });
-  const query = chain === "ETH" ? base.ilike("address", address) : base.eq("chain", chain).eq("address", address);
-  const { data } = await query.limit(1);
-  return data?.[0]?.id ?? null;
-}
-
-async function ensureTrackedWallet(chain: WalletChain, address: string): Promise<string> {
-  const existing = await findExistingTrackedWallet(chain, address);
-  if (existing) return existing;
-
-  const db = await userDb();
-  const { data, error } = await db
-    .from("wallets")
-    .insert({ chain, address, mode: "auto", name: truncateAddress(address) })
-    .select("id")
-    .single();
-  if (error) throw new Error(`Wallet linked, but failed to add it to your portfolio: ${error.message}`);
-  return data.id;
+  try {
+    return await ensureTrackedWallet(db, chain, address);
+  } catch (e) {
+    throw new Error(`Wallet linked, but failed to add it to your portfolio: ${(e as Error).message}`);
+  }
 }
 
 // Returns the tracked wallet's id (existing or freshly created) so callers
@@ -116,7 +93,7 @@ export async function completeWalletLink(signatureHex: string): Promise<WalletLi
       }
     }
 
-    const walletId = await ensureTrackedWallet(chain, address);
+    const walletId = await ensureTrackedWalletForCurrentUser(chain, address);
 
     revalidatePath("/settings");
     revalidatePath("/wallets");
