@@ -10,6 +10,7 @@ import { SignInPrompt } from "@/components/SignInPrompt";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
+import { CryptoHeatmap } from "@/components/dashboard/CryptoHeatmap";
 import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +101,12 @@ export default async function DashboardPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <MoverList title="Top gainers (24h)" groups={gainers} />
         <MoverList title="Top losers (24h)" groups={losers} />
+      </div>
+
+      <div className="mb-6">
+        <Panel title="Crypto market heatmap" description="Whole-market daily movement, via TradingView — not your holdings.">
+          <CryptoHeatmap />
+        </Panel>
       </div>
 
       <Panel className="text-center">
