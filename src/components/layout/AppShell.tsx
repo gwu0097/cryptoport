@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, userEmail }: { children: ReactNode; userEmail: string | null }) {
   return (
     <div className="flex min-h-screen flex-col bg-bg text-fg">
-      <TopBar />
+      <TopBar userEmail={userEmail} />
       <div className="flex flex-1">
         <Sidebar />
         <main className="min-w-0 flex-1 px-6 py-6 lg:px-8">

@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Plug, Search } from "lucide-react";
+import { Plug, Search, LogOut } from "lucide-react";
+import { signOut } from "@/app/(auth)/actions";
 
-export function TopBar() {
+export function TopBar({ userEmail }: { userEmail: string | null }) {
   return (
     <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface px-4">
       <div className="flex shrink-0 items-center gap-4">
@@ -38,7 +39,17 @@ export function TopBar() {
         </div>
       </form>
 
-      <div className="w-9 shrink-0" aria-hidden="true" />
+      <form action={signOut} className="flex shrink-0 items-center gap-2">
+        {userEmail && <span className="hidden text-sm text-fg-muted sm:inline">{userEmail}</span>}
+        <button
+          type="submit"
+          aria-label="Log out"
+          title="Log out"
+          className="grid size-9 place-items-center rounded-lg border border-border text-fg-muted hover:bg-surface-raised hover:text-fg"
+        >
+          <LogOut className="size-4" aria-hidden="true" />
+        </button>
+      </form>
     </header>
   );
 }

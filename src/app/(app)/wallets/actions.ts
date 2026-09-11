@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { portfolioDb } from "@/lib/supabase";
+import { serviceDb, userDb } from "@/lib/supabase";
+import { requireUser } from "@/lib/auth";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
@@ -55,7 +56,7 @@ export async function refreshPricesAction() {
   // with "this wallet was synced" into one column (a wallet's real sync
   // status kept getting overwritten by an unrelated price refresh). One
   // singleton row instead — see price_refresh_state in schema.sql.
-  const { error } = await portfolioDb()
+  const { error } = await serviceDb()
     .from("price_refresh_state")
     .update({ refreshed_at: new Date().toISOString(), status })
     .eq("id", 1);
@@ -148,9 +149,14 @@ async function resolveTagId(formData: FormData): Promise<string | null> {
   const name = optionalString(formData, "tag");
   if (!name) return null;
 
-  const { data, error } = await portfolioDb()
+  // onConflict targets (user_id, name) — tag names are unique per user, not
+  // globally (see db/schema.sql), so two different people can both have a
+  // tag called "personal" without colliding. user_id itself isn't set here:
+  // the column defaults to auth.uid(), same as wallets.user_id below.
+  const db = await userDb();
+  const { data, error } = await db
     .from("tags")
-    .upsert({ name }, { onConflict: "name" })
+    .upsert({ name }, { onConflict: "user_id,name" })
     .select("id")
     .single();
   if (error) throw new Error(`Failed to resolve tag: ${error.message}`);
@@ -173,12 +179,17 @@ function requireChainAndMode(formData: FormData): { chain: string; mode: WalletM
 }
 
 export async function createWallet(formData: FormData) {
+  await requireUser();
   const name = requireString(formData, "name");
   const { chain, mode } = requireChainAndMode(formData);
   const address = optionalString(formData, "address");
   const tag_id = await resolveTagId(formData);
 
-  const { data, error } = await portfolioDb()
+  // user_id isn't set explicitly — the column defaults to auth.uid() (see
+  // db/schema.sql), so this insert only ever creates a row owned by
+  // whoever's session userDb() is bound to.
+  const db = await userDb();
+  const { data, error } = await db
     .from("wallets")
     .insert({ name, chain, mode, tag_id, address })
     .select("id")
@@ -190,12 +201,14 @@ export async function createWallet(formData: FormData) {
 }
 
 export async function updateWallet(walletId: string, formData: FormData) {
+  await requireUser();
   const name = requireString(formData, "name");
   const { chain, mode } = requireChainAndMode(formData);
   const address = optionalString(formData, "address");
   const tag_id = await resolveTagId(formData);
 
-  const { error } = await portfolioDb()
+  const db = await userDb();
+  const { error } = await db
     .from("wallets")
     .update({ name, chain, mode, tag_id, address })
     .eq("id", walletId);
@@ -210,6 +223,7 @@ export async function updateWallet(walletId: string, formData: FormData) {
 // bypasses pricing entirely — see valuation.ts). This is the only place that
 // decides which of the two a new holding is.
 export async function addHolding(walletId: string, formData: FormData) {
+  await requireUser();
   const ticker = requireString(formData, "ticker").toUpperCase();
   const kind = requireOneOf(formData, "kind", HOLDING_KINDS);
 
@@ -236,7 +250,8 @@ export async function addHolding(walletId: string, formData: FormData) {
           usd_override: null,
         };
 
-  const { error } = await portfolioDb().from("holdings").insert(insert);
+  const db = await userDb();
+  const { error } = await db.from("holdings").insert(insert);
   if (error) throw new Error(`Failed to add holding: ${error.message}`);
 
   revalidatePath(`/wallets/${walletId}`);
@@ -246,7 +261,8 @@ export async function addHolding(walletId: string, formData: FormData) {
 // Auto holdings are refresh-owned (source='auto'); the UI must never write to
 // them, mirroring the rule that the refresh job may never touch manual rows.
 async function requireEditableHolding(holdingId: string) {
-  const { data, error } = await portfolioDb()
+  const db = await userDb();
+  const { data, error } = await db
     .from("holdings")
     .select("source")
     .eq("id", holdingId)
@@ -259,6 +275,7 @@ async function requireEditableHolding(holdingId: string) {
 }
 
 export async function updateHolding(holdingId: string, walletId: string, formData: FormData) {
+  await requireUser();
   const source = await requireEditableHolding(holdingId);
 
   const update =
@@ -266,7 +283,8 @@ export async function updateHolding(holdingId: string, walletId: string, formDat
       ? { usd_override: requireString(formData, "usd_override") }
       : { qty: requireString(formData, "qty") };
 
-  const { error } = await portfolioDb().from("holdings").update(update).eq("id", holdingId);
+  const db = await userDb();
+  const { error } = await db.from("holdings").update(update).eq("id", holdingId);
   if (error) throw new Error(`Failed to update holding: ${error.message}`);
 
   revalidatePath(`/wallets/${walletId}`);
@@ -274,9 +292,11 @@ export async function updateHolding(holdingId: string, walletId: string, formDat
 }
 
 export async function deleteHolding(holdingId: string, walletId: string) {
+  await requireUser();
   await requireEditableHolding(holdingId);
 
-  const { error } = await portfolioDb().from("holdings").delete().eq("id", holdingId);
+  const db = await userDb();
+  const { error } = await db.from("holdings").delete().eq("id", holdingId);
   if (error) throw new Error(`Failed to delete holding: ${error.message}`);
 
   revalidatePath(`/wallets/${walletId}`);
@@ -369,7 +389,9 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
 // directly as a second argument before the form's own FormData (see
 // updateHolding/deleteHolding above for the same .bind(null, ...) shape).
 export async function syncWalletHoldings(walletId: string, forceFullScan = false) {
-  const { data: wallet, error: walletError } = await portfolioDb()
+  await requireUser();
+  const db = await userDb();
+  const { data: wallet, error: walletError } = await db
     .from("wallets")
     .select("chain, address, mode, btc_script_type, cardano_stake_address")
     .eq("id", walletId)
@@ -385,13 +407,21 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
   }
 
   const syncStartedAt = Date.now();
-  const { error: markError } = await portfolioDb()
+  const { error: markError } = await db
     .from("wallets")
     .update({ last_refresh_status: "syncing", sync_started_at: new Date(syncStartedAt).toISOString() })
     .eq("id", walletId);
   if (markError) throw new Error(`Failed to start sync: ${markError.message}`);
 
   after(async () => {
+    // A fresh userDb() call here, not the outer `db` closed over above —
+    // Server Functions are explicitly allowed to call cookies()/headers()
+    // (which userDb() does internally) from inside an after() callback per
+    // Next's own docs (node_modules/next/dist/docs/.../functions/after.md),
+    // but reusing a client built during the request rather than during the
+    // after() callback isn't the documented pattern, so this builds its own
+    // to stay on the supported path.
+    const afterDb = await userDb();
     try {
       let holdings: AdapterHolding[];
       let warnings: string[] = [];
@@ -414,7 +444,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       }
 
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
-      const { error: syncError } = await portfolioDb().rpc("sync_auto_holdings", {
+      const { error: syncError } = await afterDb.rpc("sync_auto_holdings", {
         p_wallet_id: walletId,
         p_holdings: holdings,
         p_status: status,
@@ -422,7 +452,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
 
       if (wallet.chain === "SOL") {
-        await portfolioDb().from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
+        await afterDb.from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
       }
 
       const updates: {
@@ -434,9 +464,9 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       };
       if (wallet.chain === "BTC") updates.btc_script_type = detectedScriptType;
       if (wallet.chain === "ADA") updates.cardano_stake_address = cardanoStakeAddress;
-      await portfolioDb().from("wallets").update(updates).eq("id", walletId);
+      await afterDb.from("wallets").update(updates).eq("id", walletId);
     } catch (e) {
-      await portfolioDb()
+      await afterDb
         .from("wallets")
         .update({
           last_refresh_status: `error: ${(e as Error).message}`,
@@ -468,7 +498,9 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
 // small enough that hammering a shared provider with a few more
 // concurrent callers hasn't been an issue in practice.
 export async function syncAllWallets() {
-  const { data: wallets, error } = await portfolioDb()
+  await requireUser();
+  const db = await userDb();
+  const { data: wallets, error } = await db
     .from("wallets")
     .select("id, last_refresh_status")
     .eq("mode", "auto")
@@ -485,7 +517,9 @@ export async function syncAllWallets() {
 // list already filters on it) — no schema change needed, and it keeps a
 // wallet's holding history around instead of cascading a hard delete.
 export async function deleteWallet(walletId: string) {
-  const { error } = await portfolioDb()
+  await requireUser();
+  const db = await userDb();
+  const { error } = await db
     .from("wallets")
     .update({ active: false })
     .eq("id", walletId);

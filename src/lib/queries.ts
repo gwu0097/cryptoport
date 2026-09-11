@@ -1,5 +1,5 @@
 import "server-only";
-import { portfolioDb } from "./supabase";
+import { serviceDb, userDb } from "./supabase";
 import {
   aggregate,
   parseNumeric,
@@ -21,7 +21,7 @@ export interface PriceRefreshState {
  * price_refresh_state in schema.sql for why this is a singleton row rather
  * than something stamped onto every wallet. */
 export async function getPriceRefreshState(): Promise<PriceRefreshState> {
-  const { data, error } = await portfolioDb()
+  const { data, error } = await serviceDb()
     .from("price_refresh_state")
     .select("refreshed_at, status")
     .eq("id", 1)
@@ -30,19 +30,23 @@ export async function getPriceRefreshState(): Promise<PriceRefreshState> {
   return { refreshedAt: data?.refreshed_at ?? null, status: data?.status ?? null };
 }
 
-/** Every tag that's ever been created — populates the datalist for the
+/** Every tag *this user* has ever created — populates the datalist for the
  * free-text "tag" input on the wallet add/edit forms (see resolveTagId in
- * wallets/actions.ts, which creates one the first time its name is used). */
+ * wallets/actions.ts, which creates one the first time its name is used).
+ * No explicit user filter here — RLS on cryptoport.tags already scopes
+ * this to auth.uid(), see db/schema.sql. */
 export async function getTags(): Promise<Tag[]> {
-  const { data, error } = await portfolioDb().from("tags").select("id, name").order("name");
+  const db = await userDb();
+  const { data, error } = await db.from("tags").select("id, name").order("name");
   if (error) throw new Error(`Failed to load tags: ${error.message}`);
   return data as Tag[];
 }
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —
- * see coingecko.ts's refreshTokenRegistry for how this is kept populated. */
+ * see coingecko.ts's refreshTokenRegistry for how this is kept populated.
+ * Shared/global, not per-user — serviceDb() is correct here. */
 export async function getChainIconMap(): Promise<Record<string, string>> {
-  const { data, error } = await portfolioDb().from("chain_icons").select("chain_id, image_url");
+  const { data, error } = await serviceDb().from("chain_icons").select("chain_id, image_url");
   if (error) throw new Error(`Failed to load chain_icons: ${error.message}`);
 
   const icons: Record<string, string> = {};
@@ -52,8 +56,10 @@ export async function getChainIconMap(): Promise<Record<string, string>> {
   return icons;
 }
 
+// Shared/global, not per-user — every user's holdings draw from the same
+// ticker-keyed price cache, see prices.ts's refreshPrices doc comment.
 export async function getPriceMap(): Promise<PriceMap> {
-  const { data, error } = await portfolioDb().from("prices").select("ticker, usd");
+  const { data, error } = await serviceDb().from("prices").select("ticker, usd");
   if (error) throw new Error(`Failed to load prices: ${error.message}`);
 
   const prices: PriceMap = {};
@@ -87,8 +93,9 @@ export interface WalletListResult {
 
 /** Wallets list, each with its own total, plus a grand total across all of them. */
 export async function getWalletsWithTotals(): Promise<WalletListResult> {
+  const db = await userDb();
   const [{ data: wallets, error: walletsError }, prices] = await Promise.all([
-    portfolioDb()
+    db
       .from("wallets")
       .select("*, holdings(*), tag:tags(id,name)")
       .eq("active", true)
@@ -200,8 +207,9 @@ export interface WalletDetailResult extends ValuatedHoldings {
 }
 
 export async function getWalletDetail(id: string): Promise<WalletDetailResult | null> {
+  const db = await userDb();
   const [{ data: wallet, error: walletError }, prices] = await Promise.all([
-    portfolioDb().from("wallets").select("*, holdings(*), tag:tags(id,name)").eq("id", id).maybeSingle(),
+    db.from("wallets").select("*, holdings(*), tag:tags(id,name)").eq("id", id).maybeSingle(),
     getPriceMap(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
@@ -218,8 +226,9 @@ export interface AssetsResult {
 
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
 export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
+  const db = await userDb();
   const [{ data: wallets, error }, prices] = await Promise.all([
-    portfolioDb().from("wallets").select("*, holdings(*)").eq("active", true),
+    db.from("wallets").select("*, holdings(*)").eq("active", true),
     getPriceMap(),
   ]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
@@ -295,8 +304,9 @@ export interface AssetsByTickerResult {
  * stricter notion of "same asset" just for this one page.
  */
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
+  const db = await userDb();
   const [{ data: wallets, error }, prices] = await Promise.all([
-    portfolioDb().from("wallets").select("*, holdings(*)").eq("active", true),
+    db.from("wallets").select("*, holdings(*)").eq("active", true),
     getPriceMap(),
   ]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
@@ -391,8 +401,9 @@ export interface DefiResult {
  * a plain token balance has none and is correctly invisible on this page.
  */
 export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
+  const db = await userDb();
   const [{ data: wallets, error }, prices] = await Promise.all([
-    portfolioDb().from("wallets").select("*, holdings(*)").eq("active", true),
+    db.from("wallets").select("*, holdings(*)").eq("active", true),
     getPriceMap(),
   ]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);

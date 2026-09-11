@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AppShell } from "@/components/layout/AppShell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,12 +17,14 @@ export const metadata: Metadata = {
   description: "Private crypto portfolio tracker",
 };
 
+// Deliberately minimal — no AppShell/chrome here. The (app) route group
+// owns that (and the session check that goes with it) so the (auth) route
+// group's login/signup/etc. pages can have their own plain layout instead
+// of a sidebar meant for someone who's already signed in.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>
-        <AppShell>{children}</AppShell>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

@@ -3,7 +3,7 @@ import { createPublicClient, http, formatUnits, type Address } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
 import { fetchNativePrice, fetchTokenPrices, fetchTokenImages } from "./coingecko";
 import { mapWithConcurrency } from "./http";
-import { portfolioDb } from "../supabase";
+import { serviceDb } from "../supabase";
 import type { AdapterHolding } from "./types";
 
 const TOKEN_USD_FLOOR = 5;
@@ -61,7 +61,7 @@ const REGISTRY_PAGE_SIZE = 1000;
 // Multicall3 even starts), unrelated to anything on-chain and easy to
 // parallelize since every page is an independent, already-known range.
 async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
-  const { data: firstPage, error: firstError, count } = await portfolioDb()
+  const { data: firstPage, error: firstError, count } = await serviceDb()
     .from("token_registry")
     .select("contract, symbol, decimals, coingecko_id, image_url", { count: "exact" })
     .eq("chain_id", chainId)
@@ -78,7 +78,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
       5,
       async (pageIndex) => {
         const from = pageIndex * REGISTRY_PAGE_SIZE;
-        const { data, error } = await portfolioDb()
+        const { data, error } = await serviceDb()
           .from("token_registry")
           .select("contract, symbol, decimals, coingecko_id, image_url")
           .eq("chain_id", chainId)
@@ -104,7 +104,7 @@ async function saveDecimals(chainId: string, rows: { contract: string; symbol: s
 
   for (let i = 0; i < deduped.length; i += 1000) {
     const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
-    const { error } = await portfolioDb()
+    const { error } = await serviceDb()
       .from("token_registry")
       .upsert(chunk, { onConflict: "chain_id,contract" });
     if (error) throw new Error(`Failed to save decimals(${chainId}): ${error.message}`);
@@ -123,7 +123,7 @@ async function saveImageUrls(
   const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
   for (let i = 0; i < deduped.length; i += 1000) {
     const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
-    const { error } = await portfolioDb()
+    const { error } = await serviceDb()
       .from("token_registry")
       .upsert(chunk, { onConflict: "chain_id,contract" });
     if (error) throw new Error(`Failed to save image_url(${chainId}): ${error.message}`);

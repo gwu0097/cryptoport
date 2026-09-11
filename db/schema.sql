@@ -347,3 +347,92 @@ begin
   where id = p_wallet_id;
 end;
 $$;
+
+-- Multi-tenant: Supabase Auth + real RLS, replacing the single shared
+-- Basic Auth login. user_id is nullable for now, not "not null" yet —
+-- existing rows have no owner until the one-time backfill script (run
+-- after the first real signup) assigns them, which also tightens the
+-- column to not null as its last step. holdings gets no user_id of its
+-- own — it's always reached through its wallet, so its RLS policy is a
+-- subquery against wallets.user_id instead of a duplicated column.
+alter table cryptoport.wallets
+  add column user_id uuid references auth.users(id) on delete cascade default auth.uid();
+
+alter table cryptoport.tags
+  add column user_id uuid references auth.users(id) on delete cascade default auth.uid();
+
+-- Tag names are unique per user now, not globally — two different people
+-- can both have a tag called "personal" without colliding.
+alter table cryptoport.tags drop constraint if exists tags_name_key;
+alter table cryptoport.tags add constraint tags_user_id_name_key unique (user_id, name);
+
+create policy "wallets: owner only" on cryptoport.wallets
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "tags: owner only" on cryptoport.tags
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "holdings: owner only" on cryptoport.holdings
+  for all
+  using (wallet_id in (select id from cryptoport.wallets where user_id = auth.uid()))
+  with check (wallet_id in (select id from cryptoport.wallets where user_id = auth.uid()));
+
+-- Currently only service_role has any grant on these tables at all (see
+-- this file's original "deny by default" comment) — RLS restricts what a
+-- role can see, but a role still needs an underlying grant to have
+-- anything for RLS to apply itself to. anon gets nothing, deliberately.
+grant select, insert, update, delete on cryptoport.wallets to authenticated;
+grant select, insert, update, delete on cryptoport.holdings to authenticated;
+grant select, insert, update, delete on cryptoport.tags to authenticated;
+
+-- sync_auto_holdings is security definer (runs with elevated privileges),
+-- so RLS does NOT protect it internally — without this explicit check, any
+-- authenticated user could call the RPC with someone else's wallet_id and
+-- overwrite their holdings. Ownership is checked up front instead.
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+grant execute on function cryptoport.sync_auto_holdings(uuid, jsonb, text) to authenticated;
+
+-- Basic Auth is fully replaced by Supabase Auth — this table (and its seed
+-- row) is dead.
+drop table if exists cryptoport.app_credentials;

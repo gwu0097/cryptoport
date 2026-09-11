@@ -10,7 +10,7 @@ import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { TokenIcon } from "./TokenIcon";
 import { CopyButton } from "./CopyButton";
-import { updateHolding, deleteHolding } from "@/app/wallets/actions";
+import { updateHolding, deleteHolding } from "@/app/(app)/wallets/actions";
 
 type SortKey = "ticker" | "qty" | "price" | "value" | "category";
 

@@ -1,5 +1,5 @@
 import "server-only";
-import { portfolioDb } from "./supabase";
+import { serviceDb } from "./supabase";
 import { fetchCoinbaseSpotPrice, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 
@@ -27,7 +27,7 @@ interface HoldingTickerInfo {
 // Prices are driven by holdings, not by adapters: every distinct ticker any
 // holding uses needs a price, including BTC, which no adapter ever touches.
 async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
-  const { data, error } = await portfolioDb().from("holdings").select("ticker, contract");
+  const { data, error } = await serviceDb().from("holdings").select("ticker, contract");
   if (error) throw new Error(`Failed to load holding tickers: ${error.message}`);
 
   const byTicker = new Map<string, string | null>();
@@ -40,13 +40,13 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
 }
 
 async function getExistingPriceSources(): Promise<Map<string, string | null>> {
-  const { data, error } = await portfolioDb().from("prices").select("ticker, source");
+  const { data, error } = await serviceDb().from("prices").select("ticker, source");
   if (error) throw new Error(`Failed to load existing prices: ${error.message}`);
   return new Map((data as { ticker: string; source: string | null }[]).map((r) => [r.ticker, r.source]));
 }
 
 async function upsertPrice(ticker: string, usd: string, source: "coinbase" | "jupiter") {
-  const { error } = await portfolioDb()
+  const { error } = await serviceDb()
     .from("prices")
     .upsert({ ticker, usd, source, updated_at: new Date().toISOString() });
   if (error) throw new Error(error.message);

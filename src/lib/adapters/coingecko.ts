@@ -1,7 +1,7 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
 import { EVM_CHAINS } from "./evmChains";
-import { portfolioDb } from "../supabase";
+import { serviceDb } from "../supabase";
 
 const API_BASE = "https://api.coingecko.com/api/v3";
 
@@ -105,7 +105,7 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
     // registered contracts.
     for (let i = 0; i < rows.length; i += 1000) {
       const chunk = rows.slice(i, i + 1000);
-      const { error } = await portfolioDb()
+      const { error } = await serviceDb()
         .from("token_registry")
         .upsert(chunk, { onConflict: "chain_id,contract", ignoreDuplicates: false });
       if (error) throw new Error(`Failed to upsert token_registry(${chain.id}): ${error.message}`);
@@ -135,7 +135,7 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
   }
 
   if (chainIconRows.length > 0) {
-    const { error } = await portfolioDb().from("chain_icons").upsert(chainIconRows, { onConflict: "chain_id" });
+    const { error } = await serviceDb().from("chain_icons").upsert(chainIconRows, { onConflict: "chain_id" });
     if (error) throw new Error(`Failed to upsert chain_icons: ${error.message}`);
   }
 

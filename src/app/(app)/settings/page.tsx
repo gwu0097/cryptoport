@@ -1,5 +1,5 @@
-import { getCredentials } from "@/lib/authCredentials";
-import { changeCredentials } from "./actions";
+import { getUser } from "@/lib/auth";
+import { updateAccountPassword } from "./actions";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -11,7 +11,7 @@ export default async function SettingsPage({
   searchParams: Promise<{ changed?: string }>;
 }) {
   const { changed } = await searchParams;
-  const creds = await getCredentials();
+  const user = await getUser();
 
   return (
     <>
@@ -44,38 +44,21 @@ export default async function SettingsPage({
           </p>
         </Panel>
 
-        <Panel title="Login">
+        <Panel title="Account">
+          <p className="mb-4 text-sm text-fg-muted">
+            Signed in as <span className="text-fg">{user?.email}</span>
+          </p>
+
           {changed && (
             <p className="mb-4 rounded-lg border border-positive/30 bg-positive/10 px-4 py-3 text-sm text-positive">
-              Login updated. Your browser will ask you to sign in again with the new credentials.
+              Password updated.
             </p>
           )}
 
-          <form action={changeCredentials} className="flex flex-col gap-4">
-            <Field label="Current password">
+          <form action={updateAccountPassword} className="flex flex-col gap-4">
+            <Field label="New password" hint="At least 8 characters.">
               <input
-                name="currentPassword"
-                type="password"
-                required
-                autoComplete="current-password"
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="New username">
-              <input
-                name="newUsername"
-                type="text"
-                required
-                defaultValue={creds?.username ?? ""}
-                autoComplete="username"
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="New password">
-              <input
-                name="newPassword"
+                name="password"
                 type="password"
                 required
                 minLength={8}
@@ -95,7 +78,9 @@ export default async function SettingsPage({
               />
             </Field>
 
-            <SubmitButton className="self-start">Update login</SubmitButton>
+            <SubmitButton className="self-start" pendingLabel="Updating…">
+              Update password
+            </SubmitButton>
           </form>
         </Panel>
       </div>

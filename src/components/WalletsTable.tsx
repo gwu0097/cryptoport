@@ -11,7 +11,7 @@ import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { EditWalletModal } from "./EditWalletModal";
 import { AutoRefreshWhileSyncing } from "./AutoRefreshWhileSyncing";
-import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/wallets/actions";
+import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
 type SortKey = "name" | "chain" | "tag" | "mode" | "value" | "refreshed" | "duration";
 
