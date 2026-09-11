@@ -44,9 +44,19 @@ export async function requestWalletLink(
 // (userDb() only ever sees this user's rows), no explicit user_id filter
 // needed. .limit(1) not .maybeSingle() for the same more-than-one-match
 // reason as that file too.
+//
+// .eq("active", true) + a deterministic order matter here specifically:
+// without them, a soft-deleted duplicate (deleteWallet sets active=false,
+// never removes the row — see its own comment) could be the one returned,
+// silently relinking/re-syncing a stale leftover instead of the real
+// tracked wallet the user actually has open. Bit us live: verifying a
+// wallet with an old inactive duplicate lying around (same chain+address,
+// from some earlier duplicate-add) navigated to that empty duplicate
+// instead of the populated active one, which then looked like the synced
+// holdings had vanished until a fresh sync repopulated it.
 async function findExistingTrackedWallet(chain: WalletChain, address: string): Promise<string | null> {
   const db = await userDb();
-  const base = db.from("wallets").select("id");
+  const base = db.from("wallets").select("id").eq("active", true).order("created_at", { ascending: true });
   const query = chain === "ETH" ? base.ilike("address", address) : base.eq("chain", chain).eq("address", address);
   const { data } = await query.limit(1);
   return data?.[0]?.id ?? null;

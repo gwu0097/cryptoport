@@ -70,12 +70,21 @@ async function mintSession(email: string): Promise<void> {
 // .limit(1) instead of .maybeSingle() — .maybeSingle() errors on more than
 // one match, which a user who already tracks the same address under two
 // different EVM labels (or created a duplicate by hand) would trigger.
+// .eq("active", true) + a deterministic order — same reasoning as the
+// matching function in (app)/settings/walletActions.ts: without them, a
+// soft-deleted duplicate (deleteWallet sets active=false, never removes
+// the row) could be the one returned instead of the real tracked wallet.
 async function findExistingTrackedWallet(
   userId: string,
   chain: WalletChain,
   address: string,
 ): Promise<string | null> {
-  const base = serviceDb().from("wallets").select("id").eq("user_id", userId);
+  const base = serviceDb()
+    .from("wallets")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .order("created_at", { ascending: true });
   const query = chain === "ETH" ? base.ilike("address", address) : base.eq("chain", chain).eq("address", address);
   const { data } = await query.limit(1);
   return data?.[0]?.id ?? null;
