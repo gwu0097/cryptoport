@@ -1,36 +1,15 @@
-// No "server-only" marker here (unlike supabase.ts/queries.ts): this module
-// holds no secrets, just a wrapper around a public, unauthenticated Coinbase
-// endpoint, and stays plain so extractSpotAmount is unit-testable with
-// `node --test` outside of Next's bundler (which is what makes "server-only"
-// a no-op; run standalone it throws unconditionally).
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Retries on 429 with backoff. Small and local rather than importing
- * adapters/http.ts's fetchWithRetry: that file pulls in "server-only",
- * which throws unconditionally outside Next's bundler (see the top-of-file
- * comment) and would break this file's own unit tests. Needed because
- * Coinbase's Exchange API host (api.exchange.coinbase.com — used for the
- * delisting check and 24h stats below) throttles hard: verified live that
- * firing one request per distinct holding ticker concurrently (this file's
- * actual caller, prices.ts's refreshPrices) got 429'd on the large majority
- * of /stats calls, even ones for perfectly ordinary, actively-traded
- * products (TAO, JitoSOL, ATOM) — not a per-product gap, a burst-rate-limit
- * one. prices.ts also caps how many tickers run concurrently for the same
- * reason; this retry is the second, complementary layer for whatever still
- * gets throttled through that.
- */
-async function fetchWithRetry(url: string, attempts = 3, baseDelayMs = 500): Promise<Response> {
-  let res: Response;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await sleep(baseDelayMs * 2 ** (attempt - 1));
-    res = await fetch(url, { cache: "no-store" });
-    if (res.status !== 429) return res;
-  }
-  return res!;
-}
+// This module holds no secrets, just a wrapper around a public,
+// unauthenticated Coinbase endpoint — "server-only" is added anyway (see
+// walletAuth.ts's doc comment for the shared reasoning) purely as a
+// consistent guard, harmless here since nothing about this file is
+// actually heavy. Stays unit-testable with `node --test` via
+// `--conditions=react-server` (package.json's test script), same fix as
+// walletAuth.ts. This also means fetchWithRetry no longer needs its own
+// local copy (used to be duplicated here specifically to avoid importing
+// adapters/http.ts's, which carried the same now-fixed "server-only"
+// breaks node --test" problem) — imported directly below instead.
+import "server-only";
+import { fetchWithRetry } from "./adapters/http.ts";
 
 const BASE_URL = "https://api.coinbase.com/v2/prices";
 // The public Exchange API (separate host/shape from the v2 prices endpoint

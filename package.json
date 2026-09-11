@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test"
+    "test": "node --conditions=react-server --test"
   },
   "dependencies": {
     "@noble/curves": "^1.9.1",

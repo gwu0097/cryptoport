@@ -1,10 +1,16 @@
-// No "server-only" marker (unlike supabase.ts/auth.ts): this module holds
-// no secrets and does no I/O — just message-building, address
-// normalization, and signature verification, so it stays plain and
-// unit-testable with `node --test` outside of Next's bundler, same
-// reasoning as coinbase.ts. The stateful half (issuing/reading the
-// challenge cookie, which needs next/headers) lives in walletChallenge.ts
-// instead.
+// This module pulls in viem/siwe/@noble/curves/@scure/base for signature
+// verification — real weight that must never reach a client bundle (see
+// queries.ts's own comment on why a client-side value import of this file
+// would be a real regression, not just a style nit). "server-only" is the
+// actual compile-time guard against that; it used to be omitted here
+// specifically because the package throws unconditionally outside Next's
+// bundler, which would break this file's own `node --test` unit tests —
+// fixed by running tests with `--conditions=react-server` (package.json's
+// test script), which resolves "server-only" to its own documented no-op
+// build instead, the same condition Next's server bundle itself uses. The
+// stateful half (issuing/reading the challenge cookie, which needs
+// next/headers) lives in walletChallenge.ts instead.
+import "server-only";
 import { createSiweMessage } from "viem/siwe";
 import { recoverMessageAddress, isAddress, hexToBytes, type Hex } from "viem";
 import { base58 } from "@scure/base";
