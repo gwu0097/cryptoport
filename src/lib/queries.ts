@@ -352,3 +352,92 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
 
   return { groups, grand };
 }
+
+/** One wallet's positions within a single DefiProtocolGroup — see
+ * getDefiGroupedByProtocol. */
+export interface DefiWalletGroup {
+  walletId: string;
+  walletName: string;
+  total: number;
+  unpricedCount: number;
+  positions: HoldingWithValuation[];
+}
+
+export interface DefiProtocolGroup {
+  /** The adapter-supplied protocol label (e.g. "Jupiter Earn",
+   * "Hyperliquid") — see AdapterHolding.protocol. This is the grouping key,
+   * not the wallet's chain — a wallet with positions in two different
+   * Jupiter products gets two separate groups here, same as DeBank/Rabby
+   * treat each protocol/product as its own section. */
+  protocol: string;
+  total: number;
+  unpricedCount: number;
+  wallets: DefiWalletGroup[];
+}
+
+export interface DefiResult {
+  groups: DefiProtocolGroup[];
+  grand: PortfolioTotal;
+}
+
+/**
+ * Every DeFi position across every active wallet, grouped protocol -> wallet
+ * -> asset — the /defi tab's own cut, distinct from both the wallet-level
+ * chain grouping (ChainGroupedHoldings, which lumps all of one wallet's DeFi
+ * into a single "Solana DeFi"/"Hyperliquid" bucket — fine there since the
+ * wallet's own chain already tells you what you're looking at) and the
+ * ticker grouping (getAssetsGroupedByTicker, which cuts across protocols
+ * entirely). Only holdings an adapter tagged with `protocol` show up here —
+ * a plain token balance has none and is correctly invisible on this page.
+ */
+export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
+  const [{ data: wallets, error }, prices] = await Promise.all([
+    portfolioDb().from("wallets").select("*, holdings(*)").eq("active", true),
+    getPriceMap(),
+  ]);
+  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
+
+  type WalletRow = Wallet & { holdings: Holding[] };
+  const rows = wallets as WalletRow[];
+
+  const byProtocol = new Map<string, Map<string, { walletName: string; holdings: Holding[] }>>();
+  for (const wallet of rows) {
+    for (const holding of wallet.holdings) {
+      if (!holding.protocol) continue;
+      let byWallet = byProtocol.get(holding.protocol);
+      if (!byWallet) {
+        byWallet = new Map();
+        byProtocol.set(holding.protocol, byWallet);
+      }
+      let entry = byWallet.get(wallet.id);
+      if (!entry) {
+        entry = { walletName: wallet.name, holdings: [] };
+        byWallet.set(wallet.id, entry);
+      }
+      entry.holdings.push(holding);
+    }
+  }
+
+  const groups: DefiProtocolGroup[] = [...byProtocol.entries()]
+    .map(([protocol, byWallet]) => {
+      const wallets_: DefiWalletGroup[] = [...byWallet.entries()]
+        .map(([walletId, { walletName, holdings }]) => {
+          const { total, unpricedCount } = aggregate(holdings, prices);
+          const positions = holdings
+            .map((h) => ({ ...h, valuation: valueHolding(h, prices), price: effectivePrice(h, prices) }))
+            .sort(byValueDesc);
+          return { walletId, walletName, total, unpricedCount, positions };
+        })
+        .sort((a, b) => b.total - a.total);
+
+      const allHoldings = wallets_.flatMap((w) => w.positions);
+      const { total, unpricedCount } = aggregate(allHoldings, prices);
+      return { protocol, total, unpricedCount, wallets: wallets_ };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  const allDefiHoldings = groups.flatMap((g) => g.wallets.flatMap((w) => w.positions));
+  const grand = aggregate(allDefiHoldings, prices);
+
+  return { groups, grand };
+}

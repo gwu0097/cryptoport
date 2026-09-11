@@ -71,6 +71,8 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       category: "defi",
       chain: "hyperliquid",
       icon_url: null, // no icon source for Hyperliquid holdings
+      protocol: "Hyperliquid",
+      protocol_url: null, // no per-position deep link, unlike Jupiter's
     });
   }
 
@@ -85,6 +87,8 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       category: "defi",
       chain: "hyperliquid",
       icon_url: null,
+      protocol: "Hyperliquid",
+      protocol_url: null,
     });
   }
 
