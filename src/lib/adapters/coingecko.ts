@@ -42,6 +42,7 @@ const NON_EVM_PLATFORM_IDS: Record<string, string> = {
 // native-icon fallback in refreshTokenRegistry below.
 const NATIVE_ICON_CHAINS: Record<string, string> = {
   bitcoin: "bitcoin",
+  "solana-defi": "solana",
   cosmoshub: "cosmos",
   injective: "injective-protocol",
   near: "near",

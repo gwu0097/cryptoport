@@ -7,6 +7,7 @@ import { portfolioDb } from "@/lib/supabase";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
+import { fetchJupiterPositions } from "@/lib/adapters/jupiterPositions";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
@@ -282,12 +283,14 @@ export async function deleteHolding(holdingId: string, walletId: string) {
   revalidatePath("/wallets");
 }
 
-// Solana sync only captures plain token balances — LP/DeFi positions
-// (Meteora, DLMM, etc.) aren't token accounts and Jupiter's balances
-// endpoint won't return them. Recorded in the wallet's notes rather than
-// silently under-reporting with no explanation.
+// Solana sync captures plain token balances plus Jupiter's own DeFi
+// products (Earn, Limit Order, Perps, ...) via api.jup.ag/portfolio — but
+// that API only covers Jupiter's own product suite, not third-party
+// protocols (Meteora DLMM, Marinade, Kamino, Raydium, ...), which still
+// aren't captured. Recorded in the wallet's notes rather than silently
+// under-reporting with no explanation.
 const SOL_SYNC_NOTE =
-  "Auto-synced token balances only — LP/DeFi positions (e.g. Meteora, DLMM) are not captured by this sync.";
+  "Auto-synced token balances + Jupiter's own DeFi positions (Earn, Limit Order, Perps) — third-party protocol positions (e.g. Meteora, Marinade, Kamino) are not captured by this sync.";
 
 interface AdapterFetchResult {
   holdings: AdapterHolding[];
@@ -310,7 +313,20 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
     return { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] };
   }
   if (isEvmChainId(chain)) return fetchEvmHoldings(address);
-  if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
+  if (chain === "SOL") {
+    // Two independent sources, same "one source's failure never discards
+    // another's correctly-fetched data" rule as evm.ts's chains+Hyperliquid
+    // split — a Jupiter positions API hiccup must never wipe out the
+    // wallet's plain token balances (or vice versa).
+    const [tokenHoldings, positions] = await Promise.all([
+      fetchJupiterHoldings(address),
+      fetchJupiterPositions(address).catch((e: Error) => ({
+        holdings: [] as AdapterHolding[],
+        warnings: [`jupiter positions: ${e.message}`],
+      })),
+    ]);
+    return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings };
+  }
   if (chain === "NEAR") return { holdings: await fetchNearHoldings(address), warnings: [] };
   if (chain === "SUI") return { holdings: await fetchSuiHoldings(address), warnings: [] };
   if (chain === "FIL") return { holdings: await fetchFilecoinHoldings(address), warnings: [] };
