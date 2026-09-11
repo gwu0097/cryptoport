@@ -381,6 +381,12 @@ create policy "holdings: owner only" on cryptoport.holdings
 -- this file's original "deny by default" comment) — RLS restricts what a
 -- role can see, but a role still needs an underlying grant to have
 -- anything for RLS to apply itself to. anon gets nothing, deliberately.
+--
+-- Table grants alone 404'd with "permission denied for schema cryptoport"
+-- (real bug, caught live) — Postgres also requires schema-level USAGE
+-- before a role's table grants mean anything; the original file only ever
+-- granted that to service_role, never authenticated.
+grant usage on schema cryptoport to authenticated;
 grant select, insert, update, delete on cryptoport.wallets to authenticated;
 grant select, insert, update, delete on cryptoport.holdings to authenticated;
 grant select, insert, update, delete on cryptoport.tags to authenticated;
