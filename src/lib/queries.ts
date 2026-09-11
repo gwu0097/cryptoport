@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { serviceDb, userDb } from "./supabase";
 import { getUser } from "./auth";
 import {
@@ -21,8 +22,10 @@ export interface PriceRefreshState {
 
 /** The one global "prices last refreshed" timestamp — see
  * price_refresh_state in schema.sql for why this is a singleton row rather
- * than something stamped onto every wallet. */
-export async function getPriceRefreshState(): Promise<PriceRefreshState> {
+ * than something stamped onto every wallet. Cached per-request via React's
+ * cache() — same reasoning as every other function in this file that does,
+ * see getPriceMap's doc comment. */
+export const getPriceRefreshState = cache(async (): Promise<PriceRefreshState> => {
   const { data, error } = await serviceDb()
     .from("price_refresh_state")
     .select("refreshed_at, status")
@@ -30,14 +33,15 @@ export async function getPriceRefreshState(): Promise<PriceRefreshState> {
     .maybeSingle();
   if (error) throw new Error(`Failed to load price refresh state: ${error.message}`);
   return { refreshedAt: data?.refreshed_at ?? null, status: data?.status ?? null };
-}
+});
 
 /** Every tag *this user* has ever created — populates the datalist for the
  * free-text "tag" input on the wallet add/edit forms (see resolveTagId in
  * wallets/actions.ts, which creates one the first time its name is used).
  * No explicit user filter here — RLS on cryptoport.tags already scopes
- * this to auth.uid(), see db/schema.sql. */
-export async function getTags(): Promise<Tag[]> {
+ * this to auth.uid(), see db/schema.sql. Cached per-request via React's
+ * cache() — same reasoning as getPriceMap's doc comment. */
+export const getTags = cache(async (): Promise<Tag[]> => {
   // Every page is viewable without a session (see (app)/layout.tsx) — but
   // anon has zero grants anywhere in the cryptoport schema (db/schema.sql),
   // not even schema usage, so userDb() with no session would fail with a
@@ -49,12 +53,14 @@ export async function getTags(): Promise<Tag[]> {
   const { data, error } = await db.from("tags").select("id, name").order("name");
   if (error) throw new Error(`Failed to load tags: ${error.message}`);
   return data as Tag[];
-}
+});
 
 /** Every wallet *this user* has verified sign-in access with (see
  * walletAuth.ts) — for the Settings "Linked wallets" panel. No explicit
- * user filter, same reasoning as getTags(): RLS already scopes this. */
-export async function getLinkedWallets(): Promise<LinkedWallet[]> {
+ * user filter, same reasoning as getTags(): RLS already scopes this.
+ * Cached per-request — getWalletsWithTotals and the Settings page both
+ * call this independently in the same render. */
+export const getLinkedWallets = cache(async (): Promise<LinkedWallet[]> => {
   if (!(await getUser())) return [];
   const db = await userDb();
   const { data, error } = await db
@@ -63,7 +69,7 @@ export async function getLinkedWallets(): Promise<LinkedWallet[]> {
     .order("verified_at", { ascending: true });
   if (error) throw new Error(`Failed to load linked wallets: ${error.message}`);
   return data as LinkedWallet[];
-}
+});
 
 /** Whether *this user* has already verified this exact address — RLS scopes
  * the read to auth.uid(), so a hit here specifically means "linked to me,"
@@ -83,8 +89,9 @@ export async function isWalletLinked(chain: "ETH" | "SOL", address: string): Pro
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —
  * see coingecko.ts's refreshTokenRegistry for how this is kept populated.
- * Shared/global, not per-user — serviceDb() is correct here. */
-export async function getChainIconMap(): Promise<Record<string, string>> {
+ * Shared/global, not per-user — serviceDb() is correct here. Cached
+ * per-request — same reasoning as getPriceMap's doc comment. */
+export const getChainIconMap = cache(async (): Promise<Record<string, string>> => {
   const { data, error } = await serviceDb().from("chain_icons").select("chain_id, image_url");
   if (error) throw new Error(`Failed to load chain_icons: ${error.message}`);
 
@@ -93,11 +100,19 @@ export async function getChainIconMap(): Promise<Record<string, string>> {
     icons[row.chain_id] = row.image_url;
   }
   return icons;
-}
+});
 
 // Shared/global, not per-user — every user's holdings draw from the same
 // ticker-keyed price cache, see prices.ts's refreshPrices doc comment.
-export async function getPriceMap(): Promise<PriceMap> {
+// Cached per-request via React's cache(): several of this file's own
+// grouped queries (getWalletsWithTotals, getAssetsGroupedByChain,
+// getAssetsGroupedByTicker, getDefiGroupedByProtocol) each call this
+// independently, and a page can render more than one of those in the same
+// request (the Dashboard used to, calling this twice for identical data
+// before that page was simplified) — cache() means that's now a
+// structural non-issue rather than something that happens to not be a
+// problem today.
+export const getPriceMap = cache(async (): Promise<PriceMap> => {
   const { data, error } = await serviceDb().from("prices").select("ticker, usd");
   if (error) throw new Error(`Failed to load prices: ${error.message}`);
 
@@ -106,7 +121,7 @@ export async function getPriceMap(): Promise<PriceMap> {
     prices[row.ticker] = row.usd;
   }
   return prices;
-}
+});
 
 /** A separate query rather than folding into PriceMap/getPriceMap — that
  * type is threaded through valuation.ts/aggregate/effectivePrice, all of
@@ -115,16 +130,17 @@ export async function getPriceMap(): Promise<PriceMap> {
  * Assets page currently needs. */
 export type PriceChangeMap = Record<string, number | null>;
 
-export async function getPriceChangeMap(): Promise<PriceChangeMap> {
+/** Cached per-request — same reasoning as getPriceMap's doc comment. */
+export const getPriceChangeMap = cache(async (): Promise<PriceChangeMap> => {
   const { data, error } = await serviceDb().from("prices").select("ticker, change_24h_pct");
   if (error) throw new Error(`Failed to load price changes: ${error.message}`);
 
   const changes: PriceChangeMap = {};
   for (const row of data as Pick<Price, "ticker" | "change_24h_pct">[]) {
-    changes[row.ticker] = row.change_24h_pct === null ? null : Number(row.change_24h_pct);
+    changes[row.ticker] = parseNumeric(row.change_24h_pct);
   }
   return changes;
-}
+});
 
 /** lowercase contract -> 24h % change, from token_registry.change_24h_pct
  * (see multicallEvm.ts's saveChange24h). EVM holdings are valued via
@@ -135,8 +151,9 @@ export async function getPriceChangeMap(): Promise<PriceChangeMap> {
  * is (chain_id, contract): a contract address is already globally unique
  * in practice, and a holding's own `contract` field carries no chain_id to
  * join on without a second query — the same simplification effectivePrice
- * already makes for ticker-keyed prices. */
-export async function getContractChangeMap(): Promise<Record<string, number | null>> {
+ * already makes for ticker-keyed prices. Cached per-request — same
+ * reasoning as getPriceMap's doc comment. */
+export const getContractChangeMap = cache(async (): Promise<Record<string, number | null>> => {
   // Excludes null rows up front — token_registry has tens of thousands of
   // contracts per chain from refreshTokenRegistry's coins/list import, the
   // overwhelming majority never actually held/synced and so never given a
@@ -150,10 +167,10 @@ export async function getContractChangeMap(): Promise<Record<string, number | nu
 
   const changes: Record<string, number | null> = {};
   for (const row of data as { contract: string; change_24h_pct: number | string | null }[]) {
-    changes[row.contract.toLowerCase()] = Number(row.change_24h_pct);
+    changes[row.contract.toLowerCase()] = parseNumeric(row.change_24h_pct);
   }
   return changes;
-}
+});
 
 // The ticker-keyed `prices` table is deliberately never consulted for a
 // holding that already carries usd_override (see valuation.ts) — but the
@@ -339,6 +356,22 @@ export async function getWalletDetail(id: string): Promise<WalletDetailResult | 
   return { wallet: rest, ...valuateHoldings(holdings, defaultChainId(rest.chain), prices) };
 }
 
+type WalletWithHoldings = Wallet & { holdings: Holding[] };
+
+/** Every active wallet, with its holdings — the exact same read used by
+ * getAssetsGroupedByChain, getAssetsGroupedByTicker, and
+ * getDefiGroupedByProtocol below, which used to each independently repeat
+ * this query and its type-cast. Cached per-request (same reasoning as
+ * getPriceMap's doc comment) — a page rendering more than one of those
+ * three views in one request, which nothing currently does but nothing
+ * rules out either, would otherwise fetch this identical data twice. */
+const getActiveWalletsWithHoldings = cache(async (): Promise<WalletWithHoldings[]> => {
+  const db = await userDb();
+  const { data, error } = await db.from("wallets").select("*, holdings(*)").eq("active", true);
+  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
+  return data as WalletWithHoldings[];
+});
+
 export interface AssetsResult {
   groups: ChainGroup[];
   grand: PortfolioTotal;
@@ -347,15 +380,7 @@ export interface AssetsResult {
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
 export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const db = await userDb();
-  const [{ data: wallets, error }, prices] = await Promise.all([
-    db.from("wallets").select("*, holdings(*)").eq("active", true),
-    getPriceMap(),
-  ]);
-  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
-
-  type WalletRow = Wallet & { holdings: Holding[] };
-  const rows = wallets as WalletRow[];
+  const [rows, prices] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap()]);
 
   const entries = rows.flatMap((wallet) =>
     wallet.holdings.map((holding) => ({
@@ -433,17 +458,12 @@ export interface AssetsByTickerResult {
  */
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const db = await userDb();
-  const [{ data: wallets, error }, prices, priceChanges, contractChanges] = await Promise.all([
-    db.from("wallets").select("*, holdings(*)").eq("active", true),
+  const [rows, prices, priceChanges, contractChanges] = await Promise.all([
+    getActiveWalletsWithHoldings(),
     getPriceMap(),
     getPriceChangeMap(),
     getContractChangeMap(),
   ]);
-  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
-
-  type WalletRow = Wallet & { holdings: Holding[] };
-  const rows = wallets as WalletRow[];
 
   const byTicker = new Map<string, AssetGroup>();
   for (const wallet of rows) {
@@ -555,15 +575,7 @@ export interface DefiResult {
  */
 export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const db = await userDb();
-  const [{ data: wallets, error }, prices] = await Promise.all([
-    db.from("wallets").select("*, holdings(*)").eq("active", true),
-    getPriceMap(),
-  ]);
-  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
-
-  type WalletRow = Wallet & { holdings: Holding[] };
-  const rows = wallets as WalletRow[];
+  const [rows, prices] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap()]);
 
   const byProtocol = new Map<string, Map<string, { walletName: string; holdings: Holding[] }>>();
   for (const wallet of rows) {
