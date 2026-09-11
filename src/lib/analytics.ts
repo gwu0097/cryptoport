@@ -49,7 +49,22 @@ export interface CoverageResult {
   coveredUsd: number;
   totalUsd: number;
   pct: number;
-  uncoveredTickers: string[];
+  /** No resolvable CoinGecko key at all (a manual dollar-figure holding, a
+   * DeFi/LP position with no per-unit market price, a token/chain
+   * combination this app has no mapping for) OR a key that resolved but
+   * CoinGecko has confirmed has no data (a cached row with an empty
+   * series — see priceHistory.ts's 404 handling). Either way, permanent:
+   * backfilling again can never help these. */
+  unresolvedUsd: number;
+  unresolvedTickers: string[];
+  /** A key resolves and has genuinely never been fetched (no row in
+   * price_history at all) — either it hasn't been reached by a backfill
+   * run yet, or CoinGecko was rate-limited/errored on it last time.
+   * Clicking "Backfill history" again can make progress on these; an
+   * unresolvedTicker's row already exists (empty), so re-clicking would
+   * skip it, not retry it. */
+  uncachedUsd: number;
+  uncachedTickers: string[];
 }
 
 /** What fraction of *today's* current value the estimate above is actually
@@ -57,26 +72,35 @@ export interface CoverageResult {
  * renders, this only feeds its caption (see CLAUDE.md's data-correctness
  * rule — always show the number, always state its limits honestly).
  *
- * "Covered" means priceHistory actually has cached rows for the holding's
- * key, not just that a key was resolvable — a key CoinGecko 404s on, or one
- * the backfill hasn't reached/retried yet, resolves fine but has no data,
- * and reporting that as covered would claim more accuracy than the chart
- * actually has for it. */
+ * priceHistory.get(key) is one of three states, not two: undefined (never
+ * fetched — a future backfill click helps), an empty Map (fetched, and
+ * CoinGecko confirmed it has nothing — permanent, matches unresolved), or
+ * a populated Map (covered). Conflating "never fetched" with "confirmed
+ * empty" would tell the UI a Backfill click can fix something it can't. */
 export function estimateCoverage(
   holdings: (EstimateHoldingInput & { currentUsd: number })[],
   priceHistory: PriceHistoryMap,
 ): CoverageResult {
   let coveredUsd = 0;
   let totalUsd = 0;
-  const uncovered = new Set<string>();
+  let unresolvedUsd = 0;
+  let uncachedUsd = 0;
+  const unresolved = new Set<string>();
+  const uncached = new Set<string>();
 
   for (const holding of holdings) {
     totalUsd += holding.currentUsd;
     const key = resolveCoingeckoKey(holding);
-    if (key !== null && (priceHistory.get(key)?.size ?? 0) > 0) {
+    const cached = key === null ? undefined : priceHistory.get(key);
+
+    if (cached === undefined && key !== null) {
+      uncachedUsd += holding.currentUsd;
+      uncached.add(holding.ticker);
+    } else if (cached !== undefined && cached.size > 0) {
       coveredUsd += holding.currentUsd;
     } else {
-      uncovered.add(holding.ticker);
+      unresolvedUsd += holding.currentUsd;
+      unresolved.add(holding.ticker);
     }
   }
 
@@ -84,7 +108,10 @@ export function estimateCoverage(
     coveredUsd,
     totalUsd,
     pct: totalUsd > 0 ? (coveredUsd / totalUsd) * 100 : 0,
-    uncoveredTickers: [...uncovered],
+    unresolvedUsd,
+    unresolvedTickers: [...unresolved],
+    uncachedUsd,
+    uncachedTickers: [...uncached],
   };
 }
 

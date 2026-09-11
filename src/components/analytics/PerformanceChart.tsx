@@ -21,7 +21,14 @@ export interface WalletSeriesOption {
   address: string | null;
   points: StitchedPoint[];
   coveragePct: number;
-  uncoveredCount: number;
+  /** No resolvable CoinGecko key at all (manual entries, DeFi/LP
+   * positions) — backfilling again can never help these. */
+  unresolvedUsd: number;
+  unresolvedCount: number;
+  /** A key resolves but isn't cached yet — clicking "Backfill history"
+   * again can make progress on these. */
+  uncachedUsd: number;
+  uncachedCount: number;
 }
 
 type RangeKey = "7d" | "30d" | "90d" | "1y" | "all";
@@ -212,12 +219,18 @@ function WalletCombobox({
 export function PerformanceChart({
   options,
   emptyStateAction,
+  backfillNudge,
 }: {
   options: WalletSeriesOption[];
   /** Rendered instead of the chart when no wallet has any price-history
    * data cached yet — the "Backfill history" CTA, owned by the page since
    * it's a server action form. */
   emptyStateAction: ReactNode;
+  /** Same "Backfill history" action, sized for an inline nudge next to the
+   * coverage caption — shown only when the *selected* wallet has holdings
+   * a re-click could actually help (a resolved key with no cached data
+   * yet), not for ones nothing can ever price (manual/DeFi). */
+  backfillNudge: ReactNode;
 }) {
   const [walletId, setWalletId] = usePersistedState(WALLET_STORAGE_KEY, "all");
   const [range, setRange] = usePersistedState<RangeKey>(RANGE_STORAGE_KEY, "90d");
@@ -257,12 +270,20 @@ export function PerformanceChart({
       <div className="mt-3 space-y-1 text-xs text-fg-muted">
         {selected.coveragePct < 100 && (
           <p>
-            Estimate based on {selected.coveragePct.toFixed(0)}% of current value
-            {selected.uncoveredCount > 0 &&
-              ` — ${selected.uncoveredCount} holding${selected.uncoveredCount === 1 ? "" : "s"} (manual entries, DeFi positions) couldn't be priced historically`}
-            .
+            Estimate based on {selected.coveragePct.toFixed(0)}% of current value.
+            {selected.unresolvedCount > 0 &&
+              ` ${formatUsd(selected.unresolvedUsd)} across ${selected.unresolvedCount} holding${
+                selected.unresolvedCount === 1 ? "" : "s"
+              } (manual entries, DeFi positions) can't be priced historically.`}
+            {selected.uncachedCount > 0 &&
+              ` ${formatUsd(selected.uncachedUsd)} across ${selected.uncachedCount} more holding${
+                selected.uncachedCount === 1 ? "" : "s"
+              } just ${
+                selected.uncachedCount === 1 ? "hasn't had its" : "haven't had their"
+              } price history fetched yet.`}
           </p>
         )}
+        {selected.uncachedCount > 0 && <div>{backfillNudge}</div>}
         <p>
           Dashed portion is estimated from today&rsquo;s holdings at historical prices — it doesn&rsquo;t
           reflect past buys or sells. Solid portion is real, captured daily.
@@ -272,6 +293,27 @@ export function PerformanceChart({
   );
 }
 
+function longDate(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * Robinhood-style scrub: the headline number/date swap to whatever point
+ * the cursor is nearest, with a vertical guide line + dot on the chart —
+ * no floating tooltip box (avoids the positioning-near-cursor-without-
+ * clipping problem entirely, and matches what a "look at how Robinhood
+ * does theirs" request is actually pointing at). Index is computed from
+ * the cursor's fraction across the wrapping div's own rendered width, not
+ * the SVG's internal viewBox units — coords scale linearly either way, so
+ * comparing in the same fractional space the wrapper and touch/mouse
+ * events both live in avoids any unit conversion.
+ */
 function Chart({ points }: { points: StitchedPoint[] }) {
   const coords = scalePoints(
     points.map((p) => p.total),
@@ -290,19 +332,58 @@ function Chart({ points }: { points: StitchedPoint[] }) {
   const deltaPct = first !== 0 ? (deltaUsd / first) * 100 : 0;
   const trendClass = deltaUsd >= 0 ? "text-positive" : "text-negative";
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  function hoverAt(clientX: number) {
+    const el = containerRef.current;
+    if (!el || points.length < 2) return;
+    const rect = el.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    setHoverIndex(Math.round(fraction * (points.length - 1)));
+  }
+
+  const hovered = hoverIndex !== null ? points[hoverIndex] : null;
+  const hoveredCoord = hoverIndex !== null ? coords[hoverIndex] : null;
+
   return (
     <div className="mt-4">
       <div className="flex items-baseline justify-between">
-        <span className="text-2xl font-semibold tabular-nums text-fg">{formatUsd(last)}</span>
-        <span className={`text-sm font-medium tabular-nums ${trendClass}`}>
-          {formatUsdSigned(deltaUsd)} ({formatPercent(deltaPct)})
-        </span>
+        {hovered ? (
+          <>
+            <span className="text-2xl font-semibold tabular-nums text-fg">{formatUsd(hovered.total)}</span>
+            <span className="text-sm font-medium text-fg-muted">
+              {longDate(hovered.date)}
+              {hovered.kind === "estimated" && " · estimated"}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-2xl font-semibold tabular-nums text-fg">{formatUsd(last)}</span>
+            <span className={`text-sm font-medium tabular-nums ${trendClass}`}>
+              {formatUsdSigned(deltaUsd)} ({formatPercent(deltaPct)})
+            </span>
+          </>
+        )}
       </div>
-      <div className={trendClass}>
+      {/* mt-2 lives on this wrapper, not the <svg> below — a margin on the
+          svg itself risks collapsing into this div's own box (block-level
+          margin collapsing), which would offset hoverAt's/the overlay
+          dot's percentage math against the svg's actual rendered top. This
+          div's box is exactly the svg's box, nothing else. */}
+      <div
+        ref={containerRef}
+        className={`relative mt-2 touch-none ${trendClass}`}
+        onMouseMove={(e) => hoverAt(e.clientX)}
+        onMouseLeave={() => setHoverIndex(null)}
+        onTouchStart={(e) => hoverAt(e.touches[0].clientX)}
+        onTouchMove={(e) => hoverAt(e.touches[0].clientX)}
+        onTouchEnd={() => setHoverIndex(null)}
+      >
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           preserveAspectRatio="none"
-          className="mt-2 h-52 w-full"
+          className="block h-52 w-full"
           role="img"
           aria-label="Portfolio value over time"
         >
@@ -332,7 +413,37 @@ function Chart({ points }: { points: StitchedPoint[] }) {
           {realCoords.length === 0 && (
             <path d={areaPath(coords, WIDTH, HEIGHT)} fill="currentColor" fillOpacity={0.08} stroke="none" />
           )}
+          {hoveredCoord && (
+            <line
+              x1={hoveredCoord.x}
+              x2={hoveredCoord.x}
+              y1={0}
+              y2={HEIGHT}
+              stroke="currentColor"
+              strokeOpacity={0.3}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
         </svg>
+        {/* An HTML dot, not an SVG <circle> — the SVG's viewBox is
+            stretched non-uniformly (preserveAspectRatio="none", a
+            600x220 box filling whatever width the panel has), so a
+            <circle> renders as a squashed ellipse. Percentages here are
+            undistorted: both axes map linearly from the same 0..WIDTH /
+            0..HEIGHT space the SVG paths use, onto this plain HTML
+            container's real width/height. */}
+        {hoveredCoord && (
+          <div
+            aria-hidden="true"
+            className="absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-current"
+            style={{
+              left: `${(hoveredCoord.x / WIDTH) * 100}%`,
+              top: `${(hoveredCoord.y / HEIGHT) * 100}%`,
+              borderColor: "var(--color-surface)",
+            }}
+          />
+        )}
       </div>
       <div className="flex items-center justify-between text-xs text-fg-muted">
         <span>{shortDate(points[0].date)}</span>

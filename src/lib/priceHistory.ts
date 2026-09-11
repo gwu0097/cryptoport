@@ -14,13 +14,14 @@ import type { PriceHistoryMap } from "./analytics";
 // instead (sequentialWithSpacing, built for exactly this — see http.ts).
 const SPACING_MS = 3000;
 
-// Caps one backfill click to a single maxDuration=300s window
-// (20 keys * 3s spacing = 60s, generous headroom for retries) rather than
-// timing out partway through a large portfolio's first run. Already-cached
-// keys are skipped on the next call, so clicking "Backfill history" again
-// picks up where this run left off — same "safe to re-run" framing as
-// refreshTokenRegistryAction.
-const MAX_KEYS_PER_RUN = 20;
+// Caps one backfill click to a single maxDuration=300s window (40 keys *
+// 3s spacing = 120s; even if every one of those needed fetchWithRetry's
+// full 3-attempt backoff, that's still comfortably under budget).
+// Already-cached keys — including ones cached as "CoinGecko has no data
+// for this" (see below) — are skipped on the next call, so clicking
+// "Backfill history" again always makes forward progress, same "safe to
+// re-run" framing as refreshTokenRegistryAction.
+const MAX_KEYS_PER_RUN = 40;
 const BACKFILL_DAYS = 365;
 
 /**
@@ -28,6 +29,15 @@ const BACKFILL_DAYS = 365;
  * CoinGecko keys among today's holdings that don't already have cached
  * history — an explicit, user-triggered action (see analytics/actions.ts),
  * not something that runs on every page load.
+ *
+ * A key CoinGecko genuinely has no data for (fetchDailyHistory's 404 ->
+ * `[]`) still gets a row written, with an empty series — that's a real,
+ * permanent answer ("can't price this"), and caching it is what stops a
+ * future backfill click from wasting one of its 40 slots re-asking
+ * CoinGecko the same question forever. A key that failed for a *transient*
+ * reason (rate-limited, network blip — anything fetchDailyHistory threw
+ * on) gets no row at all, so it's still "uncached" and genuinely retried
+ * next time, not permanently written off.
  */
 export async function backfillPriceHistory(
   holdings: PriceKeyInput[],
@@ -49,20 +59,21 @@ export async function backfillPriceHistory(
   const results = await sequentialWithSpacing(toFetch, SPACING_MS, (key) => fetchDailyHistory(key, BACKFILL_DAYS));
 
   const rows = results
-    .filter((r) => r.result && r.result.length > 0)
+    .filter((r) => r.result !== undefined)
     .map((r) => ({
       coingecko_key: r.item,
       series: Object.fromEntries(r.result!.map((p) => [p.date, p.usd])),
       fetched_at: new Date().toISOString(),
     }));
-  const keysFailed = results.filter((r) => r.error || !r.result || r.result.length === 0).length;
+  const keysWithData = rows.filter((r) => Object.keys(r.series).length > 0).length;
+  const keysFailed = toFetch.length - keysWithData;
 
   if (rows.length > 0) {
     const { error: upsertError } = await db.from("price_history").upsert(rows, { onConflict: "coingecko_key" });
     if (upsertError) throw new Error(`Failed to save price history: ${upsertError.message}`);
   }
 
-  return { keysFetched: rows.length, keysFailed, keysRemaining };
+  return { keysFetched: keysWithData, keysFailed, keysRemaining };
 }
 
 /** Reads cached history for a set of keys — one query (one row per key,

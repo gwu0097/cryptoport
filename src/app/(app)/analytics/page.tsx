@@ -47,7 +47,10 @@ function buildOption(
     address,
     points,
     coveragePct: coverage.pct,
-    uncoveredCount: coverage.uncoveredTickers.length,
+    unresolvedUsd: coverage.unresolvedUsd,
+    unresolvedCount: coverage.unresolvedTickers.length,
+    uncachedUsd: coverage.uncachedUsd,
+    uncachedCount: coverage.uncachedTickers.length,
   };
 }
 
@@ -103,6 +106,13 @@ export default async function AnalyticsPage() {
         emptyStateAction={
           <form action={backfillHistoryAction}>
             <SubmitButton variant="primary" size="sm">
+              Backfill history
+            </SubmitButton>
+          </form>
+        }
+        backfillNudge={
+          <form action={backfillHistoryAction}>
+            <SubmitButton variant="secondary" size="sm">
               Backfill history
             </SubmitButton>
           </form>

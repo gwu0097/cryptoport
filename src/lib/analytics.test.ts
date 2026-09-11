@@ -39,10 +39,13 @@ test("estimateCoverage: fully covered holdings (key resolves AND has cached data
   );
   assert.equal(result.pct, 100);
   assert.equal(result.coveredUsd, 4000);
-  assert.deepEqual(result.uncoveredTickers, []);
+  assert.deepEqual(result.unresolvedTickers, []);
+  assert.equal(result.unresolvedUsd, 0);
+  assert.deepEqual(result.uncachedTickers, []);
+  assert.equal(result.uncachedUsd, 0);
 });
 
-test("estimateCoverage: all-uncovered holdings report 0%, not a crash", () => {
+test("estimateCoverage: a holding with no resolvable key is unresolved, not uncached", () => {
   const result = estimateCoverage(
     [{ ticker: "NOTE", source: "manual_usd", contract: null, chain: null, qty: null, currentUsd: 500 }],
     history({}),
@@ -50,18 +53,38 @@ test("estimateCoverage: all-uncovered holdings report 0%, not a crash", () => {
   assert.equal(result.pct, 0);
   assert.equal(result.coveredUsd, 0);
   assert.equal(result.totalUsd, 500);
-  assert.deepEqual(result.uncoveredTickers, ["NOTE"]);
+  assert.deepEqual(result.unresolvedTickers, ["NOTE"]);
+  assert.equal(result.unresolvedUsd, 500);
+  assert.deepEqual(result.uncachedTickers, []);
 });
 
-test("estimateCoverage: a key that resolves but has no cached price history counts as uncovered", () => {
-  // e.g. CoinGecko 404s on this contract, or the backfill hasn't reached
-  // it yet — a resolvable key alone isn't the same as actually having data.
+test("estimateCoverage: a key that has never been fetched (no row at all) is uncached, not unresolved", () => {
+  // priceHistory.get(key) is undefined — no row in price_history yet.
+  // Clicking "Backfill history" again can fetch this one.
   const result = estimateCoverage(
     [{ ticker: "ETH", source: "auto", contract: null, chain: "eth", qty: 2, currentUsd: 4000 }],
     history({}),
   );
   assert.equal(result.pct, 0);
-  assert.deepEqual(result.uncoveredTickers, ["ETH"]);
+  assert.deepEqual(result.unresolvedTickers, []);
+  assert.deepEqual(result.uncachedTickers, ["ETH"]);
+  assert.equal(result.uncachedUsd, 4000);
+});
+
+test("estimateCoverage: a key with a cached but empty series is unresolved, not uncached", () => {
+  // priceHistory.get(key) exists but is an empty Map — CoinGecko was
+  // asked and confirmed it has no data (see priceHistory.ts's 404
+  // handling). Re-clicking "Backfill history" would skip this key
+  // entirely (it already has a row), so it must NOT be reported as
+  // something another click can fix.
+  const result = estimateCoverage(
+    [{ ticker: "ETH", source: "auto", contract: null, chain: "eth", qty: 2, currentUsd: 4000 }],
+    history({ ethereum: {} }),
+  );
+  assert.equal(result.pct, 0);
+  assert.deepEqual(result.unresolvedTickers, ["ETH"]);
+  assert.equal(result.unresolvedUsd, 4000);
+  assert.deepEqual(result.uncachedTickers, []);
 });
 
 test("estimateCoverage: empty holdings list is 0% of $0, not NaN", () => {
