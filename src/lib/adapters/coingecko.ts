@@ -44,6 +44,8 @@ const NATIVE_ICON_CHAINS: Record<string, string> = {
   bitcoin: "bitcoin",
   cosmoshub: "cosmos",
   injective: "injective-protocol",
+  near: "near",
+  sui: "sui",
 };
 
 /**

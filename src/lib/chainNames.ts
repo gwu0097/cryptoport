@@ -11,12 +11,16 @@ export const CHAIN_NAMES: Record<string, string> = {
   cardano: "Cardano",
   cosmoshub: "Cosmos Hub",
   injective: "Injective",
+  near: "NEAR",
+  sui: "Sui",
   BTC: "Bitcoin",
   ETH: "Ethereum",
   SOL: "Solana",
   ADA: "Cardano",
   ATOM: "Cosmos Hub",
   INJ: "Injective",
+  NEAR: "NEAR",
+  SUI: "Sui",
 };
 
 export function chainDisplayName(chainId: string): string {
@@ -47,5 +51,7 @@ export function defaultChainId(chain: string): string {
   if (chain === "ETH") return "eth";
   if (chain === "ATOM") return "cosmoshub";
   if (chain === "INJ") return "injective";
+  if (chain === "NEAR") return "near";
+  if (chain === "SUI") return "sui";
   return chain.toLowerCase();
 }
