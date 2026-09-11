@@ -1,8 +1,7 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { getProgramAccounts, base58encode } from "./solanaRpc";
 import type { AdapterHolding } from "./types";
 
-const RPC_URL = "https://api.mainnet-beta.solana.com";
 const PROGRAM = "3parcLrT7WnXAcyPfkCz49oofuuf2guUKkjuFkAhZW8Y"; // Parcl v3
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // Exchange id 0's collateral — verified on-chain
 const USDC_DECIMALS = 6;
@@ -36,37 +35,6 @@ const POSITION_COUNT = 12;
 const MARGIN_OFFSET = 776;
 const OWNER_OFFSET = 828;
 
-const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function base58encode(bytes: Uint8Array): string {
-  const digits = [0];
-  for (const b of bytes) {
-    let carry = b;
-    for (let j = 0; j < digits.length; j++) {
-      carry += digits[j] << 8;
-      digits[j] = carry % 58;
-      carry = (carry / 58) | 0;
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = (carry / 58) | 0;
-    }
-  }
-  let result = "";
-  for (let k = 0; bytes[k] === 0 && k < bytes.length - 1; k++) result += "1";
-  for (let i = digits.length - 1; i >= 0; i--) result += ALPHABET[digits[i]];
-  return result;
-}
-
-interface RpcAccount {
-  pubkey: string;
-  account: { data: [string, string] };
-}
-
-interface RpcResponse {
-  result?: RpcAccount[];
-  error?: { message: string };
-}
-
 export interface ParclPositionsResult {
   holdings: AdapterHolding[];
   warnings: string[];
@@ -97,32 +65,14 @@ export interface ParclPositionsResult {
  * wrong/incomplete number.
  */
 export async function fetchParclPositions(address: string): Promise<ParclPositionsResult> {
-  const body = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "getProgramAccounts",
-    params: [
-      PROGRAM,
-      {
-        encoding: "base64",
-        filters: [
-          { memcmp: { offset: 0, bytes: DISCRIMINATOR } },
-          { memcmp: { offset: OWNER_OFFSET, bytes: address } },
-        ],
-      },
+  const accounts = await getProgramAccounts(
+    PROGRAM,
+    [
+      { memcmp: { offset: 0, bytes: DISCRIMINATOR } },
+      { memcmp: { offset: OWNER_OFFSET, bytes: address } },
     ],
-  };
-
-  const res = await fetchWithRetry(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Parcl margin account lookup failed: HTTP ${res.status}`);
-  const json: RpcResponse = await res.json();
-  if (json.error) throw new Error(`Parcl margin account lookup failed: ${json.error.message}`);
-
-  const accounts = json.result ?? [];
+    "Parcl margin account lookup",
+  );
   const holdings: AdapterHolding[] = [];
   let openPositionCount = 0;
 

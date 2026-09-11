@@ -1,9 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { fetchWithRetry } from "./http";
+import { getProgramAccounts, base58encode } from "./solanaRpc";
 import type { AdapterHolding } from "./types";
 
-const RPC_URL = "https://api.mainnet-beta.solana.com";
 // Jupiter's own fork of Tribeca's locked_voter program (not the shared
 // Tribeca deployment — that one has zero JUP lockers). Found via vote.jup.ag's
 // JS bundle, confirmed live on-chain.
@@ -28,36 +27,6 @@ function anchorDiscriminatorB58(accountName: string): string {
 }
 
 const ESCROW_DISCRIMINATOR = anchorDiscriminatorB58("Escrow");
-
-const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function base58encode(bytes: Uint8Array): string {
-  const digits = [0];
-  for (const b of bytes) {
-    let carry = b;
-    for (let j = 0; j < digits.length; j++) {
-      carry += digits[j] << 8;
-      digits[j] = carry % 58;
-      carry = (carry / 58) | 0;
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = (carry / 58) | 0;
-    }
-  }
-  let result = "";
-  for (let k = 0; bytes[k] === 0 && k < bytes.length - 1; k++) result += "1";
-  for (let i = digits.length - 1; i >= 0; i--) result += ALPHABET[digits[i]];
-  return result;
-}
-
-interface RpcAccount {
-  account: { data: [string, string] };
-}
-
-interface RpcResponse {
-  result?: RpcAccount[];
-  error?: { message: string };
-}
 
 /**
  * Jupiter DAO governance — locked/staked JUP for voting power. No public
@@ -84,33 +53,15 @@ interface RpcResponse {
  * to show beyond the locked amount itself.
  */
 export async function fetchJupiterDaoStaking(address: string): Promise<AdapterHolding[]> {
-  const body = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "getProgramAccounts",
-    params: [
-      PROGRAM,
-      {
-        encoding: "base64",
-        filters: [
-          { memcmp: { offset: 0, bytes: ESCROW_DISCRIMINATOR } },
-          { memcmp: { offset: 8, bytes: LOCKER } },
-          { memcmp: { offset: 40, bytes: address } },
-        ],
-      },
+  const accounts = await getProgramAccounts(
+    PROGRAM,
+    [
+      { memcmp: { offset: 0, bytes: ESCROW_DISCRIMINATOR } },
+      { memcmp: { offset: 8, bytes: LOCKER } },
+      { memcmp: { offset: 40, bytes: address } },
     ],
-  };
-
-  const res = await fetchWithRetry(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Jupiter DAO escrow lookup failed: HTTP ${res.status}`);
-  const json: RpcResponse = await res.json();
-  if (json.error) throw new Error(`Jupiter DAO escrow lookup failed: ${json.error.message}`);
-
-  const accounts = json.result ?? [];
+    "Jupiter DAO escrow lookup",
+  );
   if (accounts.length === 0) return []; // never locked JUP — a real $0, not an error
 
   const buf = Buffer.from(accounts[0].account.data[0], "base64");

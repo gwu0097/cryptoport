@@ -1,8 +1,7 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { getProgramAccounts, base58encode } from "./solanaRpc";
 import type { AdapterHolding } from "./types";
 
-const RPC_URL = "https://api.mainnet-beta.solana.com";
 const STAKING_PROGRAM = "MGoV9M6YUsdhJzjzH9JMCW2tRe1LLxF1CjwqKC7DR1B"; // Wormhole MultiGov
 // Anchor account discriminator for the staking program's stake-account
 // struct — the first 8 bytes of every account this program owns of this
@@ -13,36 +12,6 @@ const STAKING_PROGRAM = "MGoV9M6YUsdhJzjzH9JMCW2tRe1LLxF1CjwqKC7DR1B"; // Wormho
 const DISCRIMINATOR = base58encode(Uint8Array.from([68, 11, 237, 138, 61, 33, 15, 93]));
 const W_MINT = "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ";
 const W_DECIMALS = 6;
-
-const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function base58encode(bytes: Uint8Array): string {
-  const digits = [0];
-  for (const b of bytes) {
-    let carry = b;
-    for (let j = 0; j < digits.length; j++) {
-      carry += digits[j] << 8;
-      digits[j] = carry % 58;
-      carry = (carry / 58) | 0;
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = (carry / 58) | 0;
-    }
-  }
-  let result = "";
-  for (let k = 0; bytes[k] === 0 && k < bytes.length - 1; k++) result += "1";
-  for (let i = digits.length - 1; i >= 0; i--) result += ALPHABET[digits[i]];
-  return result;
-}
-
-interface RpcAccount {
-  account: { data: [string, string] };
-}
-
-interface RpcResponse {
-  result?: RpcAccount[];
-  error?: { message: string };
-}
 
 /**
  * Wormhole's W-token governance staking (the "MultiGov" program) — not
@@ -68,32 +37,14 @@ interface RpcResponse {
  * wallet, since MultiGov is the current, actively-used program.
  */
 export async function fetchWormholeStaking(address: string): Promise<AdapterHolding[]> {
-  const body = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "getProgramAccounts",
-    params: [
-      STAKING_PROGRAM,
-      {
-        encoding: "base64",
-        filters: [
-          { memcmp: { offset: 0, bytes: DISCRIMINATOR } },
-          { memcmp: { offset: 27, bytes: address } },
-        ],
-      },
+  const accounts = await getProgramAccounts(
+    STAKING_PROGRAM,
+    [
+      { memcmp: { offset: 0, bytes: DISCRIMINATOR } },
+      { memcmp: { offset: 27, bytes: address } },
     ],
-  };
-
-  const res = await fetchWithRetry(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Wormhole staking lookup failed: HTTP ${res.status}`);
-  const json: RpcResponse = await res.json();
-  if (json.error) throw new Error(`Wormhole staking lookup failed: ${json.error.message}`);
-
-  const accounts = json.result ?? [];
+    "Wormhole staking lookup",
+  );
   if (accounts.length === 0) return []; // no stake account for this wallet — a real $0, not an error
 
   const buf = Buffer.from(accounts[0].account.data[0], "base64");
