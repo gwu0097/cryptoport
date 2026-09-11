@@ -66,6 +66,19 @@ export function valueHolding(
   const qty = parseNumeric(holding.qty);
   if (qty === null) return { kind: "unpriced", reason: "no_qty" };
 
+  // KNOWN GAP (not fixed yet, see jupiter.ts's Shield-warning filter for the
+  // one case that is handled): unlike EVM tokens, plain Solana SPL balances
+  // (adapters/jupiter.ts) don't stamp a per-mint usd_override — they fall
+  // through to this ticker lookup. A copycat/spoofed-symbol mint that
+  // *is* sellable (so Shield's NOT_SELLABLE filter doesn't catch it) still
+  // gets priced here off the real asset's ticker (e.g. real ORCA's price
+  // from Coinbase), not its own mint's actual, much-lower price — the same
+  // class of bug CLAUDE.md's EVM usd_override precedent exists to prevent.
+  // Closing this fully means Solana SPL tokens adopt the EVM pattern
+  // (usd_override stamped from Jupiter's own per-mint usdPrice at sync
+  // time) — a real design change (refreshPrices would need a per-mint
+  // Solana repricing path too, so values don't go stale between syncs),
+  // not a one-line patch, so it's flagged here rather than done inline.
   const price = parseNumeric(prices[holding.ticker]);
   if (price === null) return { kind: "unpriced", reason: "no_price" };
 

@@ -98,6 +98,20 @@ after the fact. If a fix touches "why is a value/24h-change missing or
 stale," check which of these two paths that holding actually uses before
 proposing a fix.
 
+**Known gap: plain Solana SPL token balances (`adapters/jupiter.ts`) are
+the one auto-synced category still on path 1 (ticker-keyed), not path 2.**
+EVM tokens/native and every DeFi-position adapter price themselves via a
+per-holding `usd_override` specifically so a token can never be valued off
+an unrelated asset that happens to share its ticker. Solana plain balances
+don't — a copycat/spoofed-symbol mint that's still sellable (so it isn't
+caught by `fetchJupiterHoldings`'s Jupiter-Shield `NOT_SELLABLE` filter,
+added after a real incident where two spoofed tokens showed real-looking
+USD values) gets priced off the real ticker's price in the shared `prices`
+table, not its own mint's actual price. See `valuation.ts`'s "KNOWN GAP"
+comment for the full explanation and why the real fix (stamping
+`usd_override` from Jupiter's own per-mint price, matching the EVM
+pattern) is a design change, not a patch.
+
 **Staleness is also two independent things** — don't conflate them:
 global price freshness (`price_refresh_state`, one singleton row) vs.
 per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).

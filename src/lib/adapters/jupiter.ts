@@ -11,12 +11,22 @@ const BALANCES_URL = "https://lite-api.jup.ag/ultra/v1/balances";
 // underlying feed), so this replaces price/v3 rather than adding a second
 // call.
 const TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
+// Live-verified this session: a real, liquid, Jupiter-"verified" token
+// (ORCA) comes back with only info-severity warnings (e.g.
+// HAS_MINT_AUTHORITY — common, not disqualifying), while a copycat/spam
+// mint that had cleared TOKEN_USD_FLOOR/LIQUIDITY_FLOOR (liquidity can be
+// briefly wash-traded above a fixed $ floor, then withdrawn — a floor
+// alone is gameable) came back with a "critical"-severity NOT_SELLABLE
+// warning, matching the exact "Not Sellable"/JupShield panel Jupiter's own
+// swap UI shows for it. This is that same signal, at sync time.
+const SHIELD_URL = "https://lite-api.jup.ag/ultra/v1/shield";
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 const SEARCH_BATCH_SIZE = 100;
 const TOKEN_USD_FLOOR = 5;
 // Not specified by the user (only "use liquidity as the spam filter"
 // qualitatively) — chosen to clear the one confirmed pump-and-dump example
-// ($324 position, $17,019 liquidity) with real margin. Tunable.
+// ($324 position, $17,019 liquidity) with real margin. Tunable. Kept as a
+// second layer alongside the shield check above, not a replacement for it.
 const LIQUIDITY_FLOOR = 100_000;
 
 interface JupiterBalance {
@@ -67,6 +77,30 @@ export async function fetchTokenInfo(mints: string[]): Promise<Map<string, Jupit
   return info;
 }
 
+interface ShieldWarning {
+  type: string;
+  severity: "critical" | "warning" | "info";
+}
+
+/** Mints with at least one critical-severity Shield warning (currently just
+ * NOT_SELLABLE, but this checks severity rather than the specific type so a
+ * future critical Jupiter adds is caught automatically) — see this file's
+ * SHIELD_URL comment. */
+async function fetchUnsellableMints(mints: string[]): Promise<Set<string>> {
+  if (mints.length === 0) return new Set();
+  const unsellable = new Set<string>();
+  for (const batch of chunk(mints, SEARCH_BATCH_SIZE)) {
+    const url = `${SHIELD_URL}?mints=${batch.join(",")}`;
+    const res = await fetchWithRetry(url, { headers: HEADERS });
+    if (!res.ok) throw new Error(`Jupiter shield failed: HTTP ${res.status}`);
+    const { warnings }: { warnings: Record<string, ShieldWarning[]> } = await res.json();
+    for (const [mint, mintWarnings] of Object.entries(warnings)) {
+      if (mintWarnings.some((w) => w.severity === "critical")) unsellable.add(mint);
+    }
+  }
+  return unsellable;
+}
+
 /**
  * Every SPL balance the wallet holds, priced where Jupiter has a market for
  * it. A holding Jupiter has a *name* for but no live price is still
@@ -80,17 +114,28 @@ export async function fetchTokenInfo(mints: string[]): Promise<Map<string, Jupit
  * Native SOL comes back under the literal key "SOL" and is mapped to the
  * wrapped-SOL mint only for the metadata/price lookup — the stored ticker
  * stays "SOL".
+ *
+ * Also excluded regardless of price/liquidity: any mint Jupiter's own
+ * Shield flags as critically unsellable (see SHIELD_URL's comment) — a
+ * spoofed-symbol/copycat token that a user can't actually trade away, which
+ * TOKEN_USD_FLOOR/LIQUIDITY_FLOOR alone don't reliably catch (liquidity can
+ * be briefly wash-traded above a fixed floor). Checked before either the
+ * priced or named-but-unpriced branch below, since a spoofed-symbol scam
+ * mint with no Jupiter price of its own is the easier way to sneak past
+ * (see the ticker-collision note in valuation.ts's doc comment).
  */
 export async function fetchJupiterHoldings(address: string): Promise<AdapterHolding[]> {
   const balances = await fetchBalances(address);
 
   const entries = Object.entries(balances).filter(([, b]) => b.uiAmount > 0);
   const mints = entries.map(([key]) => (key === "SOL" ? WRAPPED_SOL_MINT : key));
-  const tokenInfo = await fetchTokenInfo(mints);
+  const [tokenInfo, unsellable] = await Promise.all([fetchTokenInfo(mints), fetchUnsellableMints(mints)]);
 
   const holdings: AdapterHolding[] = [];
   for (const [key, balance] of entries) {
     const mint = key === "SOL" ? WRAPPED_SOL_MINT : key;
+    if (unsellable.has(mint)) continue;
+
     const info = tokenInfo.get(mint);
     const usd = info?.usdPrice != null ? info.usdPrice * balance.uiAmount : null;
 
