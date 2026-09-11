@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { Dialog } from "./ui/Dialog";
 import { buttonClass } from "./ui/Button";
+import { useLazyDialog } from "./ui/useLazyDialog";
 import { WalletButton, type PinnedWalletTarget } from "./auth/WalletButton";
 
 /**
@@ -20,38 +20,13 @@ import { WalletButton, type PinnedWalletTarget } from "./auth/WalletButton";
  * decoration, not a button. The `title` on the trigger carries the
  * explanation in addition to the label.
  *
- * WalletButton itself is only mounted while the dialog is open — a native
- * <dialog>'s content stays in the DOM while closed, and this component
- * shows up once per row in WalletsTable, so an always-mounted WalletButton
- * would mean one EIP-6963 discovery listener (plus every provider's icon
- * <img>) per unverified wallet on the page instead of only the one(s)
- * actually being used.
- *
  * onLinked (not the default router.refresh()) is passed explicitly so the
  * dialog closes itself on success — WalletButton skips its own
  * router.refresh() whenever onLinked is supplied, so this does both.
  */
 export function VerifyWalletModal({ pinnedTarget }: { pinnedTarget: PinnedWalletTarget }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const { dialogRef, open, openDialog } = useLazyDialog();
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    // Fires on every close path (Escape, the X button, our own
-    // backdrop-click handler in Dialog.tsx, or dialogRef.close() below) —
-    // one listener covers all of them instead of threading a callback
-    // through each.
-    const handleClose = () => setOpen(false);
-    dialog.addEventListener("close", handleClose);
-    return () => dialog.removeEventListener("close", handleClose);
-  }, []);
-
-  function openDialog() {
-    setOpen(true);
-    dialogRef.current?.showModal();
-  }
 
   return (
     <>

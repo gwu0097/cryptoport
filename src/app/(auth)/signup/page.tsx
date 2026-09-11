@@ -6,7 +6,7 @@ import { signUp, type AuthFormState } from "../actions";
 import { Panel } from "@/components/ui/Panel";
 import { Field, inputClass } from "@/components/ui/Field";
 import { SubmitButton } from "@/components/ui/SubmitButton";
-import { WalletButton } from "@/components/auth/WalletButton";
+import { SignInWalletModal } from "@/components/auth/SignInWalletModal";
 
 export default function SignupPage() {
   const [state, action] = useActionState<AuthFormState, FormData>(signUp, undefined);
@@ -70,7 +70,7 @@ export default function SignupPage() {
             <div className="h-px flex-1 bg-border" />
           </div>
 
-          <WalletButton mode="signin" />
+          <SignInWalletModal />
         </>
       )}
     </Panel>

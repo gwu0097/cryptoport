@@ -8,7 +8,7 @@ import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Field, inputClass, selectClass } from "@/components/ui/Field";
-import { WalletButton } from "@/components/auth/WalletButton";
+import { LinkWalletModal } from "@/components/auth/LinkWalletModal";
 import { SignInPrompt } from "@/components/SignInPrompt";
 
 export default async function SettingsPage({
@@ -126,7 +126,7 @@ export default async function SettingsPage({
                   ))}
                 </ul>
               )}
-              <WalletButton mode="link" />
+              <LinkWalletModal />
             </Panel>
           </>
         )}
