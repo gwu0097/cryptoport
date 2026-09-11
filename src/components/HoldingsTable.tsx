@@ -9,6 +9,7 @@ import { inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { TokenIcon } from "./TokenIcon";
+import { CopyButton } from "./CopyButton";
 import { updateHolding, deleteHolding } from "@/app/wallets/actions";
 
 type SortKey = "ticker" | "qty" | "price" | "value" | "category";
@@ -190,7 +191,13 @@ export function HoldingsTable({
               <div className="flex items-center gap-2">
                 <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
                 <div className="flex flex-col">
-                  <span>{formatTicker(holding.ticker)}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    {formatTicker(holding.ticker)}
+                    <CopyButton
+                      value={holding.contract ?? holding.ticker}
+                      label={holding.contract ? "Copy contract address" : "Copy ticker"}
+                    />
+                  </span>
                   {holding.protocol && <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />}
                 </div>
               </div>
