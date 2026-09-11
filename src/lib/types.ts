@@ -40,6 +40,16 @@ export interface Tag {
   name: string;
 }
 
+/** A signature-verified proof of wallet ownership (see walletAuth.ts) —
+ * distinct from Wallet above, which is portfolio-tracking data with no
+ * ownership proof at all. See db/schema.sql's linked_wallets comment. */
+export interface LinkedWallet {
+  id: string;
+  chain: "ETH" | "SOL";
+  address: string;
+  verified_at: string;
+}
+
 export interface Wallet {
   id: string;
   name: string;

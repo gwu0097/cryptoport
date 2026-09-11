@@ -10,7 +10,7 @@ import {
 } from "./valuation";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
-import type { Holding, Price, Tag, Wallet, WalletWithTag } from "./types";
+import type { Holding, LinkedWallet, Price, Tag, Wallet, WalletWithTag } from "./types";
 
 export interface PriceRefreshState {
   refreshedAt: string | null;
@@ -40,6 +40,34 @@ export async function getTags(): Promise<Tag[]> {
   const { data, error } = await db.from("tags").select("id, name").order("name");
   if (error) throw new Error(`Failed to load tags: ${error.message}`);
   return data as Tag[];
+}
+
+/** Every wallet *this user* has verified sign-in access with (see
+ * walletAuth.ts) — for the Settings "Linked wallets" panel. No explicit
+ * user filter, same reasoning as getTags(): RLS already scopes this. */
+export async function getLinkedWallets(): Promise<LinkedWallet[]> {
+  const db = await userDb();
+  const { data, error } = await db
+    .from("linked_wallets")
+    .select("id, chain, address, verified_at")
+    .order("verified_at", { ascending: true });
+  if (error) throw new Error(`Failed to load linked wallets: ${error.message}`);
+  return data as LinkedWallet[];
+}
+
+/** Whether *this user* has already verified this exact address — RLS scopes
+ * the read to auth.uid(), so a hit here specifically means "linked to me,"
+ * never just "linked to someone." Used by the wallet detail page's "Link
+ * this wallet" affordance to show a checkmark instead of the button once
+ * already done. Same case-sensitivity split as the dedupe logic in
+ * (auth)/walletActions.ts and (app)/settings/walletActions.ts. */
+export async function isWalletLinked(chain: "ETH" | "SOL", address: string): Promise<boolean> {
+  const db = await userDb();
+  const base = db.from("linked_wallets").select("id").eq("chain", chain);
+  const query = chain === "ETH" ? base.ilike("address", address) : base.eq("address", address);
+  const { data, error } = await query.limit(1);
+  if (error) throw new Error(`Failed to check linked wallets: ${error.message}`);
+  return (data?.length ?? 0) > 0;
 }
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —

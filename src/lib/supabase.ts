@@ -66,6 +66,18 @@ export async function userDb() {
   return client.schema("cryptoport");
 }
 
+/**
+ * The service_role client's auth.admin namespace — createUser/generateLink/
+ * getUserById/deleteUser, for the wallet sign-in flow (see
+ * src/app/(auth)/walletActions.ts). There is no session at that point in
+ * the flow, so this is the one place admin-level auth access is needed;
+ * serviceClient itself stays module-private so nothing else can reach past
+ * serviceDb()'s cryptoport-schema scoping by accident.
+ */
+export function serviceAuth() {
+  return serviceClient.auth.admin;
+}
+
 /** Absolute base URL for building auth email redirect links
  * (emailRedirectTo/resetPasswordForEmail's redirectTo) — those have to be
  * a full URL, not a path, and Server Actions have no reliable notion of

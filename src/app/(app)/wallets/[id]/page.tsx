@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
-import { getWalletDetail, getTags, getPriceRefreshState, type HoldingWithValuation } from "@/lib/queries";
+import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked, type HoldingWithValuation } from "@/lib/queries";
 import { formatStaleness, formatUsd, formatQty, formatTicker, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
+import { isEvmChainId } from "@/lib/adapters/evmChains";
+import type { WalletChain } from "@/lib/walletAuth";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
@@ -15,6 +17,8 @@ import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
+import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
+import { WalletButton } from "@/components/auth/WalletButton";
 import {
   addHolding,
   deleteHolding,
@@ -69,11 +73,11 @@ function EditForm({ holding, walletId }: { holding: HoldingWithValuation; wallet
 
 export default async function WalletDetailPage(
   props: PageProps<"/wallets/[id]"> & {
-    searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string }>;
+    searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string; autosync?: string }>;
   },
 ) {
   const { id } = await props.params;
-  const { chain: selectedChain, hideUnpriced, hideLow } = await props.searchParams;
+  const { chain: selectedChain, hideUnpriced, hideLow, autosync } = await props.searchParams;
   const [detail, tags, priceState] = await Promise.all([
     getWalletDetail(id),
     getTags(),
@@ -89,9 +93,26 @@ export default async function WalletDetailPage(
   // unambiguous ypub/zpub never goes through that.
   const isBtcXpub = wallet.chain === "BTC" && !!wallet.address && isExtendedPublicKey(wallet.address);
 
+  // "Link this wallet" — one secp256k1 signature proves a 0x address on
+  // every EVM chain (RON, SEI, ARB, ... all resolve to 'ETH' here, same as
+  // (auth)/walletActions.ts's dedupe), 'SOL' is the one literal chain value
+  // this app uses for Solana. Every other chain (BTC, ADA, ...) has no
+  // wallet-auth signature scheme implemented, so the section doesn't render
+  // at all there. A sequential fetch after getWalletDetail rather than
+  // folded into its own Promise.all above — it depends on the wallet's own
+  // chain/address, which aren't known until that query returns; a single
+  // indexed lookup isn't worth restructuring queries.ts to avoid.
+  const pinnedChain: WalletChain | null = isEvmChainId(wallet.chain) ? "ETH" : wallet.chain === "SOL" ? "SOL" : null;
+  const alreadyLinked =
+    pinnedChain && wallet.address ? await isWalletLinked(pinnedChain, wallet.address) : false;
+
   return (
     <>
       <AutoRefreshWhileSyncing syncing={wallet.last_refresh_status === "syncing"} />
+      <AutoSyncOnMount
+        enabled={autosync === "1" && wallet.mode === "auto" && wallet.last_refresh_status !== "syncing"}
+        sync={syncWalletHoldings.bind(null, wallet.id, false)}
+      />
       <p className="mb-2">
         <Link href="/wallets" className="text-sm text-fg-muted hover:text-fg">
           ← Wallets
@@ -148,6 +169,19 @@ export default async function WalletDetailPage(
               </span>
             )}
           </p>
+
+          {pinnedChain && wallet.address && (
+            <div className="mt-2">
+              {alreadyLinked ? (
+                <p className="text-xs text-positive">✓ Linked — you can sign in with this wallet.</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-fg-muted">Verify you own this address to sign in with it directly.</p>
+                  <WalletButton mode="link" pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-2">

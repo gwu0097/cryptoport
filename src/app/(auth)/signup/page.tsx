@@ -6,6 +6,7 @@ import { signUp, type AuthFormState } from "../actions";
 import { Panel } from "@/components/ui/Panel";
 import { Field, inputClass } from "@/components/ui/Field";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { WalletButton } from "@/components/auth/WalletButton";
 
 export default function SignupPage() {
   const [state, action] = useActionState<AuthFormState, FormData>(signUp, undefined);
@@ -59,6 +60,18 @@ export default function SignupPage() {
 
           <SubmitButton pendingLabel="Creating account…">Sign up</SubmitButton>
         </form>
+      )}
+
+      {!state?.success && (
+        <>
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-fg-muted">or</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <WalletButton mode="signin" />
+        </>
       )}
     </Panel>
   );

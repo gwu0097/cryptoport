@@ -1,9 +1,14 @@
 import { getUser } from "@/lib/auth";
 import { updateAccountPassword } from "./actions";
+import { unlinkWallet } from "./walletActions";
+import { getLinkedWallets } from "@/lib/queries";
+import { isSyntheticEmail, truncateAddress, walletDisplayName } from "@/lib/walletAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Field, inputClass, selectClass } from "@/components/ui/Field";
+import { WalletButton } from "@/components/auth/WalletButton";
 
 export default async function SettingsPage({
   searchParams,
@@ -12,6 +17,8 @@ export default async function SettingsPage({
 }) {
   const { changed } = await searchParams;
   const user = await getUser();
+  const linkedWallets = await getLinkedWallets();
+  const walletOnly = user ? isSyntheticEmail(user.email ?? "") : false;
 
   return (
     <>
@@ -46,7 +53,8 @@ export default async function SettingsPage({
 
         <Panel title="Account">
           <p className="mb-4 text-sm text-fg-muted">
-            Signed in as <span className="text-fg">{user?.email}</span>
+            Signed in as{" "}
+            <span className="text-fg">{(user && walletDisplayName(user)) ?? user?.email}</span>
           </p>
 
           {changed && (
@@ -55,33 +63,65 @@ export default async function SettingsPage({
             </p>
           )}
 
-          <form action={updateAccountPassword} className="flex flex-col gap-4">
-            <Field label="New password" hint="At least 8 characters.">
-              <input
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                className={inputClass}
-              />
-            </Field>
+          {walletOnly ? (
+            <p className="text-xs text-fg-muted">
+              This account has no password — sign in with a linked wallet below instead.
+            </p>
+          ) : (
+            <form action={updateAccountPassword} className="flex flex-col gap-4">
+              <Field label="New password" hint="At least 8 characters.">
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  className={inputClass}
+                />
+              </Field>
 
-            <Field label="Confirm new password">
-              <input
-                name="confirmPassword"
-                type="password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                className={inputClass}
-              />
-            </Field>
+              <Field label="Confirm new password">
+                <input
+                  name="confirmPassword"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  className={inputClass}
+                />
+              </Field>
 
-            <SubmitButton className="self-start" pendingLabel="Updating…">
-              Update password
-            </SubmitButton>
-          </form>
+              <SubmitButton className="self-start" pendingLabel="Updating…">
+                Update password
+              </SubmitButton>
+            </form>
+          )}
+        </Panel>
+
+        <Panel title="Linked wallets" description="Sign in with any of these instead of your email.">
+          {linkedWallets.length > 0 && (
+            <ul className="mb-4 flex flex-col gap-2">
+              {linkedWallets.map((wallet) => (
+                <li
+                  key={wallet.id}
+                  className="flex items-center justify-between rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm"
+                >
+                  <span>
+                    <span className="text-fg-muted">{wallet.chain === "ETH" ? "Ethereum" : "Solana"}</span>{" "}
+                    <span className="text-fg" title={wallet.address}>
+                      {truncateAddress(wallet.address)}
+                    </span>
+                  </span>
+                  <form action={unlinkWallet.bind(null, wallet.id)}>
+                    <ConfirmDeleteButton confirmMessage={`Unlink ${truncateAddress(wallet.address)}?`}>
+                      Unlink
+                    </ConfirmDeleteButton>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+          <WalletButton mode="link" />
         </Panel>
       </div>
     </>

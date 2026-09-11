@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { userAuth, siteUrl } from "@/lib/supabase";
+import { isSyntheticEmail } from "@/lib/walletAuth";
 
 export type AuthFormState = { error?: string; success?: string } | undefined;
 
@@ -34,6 +35,10 @@ export async function signUp(_prevState: AuthFormState, formData: FormData): Pro
     typeof formData.get("confirmPassword") === "string" ? (formData.get("confirmPassword") as string) : "";
 
   if (!email) return { error: "Email is required." };
+  // Reserved for wallet-only accounts (see walletAuth.ts) — letting someone
+  // sign up with one directly would let them squat on a synthetic address
+  // before its real wallet owner ever signs in.
+  if (isSyntheticEmail(email)) return { error: "That email address can't be used." };
   if (password.length < MIN_PASSWORD_LENGTH) {
     return { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
   }
@@ -65,6 +70,13 @@ export async function requestPasswordReset(
 ): Promise<AuthFormState> {
   const email = requiredField(formData, "email");
   if (!email) return { error: "Email is required." };
+  // A synthetic wallet-account email would just burn our email-rate-limit
+  // budget attempting to send to an address that can never receive mail —
+  // same success message either way, so this doesn't leak anything an
+  // attacker couldn't already infer from signUp's identical guard.
+  if (isSyntheticEmail(email)) {
+    return { success: "If that email has an account, a password reset link is on its way." };
+  }
 
   const supabase = await userAuth();
   // Errors here aren't surfaced either, same anti-enumeration reasoning —

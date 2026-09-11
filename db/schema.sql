@@ -442,3 +442,37 @@ grant execute on function cryptoport.sync_auto_holdings(uuid, jsonb, text) to au
 -- Basic Auth is fully replaced by Supabase Auth — this table (and its seed
 -- row) is dead.
 drop table if exists cryptoport.app_credentials;
+
+-- Wallet sign-in (verify a MetaMask/Rabby/Phantom wallet by signature, then
+-- use it to log in) needs a proof-of-ownership table that is deliberately
+-- separate from cryptoport.wallets. wallets is portfolio-tracking data —
+-- address has no uniqueness constraint, and many users can legitimately
+-- track the same address (e.g. watching an influencer's wallet). Letting
+-- that table grant sign-in access would mean tracking someone's address
+-- could let their wallet sign in and see YOUR portfolio. linked_wallets is
+-- the opposite: (chain, address) is globally unique, so a verified wallet
+-- belongs to exactly one account, ever. The sign-in lookup (see
+-- src/app/(auth)/walletActions.ts) runs before any session exists, so
+-- auth.uid() is null and no RLS policy could authorize it — that one read
+-- goes through serviceDb(), and only ever touches this identity mapping,
+-- never wallets/holdings/tags.
+create table cryptoport.linked_wallets (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  chain       text not null, -- 'ETH' (one secp256k1 signature covers all 31 EVM chains) | 'SOL'
+  address     text not null, -- EVM: lowercased. Solana: base58, case-sensitive.
+  verified_at timestamptz not null default now(),
+  unique (chain, address)
+);
+
+alter table cryptoport.linked_wallets enable row level security;
+grant all on cryptoport.linked_wallets to service_role;
+
+create policy "linked_wallets: owner only" on cryptoport.linked_wallets
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Same schema-usage gap as before would 403 this table too if omitted (see
+-- the "permission denied for schema cryptoport" fix above) — grant is
+-- explicit here from the start.
+grant usage on schema cryptoport to authenticated;
+grant select, insert, update, delete on cryptoport.linked_wallets to authenticated;
