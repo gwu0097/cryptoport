@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { StitchedPoint } from "@/lib/analytics";
 import { formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
 import { scalePoints, linePath, areaPath } from "@/lib/chart";
 import { usePersistedState } from "../usePersistedState";
 import { Panel } from "../ui/Panel";
 import { Button } from "../ui/Button";
-import { selectClass } from "../ui/Field";
+import { inputClass } from "../ui/Field";
 
 const WIDTH = 600;
 const HEIGHT = 220;
@@ -17,6 +17,8 @@ export interface WalletSeriesOption {
   /** "all" for the blended total across every wallet. */
   id: string;
   name: string;
+  /** null for the "all" option, and for a wallet with no address on file. */
+  address: string | null;
   points: StitchedPoint[];
   coveragePct: number;
   uncoveredCount: number;
@@ -42,6 +44,15 @@ function shortDate(isoDate: string): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+// Duplicated from walletAuth.ts's truncateAddress rather than imported —
+// that module carries a real `import "server-only"` guard (it pulls in
+// viem/siwe), which throws if bundled into a client component like this
+// one. A 1-line presentational helper is the documented exception to
+// "don't duplicate real logic" for exactly this boundary (see CLAUDE.md).
+function truncateAddress(address: string): string {
+  return address.length > 12 ? `${address.slice(0, 5)}…${address.slice(-5)}` : address;
 }
 
 function sliceToRange(points: StitchedPoint[], days: number | null): StitchedPoint[] {
@@ -75,6 +86,125 @@ function ToggleGroup<T extends string>({
           {opt.label}
         </Button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A button per wallet stopped fitting once there were more than a handful,
+ * and a plain <select>'s scroll list isn't real search — this filters as
+ * you type, against both a wallet's name and its address, so pasting or
+ * typing part of an address finds it too (a native <input list>/<datalist>
+ * pair, the pattern this app already uses for free-text-with-suggestions
+ * inputs like the tag field, can't do this: its suggestions bind directly
+ * to the input's own text value, with no separate id to select by, so two
+ * wallets sharing a name would be ambiguous). No new dependency — this is
+ * the only combobox in the app right now, so it stays local here rather
+ * than becoming a `ui/` primitive; extract if a second one shows up.
+ */
+function WalletCombobox({
+  options,
+  value,
+  onChange,
+}: {
+  options: WalletSeriesOption[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
+
+  const selected = options.find((o) => o.id === value) ?? options[0];
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q === "") return options;
+    return options.filter((o) => o.name.toLowerCase().includes(q) || (o.address ?? "").toLowerCase().includes(q));
+  }, [options, query]);
+
+  function select(id: string) {
+    onChange(id);
+    setQuery("");
+    setOpen(false);
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && filtered[highlight]) select(filtered[highlight].id);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setQuery("");
+      inputRef.current?.blur();
+    }
+  }
+
+  return (
+    <div className="relative w-full sm:w-64">
+      <input
+        ref={inputRef}
+        type="text"
+        value={open ? query : selected.name}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setHighlight(0);
+          setOpen(true);
+        }}
+        onFocus={() => {
+          setQuery("");
+          setHighlight(0);
+          setOpen(true);
+        }}
+        // A plain onBlur would fire before a row's onClick, closing the
+        // list first and swallowing the click — each row's onMouseDown
+        // below prevents that default instead, so blur only needs to
+        // handle every other way focus leaves (tab away, click elsewhere).
+        onBlur={() => setOpen(false)}
+        onKeyDown={onKeyDown}
+        placeholder="Search wallets…"
+        className={inputClass}
+        aria-label="Wallet"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        aria-controls={listId}
+      />
+      {open && (
+        <ul
+          id={listId}
+          className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-surface shadow-lg"
+        >
+          {filtered.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-fg-muted">No wallets match</li>
+          ) : (
+            filtered.map((o, i) => (
+              <li key={o.id}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => select(o.id)}
+                  className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm ${
+                    i === highlight ? "bg-surface-raised" : ""
+                  } ${o.id === value ? "text-accent" : "text-fg"} hover:bg-surface-raised`}
+                >
+                  <span>{o.name}</span>
+                  {o.address && <span className="text-xs text-fg-muted">{truncateAddress(o.address)}</span>}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
     </div>
   );
 }
@@ -114,25 +244,7 @@ export function PerformanceChart({
   return (
     <Panel title="Performance">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {options.length > 1 && (
-          // A button per wallet stopped fitting once there were more than
-          // a handful — a native select scales to any number of wallets
-          // without overflowing the page, and (unlike a custom dropdown)
-          // gets type-to-jump search for free from the browser/OS, no
-          // extra combobox component needed.
-          <select
-            value={selected.id}
-            onChange={(e) => setWalletId(e.target.value)}
-            className={`${selectClass} w-auto max-w-56`}
-            aria-label="Wallet"
-          >
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        )}
+        {options.length > 1 && <WalletCombobox options={options} value={selected.id} onChange={setWalletId} />}
         <ToggleGroup options={RANGES.map((r) => ({ key: r.key, label: r.label }))} value={range} onChange={setRange} />
       </div>
 

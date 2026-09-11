@@ -28,6 +28,7 @@ function currentUsd(holding: Holding, prices: PriceMap): number {
 function buildOption(
   id: string,
   name: string,
+  address: string | null,
   holdings: Holding[],
   prices: PriceMap,
   priceHistory: PriceHistoryMap,
@@ -43,6 +44,7 @@ function buildOption(
   return {
     id,
     name,
+    address,
     points,
     coveragePct: coverage.pct,
     uncoveredCount: coverage.uncoveredTickers.length,
@@ -75,8 +77,10 @@ export default async function AnalyticsPage() {
   const dates = [...new Set([...priceHistory.values()].flatMap((byDate) => [...byDate.keys()]))].sort();
 
   const options: WalletSeriesOption[] = [
-    buildOption("all", "All wallets", allHoldings, prices, priceHistory, dates, globalReal),
-    ...wallets.map((w, i) => buildOption(w.id, w.name, w.holdings, prices, priceHistory, dates, perWalletReal[i])),
+    buildOption("all", "All wallets", null, allHoldings, prices, priceHistory, dates, globalReal),
+    ...wallets.map((w, i) =>
+      buildOption(w.id, w.name, w.address, w.holdings, prices, priceHistory, dates, perWalletReal[i]),
+    ),
   ];
 
   return (
