@@ -48,6 +48,8 @@ const NATIVE_ICON_CHAINS: Record<string, string> = {
   sui: "sui",
   filecoin: "filecoin",
   bitcoincash: "bitcoin-cash",
+  polkadot: "polkadot",
+  bittensor: "bittensor",
 };
 
 /**

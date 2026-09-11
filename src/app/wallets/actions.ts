@@ -15,6 +15,7 @@ import { fetchNearHoldings } from "@/lib/adapters/near";
 import { fetchSuiHoldings } from "@/lib/adapters/sui";
 import { fetchFilecoinHoldings } from "@/lib/adapters/filecoin";
 import { fetchBitcoinCashHoldings } from "@/lib/adapters/bitcoincash";
+import { fetchSubstrateHoldings } from "@/lib/adapters/substrate";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { Chain, WalletMode } from "@/lib/types";
@@ -85,6 +86,8 @@ const AUTO_CAPABLE_CHAINS: readonly Chain[] = [
   "SUI",
   "FIL",
   "BCH",
+  "DOT",
+  "TAO",
 ];
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
@@ -281,7 +284,7 @@ interface AdapterFetchResult {
 // fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached
 // script type through and get the detected one back.
 async function fetchAdapterHoldings(
-  chain: "ETH" | "SOL" | "ATOM" | "INJ" | "NEAR" | "SUI" | "FIL" | "BCH",
+  chain: "ETH" | "SOL" | "ATOM" | "INJ" | "NEAR" | "SUI" | "FIL" | "BCH" | "DOT" | "TAO",
   address: string,
 ): Promise<AdapterFetchResult> {
   if (chain === "ETH") return fetchEvmHoldings(address);
@@ -290,6 +293,9 @@ async function fetchAdapterHoldings(
   if (chain === "SUI") return { holdings: await fetchSuiHoldings(address), warnings: [] };
   if (chain === "FIL") return { holdings: await fetchFilecoinHoldings(address), warnings: [] };
   if (chain === "BCH") return { holdings: await fetchBitcoinCashHoldings(address), warnings: [] };
+  if (chain === "DOT" || chain === "TAO") {
+    return { holdings: await fetchSubstrateHoldings(chain, address), warnings: [] };
+  }
   return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
 }
 

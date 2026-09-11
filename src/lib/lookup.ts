@@ -9,6 +9,7 @@ import { fetchNearHoldings, isNearAccountId } from "./adapters/near";
 import { fetchSuiHoldings, isSuiAddress } from "./adapters/sui";
 import { fetchFilecoinHoldings, isFilecoinAddress } from "./adapters/filecoin";
 import { fetchBitcoinCashHoldings, isBitcoinCashAddress } from "./adapters/bitcoincash";
+import { fetchSubstrateHoldings, isSubstrateAddress } from "./adapters/substrate";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { defaultChainId } from "./chainNames";
@@ -43,6 +44,11 @@ export function detectChain(address: string): Chain | null {
   if (isFilecoinAddress(address)) return "FIL";
   if (isBitcoinCashAddress(address)) return "BCH";
   if (isNearAccountId(address)) return "NEAR";
+  // TAO isn't auto-detected here — Bittensor reuses the generic Substrate
+  // SS58 prefix (42) shared by dozens of other chains, so a bare address
+  // alone isn't enough to tell it apart; DOT's prefix (0) is unique enough
+  // to trust.
+  if (isSubstrateAddress("DOT", address)) return "DOT";
   return null;
 }
 
@@ -86,7 +92,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const chain = detectChain(address);
   if (!chain) {
     throw new Error(
-      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, NEAR, SUI, FIL, or BCH address.",
+      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, NEAR, SUI, FIL, BCH, or DOT address.",
     );
   }
 
@@ -107,7 +113,9 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
                   ? fetchFilecoinHoldings(address)
                   : chain === "BCH"
                     ? fetchBitcoinCashHoldings(address)
-                    : fetchBitcoinHoldings(address);
+                    : chain === "DOT" || chain === "TAO"
+                      ? fetchSubstrateHoldings(chain, address)
+                      : fetchBitcoinHoldings(address);
 
   const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
 

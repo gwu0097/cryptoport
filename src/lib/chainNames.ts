@@ -15,6 +15,8 @@ export const CHAIN_NAMES: Record<string, string> = {
   sui: "Sui",
   filecoin: "Filecoin",
   bitcoincash: "Bitcoin Cash",
+  polkadot: "Polkadot",
+  bittensor: "Bittensor",
   BTC: "Bitcoin",
   ETH: "Ethereum",
   SOL: "Solana",
@@ -25,6 +27,8 @@ export const CHAIN_NAMES: Record<string, string> = {
   SUI: "Sui",
   FIL: "Filecoin",
   BCH: "Bitcoin Cash",
+  DOT: "Polkadot",
+  TAO: "Bittensor",
 };
 
 export function chainDisplayName(chainId: string): string {
@@ -59,5 +63,7 @@ export function defaultChainId(chain: string): string {
   if (chain === "SUI") return "sui";
   if (chain === "FIL") return "filecoin";
   if (chain === "BCH") return "bitcoincash";
+  if (chain === "DOT") return "polkadot";
+  if (chain === "TAO") return "bittensor";
   return chain.toLowerCase();
 }
