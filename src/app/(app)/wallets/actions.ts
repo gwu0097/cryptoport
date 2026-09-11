@@ -68,7 +68,14 @@ export async function refreshPricesAction() {
     .eq("id", 1);
   if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
 
+  // Prices are global (see the comment above), so every page that reads
+  // them needs revalidating, not just /wallets — this used to leave
+  // /assets, /portfolio, /defi showing stale prices until their own
+  // unrelated revalidation happened to fire.
   revalidatePath("/wallets");
+  revalidatePath("/assets");
+  revalidatePath("/portfolio");
+  revalidatePath("/defi");
 }
 
 // Same global refresh (prices are keyed by ticker, not wallet — there's no

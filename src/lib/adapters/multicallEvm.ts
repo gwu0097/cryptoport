@@ -130,6 +130,26 @@ async function saveImageUrls(
   }
 }
 
+// Unlike decimals/images (fetched once, cached forever), 24h change is
+// volatile — written on every sync that holds the token, same lifetime as
+// the price itself. Read back by queries.ts's getContractChangeMap, keyed
+// by (chain_id, contract) so the same ticker on different chains (or a
+// ticker collision with an unrelated token) never cross-contaminates —
+// see the "prices" ticker-keyed table's own limitation this sidesteps.
+async function saveChange24h(
+  chainId: string,
+  rows: { contract: string; symbol: string; change_24h_pct: number | null }[],
+) {
+  const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
+  for (let i = 0; i < deduped.length; i += 1000) {
+    const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
+    const { error } = await serviceDb()
+      .from("token_registry")
+      .upsert(chunk, { onConflict: "chain_id,contract" });
+    if (error) throw new Error(`Failed to save change_24h_pct(${chainId}): ${error.message}`);
+  }
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
@@ -286,14 +306,29 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     priceable.map((x) => x.token.contract),
   );
 
-  const included: { token: RegistryToken; qty: number; usd: number }[] = [];
+  const included: { token: RegistryToken; qty: number; usd: number; change24h: number | null }[] = [];
   for (const { token, result } of priceable) {
     const price = prices.get(token.contract.toLowerCase());
     if (price === undefined) continue; // no live price — dropped, see doc comment above
     const qty = Number(formatUnits(result.result as unknown as bigint, token.decimals!));
-    const usd = qty * price;
+    const usd = qty * price.usd;
     if (usd <= TOKEN_USD_FLOOR) continue;
-    included.push({ token, qty, usd });
+    included.push({ token, qty, usd, change24h: price.change24h });
+  }
+
+  // Volatile, unlike decimals/images above — written every sync regardless
+  // of whether token_registry already had a value, so a token's 24h change
+  // never goes stale between refreshTokenRegistry runs.
+  try {
+    const changeRows = included.map(({ token, change24h }) => ({
+      contract: token.contract,
+      symbol: token.symbol,
+      change_24h_pct: change24h,
+    }));
+    if (changeRows.length > 0) await saveChange24h(chain.id, changeRows);
+  } catch {
+    // Same "cosmetic, never take down real balance data" reasoning as the
+    // icon try/catch below.
   }
 
   const nativeBalance = await nativeBalancePromise;

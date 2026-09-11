@@ -126,6 +126,35 @@ export async function getPriceChangeMap(): Promise<PriceChangeMap> {
   return changes;
 }
 
+/** lowercase contract -> 24h % change, from token_registry.change_24h_pct
+ * (see multicallEvm.ts's saveChange24h). EVM holdings are valued via
+ * usd_override and never touch the ticker-keyed `prices` table (see
+ * valuation.ts) — this is the equivalent lookup for those, keyed by
+ * contract instead of ticker so it can't cross-contaminate across chains
+ * or ticker collisions. Not chain-scoped even though token_registry's key
+ * is (chain_id, contract): a contract address is already globally unique
+ * in practice, and a holding's own `contract` field carries no chain_id to
+ * join on without a second query — the same simplification effectivePrice
+ * already makes for ticker-keyed prices. */
+export async function getContractChangeMap(): Promise<Record<string, number | null>> {
+  // Excludes null rows up front — token_registry has tens of thousands of
+  // contracts per chain from refreshTokenRegistry's coins/list import, the
+  // overwhelming majority never actually held/synced and so never given a
+  // change_24h_pct. Only the ones a sync has actually priced are useful
+  // here.
+  const { data, error } = await serviceDb()
+    .from("token_registry")
+    .select("contract, change_24h_pct")
+    .not("change_24h_pct", "is", null);
+  if (error) throw new Error(`Failed to load token registry changes: ${error.message}`);
+
+  const changes: Record<string, number | null> = {};
+  for (const row of data as { contract: string; change_24h_pct: number | string | null }[]) {
+    changes[row.contract.toLowerCase()] = Number(row.change_24h_pct);
+  }
+  return changes;
+}
+
 // The ticker-keyed `prices` table is deliberately never consulted for a
 // holding that already carries usd_override (see valuation.ts) — but the
 // per-unit "Price" column still wants a number to show instead of a
@@ -405,10 +434,11 @@ export interface AssetsByTickerResult {
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const db = await userDb();
-  const [{ data: wallets, error }, prices, priceChanges] = await Promise.all([
+  const [{ data: wallets, error }, prices, priceChanges, contractChanges] = await Promise.all([
     db.from("wallets").select("*, holdings(*)").eq("active", true),
     getPriceMap(),
     getPriceChangeMap(),
+    getContractChangeMap(),
   ]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
 
@@ -459,7 +489,14 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
       // real price/change that only exists under the original casing.
       if (group.price === null && entry.price !== null) group.price = entry.price;
       if (group.change24h === null) {
-        const change = priceChanges[holding.ticker];
+        // Contract-keyed first — EVM holdings are valued via usd_override
+        // and never touch the ticker-keyed `prices` table (see
+        // valuation.ts), so priceChanges[ticker] is never populated for
+        // them; getContractChangeMap is the equivalent lookup for those.
+        // Falls back to the ticker table for everything else (Coinbase/
+        // Jupiter-priced holdings, which have no `contract`).
+        const change = (holding.contract ? contractChanges[holding.contract.toLowerCase()] : undefined) ??
+          priceChanges[holding.ticker];
         if (change != null) group.change24h = change;
       }
       const qty = parseNumeric(holding.qty);

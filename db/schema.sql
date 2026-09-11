@@ -223,6 +223,16 @@ grant all on cryptoport.chain_icons to service_role;
 alter table cryptoport.token_registry
   add column image_url text;
 
+-- 24h % change per (chain, contract), from CoinGecko's simple/token_price
+-- include_24hr_change=true — free in the same call multicallEvm.ts already
+-- makes to price EVM holdings. This is what lets EVM tokens (which are
+-- valued via holdings.usd_override, bypassing the ticker-keyed
+-- cryptoport.prices table entirely, see valuation.ts) show a 24h change at
+-- all. Unlike decimals/image_url above, this is volatile and rewritten on
+-- every sync that holds the token, not fetched once and cached forever.
+alter table cryptoport.token_registry
+  add column change_24h_pct numeric;
+
 -- Snapshotted onto the holding at sync time, same as usd_override — avoids
 -- a join at render time and means a holding's icon survives even if its
 -- token_registry row's cached image_url is later cleared/changed.

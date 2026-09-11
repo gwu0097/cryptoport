@@ -1,11 +1,14 @@
-import { getAssetsGroupedByTicker } from "@/lib/queries";
+import { RefreshCw } from "lucide-react";
+import { getAssetsGroupedByTicker, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsd } from "@/lib/format";
+import { formatUsd, formatStaleness } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { AssetsTable } from "@/components/AssetsTable";
 import { SignInPrompt } from "@/components/SignInPrompt";
+import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
@@ -31,7 +34,11 @@ export default async function AssetsPage({
   const hideUnpriced = hideUnpricedParam !== "0";
   const hideLow = hideLowParam !== "0";
 
-  const [{ groups, grand }, user] = await Promise.all([getAssetsGroupedByTicker(), getUser()]);
+  const [{ groups, grand }, user, priceState] = await Promise.all([
+    getAssetsGroupedByTicker(),
+    getUser(),
+    getPriceRefreshState(),
+  ]);
 
   // Same semantics as ChainGroupedHoldings: filter which contributing
   // holdings show in a group's breakdown table, but the group's own
@@ -51,7 +58,23 @@ export default async function AssetsPage({
 
   return (
     <>
-      <PageHeader title="Assets" subtitle="Every token you hold, aggregated across all your wallets" />
+      <PageHeader
+        title="Assets"
+        subtitle="Every token you hold, aggregated across all your wallets"
+        actions={
+          user && (
+            <div className="flex flex-col items-center gap-1">
+              <form action={refreshPricesAction}>
+                <SubmitButton variant="secondary" size="sm">
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  Refresh prices
+                </SubmitButton>
+              </form>
+              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+            </div>
+          )
+        }
+      />
 
       {user && (
         <Panel className="mb-6">

@@ -148,21 +148,34 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-/** contract (lowercase) -> usd price, only for contracts CoinGecko can price. */
+export interface CoingeckoPrice {
+  usd: number;
+  /** 24h % change, e.g. 1.81 for +1.81% — free in the same response via
+   * include_24hr_change=true. Null when CoinGecko has no 24h stats for this
+   * asset, which doesn't block the price itself from being used. */
+  change24h: number | null;
+}
+
+/** contract (lowercase) -> {usd, change24h}, only for contracts CoinGecko can price. */
 export async function fetchTokenPrices(
   coingeckoPlatform: string,
   contracts: string[],
-): Promise<Map<string, number>> {
-  const prices = new Map<string, number>();
+): Promise<Map<string, CoingeckoPrice>> {
+  const prices = new Map<string, CoingeckoPrice>();
   if (contracts.length === 0) return prices;
 
   for (const batch of chunk(contracts, PRICE_BATCH_SIZE)) {
-    const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd`;
+    const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true`;
     const res = await fetchWithRetry(url, { headers: headers() });
     if (!res.ok) throw new Error(`CoinGecko token_price(${coingeckoPlatform}) failed: HTTP ${res.status}`);
-    const body: Record<string, { usd?: number }> = await res.json();
+    const body: Record<string, { usd?: number; usd_24h_change?: number }> = await res.json();
     for (const [contract, price] of Object.entries(body)) {
-      if (typeof price.usd === "number") prices.set(contract.toLowerCase(), price.usd);
+      if (typeof price.usd === "number") {
+        prices.set(contract.toLowerCase(), {
+          usd: price.usd,
+          change24h: typeof price.usd_24h_change === "number" ? price.usd_24h_change : null,
+        });
+      }
     }
   }
 
