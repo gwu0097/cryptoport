@@ -494,3 +494,29 @@ create policy "linked_wallets: owner only" on cryptoport.linked_wallets
 -- explicit here from the start.
 grant usage on schema cryptoport to authenticated;
 grant select, insert, update, delete on cryptoport.linked_wallets to authenticated;
+
+-- Daily per-user portfolio value history, for the Dashboard's value-over-
+-- time chart (src/lib/snapshots.ts). There is no historical data anywhere
+-- else in this schema — every other table is "current state, overwritten
+-- in place" — so this chart's clock starts the day this table starts being
+-- written to, not retroactively. Written exclusively by a Vercel Cron
+-- (src/app/api/cron/snapshot/route.ts) via service_role, once a day, one
+-- row per (user, day) — never by the app itself, hence no insert/update
+-- grant to authenticated below, read-only same as prices/token_registry
+-- are for everyone but written-only-by-us.
+create table cryptoport.portfolio_snapshots (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null references auth.users(id) on delete cascade,
+  snapshot_date  date not null,
+  total_usd      numeric not null,
+  unpriced_count int not null default 0,
+  created_at     timestamptz not null default now(),
+  unique (user_id, snapshot_date)
+);
+
+alter table cryptoport.portfolio_snapshots enable row level security;
+grant all on cryptoport.portfolio_snapshots to service_role;
+grant select on cryptoport.portfolio_snapshots to authenticated;
+
+create policy "portfolio_snapshots: owner only" on cryptoport.portfolio_snapshots
+  for select using (user_id = auth.uid());

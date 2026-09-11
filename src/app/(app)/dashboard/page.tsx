@@ -1,5 +1,5 @@
 import { Eye } from "lucide-react";
-import { getAssetsGroupedByTicker, getWalletsWithTotals } from "@/lib/queries";
+import { getAssetsGroupedByTicker, getWalletsWithTotals, getPortfolioHistory } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
 import { blendedChange } from "@/lib/dashboard";
@@ -8,6 +8,7 @@ import { Panel } from "@/components/ui/Panel";
 import { SignInPrompt } from "@/components/SignInPrompt";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { WalletHealthPanel } from "@/components/dashboard/WalletHealthPanel";
+import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
@@ -17,9 +18,10 @@ export const metadata = { title: "Dashboard · CryptoPort" };
 const LOW_VALUE_USD = 10;
 
 export default async function DashboardPage() {
-  const [{ groups, grand }, { wallets }, user] = await Promise.all([
+  const [{ groups, grand }, { wallets }, history, user] = await Promise.all([
     getAssetsGroupedByTicker(),
     getWalletsWithTotals(),
+    getPortfolioHistory(),
     getUser(),
   ]);
 
@@ -62,6 +64,10 @@ export default async function DashboardPage() {
           </p>
         )}
       </Panel>
+
+      <div className="mb-6">
+        <ValueHistoryChart points={history} />
+      </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <MoverList title="Top gainers (24h)" groups={gainers} />

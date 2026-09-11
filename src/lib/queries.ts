@@ -606,3 +606,30 @@ export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
 
   return { groups, grand };
 }
+
+export interface PortfolioHistoryPoint {
+  date: string;
+  total: number;
+}
+
+/** Daily value history for the Dashboard's trend chart, from
+ * cryptoport.portfolio_snapshots (see src/lib/snapshots.ts — the only
+ * writer, a once-a-day Vercel Cron). Through userDb(), not serviceDb():
+ * that table's RLS policy scopes a select to the caller's own rows, same
+ * as every other per-user read in this file. Empty until the cron has run
+ * at least once since this table was created — there is no historical
+ * backfill possible, see schema.sql's comment on this table. */
+export async function getPortfolioHistory(): Promise<PortfolioHistoryPoint[]> {
+  if (!(await getUser())) return [];
+  const db = await userDb();
+  const { data, error } = await db
+    .from("portfolio_snapshots")
+    .select("snapshot_date, total_usd")
+    .order("snapshot_date", { ascending: true });
+  if (error) throw new Error(`Failed to load portfolio history: ${error.message}`);
+
+  return (data as { snapshot_date: string; total_usd: number | string }[]).map((row) => ({
+    date: row.snapshot_date,
+    total: parseNumeric(row.total_usd) ?? 0,
+  }));
+}
