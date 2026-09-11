@@ -18,8 +18,11 @@ export const config = {
 // protected route is correct, not an oversight. /lookup is here on
 // purpose too — it's read-only (see its own layout's doc comment) and
 // meant to work for a signed-out visitor, same as DeBank/Rabby's address
-// search.
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth/confirm", "/lookup"];
+// search. "/" itself is here too, but only ever as a redirect (see
+// app/page.tsx) — a signed-out visitor bounces to /lookup, a signed-in one
+// to /wallets — so this being "public" never exposes anything, it just
+// stops the root URL itself from being forced through /login first.
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth/confirm", "/lookup", "/"];
 const AUTH_LANDING_PATHS = ["/login", "/signup", "/forgot-password"];
 
 function isPath(pathname: string, list: string[]): boolean {
