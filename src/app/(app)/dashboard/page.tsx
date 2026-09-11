@@ -1,5 +1,5 @@
 import { Eye, RefreshCw } from "lucide-react";
-import { getAssetsGroupedByTicker, getWalletsWithTotals, getPortfolioHistory, getPriceRefreshState } from "@/lib/queries";
+import { getAssetsGroupedByTicker, getPortfolioHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatUsd, formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
 import { blendedChange } from "@/lib/dashboard";
@@ -8,7 +8,6 @@ import { Panel } from "@/components/ui/Panel";
 import { SignInPrompt } from "@/components/SignInPrompt";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
-import { WalletHealthPanel } from "@/components/dashboard/WalletHealthPanel";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
 import { refreshPricesAction } from "../wallets/actions";
 
@@ -25,9 +24,8 @@ export const maxDuration = 300;
 const LOW_VALUE_USD = 10;
 
 export default async function DashboardPage() {
-  const [{ groups, grand }, { wallets }, history, priceState, user] = await Promise.all([
+  const [{ groups, grand }, history, priceState, user] = await Promise.all([
     getAssetsGroupedByTicker(),
-    getWalletsWithTotals(),
     getPortfolioHistory(),
     getPriceRefreshState(),
     getUser(),
@@ -103,10 +101,6 @@ export default async function DashboardPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <MoverList title="Top gainers (24h)" groups={gainers} />
         <MoverList title="Top losers (24h)" groups={losers} />
-      </div>
-
-      <div className="mb-6">
-        <WalletHealthPanel wallets={wallets} />
       </div>
 
       <Panel className="text-center">

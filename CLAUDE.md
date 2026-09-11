@@ -10,6 +10,22 @@ enough signal to make a buy/sell decision — not a trading platform, not a
 tax tool. Every feature should serve traceability (where is my money) and
 trackability (what changed) first.
 
+### The Dashboard is a lens, not a workshop
+
+`/dashboard` presents existing data — it reads already-computed tables
+(`AssetGroup`, `portfolio_snapshots`, etc.) and displays them. It should
+never be where new computation/business logic gets built for the first
+time. If a Dashboard request would require inventing new functionality
+(a new metric that doesn't exist anywhere else, a new kind of aggregation,
+a new data source), stop and say so explicitly, rather than building it
+directly into the Dashboard page/components. Build that feature as its own
+page/tab first (e.g. Analytics owns historical/derived calculations),
+verify it stands on its own, and only then have the Dashboard consume it.
+(Precedent: a 30-day value-history approximation was proposed for the
+Dashboard directly and correctly redirected to become Analytics' job
+instead — this section exists so that judgment call doesn't have to be
+re-made from scratch next time.)
+
 ## Architecture
 
 - **Modular by default, dependency only when it earns its keep.** Prefer
