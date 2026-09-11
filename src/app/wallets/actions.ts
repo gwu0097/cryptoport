@@ -427,6 +427,34 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
   revalidatePath("/wallets");
 }
 
+// Kicks off a sync for every active auto-mode wallet not already syncing —
+// each one still runs the same way a single "Sync" click does (marked
+// 'syncing' fast, real fetch work happens in its own after() background
+// task, see syncWalletHoldings above), so this loop itself finishes in
+// well under a second regardless of wallet count: it's only doing N fast
+// DB writes, not waiting on N real syncs. All of those background tasks
+// then genuinely run concurrently — bounded by whichever single wallet is
+// slowest (a full BTC xpub scan, typically a few minutes), not by their
+// sum — comfortably inside this page's 300s maxDuration even with every
+// wallet syncing at once. No cross-wallet throttling: individual syncs
+// already retry through free-RPC flakiness on their own (see
+// fetchWithRetry/mapWithConcurrency), and this app's wallet count is
+// small enough that hammering a shared provider with a few more
+// concurrent callers hasn't been an issue in practice.
+export async function syncAllWallets() {
+  const { data: wallets, error } = await portfolioDb()
+    .from("wallets")
+    .select("id, last_refresh_status")
+    .eq("mode", "auto")
+    .eq("active", true);
+  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
+
+  for (const wallet of wallets) {
+    if (wallet.last_refresh_status === "syncing") continue; // already in flight, don't double-trigger
+    await syncWalletHoldings(wallet.id, false);
+  }
+}
+
 // Soft delete: wallets.active already exists for exactly this (the wallets
 // list already filters on it) — no schema change needed, and it keeps a
 // wallet's holding history around instead of cascading a hard delete.

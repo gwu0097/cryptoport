@@ -7,7 +7,7 @@ import { Panel } from "@/components/ui/Panel";
 import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { WalletsTable } from "@/components/WalletsTable";
-import { refreshPricesAction, refreshTokenRegistryAction } from "./actions";
+import { refreshPricesAction, refreshTokenRegistryAction, syncAllWallets } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
 // runtime APIs or cookies to force dynamic rendering the old way) and Vercel
@@ -37,6 +37,12 @@ export default async function WalletsPage() {
             <Link href="/wallets/new" className={buttonClass("primary", "sm")}>
               + Add wallet
             </Link>
+            <form action={syncAllWallets}>
+              <SubmitButton variant="secondary" size="sm">
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                Sync all
+              </SubmitButton>
+            </form>
             <div className="flex flex-col items-center gap-1">
               <form action={refreshPricesAction}>
                 <SubmitButton variant="secondary" size="sm">
