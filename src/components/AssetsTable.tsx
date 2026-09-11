@@ -121,6 +121,13 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
           No assets match &ldquo;{search}&rdquo;.
         </p>
       ) : (
+        // overflow-x-auto — same "let the table scroll on a narrow
+        // viewport instead of the outer overflow-hidden silently clipping
+        // it" fix as WalletsTable/HoldingsTable. The nested per-asset
+        // table below rides along inside this same scroll region rather
+        // than getting its own (nested horizontal scrollbars are a worse
+        // mobile experience than one scrollable block).
+        <div className="overflow-x-auto">
         <table className={tableClass}>
           <thead>
             <tr className={theadRowClass}>
@@ -209,6 +216,7 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

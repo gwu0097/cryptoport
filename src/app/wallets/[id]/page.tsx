@@ -260,6 +260,10 @@ export default async function WalletDetailPage(
           <AddHoldingModal addHolding={addHoldingForWallet} defaultTicker={wallet.chain} />
         </div>
         <Panel padding={false} className="mb-6 overflow-hidden">
+          {/* overflow-x-auto — same "let the table scroll on a narrow
+              viewport instead of the Panel's own overflow-hidden silently
+              clipping it" fix as WalletsTable/HoldingsTable/AssetsTable. */}
+          <div className="overflow-x-auto">
           <table className={tableClass}>
             <thead>
               <tr className={theadRowClass}>
@@ -324,6 +328,7 @@ export default async function WalletDetailPage(
               ))}
             </tbody>
           </table>
+          </div>
         </Panel>
         </>
       )}

@@ -117,6 +117,12 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
   return (
     <>
       <AutoRefreshWhileSyncing syncing={isSyncing} />
+      {/* overflow-x-auto, not the Panel's own overflow-hidden — the Panel
+          wrapping this table clips to keep its rounded corners, which on a
+          narrow viewport with 8 columns silently clipped the right-hand
+          columns with no way to reach them instead of letting just the
+          table scroll horizontally. */}
+      <div className="overflow-x-auto">
       <table className={tableClass}>
       <thead>
         <tr className={theadRowClass}>
@@ -207,6 +213,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
         ))}
       </tbody>
       </table>
+      </div>
     </>
   );
 }

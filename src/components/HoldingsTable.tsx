@@ -146,6 +146,10 @@ export function HoldingsTable({
   });
 
   return (
+    // overflow-x-auto — same "let the table scroll, not clip" fix as
+    // WalletsTable; this one's callers wrap it in a container that clips
+    // to rounded corners (Panel, or ChainGroupedHoldings' <details>).
+    <div className="overflow-x-auto">
     <table className={tableClass}>
       <thead>
         <tr className={theadRowClass}>
@@ -191,5 +195,6 @@ export function HoldingsTable({
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
