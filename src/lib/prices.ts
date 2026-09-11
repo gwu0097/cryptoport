@@ -2,6 +2,7 @@ import "server-only";
 import { serviceDb } from "./supabase";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
+import { refreshEvmHoldingPrices } from "./adapters/multicallEvm";
 
 export interface PriceRefreshResult {
   ticker: string;
@@ -77,6 +78,15 @@ async function upsertPrice(
  * real ~$0.25 for months after Coinbase delisted it), so treating a
  * confirmed delisting the same as an ordinary transient failure would leave
  * that ticker permanently mispriced instead of ever recovering.
+ *
+ * Also runs refreshEvmHoldingPrices alongside the ticker-keyed refresh
+ * above — EVM holdings are valued via usd_override, computed from
+ * CoinGecko directly on the holding row, and otherwise only ever updated
+ * by that wallet's own next full sync (see multicallEvm.ts). Composed here
+ * rather than merged into the Coinbase/Jupiter logic since it's a genuinely
+ * separate concern (per-holding usd_override, not the shared ticker
+ * table) — this function's job is "make every known price fresh," however
+ * many different mechanisms that takes.
  */
 export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
@@ -137,5 +147,10 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   // A ticker that succeeded via Jupiter shouldn't also be reported as a
   // Coinbase failure in the combined results.
   const jupiterSucceeded = new Set(jupiterResults.filter((r) => r.ok).map((r) => r.ticker));
-  return [...coinbaseResults.filter((r) => r.ok || !jupiterSucceeded.has(r.ticker)), ...jupiterResults];
+  const evmResults = await refreshEvmHoldingPrices();
+  return [
+    ...coinbaseResults.filter((r) => r.ok || !jupiterSucceeded.has(r.ticker)),
+    ...jupiterResults,
+    ...evmResults,
+  ];
 }

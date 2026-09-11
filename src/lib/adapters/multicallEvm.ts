@@ -461,3 +461,130 @@ export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChain
 
   return { holdings, failedChains };
 }
+
+interface EvmHoldingRow {
+  id: string;
+  wallet_id: string;
+  ticker: string;
+  chain: string;
+  contract: string | null;
+  qty: number | string | null;
+}
+
+/**
+ * Re-prices every already-tracked EVM holding (token or native) straight
+ * from CoinGecko, using the (chain, contract, qty) already on the holding
+ * row — no RPC call, no on-chain balance re-check. Deliberately decoupled
+ * from fetchChainHoldings/multicallChunkWithRetry above: "is this price
+ * current" and "does this wallet still hold this token" are different
+ * questions, and the first one shouldn't have to wait for (or pay the cost
+ * of) the second. This is what lets the "Refresh prices" button catch up
+ * every EVM holding immediately, the same way it already does for every
+ * Coinbase/Jupiter-priced ticker — instead of an EVM token's price and 24h
+ * change being stuck until that specific wallet's next full sync.
+ */
+export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: boolean; error?: string }[]> {
+  // No active-wallet filter — same "cheap and global, don't bother
+  // scoping" choice prices.ts's getDistinctHoldingTickers already makes for
+  // the ticker-keyed refresh.
+  const { data, error } = await serviceDb()
+    .from("holdings")
+    .select("id, wallet_id, ticker, chain, contract, qty")
+    .eq("source", "auto")
+    .not("chain", "is", null);
+  if (error) throw new Error(`Failed to load EVM holdings: ${error.message}`);
+
+  const rows = (data as EvmHoldingRow[]).filter((r) => EVM_CHAINS.some((c) => c.id === r.chain));
+
+  const byChain = new Map<string, EvmHoldingRow[]>();
+  for (const row of rows) {
+    if (!byChain.has(row.chain)) byChain.set(row.chain, []);
+    byChain.get(row.chain)!.push(row);
+  }
+
+  const results: { ticker: string; ok: boolean; error?: string }[] = [];
+
+  for (const [chainId, chainRows] of byChain) {
+    const chain = EVM_CHAINS.find((c) => c.id === chainId)!;
+    const contractRows = chainRows.filter((r): r is EvmHoldingRow & { contract: string } => r.contract !== null);
+    const nativeRows = chainRows.filter((r) => r.contract === null);
+
+    type Upsert = { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number };
+    const upserts: Upsert[] = [];
+    const changeRows: { contract: string; symbol: string; change_24h_pct: number | null }[] = [];
+
+    if (contractRows.length > 0) {
+      try {
+        const prices = await fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract));
+        for (const row of contractRows) {
+          const price = prices.get(row.contract.toLowerCase());
+          if (!price) {
+            results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this contract." });
+            continue;
+          }
+          const qty = Number(row.qty);
+          if (!Number.isFinite(qty)) {
+            results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
+            continue;
+          }
+          upserts.push({
+            id: row.id,
+            wallet_id: row.wallet_id,
+            ticker: row.ticker,
+            source: "auto",
+            usd_override: qty * price.usd,
+          });
+          changeRows.push({ contract: row.contract, symbol: row.ticker, change_24h_pct: price.change24h });
+        }
+      } catch (e) {
+        for (const row of contractRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
+      }
+    }
+
+    if (nativeRows.length > 0) {
+      try {
+        const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId);
+        for (const row of nativeRows) {
+          if (nativePrice === null) {
+            results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this native asset." });
+            continue;
+          }
+          const qty = Number(row.qty);
+          if (!Number.isFinite(qty)) {
+            results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
+            continue;
+          }
+          upserts.push({
+            id: row.id,
+            wallet_id: row.wallet_id,
+            ticker: row.ticker,
+            source: "auto",
+            usd_override: qty * nativePrice,
+          });
+        }
+      } catch (e) {
+        for (const row of nativeRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
+      }
+    }
+
+    if (upserts.length === 0) continue;
+
+    // Write outcome decides ok/fail for every row in this chain's batch —
+    // deferred until now (rather than pushed optimistically above)
+    // specifically so a DB failure here doesn't mislabel rows as
+    // successfully repriced when the write never actually landed.
+    try {
+      for (let i = 0; i < upserts.length; i += 1000) {
+        const chunk = upserts.slice(i, i + 1000);
+        const { error: upsertError } = await serviceDb().from("holdings").upsert(chunk, { onConflict: "id" });
+        if (upsertError) throw new Error(upsertError.message);
+      }
+      for (const u of upserts) results.push({ ticker: u.ticker, ok: true });
+      if (changeRows.length > 0) await saveChange24h(chainId, changeRows);
+    } catch (e) {
+      for (const u of upserts) results.push({ ticker: u.ticker, ok: false, error: (e as Error).message });
+    }
+  }
+
+  return results;
+}
