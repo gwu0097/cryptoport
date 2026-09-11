@@ -2,58 +2,38 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createStore, type EIP6963ProviderDetail } from "mipd";
+import type { EIP1193Provider, Hex } from "viem";
 import { requestWalletSignIn, completeWalletSignIn } from "@/app/(auth)/walletActions";
 import { requestWalletLink, completeWalletLink } from "@/app/(app)/settings/walletActions";
 import { Button } from "@/components/ui/Button";
 import type { WalletChain } from "@/lib/walletAuth";
 
 // This project's first browser-wallet integration — no wagmi/ethers/
-// RainbowKit dependency, just the raw EIP-1193 (window.ethereum), EIP-6963
-// (multi-wallet discovery), and Phantom-style (window.solana) provider
-// APIs, which is all a sign-message flow needs. Only a type import from
-// walletAuth.ts (erased at build time) — the module's actual code (viem,
-// @noble/curves) stays server-only and out of this client bundle.
-// truncate() below duplicates walletAuth.ts's truncateAddress rather than
-// importing it, for the same reason.
-interface EthereumProvider {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-}
+// RainbowKit dependency, just mipd (the standard EIP-6963 "Multi Injected
+// Provider Discovery" store — see https://eips.ethereum.org/EIPS/eip-6963,
+// the fix for every EVM wallet extension fighting over the single
+// window.ethereum slot) plus the raw EIP-1193 and Phantom-style
+// (window.solana) provider APIs for the actual connect/sign calls, which is
+// all a sign-message flow needs. Only a type import from walletAuth.ts
+// (erased at build time) — the module's actual code (viem, @noble/curves)
+// stays server-only and out of this client bundle.
 interface SolanaProvider {
   connect: () => Promise<{ publicKey: { toString(): string } }>;
   signMessage: (message: Uint8Array, display?: "utf8" | "hex") => Promise<{ signature: Uint8Array }>;
 }
 declare global {
   interface Window {
-    ethereum?: EthereumProvider;
+    ethereum?: EIP1193Provider;
     solana?: SolanaProvider;
   }
-}
-
-// EIP-6963 ("Multi Injected Provider Discovery") — the standard fix for the
-// single-slot window.ethereum problem: every EVM wallet extension fights
-// over that one global, so only whichever one "wins" it is ever reachable.
-// A 6963-aware wallet instead announces itself via a CustomEvent, letting a
-// page discover every installed wallet and offer a real choice rather than
-// being at the mercy of browser extension load order. A page asks for
-// announcements by dispatching "eip6963:requestProvider"; a wallet extension
-// announces via "eip6963:announceProvider" (both on load, and again on
-// request) with a stable per-session uuid, a display name, and an icon.
-interface Eip6963ProviderInfo {
-  uuid: string;
-  name: string;
-  icon: string;
-  rdns: string;
-}
-interface Eip6963ProviderDetail {
-  info: Eip6963ProviderInfo;
-  provider: EthereumProvider;
 }
 
 function truncate(address: string): string {
   return address.length > 12 ? `${address.slice(0, 5)}…${address.slice(-5)}` : address;
 }
 
-function bytesToHex(bytes: Uint8Array): string {
+function bytesToHex(bytes: Uint8Array): Hex {
   return `0x${Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")}`;
@@ -61,9 +41,20 @@ function bytesToHex(bytes: Uint8Array): string {
 
 // Some wallets reject a raw UTF-8 string passed to personal_sign — hex is
 // the safe wire format both directions in this component.
-function messageToHex(message: string): string {
+function messageToHex(message: string): Hex {
   return bytesToHex(new TextEncoder().encode(message));
 }
+
+// EIP-6963 announcing a provider means it claims EIP-1193/EVM compatibility
+// — that's the whole point of the standard, so the picker itself doesn't
+// second-guess a wallet's name or icon (a multi-chain wallet whose primary
+// brand is e.g. Tron or Cosmos can still legitimately sign for Ethereum
+// too). What it can't guarantee is that the address it actually returns is
+// well-formed — this is the "any wallet can log in, as long as the address
+// fits the right chain" check, applied at connect time instead of the
+// picker filtering wallets out by guesswork.
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 function walletErrorMessage(e: unknown): string {
   // EIP-1193's standard "user rejected the request" code.
@@ -73,33 +64,60 @@ function walletErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong connecting the wallet.";
 }
 
+// Remembers which wallet was used last (by EIP-6963 rdns — the uuid mipd
+// assigns is per-session/per-tab and can't be compared across visits) so
+// the picker can put it first, the same "last used at the top" UX every
+// major wallet-connect picker (RainbowKit, Web3Modal, ...) already has.
+// Solana has only ever one button, so it's just a kind flag with no id.
+const LAST_WALLET_KEY = "cryptoport:lastWallet";
+type LastWallet = { kind: "evm"; rdns: string } | { kind: "solana" };
+
+function readLastWallet(): LastWallet | null {
+  try {
+    const raw = localStorage.getItem(LAST_WALLET_KEY);
+    return raw ? (JSON.parse(raw) as LastWallet) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastWallet(wallet: LastWallet): void {
+  try {
+    localStorage.setItem(LAST_WALLET_KEY, JSON.stringify(wallet));
+  } catch {
+    // best-effort — nothing to fall back to, ordering just stays default
+  }
+}
+
 export interface PinnedWalletTarget {
   chain: WalletChain;
   address: string;
 }
 
 /**
- * One button per installed EVM wallet (via EIP-6963 discovery) plus one for
- * Solana, rather than a single "Ethereum wallet" button hostage to whichever
- * extension happens to hold window.ethereum — that's what made this always
- * seem to mean "Rabby specifically" before. A wallet that hasn't adopted
- * EIP-6963 yet still works via a generic "Ethereum wallet" fallback button
- * using window.ethereum directly, shown only when no 6963 wallet announced
- * itself at all (a page never sees BOTH for the same wallet, since a 6963
- * wallet still also sets window.ethereum).
+ * One button per installed EVM wallet (via mipd's EIP-6963 store) plus one
+ * for Solana, rather than a single "Ethereum wallet" button hostage to
+ * whichever extension happens to hold window.ethereum — that's what made
+ * this always seem to mean "Rabby specifically" before. A wallet that
+ * hasn't adopted EIP-6963 yet still works via a generic "Ethereum wallet"
+ * fallback button using window.ethereum directly, shown only when no 6963
+ * wallet announced itself at all (a page never sees BOTH for the same
+ * wallet, since a 6963 wallet still also sets window.ethereum). Whichever
+ * wallet last completed a sign-in/link successfully sorts first, tagged
+ * "Last used".
  *
  * `mode` decides which pair of Server Actions this talks to:
  * (auth)/walletActions.ts (sign in, possibly creating a new account) or
  * (app)/settings/walletActions.ts (link to the already signed-in account).
  *
  * `pinnedTarget` narrows a mode="link" button set to one already-known
- * address (the wallet detail page's "Link this wallet") — only that
- * chain's buttons render, and the account the extension returns is
- * compared against it *before* a challenge is even requested, so
- * connecting the wrong account fails fast with a clear message instead of
- * silently linking whatever's active. This check is a UX convenience only,
- * not the security boundary — the server independently verifies the
- * signature against whatever address the client claims either way.
+ * address (the wallet detail page's "Verify" popup) — only that chain's
+ * buttons render, and the account the extension returns is compared
+ * against it *before* a challenge is even requested, so connecting the
+ * wrong account fails fast with a clear message instead of silently
+ * linking whatever's active. This check is a UX convenience only, not the
+ * security boundary — the server independently verifies the signature
+ * against whatever address the client claims either way.
  *
  * `onLinked` lets a caller react to a successful link beyond the default
  * router.refresh() (wallets/new redirects to the new wallet's page instead,
@@ -122,37 +140,37 @@ export function WalletButton({
   // disable, rather than one shared per-chain flag that can't distinguish
   // which of several EVM wallets was actually clicked.
   const [pending, setPending] = useState<string | null>(null);
-  const [evmProviders, setEvmProviders] = useState<Eip6963ProviderDetail[]>([]);
+  const [evmProviders, setEvmProviders] = useState<readonly EIP6963ProviderDetail[]>([]);
   // null until the post-mount discovery settles, so a fresh SSR paint shows
   // nothing instead of flashing "no wallet found" before extensions have
-  // had a chance to respond.
+  // had a chance to respond. mipd's store itself has no such "done loading"
+  // concept (an extension can announce at any time), so this stays a
+  // component-local settle timer around it.
   const [ready, setReady] = useState<{ legacyEth: boolean; sol: boolean } | null>(null);
+  const [lastWallet, setLastWallet] = useState<LastWallet | null>(null);
 
   useEffect(() => {
-    const found = new Map<string, Eip6963ProviderDetail>();
+    // Reads localStorage after mount (unavailable during server rendering)
+    // — synchronizing with an external system, not derivable state, same
+    // "not the anti-pattern this rule targets" reasoning as WalletsTable's
+    // matching read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLastWallet(readLastWallet());
 
-    function onAnnounce(event: Event) {
-      const detail = (event as CustomEvent<Eip6963ProviderDetail>).detail;
-      if (!detail?.info?.uuid || !detail.provider) return;
-      found.set(detail.info.uuid, detail);
-      setEvmProviders([...found.values()]);
-    }
-
-    window.addEventListener("eip6963:announceProvider", onAnnounce);
-    // Asks every already-loaded 6963-aware extension to (re-)announce right
-    // now — needed because an extension's own on-load announcement can fire
-    // before this listener is attached.
-    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    const store = createStore();
+    const unsubscribe = store.subscribe((providers) => setEvmProviders(providers), { emitImmediately: true });
 
     // A brief settle window before treating "nothing announced yet" as
-    // "nothing installed" — real extensions respond to the request event
-    // near-instantly, this just avoids a one-frame flash of "not found".
+    // "nothing installed" — real extensions respond to mipd's own
+    // requestProvider dispatch near-instantly, this just avoids a
+    // one-frame flash of "not found".
     const settleTimer = setTimeout(() => {
       setReady({ legacyEth: !!window.ethereum, sol: !!window.solana });
     }, 150);
 
     return () => {
-      window.removeEventListener("eip6963:announceProvider", onAnnounce);
+      unsubscribe();
+      store.destroy();
       clearTimeout(settleTimer);
     };
   }, []);
@@ -198,15 +216,18 @@ export function WalletButton({
     }
   }
 
-  async function connectEthereum(provider: EthereumProvider, pendingKey: string) {
+  async function connectEthereum(provider: EIP1193Provider, pendingKey: string, rdns?: string) {
     setError(null);
     setPending(pendingKey);
     try {
-      const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
+      const accounts = await provider.request({ method: "eth_requestAccounts" });
       const address = accounts[0];
       if (!address) throw new Error("No account returned by the wallet.");
+      if (!EVM_ADDRESS_RE.test(address)) {
+        throw new Error("This wallet returned a non-Ethereum address — it may not support Ethereum.");
+      }
       checkPinnedMatch("ETH", address);
-      const chainIdHex = (await provider.request({ method: "eth_chainId" })) as string;
+      const chainIdHex = await provider.request({ method: "eth_chainId" });
       // A malformed/unexpected eth_chainId response (some wallet quirk)
       // shouldn't block signing in over a cosmetic SIWE field — parseInt
       // can yield NaN, which viem's createSiweMessage server-side rejects
@@ -216,12 +237,13 @@ export function WalletButton({
       const chainId = Number.isFinite(parsedChainId) ? parsedChainId : undefined;
 
       const message = await requestChallenge("ETH", address, chainId);
-      const signature = (await provider.request({
+      const signature = await provider.request({
         method: "personal_sign",
         params: [messageToHex(message), address],
-      })) as string;
+      });
 
       await completeChallenge(signature);
+      if (rdns) writeLastWallet({ kind: "evm", rdns });
     } catch (e) {
       setError(walletErrorMessage(e));
     } finally {
@@ -238,12 +260,16 @@ export function WalletButton({
 
       const { publicKey } = await provider.connect();
       const address = publicKey.toString();
+      if (!SOLANA_ADDRESS_RE.test(address)) {
+        throw new Error("This wallet returned an address that doesn't look like Solana.");
+      }
       checkPinnedMatch("SOL", address);
 
       const message = await requestChallenge("SOL", address);
       const { signature } = await provider.signMessage(new TextEncoder().encode(message), "utf8");
 
       await completeChallenge(bytesToHex(signature));
+      writeLastWallet({ kind: "solana" });
     } catch (e) {
       setError(walletErrorMessage(e));
     } finally {
@@ -261,6 +287,15 @@ export function WalletButton({
   const noEthFound = showEvm && evmProviders.length === 0 && ready && !ready.legacyEth;
   const noSolFound = showSol && ready && !ready.sol;
 
+  const sortedEvmProviders =
+    lastWallet?.kind === "evm"
+      ? [...evmProviders].sort((a, b) => {
+          if (a.info.rdns === lastWallet.rdns) return -1;
+          if (b.info.rdns === lastWallet.rdns) return 1;
+          return 0;
+        })
+      : evmProviders;
+
   return (
     <div className="flex flex-col gap-2">
       {error && (
@@ -271,18 +306,22 @@ export function WalletButton({
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {showEvm &&
-          evmProviders.map((detail) => (
+          sortedEvmProviders.map((detail) => (
             <Button
               key={detail.info.uuid}
               type="button"
               variant="secondary"
               className="flex-1 items-center gap-2"
               disabled={pending !== null}
-              onClick={() => connectEthereum(detail.provider, detail.info.uuid)}
+              onClick={() => connectEthereum(detail.provider, detail.info.uuid, detail.info.rdns)}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- a wallet-supplied data: URI, not an optimizable asset */}
               <img src={detail.info.icon} alt="" className="size-4 shrink-0" aria-hidden="true" />
-              {pending === detail.info.uuid ? "Confirm in wallet…" : detail.info.name}
+              {pending === detail.info.uuid
+                ? "Confirm in wallet…"
+                : lastWallet?.kind === "evm" && lastWallet.rdns === detail.info.rdns
+                  ? `${detail.info.name} · Last used`
+                  : detail.info.name}
             </Button>
           ))}
 

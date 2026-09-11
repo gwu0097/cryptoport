@@ -8,6 +8,7 @@ import {
   generateSyntheticEmail,
   isSyntheticEmail,
   normalizeAddress,
+  pinnedWalletChain,
   truncateAddress,
   verifyWalletSignature,
   walletDisplayName,
@@ -198,4 +199,19 @@ test("walletDisplayName truncates the linked address for a wallet-only account",
     walletDisplayName({ email, user_metadata: { wallet_chain: "ETH" as WalletChain, wallet_address: address } }),
     truncateAddress(address),
   );
+});
+
+test("pinnedWalletChain maps every configured EVM chain id to ETH", () => {
+  for (const chain of ["ETH", "RON", "SEI", "ARB", "eth", "ron"]) {
+    assert.equal(pinnedWalletChain(chain), "ETH");
+  }
+});
+
+test("pinnedWalletChain maps SOL to itself", () => {
+  assert.equal(pinnedWalletChain("SOL"), "SOL");
+});
+
+test("pinnedWalletChain returns null for a chain with no wallet-auth scheme", () => {
+  assert.equal(pinnedWalletChain("BTC"), null);
+  assert.equal(pinnedWalletChain("ADA"), null);
 });

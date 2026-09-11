@@ -9,9 +9,27 @@ import { createSiweMessage } from "viem/siwe";
 import { recoverMessageAddress, isAddress, hexToBytes, type Hex } from "viem";
 import { base58 } from "@scure/base";
 import { ed25519 } from "@noble/curves/ed25519";
+import { isEvmChainId } from "./adapters/evmChains.ts";
 
 export type WalletChain = "ETH" | "SOL";
 export type ChallengePurpose = "signin" | "link";
+
+/**
+ * Which wallet-auth chain (if any) a tracked wallet's own `chain` label maps
+ * to — every EVM chain this app tracks (RON, SEI, ARB, ... all resolve to
+ * 'ETH', one secp256k1 signature covers all of them) and 'SOL' maps to
+ * itself; everything else (BTC, ADA, ...) has no wallet-auth signature
+ * scheme implemented, so there's nothing to verify/link. Shared by the
+ * wallet detail page and the wallets list table so "does this wallet get a
+ * Verify affordance at all" is answered identically in both places — see
+ * evmChains.ts's isEvmChainId for why this file can safely import it (no
+ * server-only marker on either side).
+ */
+export function pinnedWalletChain(chain: string): WalletChain | null {
+  if (isEvmChainId(chain)) return "ETH";
+  if (chain === "SOL") return "SOL";
+  return null;
+}
 
 /**
  * An RFC 2606 reserved TLD, so this can never resolve to a real mailbox.

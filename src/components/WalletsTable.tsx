@@ -10,6 +10,8 @@ import { buttonClass } from "./ui/Button";
 import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { EditWalletModal } from "./EditWalletModal";
+import { VerifyWalletModal } from "./VerifyWalletModal";
+import { VerifiedBadge } from "./VerifiedBadge";
 import { AutoRefreshWhileSyncing } from "./AutoRefreshWhileSyncing";
 import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
@@ -145,9 +147,28 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
               </Link>
             </td>
             <td className={tdClass}>
-              <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                {wallet.chain}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                  {wallet.chain}
+                </span>
+                {wallet.pinnedChain && wallet.address ? (
+                  wallet.verified ? (
+                    <VerifiedBadge variant="icon" />
+                  ) : (
+                    <VerifyWalletModal
+                      variant="icon"
+                      pinnedTarget={{ chain: wallet.pinnedChain, address: wallet.address }}
+                    />
+                  )
+                ) : (
+                  // Same-height placeholder as the actions column's own
+                  // invisible sync button below — without it, a chain with
+                  // no wallet-auth scheme (BTC, ADA, ...) rendered a
+                  // shorter row than one with the icon-sized Verify/Verified
+                  // affordance next to it.
+                  <span className="size-7 shrink-0" aria-hidden="true" />
+                )}
+              </div>
             </td>
             <td className={tdClass}>
               {wallet.tag ? (

@@ -11,6 +11,7 @@ import {
 } from "./valuation";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
+import { pinnedWalletChain, type WalletChain } from "./walletAuth";
 import type { Holding, LinkedWallet, Price, Tag, Wallet, WalletWithTag } from "./types";
 
 export interface PriceRefreshState {
@@ -122,6 +123,22 @@ function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "ticker"
 export interface WalletWithTotal extends WalletWithTag {
   total: number;
   unpricedCount: number;
+  /** Whether this wallet's (chain, address) has been verified (see
+   * linked_wallets) by the signed-in user — same check as the wallet detail
+   * page's isWalletLinked, computed once here against a single
+   * getLinkedWallets() call instead of one query per row. */
+  verified: boolean;
+  /** Computed here (server-side, via walletAuth.ts's pinnedWalletChain)
+   * rather than in WalletsTable.tsx itself — that file is a client
+   * component, and walletAuth.ts pulls in viem/siwe, @noble/curves, and
+   * @scure/base for its signature-verification code; every other client
+   * reference to that module is a type-only import specifically to keep
+   * that code server-only (see WalletButton.tsx's own doc comment), so a
+   * plain value import from a client component would be a real regression
+   * even if it happens to tree-shake away today. null means this chain has
+   * no wallet-auth signature scheme at all (BTC, ADA, ...) — never show a
+   * Verify affordance for it. */
+  pinnedChain: WalletChain | null;
 }
 
 export interface WalletListResult {
@@ -133,23 +150,36 @@ export interface WalletListResult {
 export async function getWalletsWithTotals(): Promise<WalletListResult> {
   if (!(await getUser())) return { wallets: [], grand: aggregate([], {}) };
   const db = await userDb();
-  const [{ data: wallets, error: walletsError }, prices] = await Promise.all([
+  const [{ data: wallets, error: walletsError }, prices, linkedWallets] = await Promise.all([
     db
       .from("wallets")
       .select("*, holdings(*), tag:tags(id,name)")
       .eq("active", true)
       .order("created_at", { ascending: true }),
     getPriceMap(),
+    getLinkedWallets(),
   ]);
   if (walletsError) throw new Error(`Failed to load wallets: ${walletsError.message}`);
 
   type WalletRow = WalletWithTag & { holdings: Holding[] };
   const rows = wallets as WalletRow[];
 
+  // ETH is stored lowercased in linked_wallets (see normalizeAddress) but a
+  // tracked wallet's own address is whatever the user typed — lowercase
+  // both sides of the key for ETH, keep SOL's case-sensitive base58 as-is.
+  const linkedKeys = new Set(
+    linkedWallets.map((l) => `${l.chain}:${l.chain === "ETH" ? l.address.toLowerCase() : l.address}`),
+  );
+
   const walletsWithTotals = rows.map((wallet) => {
     const { holdings, ...rest } = wallet;
     const { total, unpricedCount } = aggregate(holdings, prices);
-    return { ...rest, total, unpricedCount };
+    const pinnedChain = wallet.address ? pinnedWalletChain(wallet.chain) : null;
+    const verified =
+      !!pinnedChain &&
+      !!wallet.address &&
+      linkedKeys.has(`${pinnedChain}:${pinnedChain === "ETH" ? wallet.address.toLowerCase() : wallet.address}`);
+    return { ...rest, total, unpricedCount, verified, pinnedChain };
   });
 
   const allHoldings = rows.flatMap((wallet) => wallet.holdings);

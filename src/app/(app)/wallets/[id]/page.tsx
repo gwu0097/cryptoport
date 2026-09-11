@@ -5,8 +5,7 @@ import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked, type Ho
 import { getUser } from "@/lib/auth";
 import { formatStaleness, formatUsd, formatQty, formatTicker, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
-import { isEvmChainId } from "@/lib/adapters/evmChains";
-import type { WalletChain } from "@/lib/walletAuth";
+import { pinnedWalletChain } from "@/lib/walletAuth";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
@@ -20,6 +19,7 @@ import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 import {
   addHolding,
   deleteHolding,
@@ -115,7 +115,7 @@ export default async function WalletDetailPage(
   // folded into its own Promise.all above — it depends on the wallet's own
   // chain/address, which aren't known until that query returns; a single
   // indexed lookup isn't worth restructuring queries.ts to avoid.
-  const pinnedChain: WalletChain | null = isEvmChainId(wallet.chain) ? "ETH" : wallet.chain === "SOL" ? "SOL" : null;
+  const pinnedChain = pinnedWalletChain(wallet.chain);
   const alreadyLinked =
     pinnedChain && wallet.address ? await isWalletLinked(pinnedChain, wallet.address) : false;
 
@@ -148,14 +148,11 @@ export default async function WalletDetailPage(
               tagNames={tagNames}
               updateWallet={updateWallet.bind(null, wallet.id)}
             />
-            {pinnedChain && wallet.address && alreadyLinked && (
-              <span className="text-xs text-positive" title="You can sign in with this wallet.">
-                ✓ Linked
-              </span>
-            )}
-            {pinnedChain && wallet.address && !alreadyLinked && (
+            {pinnedChain && wallet.address && (alreadyLinked ? (
+              <VerifiedBadge />
+            ) : (
               <VerifyWalletModal pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
-            )}
+            ))}
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
             <span>{wallet.chain}</span>

@@ -7,7 +7,7 @@ import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, inputClass } from "@/components/ui/Field";
 import { ChainModeFields } from "@/components/ChainModeFields";
-import { ConnectAndLinkWallet } from "@/components/auth/ConnectAndLinkWallet";
+import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
 import { SignInPrompt } from "@/components/SignInPrompt";
 
 // Reads the live tags list — must never be frozen into a static build
@@ -63,10 +63,7 @@ export default async function NewWalletPage() {
             <div className="h-px flex-1 bg-border" />
           </div>
 
-          <p className="mb-2 text-xs text-fg-muted">
-            Connect a wallet to verify you own it and add it in one step — you can rename it afterwards.
-          </p>
-          <ConnectAndLinkWallet />
+          <ConnectWalletModal />
         </Panel>
       )}
     </>
