@@ -5,6 +5,7 @@ import { fetchKaminoPositions } from "./kaminoPositions";
 import { fetchWormholeStaking } from "./wormholeStaking";
 import { fetchMeteoraPositions } from "./meteoraPositions";
 import { fetchParclPositions } from "./parclPositions";
+import { fetchJupiterDaoStaking } from "./jupiterDaoStaking";
 
 export interface SolPositionsResult {
   holdings: AdapterHolding[];
@@ -28,6 +29,10 @@ const SOURCES: { name: string; fetch: (address: string) => Promise<SolPositionsR
   },
   { name: "meteora", fetch: fetchMeteoraPositions },
   { name: "parcl", fetch: fetchParclPositions },
+  {
+    name: "jupiter dao",
+    fetch: (address) => fetchJupiterDaoStaking(address).then((holdings) => ({ holdings, warnings: [] })),
+  },
 ];
 
 export async function fetchSolDefiPositions(address: string): Promise<SolPositionsResult> {

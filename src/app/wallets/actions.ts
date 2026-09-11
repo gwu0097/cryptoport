@@ -290,7 +290,7 @@ export async function deleteHolding(holdingId: string, walletId: string) {
 // aren't captured. Recorded in the wallet's notes rather than silently
 // under-reporting with no explanation.
 const SOL_SYNC_NOTE =
-  "Auto-synced token balances + DeFi positions from Jupiter (Earn, Limit Order, Perps), Kamino (lending, multiply, leverage, earn, liquidity, staking), Wormhole (staked W), Meteora (open DLMM positions), and Parcl (margin) — other protocols are not yet captured by this sync.";
+  "Auto-synced token balances + DeFi positions from Jupiter (Earn, Limit Order, Perps, DAO staking), Kamino (lending, multiply, leverage, earn, liquidity, staking), Wormhole (staked W), Meteora (open DLMM positions), and Parcl (margin) — other protocols are not yet captured by this sync.";
 
 interface AdapterFetchResult {
   holdings: AdapterHolding[];
