@@ -17,8 +17,9 @@ import { fetchFilecoinHoldings } from "@/lib/adapters/filecoin";
 import { fetchBitcoinCashHoldings } from "@/lib/adapters/bitcoincash";
 import { fetchSubstrateHoldings } from "@/lib/adapters/substrate";
 import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
+import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
-import type { Chain, WalletMode } from "@/lib/types";
+import type { WalletMode } from "@/lib/types";
 
 // The EVM sync (evm.ts -> multicallEvm.ts) reads on-chain balances only for
 // tokens already in cryptoport.token_registry — this is what populates it,
@@ -69,15 +70,20 @@ export async function refreshPricesForWalletAction(walletId: string) {
   revalidatePath(`/wallets/${walletId}`);
 }
 
-// The only chains with an actual adapter — a wallet's `chain` field itself
-// isn't restricted to these (see Wallet.chain in types.ts): auto mode is,
-// checked both here (isAutoCapableChain, used by createWallet/updateWallet
-// and again defensively in syncWalletHoldings) and client-side in
-// ChainModeFields (which disables the "auto" option for anything else, so
-// this server check is belt-and-suspenders rather than the only guard).
-const AUTO_CAPABLE_CHAINS: readonly Chain[] = [
+// The non-EVM chains with an actual adapter — a wallet's `chain` field
+// itself isn't restricted to these (see Wallet.chain in types.ts): auto
+// mode is, checked both here (isAutoCapableChain, used by
+// createWallet/updateWallet and again defensively in syncWalletHoldings)
+// and client-side in ChainModeFields (which disables the "auto" option
+// for anything else, so this server check is belt-and-suspenders rather
+// than the only guard). EVM chains aren't listed here — any of the 31
+// chains in evmChains.ts is auto-capable, checked dynamically via
+// isEvmChainId, since a wallet's EVM-format address is scanned across
+// every configured EVM chain regardless of which one it's labeled with
+// (e.g. a Ronin-focused wallet can say "RON" instead of the generic
+// "ETH" and still auto-sync exactly the same way).
+const AUTO_CAPABLE_CHAINS = [
   "BTC",
-  "ETH",
   "SOL",
   "ADA",
   "ATOM",
@@ -88,12 +94,12 @@ const AUTO_CAPABLE_CHAINS: readonly Chain[] = [
   "BCH",
   "DOT",
   "TAO",
-];
+] as const;
 const MODES: readonly WalletMode[] = ["manual", "auto"];
 const HOLDING_KINDS = ["qty", "usd"] as const;
 
-function isAutoCapableChain(chain: string): chain is Chain {
-  return (AUTO_CAPABLE_CHAINS as readonly string[]).includes(chain);
+function isAutoCapableChain(chain: string): boolean {
+  return (AUTO_CAPABLE_CHAINS as readonly string[]).includes(chain) || isEvmChainId(chain);
 }
 
 function requireString(formData: FormData, field: string): string {
@@ -149,7 +155,7 @@ function requireChainAndMode(formData: FormData): { chain: string; mode: WalletM
   const mode = requireOneOf(formData, "mode", MODES);
   if (mode === "auto" && !isAutoCapableChain(chain)) {
     throw new Error(
-      `Auto mode isn't available for "${chain}" — only ${AUTO_CAPABLE_CHAINS.join(", ")} have a sync adapter. Use manual mode instead.`,
+      `Auto mode isn't available for "${chain}" — only ${AUTO_CAPABLE_CHAINS.join(", ")}, or any EVM chain (ETH, RON, SEI, ARB, ...), have a sync adapter. Use manual mode instead.`,
     );
   }
   return { chain, mode };
@@ -283,11 +289,17 @@ interface AdapterFetchResult {
 // BTC isn't dispatched through here — see syncWalletHoldings, which calls
 // fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached
 // script type through and get the detected one back.
-async function fetchAdapterHoldings(
-  chain: "ETH" | "SOL" | "ATOM" | "INJ" | "NEAR" | "SUI" | "FIL" | "BCH" | "DOT" | "TAO",
-  address: string,
-): Promise<AdapterFetchResult> {
-  if (chain === "ETH") return fetchEvmHoldings(address);
+async function fetchAdapterHoldings(chain: string, address: string): Promise<AdapterFetchResult> {
+  // Sei is the one chain with two entirely different address formats
+  // pointing at two different balances (see cosmos.ts's "SEI" entry) — a
+  // bech32 sei1... address can only ever mean the Cosmos-native side,
+  // checked before the generic EVM check below (which would otherwise
+  // also claim "SEI" — evmChains.ts has its own "sei" entry for the EVM
+  // side of the same chain).
+  if (chain === "SEI" && address.startsWith("sei1")) {
+    return { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] };
+  }
+  if (isEvmChainId(chain)) return fetchEvmHoldings(address);
   if (chain === "SOL") return { holdings: await fetchJupiterHoldings(address), warnings: [] };
   if (chain === "NEAR") return { holdings: await fetchNearHoldings(address), warnings: [] };
   if (chain === "SUI") return { holdings: await fetchSuiHoldings(address), warnings: [] };
@@ -296,7 +308,10 @@ async function fetchAdapterHoldings(
   if (chain === "DOT" || chain === "TAO") {
     return { holdings: await fetchSubstrateHoldings(chain, address), warnings: [] };
   }
-  return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
+  if (chain === "ATOM" || chain === "INJ") {
+    return { holdings: await fetchCosmosHoldings(chain, address), warnings: [] };
+  }
+  throw new Error(`No sync adapter for chain "${chain}".`);
 }
 
 // Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
@@ -338,8 +353,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
   if (!wallet.address) throw new Error("This wallet has no address set.");
   // Belt-and-suspenders — requireChainAndMode already prevents saving an
   // auto wallet with a non-adapter chain, so this should be unreachable for
-  // any wallet actually created/edited through this app. Also narrows
-  // wallet.chain to Chain for the dispatch below.
+  // any wallet actually created/edited through this app.
   if (!isAutoCapableChain(wallet.chain)) {
     throw new Error(`Auto mode isn't available for chain "${wallet.chain}".`);
   }

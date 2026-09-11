@@ -40,6 +40,11 @@ export function detectChain(address: string): Chain | null {
   if (isCardanoAddress(address)) return "ADA";
   if (isCosmosAddress("ATOM", address)) return "ATOM";
   if (isCosmosAddress("INJ", address)) return "INJ";
+  // Sei's Cosmos-native side (sei1...) — a bech32 address here is never
+  // ambiguous with the EVM 0x... side (already caught above), unlike
+  // fetchAdapterHoldings in wallets/actions.ts, which has to disambiguate
+  // by address format because both share the wallet.chain value "SEI".
+  if (isCosmosAddress("SEI", address)) return "SEI";
   if (isSuiAddress(address)) return "SUI";
   if (isFilecoinAddress(address)) return "FIL";
   if (isBitcoinCashAddress(address)) return "BCH";
@@ -92,7 +97,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const chain = detectChain(address);
   if (!chain) {
     throw new Error(
-      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, NEAR, SUI, FIL, BCH, or DOT address.",
+      "That doesn't look like a valid ETH, SOL, BTC, ADA, ATOM, INJ, SEI, NEAR, SUI, FIL, BCH, or DOT address.",
     );
   }
 
@@ -103,7 +108,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
         ? fetchJupiterHoldings(address)
         : chain === "ADA"
           ? fetchCardanoHoldings(address)
-          : chain === "ATOM" || chain === "INJ"
+          : chain === "ATOM" || chain === "INJ" || chain === "SEI"
             ? fetchCosmosHoldings(chain, address)
             : chain === "NEAR"
               ? fetchNearHoldings(address)

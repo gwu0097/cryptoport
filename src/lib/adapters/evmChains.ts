@@ -1,4 +1,9 @@
-import "server-only";
+// No "server-only" guard here (unlike the other adapters) — this file is
+// also imported by ChainModeFields.tsx (a client component) so the "is
+// this a valid EVM chain label" check can recognize every configured
+// chain, not just a hand-copied subset. Nothing in here is sensitive (RPC
+// URLs and CoinGecko platform ids are all public), so shipping it to the
+// client bundle is fine.
 
 /**
  * EVM chains this app can read on-chain balances for, via Multicall3 on a
@@ -327,3 +332,15 @@ export const EVM_CHAINS: EvmChain[] = [
 ];
 
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
+
+const EVM_CHAIN_IDS_UPPER = new Set(EVM_CHAINS.map((c) => c.id.toUpperCase()));
+
+/** Whether `chain` (a wallet's own `chain` field, e.g. "ETH", "RON",
+ * "SEI") names one of the EVM chains above — every one of them is reached
+ * by scanning the SAME EVM address across all 31 chains (see evm.ts), so a
+ * wallet's `chain` value here is purely a display label ("this address is
+ * primarily a Ronin wallet"), not a restriction on which chains actually
+ * get scanned. */
+export function isEvmChainId(chain: string): boolean {
+  return EVM_CHAIN_IDS_UPPER.has(chain.toUpperCase());
+}

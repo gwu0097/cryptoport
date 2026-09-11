@@ -59,6 +59,25 @@ export const COSMOS_CHAINS: CosmosChainConfig[] = [
     nativeSymbol: "INJ",
     chainSlug: "injective",
   },
+  // Sei is unusual: it's a Cosmos SDK chain with a full EVM execution
+  // layer bolted on, so the SAME wallet.chain value ("SEI") is genuinely
+  // ambiguous between two entirely different address formats/adapters —
+  // an EVM 0x... address (already covered by evmChains.ts's "sei" entry,
+  // scanned the same way as any other EVM chain) and this Cosmos-native
+  // sei1... address, which is a separate balance the EVM side can't see.
+  // Resolved by address format, not by a different chain label — see the
+  // "SEI" dispatch in wallets/actions.ts's fetchAdapterHoldings.
+  {
+    id: "SEI",
+    name: "Sei",
+    bech32Prefix: "sei",
+    lcd: "https://sei-rest.publicnode.com",
+    denom: "usei",
+    decimals: 6,
+    nativeCoingeckoId: "sei-network",
+    nativeSymbol: "SEI",
+    chainSlug: "sei",
+  },
 ];
 
 export function cosmosChainFor(chainId: string): CosmosChainConfig | undefined {

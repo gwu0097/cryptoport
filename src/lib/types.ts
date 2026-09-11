@@ -6,7 +6,13 @@
 
 /** Chains an auto-sync adapter actually exists for. A wallet's own `chain`
  * field is NOT restricted to this — see Wallet.chain below — this is
- * narrower on purpose, for adapter dispatch. */
+ * narrower on purpose, mainly for lookup.ts's address-detection return
+ * type. Any EVM chain beyond "ETH" (RON, ARB, ...) isn't listed here
+ * (fetchAdapterHoldings in wallets/actions.ts dispatches those by a plain
+ * runtime check against evmChains.ts instead, not this union) — "ETH"
+ * already covers detection for any 0x address, since which of the 31 EVM
+ * chains it actually holds anything on can only be known by scanning, not
+ * guessed from the address alone. */
 export type Chain =
   | "BTC"
   | "ETH"
@@ -19,7 +25,8 @@ export type Chain =
   | "FIL"
   | "BCH"
   | "DOT"
-  | "TAO";
+  | "TAO"
+  | "SEI";
 export type WalletMode = "manual" | "auto";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
 export type HoldingCategory = "token" | "defi";
