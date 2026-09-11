@@ -69,3 +69,20 @@ test("resolveCoingeckoKey returns null for an unrecognized ticker on a chain wit
     null,
   );
 });
+
+// Regression: a contract-less Solana token that isn't SOL itself (a
+// reward/LP token an adapter never resolved a mint address for) must never
+// fall back to being priced as SOL — this exact bug inflated one wallet's
+// value by orders of magnitude by pricing a fraction-of-a-cent token at
+// SOL's ~$100+ price.
+test("resolveCoingeckoKey returns null for a non-native token with no contract, even on a chain with a native coingecko id", () => {
+  assert.equal(resolveCoingeckoKey({ ticker: "HM", source: "auto", contract: null, chain: "solana" }), null);
+});
+
+test("resolveCoingeckoKey still resolves SOL itself (no contract) to the solana coin id", () => {
+  assert.equal(resolveCoingeckoKey({ ticker: "SOL", source: "auto", contract: null, chain: "solana" }), "solana");
+});
+
+test("resolveCoingeckoKey returns null for a non-native token with no contract on bitcoin", () => {
+  assert.equal(resolveCoingeckoKey({ ticker: "ORDI", source: "auto", contract: null, chain: "bitcoin" }), null);
+});
