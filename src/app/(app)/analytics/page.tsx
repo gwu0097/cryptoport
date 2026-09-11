@@ -15,9 +15,9 @@ import { backfillHistoryAction } from "./actions";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Analytics · CryptoPort" };
 
-// backfillHistoryAction can fire dozens of concurrent CoinGecko calls the
-// first time it runs for an account — same reasoning as assets/page.tsx's
-// maxDuration for refreshPricesAction.
+// backfillHistoryAction returns almost immediately (see actions.ts), but
+// its after() callback — the actual CoinGecko fetching — still runs
+// against this same route's maxDuration budget.
 export const maxDuration = 300;
 
 function currentUsd(holding: Holding, prices: PriceMap): number {
@@ -54,7 +54,17 @@ function buildOption(
   };
 }
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  // Set by the sidebar's "Recent" analytics-wallet links (see
+  // navItems.tsx/RecentWalletsNav.tsx) — Analytics has no per-wallet
+  // route the way /wallets/[id] does (the wallet selection lives in
+  // PerformanceChart's own client state), so a deep link back to a
+  // specific wallet's chart has to go through a query param instead.
+  searchParams: Promise<{ wallet?: string }>;
+}) {
+  const { wallet: initialWalletId } = await searchParams;
   const user = await getUser();
   if (!user) {
     return (
@@ -92,27 +102,33 @@ export default async function AnalyticsPage() {
         title="Analytics"
         subtitle="How your holdings have performed over time"
         actions={
-          <form action={backfillHistoryAction}>
-            <SubmitButton variant="secondary" size="sm">
-              <RefreshCw className="size-3.5" aria-hidden="true" />
-              Backfill history
-            </SubmitButton>
-          </form>
+          <div className="flex flex-col items-end gap-1">
+            <form action={backfillHistoryAction}>
+              <SubmitButton variant="secondary" size="sm" pendingLabel="Starting…">
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                Backfill history
+              </SubmitButton>
+            </form>
+            <p className="max-w-48 text-right text-xs text-fg-muted">
+              Runs in the background — refresh in a bit to see it applied.
+            </p>
+          </div>
         }
       />
 
       <PerformanceChart
         options={options}
+        initialWalletId={initialWalletId}
         emptyStateAction={
           <form action={backfillHistoryAction}>
-            <SubmitButton variant="primary" size="sm">
+            <SubmitButton variant="primary" size="sm" pendingLabel="Starting…">
               Backfill history
             </SubmitButton>
           </form>
         }
         backfillNudge={
           <form action={backfillHistoryAction}>
-            <SubmitButton variant="secondary" size="sm">
+            <SubmitButton variant="secondary" size="sm" pendingLabel="Starting…">
               Backfill history
             </SubmitButton>
           </form>

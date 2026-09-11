@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { StitchedPoint } from "@/lib/analytics";
 import { formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
 import { scalePoints, linePath, areaPath } from "@/lib/chart";
+import { recordRecentWallet } from "@/lib/recentWallets";
 import { usePersistedState } from "../usePersistedState";
 import { Panel } from "../ui/Panel";
 import { Button } from "../ui/Button";
@@ -218,10 +219,16 @@ function WalletCombobox({
 
 export function PerformanceChart({
   options,
+  initialWalletId,
   emptyStateAction,
   backfillNudge,
 }: {
   options: WalletSeriesOption[];
+  /** From the page's own `?wallet=` search param — set by the sidebar's
+   * "Recent" analytics-wallet links, which have no client state to hand
+   * off directly (see navItems.tsx). Wins over whatever was persisted
+   * from a previous visit, and itself becomes the new persisted choice. */
+  initialWalletId?: string;
   /** Rendered instead of the chart when no wallet has any price-history
    * data cached yet — the "Backfill history" CTA, owned by the page since
    * it's a server action form. */
@@ -235,8 +242,30 @@ export function PerformanceChart({
   const [walletId, setWalletId] = usePersistedState(WALLET_STORAGE_KEY, "all");
   const [range, setRange] = usePersistedState<RangeKey>(RANGE_STORAGE_KEY, "90d");
 
+  useEffect(() => {
+    if (initialWalletId) setWalletId(initialWalletId);
+    // setWalletId is re-declared every render (usePersistedState's setter
+    // isn't memoized), but it only closes over setValue (stable, from
+    // useState) and the constant WALLET_STORAGE_KEY — so the stale
+    // reference this closure captures behaves identically to a fresh one,
+    // and omitting it from the deps is safe. Only initialWalletId should
+    // actually re-trigger this, e.g. clicking a different "Recent" wallet
+    // link while already on /analytics.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialWalletId]);
+
   const selected = options.find((o) => o.id === walletId) ?? options[0];
   const rangeDays = RANGES.find((r) => r.key === range)?.days ?? 90;
+
+  useEffect(() => {
+    // Records this as a recently-selected Analytics wallet — see
+    // recentWallets.ts, and CollapsibleNavItem's "analyticsWallets"
+    // namespace in the sidebar. "All wallets" isn't a specific wallet, so
+    // it's excluded (mirrors wallets/[id]/page.tsx's RecordRecentWallet,
+    // which only exists per-wallet in the first place).
+    if (selected.id === "all") return;
+    recordRecentWallet("analyticsWallets", { id: selected.id, name: selected.name });
+  }, [selected.id, selected.name]);
 
   const sliced = useMemo(() => sliceToRange(selected.points, rangeDays), [selected, rangeDays]);
 
@@ -247,7 +276,8 @@ export function PerformanceChart({
       <Panel title="Performance">
         <p className="text-sm text-fg-muted">
           No historical prices cached yet — fetch up to a year of history for your current holdings to see
-          how their value has moved over time.
+          how their value has moved over time. Runs in the background (a few minutes for a large portfolio) —
+          check back and refresh once it&rsquo;s done.
         </p>
         <div className="mt-3">{emptyStateAction}</div>
       </Panel>
@@ -283,7 +313,12 @@ export function PerformanceChart({
               } price history fetched yet.`}
           </p>
         )}
-        {selected.uncachedCount > 0 && <div>{backfillNudge}</div>}
+        {selected.uncachedCount > 0 && (
+          <div className="flex items-center gap-2">
+            {backfillNudge}
+            <span>runs in the background — refresh in a bit</span>
+          </div>
+        )}
         <p>
           Dashed portion is estimated from today&rsquo;s holdings at historical prices — it doesn&rsquo;t
           reflect past buys or sells. Solid portion is real, captured daily.

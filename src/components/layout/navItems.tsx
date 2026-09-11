@@ -12,7 +12,7 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
-import { WalletsNavItem } from "./RecentWalletsNav";
+import { CollapsibleNavItem } from "./RecentWalletsNav";
 
 // Shared between Sidebar.tsx (desktop, always visible) and MobileNav.tsx
 // (the phone-width drawer) so the two never drift out of sync — same list,
@@ -94,27 +94,52 @@ export function NavLink({
 /**
  * The full nav item list, shared verbatim by Sidebar.tsx and MobileNav.tsx
  * (see this file's own top comment on why the two must never diverge) —
- * renders the Wallets item via WalletsNavItem (same row, plus its own
- * recent-wallets disclosure chevron) instead of the plain NavLink every
- * other item gets. `onLinkClick` is only used by MobileNav, to close the
- * drawer on navigation (recent-wallet links included).
+ * renders Wallets and Analytics via CollapsibleNavItem (same row, plus a
+ * recent-wallets disclosure chevron each, in their own namespace — see
+ * recentWallets.ts) instead of the plain NavLink every other item gets.
+ * `onLinkClick` is only used by MobileNav, to close the drawer on
+ * navigation (recent-wallet links included).
  */
 export function NavItemsList({ pathname, onLinkClick }: { pathname: string; onLinkClick?: () => void }) {
   return (
     <>
-      {NAV_ITEMS.map((item) =>
-        item.href === "/wallets" ? (
-          <WalletsNavItem
-            key={item.href}
-            item={item}
-            active={isActive(pathname, item.href)}
-            pathname={pathname}
-            onLinkClick={onLinkClick}
-          />
-        ) : (
-          <NavLink key={item.href} {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />
-        ),
-      )}
+      {NAV_ITEMS.map((item) => {
+        if (item.href === "/wallets") {
+          return (
+            <CollapsibleNavItem
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item.href)}
+              pathname={pathname}
+              onLinkClick={onLinkClick}
+              namespace="wallets"
+              openStorageKey="cryptoport:recentWalletsOpen"
+              linkFor={(w) => `/wallets/${w.id}`}
+              isRecentActive={(w) => pathname === `/wallets/${w.id}`}
+            />
+          );
+        }
+        if (item.href === "/analytics") {
+          return (
+            <CollapsibleNavItem
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item.href)}
+              pathname={pathname}
+              onLinkClick={onLinkClick}
+              namespace="analyticsWallets"
+              openStorageKey="cryptoport:recentAnalyticsWalletsOpen"
+              linkFor={(w) => `/analytics?wallet=${w.id}`}
+              // Analytics' own wallet selection lives in PerformanceChart's
+              // client state, not observable from here — no honest way to
+              // tell which recent entry (if any) is "active" from the nav
+              // alone, so this never highlights one rather than guessing.
+              isRecentActive={() => false}
+            />
+          );
+        }
+        return <NavLink key={item.href} {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />;
+      })}
     </>
   );
 }

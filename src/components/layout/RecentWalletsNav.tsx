@@ -3,18 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { readRecentWallets, type RecentWallet } from "@/lib/recentWallets";
+import { readRecentWallets, RECENT_WALLETS_CHANGED_EVENT, type RecentWallet } from "@/lib/recentWallets";
 import { usePersistedState } from "../usePersistedState";
 import type { NavItemData } from "./navItems";
 
-const OPEN_STORAGE_KEY = "cryptoport:recentWalletsOpen";
-
 /**
- * The Wallets nav row itself — same look as a plain NavLink — plus, only
- * once there's at least one recently-viewed wallet to show, a chevron on
- * its trailing edge that expands up to 4 of them nested underneath. The
+ * A nav row (same look as a plain NavLink) plus, only once there's at
+ * least one recent entry in `namespace`'s list to show, a chevron on its
+ * trailing edge that expands up to 4 of them nested underneath. The
  * disclosure toggle lives on the row it discloses rather than a separate
- * "Recent wallets" label, matching a standard collapsible-tree sidebar.
+ * "Recent" label, matching a standard collapsible-tree sidebar. Used for
+ * both Wallets (recently-viewed wallet detail pages) and Analytics
+ * (recently-selected wallets in its performance-chart picker) — genuinely
+ * different histories, see recentWallets.ts's own note on why they're
+ * namespaced rather than shared.
  *
  * The chevron is a <button> that's a sibling of the <Link>, not nested
  * inside it — a <button> inside an <a> is invalid HTML (and would fire
@@ -22,37 +24,53 @@ const OPEN_STORAGE_KEY = "cryptoport:recentWalletsOpen";
  * expanded state remembered (usePersistedState) since there's no reason
  * to re-ask once someone's opened it.
  *
- * Recorded by RecordRecentWallet.tsx (mounted on wallets/[id]/page.tsx)
- * into localStorage. Re-reads on every `pathname` change rather than once
- * on mount: Sidebar/MobileNav (this component's only callers) stay
- * mounted across client-side navigations, so visiting a new wallet
- * updates localStorage without this component ever remounting — a
- * mount-only read would go stale after the first wallet visited.
+ * Re-reads `namespace`'s list on every `pathname` change (covers the
+ * common case, e.g. visiting a new /wallets/[id]) and also on a
+ * same-tab `RECENT_WALLETS_CHANGED_EVENT` (covers Analytics: selecting a
+ * wallet in PerformanceChart's combobox records a recent entry without
+ * any pathname or route change, since that selection lives in client
+ * state, not the URL — a pathname-only read would leave the sidebar
+ * showing nothing until the user happened to navigate elsewhere).
  */
-export function WalletsNavItem({
+export function CollapsibleNavItem({
   item,
   active,
   pathname,
   onLinkClick,
+  namespace,
+  openStorageKey,
+  linkFor,
+  isRecentActive,
 }: {
   item: NavItemData;
   active: boolean;
   pathname: string;
   onLinkClick?: () => void;
+  namespace: string;
+  openStorageKey: string;
+  linkFor: (recent: RecentWallet) => string;
+  /** Whether a given recent entry should render as the currently-active
+   * one — omit (pass () => false) when the target page's own selection
+   * lives in client state the nav can't see, rather than guess wrong. */
+  isRecentActive: (recent: RecentWallet) => boolean;
 }) {
   const Icon = item.icon;
-  const [wallets, setWallets] = useState<RecentWallet[]>([]);
-  const [open, setOpen] = usePersistedState(OPEN_STORAGE_KEY, false);
+  const [recent, setRecent] = useState<RecentWallet[]>([]);
+  const [open, setOpen] = usePersistedState(openStorageKey, false);
 
   useEffect(() => {
     // Synchronizing with an external system (localStorage), not deriving
     // state that could just be computed during render — same exception as
     // usePersistedState.ts's own identical read-on-effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setWallets(readRecentWallets());
-  }, [pathname]);
+    setRecent(readRecentWallets(namespace));
 
-  const hasRecent = wallets.length > 0;
+    const onChange = () => setRecent(readRecentWallets(namespace));
+    window.addEventListener(RECENT_WALLETS_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(RECENT_WALLETS_CHANGED_EVENT, onChange);
+  }, [namespace, pathname]);
+
+  const hasRecent = recent.length > 0;
 
   return (
     <div>
@@ -78,7 +96,7 @@ export function WalletsNavItem({
             type="button"
             onClick={() => setOpen(!open)}
             aria-expanded={open}
-            aria-label={open ? "Hide recent wallets" : "Show recent wallets"}
+            aria-label={open ? `Hide recent ${item.label.toLowerCase()}` : `Show recent ${item.label.toLowerCase()}`}
             className="mr-1 shrink-0 rounded-md p-1.5 text-fg-muted transition hover:bg-surface hover:text-fg"
           >
             <ChevronRight
@@ -90,13 +108,12 @@ export function WalletsNavItem({
       </div>
       {hasRecent && open && (
         <div className="ml-4 flex flex-col gap-0.5 border-l border-border py-1 pl-3">
-          {wallets.map((w) => {
-            const href = `/wallets/${w.id}`;
-            const walletActive = pathname === href;
+          {recent.map((w) => {
+            const walletActive = isRecentActive(w);
             return (
               <Link
                 key={w.id}
-                href={href}
+                href={linkFor(w)}
                 onClick={onLinkClick}
                 aria-current={walletActive ? "page" : undefined}
                 title={w.name}

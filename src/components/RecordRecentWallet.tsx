@@ -12,7 +12,7 @@ import { recordRecentWallet } from "@/lib/recentWallets";
  */
 export function RecordRecentWallet({ id, name }: { id: string; name: string }) {
   useEffect(() => {
-    recordRecentWallet({ id, name });
+    recordRecentWallet("wallets", { id, name });
   }, [id, name]);
 
   return null;

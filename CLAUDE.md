@@ -149,12 +149,29 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   action isn't near-instant, especially when the delay is for a
   non-obvious reason (an external API call, an on-chain scan).
 - Every route that fetches data on render should have a `loading.tsx` —
-  currently only `src/app/lookup/` has one; every other data page shows
-  nothing while its query resolves. Add one whenever a page's data fetch
-  isn't trivially fast.
+  `(app)/loading.tsx` covers every page under that group; add a
+  route-specific one only if a page's fetch is slow enough to want a
+  tailored skeleton instead of the shared one.
 - If an action genuinely takes a while, say why in the UI (a caption, not
   just a spinner) — "this pulls a live price for every holding" is more
   useful than silence.
+- **A Server Action that does more than a couple of seconds of real work
+  must return almost immediately and do that work inside `after()`
+  (from `next/server`), not by awaiting it directly.** Next dispatches
+  Server Actions and client-side route navigations through one shared
+  sequential queue per client — an awaited slow action doesn't just leave
+  its own button pending, it freezes every other click (including
+  sidebar/tab navigation) app-wide until it resolves. (Precedent:
+  `syncWalletHoldings` in `wallets/actions.ts` does this correctly —
+  flip a status flag, `revalidatePath`, return, then do the slow chain
+  calls inside `after()`. `backfillHistoryAction` in `analytics/actions.ts`
+  originally awaited `backfillPriceHistory()` directly, which froze
+  navigation app-wide while it ran and was reported as a CLAUDE.md
+  violation; fixed by moving to the same `after()` pattern.) `after()`
+  still shares the route's `maxDuration` budget and can call
+  `revalidatePath`. Known remaining offenders that have this same shape
+  and haven't been fixed yet: `refreshPricesAction`,
+  `refreshTokenRegistryAction`.
 
 ## UI conventions
 

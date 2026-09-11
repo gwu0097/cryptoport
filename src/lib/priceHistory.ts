@@ -1,7 +1,6 @@
 import "server-only";
 import { serviceDb, userDb } from "./supabase";
 import { fetchDailyHistory } from "./adapters/coingecko";
-import { sequentialWithSpacing } from "./adapters/http";
 import { resolveCoingeckoKey, type PriceKeyInput } from "./priceKey";
 import type { PriceHistoryMap } from "./analytics";
 
@@ -9,35 +8,42 @@ import type { PriceHistoryMap } from "./analytics";
 // burst of market_chart calls almost immediately (5 rapid calls, then 429
 // for over two minutes straight) — much tighter than the per-token
 // simple/token_price endpoint the rest of this app already calls
-// concurrently, so this deliberately does NOT reuse mapWithConcurrency's
-// concurrency=4 pattern. Sequential with real spacing between calls
-// instead (sequentialWithSpacing, built for exactly this — see http.ts).
+// concurrently, so this stays strictly sequential with real spacing
+// between calls rather than any concurrency.
 const SPACING_MS = 3000;
-
-// Caps one backfill click to a single maxDuration=300s window (40 keys *
-// 3s spacing = 120s; even if every one of those needed fetchWithRetry's
-// full 3-attempt backoff, that's still comfortably under budget).
-// Already-cached keys — including ones cached as "CoinGecko has no data
-// for this" (see below) — are skipped on the next call, so clicking
-// "Backfill history" again always makes forward progress, same "safe to
-// re-run" framing as refreshTokenRegistryAction.
-const MAX_KEYS_PER_RUN = 40;
 const BACKFILL_DAYS = 365;
 
+// Runs inside analytics/actions.ts's after() callback, sharing that
+// route's maxDuration=300s budget with everything else the request does.
+// Stops starting new fetches once this much time has elapsed rather than
+// capping at a fixed key count — a fixed count risked exceeding
+// maxDuration on its own (fetchWithRetry's backoff on a bad run pushes
+// real duration well past an optimistic per-key estimate), and the
+// platform force-killing the function mid-run would otherwise waste
+// whatever was already fetched. Each key's row is written the moment it's
+// fetched (not batched at the end) for exactly that reason: a kill after
+// key 30 of 40 still keeps those 30, and the next "Backfill history"
+// click picks up from key 31.
+const TIME_BUDGET_MS = 240_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Fills cryptoport.price_history for up to MAX_KEYS_PER_RUN distinct
- * CoinGecko keys among today's holdings that don't already have cached
- * history — an explicit, user-triggered action (see analytics/actions.ts),
- * not something that runs on every page load.
+ * Fills cryptoport.price_history for as many distinct CoinGecko keys
+ * among today's holdings as fit in TIME_BUDGET_MS — an explicit,
+ * user-triggered action (see analytics/actions.ts), not something that
+ * runs on every page load. Safe to click again: only still-uncached keys
+ * are considered each time.
  *
  * A key CoinGecko genuinely has no data for (fetchDailyHistory's 404 ->
  * `[]`) still gets a row written, with an empty series — that's a real,
  * permanent answer ("can't price this"), and caching it is what stops a
- * future backfill click from wasting one of its 40 slots re-asking
- * CoinGecko the same question forever. A key that failed for a *transient*
- * reason (rate-limited, network blip — anything fetchDailyHistory threw
- * on) gets no row at all, so it's still "uncached" and genuinely retried
- * next time, not permanently written off.
+ * future backfill run from wasting time re-asking CoinGecko the same
+ * question forever. A key that failed for a *transient* reason
+ * (rate-limited, network blip) gets no row at all, so it's still
+ * "uncached" and genuinely retried on the next click.
  */
 export async function backfillPriceHistory(
   holdings: PriceKeyInput[],
@@ -53,27 +59,33 @@ export async function backfillPriceHistory(
   const uncached = keys.filter((k) => !alreadyCached.has(k));
   if (uncached.length === 0) return { keysFetched: 0, keysFailed: 0, keysRemaining: 0 };
 
-  const toFetch = uncached.slice(0, MAX_KEYS_PER_RUN);
-  const keysRemaining = uncached.length - toFetch.length;
+  const startedAt = Date.now();
+  let keysFetched = 0;
+  let keysFailed = 0;
+  let processed = 0;
 
-  const results = await sequentialWithSpacing(toFetch, SPACING_MS, (key) => fetchDailyHistory(key, BACKFILL_DAYS));
+  for (const key of uncached) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) break;
+    if (processed > 0) await sleep(SPACING_MS);
+    processed++;
 
-  const rows = results
-    .filter((r) => r.result !== undefined)
-    .map((r) => ({
-      coingecko_key: r.item,
-      series: Object.fromEntries(r.result!.map((p) => [p.date, p.usd])),
-      fetched_at: new Date().toISOString(),
-    }));
-  const keysWithData = rows.filter((r) => Object.keys(r.series).length > 0).length;
-  const keysFailed = toFetch.length - keysWithData;
+    try {
+      const points = await fetchDailyHistory(key, BACKFILL_DAYS);
+      const series = Object.fromEntries(points.map((p) => [p.date, p.usd]));
+      const { error: upsertError } = await db
+        .from("price_history")
+        .upsert({ coingecko_key: key, series, fetched_at: new Date().toISOString() }, { onConflict: "coingecko_key" });
+      if (upsertError) throw new Error(`Failed to save price history for ${key}: ${upsertError.message}`);
 
-  if (rows.length > 0) {
-    const { error: upsertError } = await db.from("price_history").upsert(rows, { onConflict: "coingecko_key" });
-    if (upsertError) throw new Error(`Failed to save price history: ${upsertError.message}`);
+      if (points.length > 0) keysFetched++;
+      else keysFailed++; // genuine 404, permanently recorded above
+    } catch {
+      // transient failure — no row written, this key stays uncached
+      keysFailed++;
+    }
   }
 
-  return { keysFetched: keysWithData, keysFailed, keysRemaining };
+  return { keysFetched, keysFailed, keysRemaining: uncached.length - processed };
 }
 
 /** Reads cached history for a set of keys — one query (one row per key,
