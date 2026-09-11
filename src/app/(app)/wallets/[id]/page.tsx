@@ -19,7 +19,7 @@ import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
-import { WalletButton } from "@/components/auth/WalletButton";
+import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import {
   addHolding,
   deleteHolding,
@@ -148,6 +148,14 @@ export default async function WalletDetailPage(
               tagNames={tagNames}
               updateWallet={updateWallet.bind(null, wallet.id)}
             />
+            {pinnedChain && wallet.address && alreadyLinked && (
+              <span className="text-xs text-positive" title="You can sign in with this wallet.">
+                ✓ Linked
+              </span>
+            )}
+            {pinnedChain && wallet.address && !alreadyLinked && (
+              <VerifyWalletModal pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
+            )}
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
             <span>{wallet.chain}</span>
@@ -182,19 +190,6 @@ export default async function WalletDetailPage(
               </span>
             )}
           </p>
-
-          {pinnedChain && wallet.address && (
-            <div className="mt-2">
-              {alreadyLinked ? (
-                <p className="text-xs text-positive">✓ Linked — you can sign in with this wallet.</p>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  <p className="text-xs text-fg-muted">Verify you own this address to sign in with it directly.</p>
-                  <WalletButton mode="link" pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-2">
