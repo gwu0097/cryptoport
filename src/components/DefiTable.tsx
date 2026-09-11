@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import type { DefiProtocolGroup } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { TokenIcon } from "./TokenIcon";
 
 /**
@@ -47,7 +47,7 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                     <thead>
                       <tr className={theadRowClass}>
                         <th className={thClass}>Asset</th>
-                        <th className={thClass}>Qty</th>
+                        <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
                         <th className={thClass}>Value</th>
                         <th className={thClass}></th>
                       </tr>
@@ -61,7 +61,9 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                               {formatTicker(position.ticker)}
                             </div>
                           </td>
-                          <td className={`${tdClass} tabular-nums`}>{formatQty(position.qty)}</td>
+                          <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+                            {formatQty(position.qty)}
+                          </td>
                           <td className={`${tdClass} tabular-nums`}>
                             {position.valuation.kind === "priced" ? (
                               formatUsd(position.valuation.usd)

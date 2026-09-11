@@ -7,7 +7,7 @@ import type { AssetGroup } from "@/lib/queries";
 import { formatUsd, formatQty } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
-import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 
 type SortKey = "ticker" | "qty" | "wallets" | "value";
 
@@ -61,15 +61,17 @@ function Header({
   sortKey,
   sortDir,
   onSort,
+  className = "",
 }: {
   label: string;
   sortKeyValue: SortKey;
   sortKey: SortKey;
   sortDir: "asc" | "desc";
   onSort: (key: SortKey) => void;
+  className?: string;
 }) {
   return (
-    <th className={thClass}>
+    <th className={`${thClass} ${className}`}>
       <button type="button" onClick={() => onSort(sortKeyValue)} className="flex items-center gap-1 hover:text-fg">
         {label}
         <SortIcon active={sortKey === sortKeyValue} dir={sortDir} />
@@ -155,8 +157,22 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
             <tr className={theadRowClass}>
               <th className={thClass}></th>
               <Header label="Asset" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Header label="Qty" sortKeyValue="qty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Header label="Wallets" sortKeyValue="wallets" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Header
+                label="Qty"
+                sortKeyValue="qty"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className={hideOnMobileClass}
+              />
+              <Header
+                label="Wallets"
+                sortKeyValue="wallets"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className={hideOnMobileClass}
+              />
               <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -183,10 +199,10 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                         <span className="font-medium text-fg">{group.ticker}</span>
                       </div>
                     </td>
-                    <td className={`${tdClass} tabular-nums`}>
+                    <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
                       {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
                     </td>
-                    <td className={`${tdClass} text-fg-muted`}>{group.holdings.length}</td>
+                    <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>{group.holdings.length}</td>
                     <td className={`${tdClass} tabular-nums`}>{formatUsd(group.total)}</td>
                   </tr>
                   {isOpen && (
@@ -197,7 +213,7 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                             <tr className={theadRowClass}>
                               <th className={thClass}>Wallet</th>
                               <th className={thClass}>Chain</th>
-                              <th className={thClass}>Qty</th>
+                              <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
                               <th className={thClass}>Value</th>
                             </tr>
                           </thead>
@@ -221,7 +237,9 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                                     <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />
                                   )}
                                 </td>
-                                <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
+                                <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+                                  {formatQty(holding.qty)}
+                                </td>
                                 <td className={`${tdClass} tabular-nums`}>
                                   {holding.valuation.kind === "priced" ? (
                                     formatUsd(holding.valuation.usd)

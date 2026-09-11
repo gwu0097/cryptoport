@@ -10,7 +10,7 @@ import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { inputClass } from "@/components/ui/Field";
-import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { TokenIcon } from "@/components/TokenIcon";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
@@ -307,11 +307,11 @@ export default async function WalletDetailPage(
             <thead>
               <tr className={theadRowClass}>
                 <th className={thClass}>Ticker</th>
-                <th className={thClass}>Qty</th>
+                <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
                 <th className={thClass}>Price</th>
                 <th className={thClass}>Value</th>
-                <th className={thClass}>Source</th>
-                <th className={thClass}>Category</th>
+                <th className={`${thClass} ${hideOnMobileClass}`}>Source</th>
+                <th className={`${thClass} ${hideOnMobileClass}`}>Category</th>
                 <th className={thClass}></th>
               </tr>
             </thead>
@@ -331,19 +331,19 @@ export default async function WalletDetailPage(
                       {formatTicker(holding.ticker)}
                     </div>
                   </td>
-                  <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
+                  <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatQty(holding.qty)}</td>
                   <td className={`${tdClass} tabular-nums`}>
                     {holding.source === "manual_usd" ? "—" : (holding.price ?? "unpriced")}
                   </td>
                   <td className={`${tdClass} tabular-nums`}>
                     <ValueCell holding={holding} />
                   </td>
-                  <td className={tdClass}>
+                  <td className={`${tdClass} ${hideOnMobileClass}`}>
                     <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                       {holding.source}
                     </span>
                   </td>
-                  <td className={tdClass}>
+                  <td className={`${tdClass} ${hideOnMobileClass}`}>
                     <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                       {holding.category}
                     </span>

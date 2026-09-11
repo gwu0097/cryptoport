@@ -2,16 +2,18 @@ import Link from "next/link";
 import { Plug, Search, LogOut } from "lucide-react";
 import { signOut } from "@/app/(auth)/actions";
 import { buttonClass } from "@/components/ui/Button";
+import { MobileNav } from "./MobileNav";
 
 export function TopBar({ userEmail }: { userEmail: string | null }) {
   return (
     <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface px-4">
-      <div className="flex shrink-0 items-center gap-4">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+        <MobileNav />
         <Link
           href="/wallets/new"
           aria-label="Connect wallet"
           title="Connect wallet"
-          className="grid size-9 place-items-center rounded-lg border border-border text-fg-muted hover:bg-surface-raised hover:text-fg"
+          className="hidden size-9 place-items-center rounded-lg border border-border text-fg-muted hover:bg-surface-raised hover:text-fg sm:grid"
         >
           <Plug className="size-5" aria-hidden="true" />
         </Link>

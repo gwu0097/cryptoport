@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
@@ -71,15 +71,17 @@ function Header({
   sortKey,
   sortDir,
   onSort,
+  className = "",
 }: {
   label: string;
   sortKeyValue: SortKey;
   sortKey: SortKey;
   sortDir: "asc" | "desc";
   onSort: (key: SortKey) => void;
+  className?: string;
 }) {
   return (
-    <th className={thClass}>
+    <th className={`${thClass} ${className}`}>
       <button type="button" onClick={() => onSort(sortKeyValue)} className="flex items-center gap-1 hover:text-fg">
         {label}
         <SortIcon active={sortKey === sortKeyValue} dir={sortDir} />
@@ -177,10 +179,24 @@ export function HoldingsTable({
       <thead>
         <tr className={theadRowClass}>
           <Header label="Ticker" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Qty" sortKeyValue="qty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header
+            label="Qty"
+            sortKeyValue="qty"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
           <Header label="Price" sortKeyValue="price" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Category" sortKeyValue="category" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header
+            label="Category"
+            sortKeyValue="category"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
           {walletId && <th className={thClass}></th>}
         </tr>
       </thead>
@@ -202,7 +218,7 @@ export function HoldingsTable({
                 </div>
               </div>
             </td>
-            <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
+            <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatQty(holding.qty)}</td>
             <td className={`${tdClass} tabular-nums`}>{holding.price ?? "unpriced"}</td>
             <td className={`${tdClass} tabular-nums`}>
               {holding.valuation.kind === "priced" ? (
@@ -211,7 +227,7 @@ export function HoldingsTable({
                 <span className="text-warning">unpriced</span>
               )}
             </td>
-            <td className={tdClass}>
+            <td className={`${tdClass} ${hideOnMobileClass}`}>
               <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                 {holding.category}
               </span>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Trash } from "lucide-react";
 import type { WalletWithTotal } from "@/lib/queries";
 import { formatStaleness, formatUsd, formatDuration } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { buttonClass } from "./ui/Button";
 import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
@@ -54,15 +54,17 @@ function Header({
   sortKey,
   sortDir,
   onSort,
+  className = "",
 }: {
   label: string;
   sortKeyValue: SortKey;
   sortKey: SortKey;
   sortDir: "asc" | "desc";
   onSort: (key: SortKey) => void;
+  className?: string;
 }) {
   return (
-    <th className={thClass}>
+    <th className={`${thClass} ${className}`}>
       <button type="button" onClick={() => onSort(sortKeyValue)} className="flex items-center gap-1 hover:text-fg">
         {label}
         <SortIcon active={sortKey === sortKeyValue} dir={sortDir} />
@@ -130,11 +132,39 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
         <tr className={theadRowClass}>
           <Header label="Name" sortKeyValue="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Chain" sortKeyValue="chain" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Tag" sortKeyValue="tag" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Mode" sortKeyValue="mode" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header
+            label="Tag"
+            sortKeyValue="tag"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
+          <Header
+            label="Mode"
+            sortKeyValue="mode"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
           <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Synced" sortKeyValue="refreshed" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header label="Synced for" sortKeyValue="duration" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header
+            label="Synced"
+            sortKeyValue="refreshed"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
+          <Header
+            label="Synced for"
+            sortKeyValue="duration"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
           <th className={thClass}></th>
         </tr>
       </thead>
@@ -169,7 +199,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
                 )}
               </div>
             </td>
-            <td className={tdClass}>
+            <td className={`${tdClass} ${hideOnMobileClass}`}>
               {wallet.tag ? (
                 <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                   {wallet.tag.name}
@@ -178,20 +208,20 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
                 <span className="text-fg-muted">—</span>
               )}
             </td>
-            <td className={tdClass}>
+            <td className={`${tdClass} ${hideOnMobileClass}`}>
               <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                 {wallet.mode}
               </span>
             </td>
             <td className={`${tdClass} tabular-nums`}>{wallet.total > 0 ? formatUsd(wallet.total) : "—"}</td>
-            <td className={`${tdClass} text-fg-muted`}>
+            <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
               {wallet.last_refresh_status === "syncing" ? (
                 <span className="text-fg">Syncing…</span>
               ) : (
                 formatStaleness(wallet.last_refresh_at)
               )}
             </td>
-            <td className={`${tdClass} tabular-nums text-fg-muted`}>
+            <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
               {formatDuration(wallet.last_sync_duration_ms)}
             </td>
             <td className={tdClass}>
