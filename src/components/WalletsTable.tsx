@@ -153,20 +153,19 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
                 </span>
                 {wallet.pinnedChain && wallet.address ? (
                   wallet.verified ? (
-                    <VerifiedBadge variant="icon" />
+                    <VerifiedBadge />
                   ) : (
-                    <VerifyWalletModal
-                      variant="icon"
-                      pinnedTarget={{ chain: wallet.pinnedChain, address: wallet.address }}
-                    />
+                    <VerifyWalletModal pinnedTarget={{ chain: wallet.pinnedChain, address: wallet.address }} />
                   )
                 ) : (
-                  // Same-height placeholder as the actions column's own
-                  // invisible sync button below — without it, a chain with
-                  // no wallet-auth scheme (BTC, ADA, ...) rendered a
-                  // shorter row than one with the icon-sized Verify/Verified
-                  // affordance next to it.
-                  <span className="size-7 shrink-0" aria-hidden="true" />
+                  // Same-height placeholder trick as the actions column's
+                  // own invisible sync button below — without it, a chain
+                  // with no wallet-auth scheme (BTC, ADA, ...) rendered a
+                  // shorter row than one with the labeled Verify/Verified
+                  // pill next to it.
+                  <span className={`${buttonClass("secondary", "sm")} invisible`} aria-hidden="true">
+                    Verify
+                  </span>
                 )}
               </div>
             </td>

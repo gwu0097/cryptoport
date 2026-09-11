@@ -8,15 +8,17 @@ import { buttonClass } from "./ui/Button";
 import { WalletButton, type PinnedWalletTarget } from "./auth/WalletButton";
 
 /**
- * "Verify" as a small trigger (icon-only next to the edit pencil in
- * WalletsTable, or a labeled button next to the name on the wallet detail
- * page) rather than a full-width "Ethereum wallet" button and an
- * always-visible explanatory paragraph — the popup itself (see ui/Dialog.tsx,
- * same shell as EditWalletModal/AddHoldingModal) is where the actual wallet
- * picker (WalletButton, which can list several installed EVM wallets via
+ * "Verify" as a small labeled trigger (next to the name on the wallet
+ * detail page, or next to the Chain badge in WalletsTable) rather than a
+ * full-width "Ethereum wallet" button and an always-visible explanatory
+ * paragraph — the popup itself (see ui/Dialog.tsx, same shell as
+ * EditWalletModal/AddHoldingModal) is where the actual wallet picker
+ * (WalletButton, which can list several installed EVM wallets via
  * EIP-6963) lives, so the trigger stays compact regardless of how many
- * wallets are found. The `title` on the trigger carries the explanation
- * instead of a permanent paragraph.
+ * wallets are found. Always labeled "Verify" with the ShieldCheck icon,
+ * never icon-only — a bare shield glyph with no text next to it reads as
+ * decoration, not a button. The `title` on the trigger carries the
+ * explanation in addition to the label.
  *
  * WalletButton itself is only mounted while the dialog is open — a native
  * <dialog>'s content stays in the DOM while closed, and this component
@@ -29,13 +31,7 @@ import { WalletButton, type PinnedWalletTarget } from "./auth/WalletButton";
  * dialog closes itself on success — WalletButton skips its own
  * router.refresh() whenever onLinked is supplied, so this does both.
  */
-export function VerifyWalletModal({
-  pinnedTarget,
-  variant = "button",
-}: {
-  pinnedTarget: PinnedWalletTarget;
-  variant?: "button" | "icon";
-}) {
+export function VerifyWalletModal({ pinnedTarget }: { pinnedTarget: PinnedWalletTarget }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -59,27 +55,15 @@ export function VerifyWalletModal({
 
   return (
     <>
-      {variant === "icon" ? (
-        <button
-          type="button"
-          onClick={openDialog}
-          title="Verify you own this address — lets you sign in with it in the future."
-          aria-label="Verify wallet"
-          className="grid size-7 shrink-0 place-items-center rounded-lg text-fg-muted transition hover:bg-surface-raised hover:text-fg"
-        >
-          <ShieldCheck className="size-3.5" aria-hidden="true" />
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={openDialog}
-          title="Verifying this wallet lets you log in with it in the future."
-          className={`${buttonClass("secondary", "sm")} gap-1.5`}
-        >
-          <ShieldCheck className="size-3.5" aria-hidden="true" />
-          Verify
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={openDialog}
+        title="Verifying this wallet lets you log in with it in the future."
+        className={`${buttonClass("secondary", "sm")} gap-1.5`}
+      >
+        <ShieldCheck className="size-3.5" aria-hidden="true" />
+        Verify
+      </button>
 
       <Dialog ref={dialogRef} title="Verify this wallet">
         <p className="mb-3 text-xs text-fg-muted">
