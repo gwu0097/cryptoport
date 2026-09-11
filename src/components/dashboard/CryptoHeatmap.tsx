@@ -7,6 +7,11 @@ import { useEffect, useRef } from "react";
 // exact settings shape it reads, with hasTopBar turned on (lets a viewer
 // switch grouping/timeframe themselves) and colorTheme pinned to match
 // this app's dark UI.
+// Height picked to roughly match ValueHistoryChart's rendered height where
+// this sits beside it in a 2-column row on /dashboard — shorter than the
+// widget's own 500px default, which by itself pushed the whole page well
+// past one screen's worth of scroll for what's whole-market context, not
+// the user's own portfolio (the thing the rest of the page is about).
 const CONFIG = {
   dataSource: "Crypto",
   blockSize: "market_cap_calc",
@@ -19,7 +24,7 @@ const CONFIG = {
   hasSymbolTooltip: true,
   isMonoSize: false,
   width: "100%",
-  height: 500,
+  height: 280,
 };
 
 const WIDGET_SRC = "https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js";

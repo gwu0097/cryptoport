@@ -54,7 +54,7 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           preserveAspectRatio="none"
-          className="h-40 w-full"
+          className="h-52 w-full"
           role="img"
           aria-label="Portfolio value over time"
         >

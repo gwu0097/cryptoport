@@ -1,4 +1,4 @@
-import { Eye, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByTicker, getValueHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
@@ -36,7 +36,7 @@ export default async function DashboardPage() {
   if (!user) {
     return (
       <>
-        <PageHeader title="Dashboard" subtitle="Your portfolio at a glance" />
+        <PageHeader title="Dashboard" />
         <SignInPrompt message="Sign up or connect a wallet to see your dashboard." />
       </>
     );
@@ -59,11 +59,13 @@ export default async function DashboardPage() {
 
   return (
     <>
+      {/* No subtitle here — the nav item and the "Dashboard" title itself
+          already say what page this is; a restated "your portfolio at a
+          glance" line was pure repetition, not information. */}
       <PageHeader
         title="Dashboard"
-        subtitle="Your portfolio at a glance"
         actions={
-          <div className="flex flex-col items-center gap-1">
+          <div className="flex items-center gap-3">
             <form action={refreshPricesAction}>
               <SubmitButton variant="secondary" size="sm">
                 <RefreshCw className="size-3.5" aria-hidden="true" />
@@ -75,10 +77,14 @@ export default async function DashboardPage() {
         }
       />
 
+      {/* The unpriced-holdings count is dropped from this page specifically
+          (still shown on Assets/Portfolio, where "which holdings" is the
+          point) — on an at-a-glance dashboard it's a footnote competing
+          with the one number that actually matters here. */}
       <TotalValuePanel total={grand.total}>
         {change && (
           <p
-            className={`mt-2 text-sm tabular-nums ${
+            className={`mt-1 text-sm tabular-nums ${
               change.pct > 0 ? "text-positive" : change.pct < 0 ? "text-negative" : "text-fg-muted"
             }`}
           >
@@ -86,41 +92,38 @@ export default async function DashboardPage() {
             {change.coveragePct.toFixed(0)}% of tracked value
           </p>
         )}
-        {grand.unpricedCount > 0 && (
-          <p className="mt-2 text-sm text-warning">
-            {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and excluded from
-            the total
-          </p>
-        )}
       </TotalValuePanel>
 
-      <div className="mb-6">
+      {/* Chart and heatmap side by side rather than each full-width and
+          stacked — together they used to run well past one screen's worth
+          of scroll before you'd reach movers/watchlist below.
+          items-start (not the grid default of stretch): before enough
+          snapshot history exists, ValueHistoryChart renders a one-line
+          "still building" message instead of a chart — stretch would
+          blow that short panel up to match the heatmap's full height,
+          trading one whitespace problem for another. */}
+      <div className="mb-4 grid items-start gap-4 lg:grid-cols-2">
         <ValueHistoryChart points={history} />
-      </div>
-
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
-        <MoverList title="Top gainers (24h)" groups={gainers} />
-        <MoverList title="Top losers (24h)" groups={losers} />
-      </div>
-
-      <div className="mb-6">
-        <Panel title="Crypto market heatmap" description="Whole-market daily movement, via TradingView — not your holdings.">
+        <Panel
+          title="Crypto market heatmap"
+          description="Whole-market daily movement, via TradingView — not your holdings."
+        >
           <CryptoHeatmap />
         </Panel>
       </div>
 
-      <Panel className="text-center">
-        <div className="flex flex-col items-center gap-2">
-          <Eye className="size-8 text-fg-muted" aria-hidden="true" />
-          <p className="text-sm font-medium text-fg">Watchlist</p>
-          <p className="mx-auto max-w-sm text-sm text-fg-muted">
-            Watch tokens you don&rsquo;t hold yet and get notified when they&rsquo;re moving. Criteria
-            still to be defined.
-          </p>
-          <span className="rounded-full border border-border px-3 py-1 text-xs text-fg-muted">
-            Coming soon
-          </span>
-        </div>
+      <div className="mb-4 grid gap-4 sm:grid-cols-2">
+        <MoverList title="Top gainers (24h)" groups={gainers} />
+        <MoverList title="Top losers (24h)" groups={losers} />
+      </div>
+
+      <Panel padding={false} className="flex items-center justify-between gap-3 px-5 py-3">
+        <p className="text-sm text-fg-muted">
+          <span className="font-medium text-fg">Watchlist</span> — track tokens you don&rsquo;t hold yet.
+        </p>
+        <span className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-fg-muted">
+          Coming soon
+        </span>
       </Panel>
     </>
   );
