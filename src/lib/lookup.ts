@@ -1,7 +1,7 @@
 import "server-only";
 import { fetchEvmHoldings } from "./adapters/evm";
 import { fetchJupiterHoldings } from "./adapters/jupiter";
-import { fetchJupiterPositions } from "./adapters/jupiterPositions";
+import { fetchSolDefiPositions } from "./adapters/solDefiPositions";
 import { fetchBitcoinHoldings } from "./adapters/bitcoin";
 import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
 import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
@@ -119,12 +119,9 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
     chain === "ETH"
       ? fetchEvmHoldings(address).then((r) => r.holdings)
       : chain === "SOL"
-        ? Promise.all([
-            fetchJupiterHoldings(address),
-            fetchJupiterPositions(address)
-              .then((r) => r.holdings)
-              .catch(() => []),
-          ]).then(([tokens, positions]) => [...tokens, ...positions])
+        ? Promise.all([fetchJupiterHoldings(address), fetchSolDefiPositions(address).then((r) => r.holdings)]).then(
+            ([tokens, positions]) => [...tokens, ...positions],
+          )
         : chain === "ADA"
           ? fetchCardanoHoldings(address)
           : chain === "ATOM" || chain === "INJ" || chain === "SEI"

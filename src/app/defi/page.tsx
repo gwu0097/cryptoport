@@ -28,8 +28,8 @@ export default async function DefiPage() {
       {groups.length === 0 ? (
         <Panel className="text-center">
           <p className="text-sm text-fg-muted">
-            No DeFi positions yet — sync a SOL wallet to pick up Jupiter Earn/Limit Order/Perps
-            positions, or an ETH wallet with a Hyperliquid balance.
+            No DeFi positions yet — sync a SOL wallet to pick up Jupiter, Kamino, Wormhole,
+            Meteora, or Parcl positions, or an ETH wallet with a Hyperliquid balance.
           </p>
         </Panel>
       ) : (

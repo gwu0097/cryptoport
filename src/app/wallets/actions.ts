@@ -7,7 +7,7 @@ import { portfolioDb } from "@/lib/supabase";
 import { refreshPrices } from "@/lib/prices";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchJupiterHoldings } from "@/lib/adapters/jupiter";
-import { fetchJupiterPositions } from "@/lib/adapters/jupiterPositions";
+import { fetchSolDefiPositions } from "@/lib/adapters/solDefiPositions";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
@@ -290,13 +290,21 @@ export async function deleteHolding(holdingId: string, walletId: string) {
 // aren't captured. Recorded in the wallet's notes rather than silently
 // under-reporting with no explanation.
 const SOL_SYNC_NOTE =
-  "Auto-synced token balances + Jupiter's own DeFi positions (Earn, Limit Order, Perps) — third-party protocol positions (e.g. Meteora, Marinade, Kamino) are not captured by this sync.";
+  "Auto-synced token balances + DeFi positions from Jupiter (Earn, Limit Order, Perps), Kamino (lending, multiply, leverage, earn, liquidity, staking), Wormhole (staked W), Meteora (open DLMM positions), and Parcl (margin) — other protocols are not yet captured by this sync.";
 
 interface AdapterFetchResult {
   holdings: AdapterHolding[];
   /** Partial, non-fatal failures (e.g. one EVM chain's public RPC had a bad
    * moment) — the sync still saves whatever it did get. */
   warnings: string[];
+}
+
+async function fetchSolHoldings(address: string): Promise<AdapterFetchResult> {
+  const [tokenHoldings, positions] = await Promise.all([
+    fetchJupiterHoldings(address),
+    fetchSolDefiPositions(address),
+  ]);
+  return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings };
 }
 
 // BTC isn't dispatched through here — see syncWalletHoldings, which calls
@@ -313,20 +321,7 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
     return { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] };
   }
   if (isEvmChainId(chain)) return fetchEvmHoldings(address);
-  if (chain === "SOL") {
-    // Two independent sources, same "one source's failure never discards
-    // another's correctly-fetched data" rule as evm.ts's chains+Hyperliquid
-    // split — a Jupiter positions API hiccup must never wipe out the
-    // wallet's plain token balances (or vice versa).
-    const [tokenHoldings, positions] = await Promise.all([
-      fetchJupiterHoldings(address),
-      fetchJupiterPositions(address).catch((e: Error) => ({
-        holdings: [] as AdapterHolding[],
-        warnings: [`jupiter positions: ${e.message}`],
-      })),
-    ]);
-    return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings };
-  }
+  if (chain === "SOL") return fetchSolHoldings(address);
   if (chain === "NEAR") return { holdings: await fetchNearHoldings(address), warnings: [] };
   if (chain === "SUI") return { holdings: await fetchSuiHoldings(address), warnings: [] };
   if (chain === "FIL") return { holdings: await fetchFilecoinHoldings(address), warnings: [] };
