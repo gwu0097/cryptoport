@@ -30,13 +30,25 @@ const MASK = "••••••";
  * page's own caption lines (24h $ change, etc.) are that page's content,
  * not this shared component's to reach into.
  *
- * Label and number share one row (baseline-aligned, label left / number
- * right) rather than stacking on two lines — the label is short and the
- * number is the only thing that actually needs the visual weight, so a
- * separate line for each wasted a full row of height on every page this
- * renders on for no real gain in clarity.
+ * Label and number read as one inline phrase ("Total value: $X", eye right
+ * after it) pinned to the row's right edge via `ml-auto`, rather than
+ * label-left/number-right spanning the whole row — that split read as two
+ * unrelated pieces of a wide, mostly-empty line. `actions` is an optional
+ * left-of-that slot (e.g. Dashboard's own "Refresh prices" button + its
+ * "Last priced" caption) so a page can fold its own header action into
+ * this same box instead of giving it a separate row above — `ml-auto` on
+ * the value phrase still pins it to the right even when `actions` is
+ * omitted, so every other page renders exactly as before.
  */
-export function TotalValuePanel({ total, children }: { total: number; children?: ReactNode }) {
+export function TotalValuePanel({
+  total,
+  actions,
+  children,
+}: {
+  total: number;
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
   const [hidden, setHidden] = usePersistedState(HIDE_BALANCE_KEY, false);
   // usePersistedState seeds `false` (localStorage isn't available during
   // SSR) and only swaps in the real stored value post-mount — without this,
@@ -54,10 +66,13 @@ export function TotalValuePanel({ total, children }: { total: number; children?:
 
   return (
     <Panel className="mb-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <p className="text-sm text-fg-muted">Total value</p>
-        <div className="flex items-center gap-1.5">
-          <p className="text-2xl font-semibold tabular-nums text-fg">{masked ? MASK : formatUsd(total)}</p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {actions}
+        <div className="ml-auto flex items-center gap-1.5">
+          <p className="text-lg font-semibold tabular-nums text-fg">
+            <span className="text-sm font-normal text-fg-muted">Total value: </span>
+            {masked ? MASK : formatUsd(total)}
+          </p>
           <button
             type="button"
             onClick={() => setHidden(!hidden)}

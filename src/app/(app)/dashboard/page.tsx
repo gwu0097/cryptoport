@@ -10,7 +10,7 @@ import { SignInPrompt } from "@/components/SignInPrompt";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
-import { CryptoHeatmap } from "@/components/dashboard/CryptoHeatmap";
+import { CryptoHeatmapPanel } from "@/components/dashboard/CryptoHeatmap";
 import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
@@ -59,29 +59,27 @@ export default async function DashboardPage() {
 
   return (
     <>
-      {/* No subtitle here — the nav item and the "Dashboard" title itself
-          already say what page this is; a restated "your portfolio at a
-          glance" line was pure repetition, not information. */}
-      <PageHeader
-        title="Dashboard"
-        actions={
-          <div className="flex items-center gap-3">
-            <form action={refreshPricesAction}>
-              <SubmitButton variant="secondary" size="sm">
-                <RefreshCw className="size-3.5" aria-hidden="true" />
-                Refresh prices
-              </SubmitButton>
-            </form>
-            <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
-          </div>
-        }
-      />
-
+      {/* No PageHeader on the real dashboard view — the "Dashboard" title
+          and subtitle were pure repetition of the nav item you just
+          clicked, and the Refresh-prices action now lives in the Total
+          value box below instead of a separate header row above it, so
+          there was nothing left here to justify the row's own height. */}
       {/* The unpriced-holdings count is dropped from this page specifically
           (still shown on Assets/Portfolio, where "which holdings" is the
           point) — on an at-a-glance dashboard it's a footnote competing
           with the one number that actually matters here. */}
-      <TotalValuePanel total={grand.total}>
+      <TotalValuePanel
+        total={grand.total}
+        actions={
+          <form action={refreshPricesAction} className="flex items-center gap-3">
+            <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              Refresh prices
+            </SubmitButton>
+            <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+          </form>
+        }
+      >
         {change && (
           <p
             className={`mt-1 text-sm tabular-nums ${
@@ -104,12 +102,7 @@ export default async function DashboardPage() {
           trading one whitespace problem for another. */}
       <div className="mb-4 grid items-start gap-4 lg:grid-cols-2">
         <ValueHistoryChart points={history} />
-        <Panel
-          title="Crypto market heatmap"
-          description="Whole-market daily movement, via TradingView — not your holdings."
-        >
-          <CryptoHeatmap />
-        </Panel>
+        <CryptoHeatmapPanel />
       </div>
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
