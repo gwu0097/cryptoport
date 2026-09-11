@@ -7,6 +7,7 @@ import { scalePoints, linePath, areaPath } from "@/lib/chart";
 import { usePersistedState } from "../usePersistedState";
 import { Panel } from "../ui/Panel";
 import { Button } from "../ui/Button";
+import { selectClass } from "../ui/Field";
 
 const WIDTH = 600;
 const HEIGHT = 220;
@@ -114,11 +115,23 @@ export function PerformanceChart({
     <Panel title="Performance">
       <div className="flex flex-wrap items-center justify-between gap-3">
         {options.length > 1 && (
-          <ToggleGroup
-            options={options.map((o) => ({ key: o.id, label: o.name }))}
+          // A button per wallet stopped fitting once there were more than
+          // a handful — a native select scales to any number of wallets
+          // without overflowing the page, and (unlike a custom dropdown)
+          // gets type-to-jump search for free from the browser/OS, no
+          // extra combobox component needed.
+          <select
             value={selected.id}
-            onChange={setWalletId}
-          />
+            onChange={(e) => setWalletId(e.target.value)}
+            className={`${selectClass} w-auto max-w-56`}
+            aria-label="Wallet"
+          >
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
         )}
         <ToggleGroup options={RANGES.map((r) => ({ key: r.key, label: r.label }))} value={range} onChange={setRange} />
       </div>
