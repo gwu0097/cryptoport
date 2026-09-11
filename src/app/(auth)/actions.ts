@@ -3,10 +3,9 @@
 import { redirect } from "next/navigation";
 import { userAuth, siteUrl } from "@/lib/supabase";
 import { isSyntheticEmail } from "@/lib/walletAuth";
+import { validatePassword } from "@/lib/password";
 
 export type AuthFormState = { error?: string; success?: string } | undefined;
-
-const MIN_PASSWORD_LENGTH = 8;
 
 function requiredField(formData: FormData, field: string): string | null {
   const value = formData.get(field);
@@ -39,10 +38,8 @@ export async function signUp(_prevState: AuthFormState, formData: FormData): Pro
   // sign up with one directly would let them squat on a synthetic address
   // before its real wallet owner ever signs in.
   if (isSyntheticEmail(email)) return { error: "That email address can't be used." };
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
-  }
-  if (password !== confirmPassword) return { error: "Passwords do not match." };
+  const passwordError = validatePassword(password, confirmPassword);
+  if (passwordError) return { error: passwordError };
 
   const supabase = await userAuth();
   const { error } = await supabase.auth.signUp({
@@ -97,10 +94,8 @@ export async function updatePassword(
   const confirmPassword =
     typeof formData.get("confirmPassword") === "string" ? (formData.get("confirmPassword") as string) : "";
 
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
-  }
-  if (password !== confirmPassword) return { error: "Passwords do not match." };
+  const passwordError = validatePassword(password, confirmPassword);
+  if (passwordError) return { error: passwordError };
 
   const supabase = await userAuth();
   // Only reachable with a valid session — the /update-password page is

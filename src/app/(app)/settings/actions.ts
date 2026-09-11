@@ -3,8 +3,7 @@
 import { redirect } from "next/navigation";
 import { userAuth } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
-
-const MIN_PASSWORD_LENGTH = 8;
+import { validatePassword } from "@/lib/password";
 
 function requireString(formData: FormData, field: string): string {
   const value = formData.get(field);
@@ -31,12 +30,8 @@ export async function updateAccountPassword(formData: FormData) {
   const password = requireString(formData, "password");
   const confirmPassword = requireString(formData, "confirmPassword");
 
-  if (password !== confirmPassword) {
-    throw new Error("New password and confirmation do not match.");
-  }
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-  }
+  const passwordError = validatePassword(password, confirmPassword);
+  if (passwordError) throw new Error(passwordError);
 
   const supabase = await userAuth();
   const { error } = await supabase.auth.updateUser({ password });
