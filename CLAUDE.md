@@ -42,10 +42,30 @@ re-made from scratch next time.)
 - **`node --test` needs explicit `.ts` extensions** on relative imports
   (`allowImportingTsExtensions` in tsconfig) — Node's native ESM resolver
   doesn't infer them the way bundlers do.
-- **`server-only` throws unconditionally outside Next's bundler** — Next
-  aliases it to a no-op only inside its own build. Any file that needs to
-  stay testable standalone (e.g. `coinbase.ts`) must avoid importing
-  anything that transitively imports `server-only` (e.g. `adapters/http.ts`).
+- **Every module that pulls in a heavy/sensitive dependency (viem, siwe,
+  @noble/curves, ...) gets a real `import "server-only";`** — it's the only
+  compile-time guard against that dependency leaking into a client bundle,
+  and this app has already had one real leak that only got caught by
+  review, not by tooling. `server-only` throws unconditionally when
+  imported outside Next's own server bundle, which used to make this
+  incompatible with `node --test` — fixed, not worked around: the package's
+  own `package.json` declares a `"react-server"` export condition that
+  resolves to a no-op instead of throwing, and package.json's `test` script
+  runs `node --conditions=react-server --test` so files can carry the real
+  guard and still be unit-tested. Never reach for "just don't mark it
+  server-only" as the fix for a test-breakage — check whether the
+  underlying package has (or could reasonably be given) the same
+  conditional-export escape hatch first.
+- **A bug fix landing in duplicated code is the trigger to unify it, not
+  just patch every copy.** Several real duplications in this codebase were
+  only found because a bug got independently re-fixed in more than one
+  copy of the same logic (a wallet-lookup query, a DB upsert's dedupe
+  step) — small duplication is fine (see above), but the moment the *same*
+  logic needs the *same* fix applied more than once, that's the signal to
+  extract a shared implementation instead of patching each copy separately.
+- **Before copying a block of real logic (not a 3-5 line presentational
+  helper), grep for existing copies first.** If two already exist, that's
+  the threshold to extract a shared version rather than adding a third.
   When that constraint bites, duplicate the small helper locally rather than
   pulling in the dependency.
 
