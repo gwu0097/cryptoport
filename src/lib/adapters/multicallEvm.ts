@@ -4,6 +4,7 @@ import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
 import { fetchNativePrice, fetchTokenPrices, fetchTokenImages } from "./coingecko";
 import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
+import { upsertTokenRegistry } from "./tokenRegistry";
 import type { AdapterHolding } from "./types";
 
 const TOKEN_USD_FLOOR = 5;
@@ -95,39 +96,16 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
 }
 
 async function saveDecimals(chainId: string, rows: { contract: string; symbol: string; decimals: number }[]) {
-  // Postgres' ON CONFLICT can't touch the same row twice within a single
-  // upsert statement — dedupe by contract regardless of how a caller built
-  // this list, since getRegisteredTokens's ordering fix addresses the one
-  // known cause but this is cheap, unconditional insurance against that
-  // whole class of error.
-  const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
-
-  for (let i = 0; i < deduped.length; i += 1000) {
-    const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
-    const { error } = await serviceDb()
-      .from("token_registry")
-      .upsert(chunk, { onConflict: "chain_id,contract" });
-    if (error) throw new Error(`Failed to save decimals(${chainId}): ${error.message}`);
-  }
+  await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
 
-// `symbol` has to be included even though this never changes it: Postgres
-// validates NOT NULL on the row an upsert would insert even when a
-// conflict is found and the actual write ends up being the DO UPDATE
-// branch instead — confirmed the hard way, this always threw without it.
-// Doesn't touch decimals/coingecko_id, matching saveDecimals' approach.
+// Doesn't touch decimals/coingecko_id, matching saveDecimals' approach —
+// upsertTokenRegistry only ever writes the columns given in each row.
 async function saveImageUrls(
   chainId: string,
   rows: { contract: string; symbol: string; image_url: string }[],
 ) {
-  const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
-  for (let i = 0; i < deduped.length; i += 1000) {
-    const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
-    const { error } = await serviceDb()
-      .from("token_registry")
-      .upsert(chunk, { onConflict: "chain_id,contract" });
-    if (error) throw new Error(`Failed to save image_url(${chainId}): ${error.message}`);
-  }
+  await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
 
 // Unlike decimals/images (fetched once, cached forever), 24h change is
@@ -140,14 +118,7 @@ async function saveChange24h(
   chainId: string,
   rows: { contract: string; symbol: string; change_24h_pct: number | null }[],
 ) {
-  const deduped = [...new Map(rows.map((r) => [r.contract, r])).values()];
-  for (let i = 0; i < deduped.length; i += 1000) {
-    const chunk = deduped.slice(i, i + 1000).map((r) => ({ chain_id: chainId, ...r }));
-    const { error } = await serviceDb()
-      .from("token_registry")
-      .upsert(chunk, { onConflict: "chain_id,contract" });
-    if (error) throw new Error(`Failed to save change_24h_pct(${chainId}): ${error.message}`);
-  }
+  await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

@@ -2,6 +2,7 @@ import "server-only";
 import { fetchWithRetry } from "./http";
 import { EVM_CHAINS } from "./evmChains";
 import { serviceDb } from "../supabase";
+import { upsertTokenRegistry } from "./tokenRegistry";
 
 const API_BASE = "https://api.coingecko.com/api/v3";
 
@@ -100,16 +101,7 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
       }))
       .filter((r) => r.contract && r.contract !== "");
 
-    // Upsert in chunks — Supabase/PostgREST has a practical payload-size
-    // ceiling, and some chains (Ethereum, BSC) have tens of thousands of
-    // registered contracts.
-    for (let i = 0; i < rows.length; i += 1000) {
-      const chunk = rows.slice(i, i + 1000);
-      const { error } = await serviceDb()
-        .from("token_registry")
-        .upsert(chunk, { onConflict: "chain_id,contract", ignoreDuplicates: false });
-      if (error) throw new Error(`Failed to upsert token_registry(${chain.id}): ${error.message}`);
-    }
+    await upsertTokenRegistry(rows);
 
     results.push({ chainId: chain.id, count: rows.length });
   }
