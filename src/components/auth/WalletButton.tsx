@@ -8,6 +8,7 @@ import { Wallet as WalletIcon } from "lucide-react";
 import { requestWalletSignIn, completeWalletSignIn } from "@/app/(auth)/walletActions";
 import { requestWalletLink, completeWalletLink } from "@/app/(app)/settings/walletActions";
 import type { WalletChain } from "@/lib/walletAuth";
+import { usePersistedState } from "../usePersistedState";
 
 // Row styling for the picker list inside WalletPickerDialog — left-aligned,
 // full-width rows (icon + name), not the centered pill buttons ui/Button.tsx
@@ -87,23 +88,6 @@ function walletErrorMessage(e: unknown): string {
 const LAST_WALLET_KEY = "cryptoport:lastWallet";
 type LastWallet = { kind: "evm"; rdns: string } | { kind: "solana" };
 
-function readLastWallet(): LastWallet | null {
-  try {
-    const raw = localStorage.getItem(LAST_WALLET_KEY);
-    return raw ? (JSON.parse(raw) as LastWallet) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLastWallet(wallet: LastWallet): void {
-  try {
-    localStorage.setItem(LAST_WALLET_KEY, JSON.stringify(wallet));
-  } catch {
-    // best-effort — nothing to fall back to, ordering just stays default
-  }
-}
-
 export interface PinnedWalletTarget {
   chain: WalletChain;
   address: string;
@@ -162,16 +146,9 @@ export function WalletButton({
   // concept (an extension can announce at any time), so this stays a
   // component-local settle timer around it.
   const [ready, setReady] = useState<{ legacyEth: boolean; sol: boolean } | null>(null);
-  const [lastWallet, setLastWallet] = useState<LastWallet | null>(null);
+  const [lastWallet, setLastWallet] = usePersistedState<LastWallet | null>(LAST_WALLET_KEY, null);
 
   useEffect(() => {
-    // Reads localStorage after mount (unavailable during server rendering)
-    // — synchronizing with an external system, not derivable state, same
-    // "not the anti-pattern this rule targets" reasoning as WalletsTable's
-    // matching read.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLastWallet(readLastWallet());
-
     const store = createStore();
     const unsubscribe = store.subscribe((providers) => setEvmProviders(providers), { emitImmediately: true });
 
@@ -258,7 +235,7 @@ export function WalletButton({
       });
 
       await completeChallenge(signature);
-      if (rdns) writeLastWallet({ kind: "evm", rdns });
+      if (rdns) setLastWallet({ kind: "evm", rdns });
     } catch (e) {
       setError(walletErrorMessage(e));
     } finally {
@@ -284,7 +261,7 @@ export function WalletButton({
       const { signature } = await provider.signMessage(new TextEncoder().encode(message), "utf8");
 
       await completeChallenge(bytesToHex(signature));
-      writeLastWallet({ kind: "solana" });
+      setLastWallet({ kind: "solana" });
     } catch (e) {
       setError(walletErrorMessage(e));
     } finally {

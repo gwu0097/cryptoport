@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
@@ -10,9 +9,14 @@ import { SubmitButton } from "./ui/SubmitButton";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { TokenIcon } from "./TokenIcon";
 import { CopyButton } from "./CopyButton";
+import { usePersistedState } from "./usePersistedState";
 import { updateHolding, deleteHolding } from "@/app/(app)/wallets/actions";
 
 type SortKey = "ticker" | "qty" | "price" | "value" | "category";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
+
+const STORAGE_KEY = "cryptoport:holdingsSort";
+const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
 
 function numeric(value: unknown): number {
   const n = Number(value);
@@ -151,16 +155,11 @@ export function HoldingsTable({
   holdings: HoldingWithValuation[];
   walletId?: string;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("value");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const { key: sortKey, dir: sortDir } = sort;
 
   function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
+    setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
   }
 
   const sorted = [...holdings].sort((a, b) => {

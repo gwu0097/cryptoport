@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Trash } from "lucide-react";
 import type { WalletWithTotal } from "@/lib/queries";
@@ -13,12 +12,14 @@ import { EditWalletModal } from "./EditWalletModal";
 import { VerifyWalletModal } from "./VerifyWalletModal";
 import { VerifiedBadge } from "./VerifiedBadge";
 import { AutoRefreshWhileSyncing } from "./AutoRefreshWhileSyncing";
+import { usePersistedState } from "./usePersistedState";
 import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
 type SortKey = "name" | "chain" | "tag" | "mode" | "value" | "refreshed" | "duration";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:walletsSort";
-const DEFAULT_SORT: { key: SortKey; dir: "asc" | "desc" } = { key: "value", dir: "desc" };
+const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
 
 function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
   switch (key) {
@@ -74,41 +75,14 @@ function Header({
 }
 
 export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]; tagNames: string[] }) {
-  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT.key);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">(DEFAULT_SORT.dir);
-
-  // Reads the remembered sort after mount (localStorage isn't available
-  // during server rendering) — first paint uses the default (highest value
-  // first), then snaps to whatever the user last chose, same trade-off
-  // React's own docs describe for this exact "can't know yet" case. Not the
-  // "derive state that could just be computed during render" anti-pattern
-  // react-hooks/set-state-in-effect targets — this is synchronizing with an
-  // external system (localStorage), which is what effects are for; disabled
-  // narrowly rather than restructuring around a lint rule that doesn't fit.
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (parsed?.key) setSortKey(parsed.key);
-      if (parsed?.dir) setSortDir(parsed.dir);
-    } catch {
-      // corrupt/blocked storage — just keep the default
-    }
-  }, []);
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const { key: sortKey, dir: sortDir } = sort;
 
   const isSyncing = wallets.some((w) => w.last_refresh_status === "syncing");
 
   function toggleSort(key: SortKey) {
     const dir = key === sortKey ? (sortDir === "desc" ? "asc" : "desc") : "desc";
-    setSortKey(key);
-    setSortDir(dir);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ key, dir }));
-    } catch {
-      // best-effort — nothing to fall back to, the sort still applies this session
-    }
+    setSort({ key, dir });
   }
 
   const sorted = [...wallets].sort((a, b) => {

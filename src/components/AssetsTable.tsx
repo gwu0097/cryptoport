@@ -8,8 +8,13 @@ import { formatUsd, formatQty, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
+import { usePersistedState } from "./usePersistedState";
 
 type SortKey = "ticker" | "price" | "change24h" | "qty" | "wallets" | "value";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
+
+const STORAGE_KEY = "cryptoport:assetsSort";
+const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
 
 function sortValue(group: AssetGroup, key: SortKey): number | string {
   switch (key) {
@@ -104,17 +109,12 @@ function Header({
  */
 export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("value");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const { key: sortKey, dir: sortDir } = sort;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
+    setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
   }
 
   function toggleExpand(tickerKey: string) {
