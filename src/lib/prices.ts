@@ -1,6 +1,6 @@
 import "server-only";
 import { portfolioDb } from "./supabase";
-import { fetchCoinbaseSpotPrice } from "./coinbase";
+import { fetchCoinbaseSpotPrice, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 
 export interface PriceRefreshResult {
@@ -8,6 +8,10 @@ export interface PriceRefreshResult {
   ok: boolean;
   usd?: string;
   error?: string;
+  /** Only meaningful when !ok — Coinbase itself confirmed this product is
+   * permanently delisted, not just a transient failure. See the Jupiter-
+   * fallback gate below for why this distinction matters. */
+  delisted?: boolean;
 }
 
 interface HoldingTickerInfo {
@@ -59,6 +63,15 @@ async function upsertPrice(ticker: string, usd: string, source: "coinbase" | "ju
  * that asset's real price. One ticker's failure never touches another's
  * (upsert, never wipe) — a ticker neither source can price keeps its
  * previous value and timestamp.
+ *
+ * One deliberate exception to "Coinbase's forever": a *confirmed* delisting
+ * (CoinbaseDelistedError, not just any failure) does let Jupiter take over
+ * — Coinbase's own v2 spot-price endpoint keeps serving a frozen last-trade
+ * number for a delisted product with no "this is stale" signal in the
+ * response itself (real bug found on JUP: showed $0.0003 instead of the
+ * real ~$0.25 for months after Coinbase delisted it), so treating a
+ * confirmed delisting the same as an ordinary transient failure would leave
+ * that ticker permanently mispriced instead of ever recovering.
  */
 export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
@@ -71,17 +84,20 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
         await upsertPrice(ticker, usd, "coinbase");
         return { ticker, ok: true, usd };
       } catch (e) {
-        return { ticker, ok: false, error: (e as Error).message };
+        return { ticker, ok: false, error: (e as Error).message, delisted: e instanceof CoinbaseDelistedError };
       }
     }),
   );
 
   const coinbaseFailedTickers = new Set(coinbaseResults.filter((r) => !r.ok).map((r) => r.ticker));
+  const coinbaseDelistedTickers = new Set(
+    coinbaseResults.filter((r) => !r.ok && r.delisted).map((r) => r.ticker),
+  );
   const jupiterCandidates = holdingTickers.filter(
     (h) =>
       coinbaseFailedTickers.has(h.ticker) &&
       h.contract !== null &&
-      existingSources.get(h.ticker) !== "coinbase",
+      (existingSources.get(h.ticker) !== "coinbase" || coinbaseDelistedTickers.has(h.ticker)),
   );
 
   const jupiterResults =

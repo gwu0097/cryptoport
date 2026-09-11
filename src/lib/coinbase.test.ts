@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractSpotAmount } from "./coinbase.ts";
+import { extractSpotAmount, isDelistedProduct } from "./coinbase.ts";
 
 test("extractSpotAmount reads data.amount from a well-formed response", () => {
   const json = { data: { base: "BTC", currency: "USD", amount: "60000.12" } };
@@ -22,4 +22,26 @@ test("extractSpotAmount rejects a non-string amount", () => {
 test("extractSpotAmount rejects null/undefined bodies", () => {
   assert.throws(() => extractSpotAmount("BTC", null));
   assert.throws(() => extractSpotAmount("BTC", undefined));
+});
+
+test("isDelistedProduct is true for a delisted status", () => {
+  assert.equal(isDelistedProduct({ status: "delisted", trading_disabled: true }), true);
+});
+
+test("isDelistedProduct is true for trading_disabled alone, regardless of status text", () => {
+  // Verified against the live Coinbase Exchange API for JUP-USD — this is
+  // the actual root cause of a real bug (JUP priced at $0.0003 instead of
+  // ~$0.25): status/trading_disabled confirm delisting, but the separate
+  // v2 spot-price endpoint keeps serving a frozen pre-delisting number.
+  assert.equal(isDelistedProduct({ status: "unknown", trading_disabled: true }), true);
+});
+
+test("isDelistedProduct is false for an online, tradable product", () => {
+  assert.equal(isDelistedProduct({ status: "online", trading_disabled: false }), false);
+});
+
+test("isDelistedProduct is false for a missing/malformed body (not evidence of delisting)", () => {
+  assert.equal(isDelistedProduct({}), false);
+  assert.equal(isDelistedProduct(null), false);
+  assert.equal(isDelistedProduct(undefined), false);
 });
