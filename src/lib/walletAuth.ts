@@ -130,7 +130,13 @@ export function buildChallengeMessage(params: ChallengeParams): string {
   if (params.chain === "ETH") {
     return createSiweMessage({
       address: params.address as `0x${string}`,
-      chainId: params.chainId ?? 1,
+      // ?? alone doesn't catch NaN (a malformed eth_chainId response from
+      // the wallet extension, or just untrusted client input generally) —
+      // viem's createSiweMessage rejects a non-integer chainId outright
+      // (NaN !== Math.floor(NaN) is always true), so this is checked
+      // explicitly rather than assumed away by the client-side guard in
+      // WalletButton.tsx alone.
+      chainId: Number.isFinite(params.chainId) ? (params.chainId as number) : 1,
       domain: params.domain,
       uri: params.uri,
       nonce: params.nonce,

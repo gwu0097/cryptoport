@@ -58,6 +58,28 @@ function solanaChallenge(purpose: "signin" | "link" = "signin") {
   return { address, message, signatureHex };
 }
 
+test("buildChallengeMessage: a NaN chainId doesn't crash — falls back to 1", () => {
+  // Regression: a malformed eth_chainId response from a wallet extension
+  // (or just untrusted client input) parsed to NaN, which viem's
+  // createSiweMessage rejects outright (NaN !== Math.floor(NaN) is always
+  // true) — that threw inside a Server Action with no error.tsx boundary
+  // to catch it, surfacing to the user as an opaque "Minified React error
+  // #441" instead of anything useful. Server-side chainId handling in
+  // walletAuth.ts now guards this explicitly rather than relying on the
+  // client (WalletButton.tsx) to always send a clean value.
+  const message = buildChallengeMessage({
+    chain: "ETH",
+    address: "0x3afd68ecac6581cde82318d0781a50006eaa41e9",
+    nonce: "abcdef1234567890",
+    domain: "cryptoport-phi.vercel.app",
+    uri: "https://cryptoport-phi.vercel.app/login",
+    purpose: "signin",
+    chainId: NaN,
+    ...issuedWindow(),
+  });
+  assert.match(message, /Chain ID: 1\n/);
+});
+
 test("EVM: a valid signature over the exact message verifies", async () => {
   const { address, message, signatureHex } = await evmChallenge();
   const ok = await verifyWalletSignature({ chain: "ETH", address, message, signatureHex });
