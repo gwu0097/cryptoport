@@ -1,27 +1,35 @@
-import { Eye } from "lucide-react";
-import { getAssetsGroupedByTicker, getWalletsWithTotals, getPortfolioHistory } from "@/lib/queries";
+import { Eye, RefreshCw } from "lucide-react";
+import { getAssetsGroupedByTicker, getWalletsWithTotals, getPortfolioHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
+import { formatUsd, formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
 import { blendedChange } from "@/lib/dashboard";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SignInPrompt } from "@/components/SignInPrompt";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { WalletHealthPanel } from "@/components/dashboard/WalletHealthPanel";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
+import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
+
+// refreshPricesAction refreshes both the ticker-keyed Coinbase/Jupiter pass
+// and every EVM holding's CoinGecko price — same reasoning as assets/
+// page.tsx's maxDuration for the same action.
+export const maxDuration = 300;
 
 // Same dust threshold as the Assets page's "Hide low price tokens" filter —
 // a $0.001 spam token's 300% swing shouldn't dominate the movers list.
 const LOW_VALUE_USD = 10;
 
 export default async function DashboardPage() {
-  const [{ groups, grand }, { wallets }, history, user] = await Promise.all([
+  const [{ groups, grand }, { wallets }, history, priceState, user] = await Promise.all([
     getAssetsGroupedByTicker(),
     getWalletsWithTotals(),
     getPortfolioHistory(),
+    getPriceRefreshState(),
     getUser(),
   ]);
 
@@ -35,14 +43,37 @@ export default async function DashboardPage() {
   }
 
   const moversEligible = groups.filter((g) => g.change24h !== null && g.total >= LOW_VALUE_USD);
-  const gainers = [...moversEligible].sort((a, b) => (b.change24h ?? -Infinity) - (a.change24h ?? -Infinity)).slice(0, 5);
-  const losers = [...moversEligible].sort((a, b) => (a.change24h ?? -Infinity) - (b.change24h ?? -Infinity)).slice(0, 5);
+  // Gainers/losers, not just "biggest movers either direction" — in a
+  // portfolio where everything's red, "Top gainers" should show nothing
+  // rather than list the smallest losses.
+  const gainers = moversEligible
+    .filter((g) => (g.change24h as number) > 0)
+    .sort((a, b) => (b.change24h as number) - (a.change24h as number))
+    .slice(0, 5);
+  const losers = moversEligible
+    .filter((g) => (g.change24h as number) < 0)
+    .sort((a, b) => (a.change24h as number) - (b.change24h as number))
+    .slice(0, 5);
 
   const change = blendedChange(groups);
 
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="Your portfolio at a glance" />
+      <PageHeader
+        title="Dashboard"
+        subtitle="Your portfolio at a glance"
+        actions={
+          <div className="flex flex-col items-center gap-1">
+            <form action={refreshPricesAction}>
+              <SubmitButton variant="secondary" size="sm">
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                Refresh prices
+              </SubmitButton>
+            </form>
+            <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+          </div>
+        }
+      />
 
       <Panel className="mb-6">
         <p className="text-sm text-fg-muted">Total value</p>
@@ -53,7 +84,7 @@ export default async function DashboardPage() {
               change.pct > 0 ? "text-positive" : change.pct < 0 ? "text-negative" : "text-fg-muted"
             }`}
           >
-            {formatUsdSigned(change.usd)} ({formatPercent(change.pct)}) today · based on{" "}
+            {formatUsdSigned(change.usd)} ({formatPercent(change.pct)}) as of last refresh · based on{" "}
             {change.coveragePct.toFixed(0)}% of tracked value
           </p>
         )}

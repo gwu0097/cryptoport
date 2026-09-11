@@ -1,10 +1,11 @@
 import type { NextRequest } from "next/server";
 import { capturePortfolioSnapshots } from "@/lib/snapshots";
 
-// Iterates every user with at least one active wallet — cheap per user, but
-// no strict bound on user count, so this gets the same generous allowance
-// as the other genuinely-can-take-a-while background jobs in this app
-// (refreshTokenRegistryAction, refreshPricesAction both set 300).
+// Iterates every user with at least one active wallet in a single pass —
+// cheap per user (no per-user network calls, just in-memory aggregate()
+// over already-fetched holdings/prices) — so 60s is generous headroom, not
+// tight like refreshTokenRegistryAction/refreshPricesAction's 300s (those
+// make real per-token network calls).
 export const maxDuration = 60;
 
 /**
