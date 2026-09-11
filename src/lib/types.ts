@@ -99,6 +99,11 @@ export interface Holding {
   /** Logo URL — see AdapterHolding.icon_url. Null for manual holdings and
    * any auto holding whose source has no icon (Hyperliquid). */
   icon_url: string | null;
+  /** Which DeFi protocol/product this position lives in (e.g. "Jupiter
+   * Earn") and a link to it — see AdapterHolding.protocol. Null for every
+   * holding except a DeFi position an adapter tagged with one. */
+  protocol: string | null;
+  protocol_url: string | null;
   updated_at: string;
 }
 

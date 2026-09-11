@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUp, ArrowDown, ChevronsUpDown, Trash } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass } from "./ui/table";
@@ -31,6 +31,28 @@ function sortValue(holding: HoldingWithValuation, key: SortKey): number | string
     case "value":
       return holding.valuation.kind === "priced" ? holding.valuation.usd : -Infinity;
   }
+}
+
+// The DeFi-position breakdown (DeBank/Rabby-style: which protocol, and a
+// link to it) — only ever set on holdings jupiterPositions.ts (or a future
+// equivalent for another chain) produced, so a plain token row renders
+// nothing extra here.
+function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }) {
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-0.5 text-xs text-fg-muted hover:text-accent"
+        onClick={(e) => e.stopPropagation()}
+      >
+        via {protocol}
+        <ExternalLink className="size-2.5" aria-hidden="true" />
+      </a>
+    );
+  }
+  return <span className="text-xs text-fg-muted">via {protocol}</span>;
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
@@ -167,7 +189,10 @@ export function HoldingsTable({
             <td className={tdClass}>
               <div className="flex items-center gap-2">
                 <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
-                {formatTicker(holding.ticker)}
+                <div className="flex flex-col">
+                  <span>{formatTicker(holding.ticker)}</span>
+                  {holding.protocol && <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />}
+                </div>
               </div>
             </td>
             <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>

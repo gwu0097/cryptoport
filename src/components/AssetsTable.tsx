@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, Search } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
 import { formatUsd, formatQty } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
@@ -22,6 +22,28 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
     case "value":
       return group.total;
   }
+}
+
+// Same DeFi-position breakdown as HoldingsTable's ProtocolTag (which protocol,
+// linked out when Jupiter's own data has a deep link) — duplicated rather than
+// shared since the two tables' surrounding markup differs enough that a shared
+// component would need its own prop-plumbing for no real benefit.
+function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }) {
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-1 inline-flex items-center gap-0.5 text-xs text-fg-muted hover:text-accent"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {protocol}
+        <ExternalLink className="size-2.5" aria-hidden="true" />
+      </a>
+    );
+  }
+  return <div className="mt-1 text-xs text-fg-muted">{protocol}</div>;
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
@@ -195,6 +217,9 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                                   <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                                     {holding.chainName}
                                   </span>
+                                  {holding.protocol && (
+                                    <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />
+                                  )}
                                 </td>
                                 <td className={`${tdClass} tabular-nums`}>{formatQty(holding.qty)}</td>
                                 <td className={`${tdClass} tabular-nums`}>

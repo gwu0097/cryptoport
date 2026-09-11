@@ -20,6 +20,9 @@ interface Liquidity {
   assets: PositionAsset[];
   assetsValue: number;
   value: number;
+  /** Deep link to this specific position on jup.ag, e.g.
+   * "https://jup.ag/lend/earn?symbol=SOL&action=deposit". */
+  link?: string;
 }
 
 interface PositionElement {
@@ -32,6 +35,9 @@ interface PositionElement {
   data?: {
     liquidities?: Liquidity[];
     assets?: { input?: PositionAsset | null; output?: PositionAsset | null };
+    /** Deep link to this position — present on "trade" (limit order)
+     * elements, alongside input/output above. */
+    link?: string;
   };
 }
 
@@ -67,6 +73,13 @@ function resolveAsset(
   return { ticker: info?.symbol ?? `${mint.slice(0, 4)}…${mint.slice(-4)}`, icon: info?.logoURI ?? null };
 }
 
+// "LimitOrder" -> "Limit Order" — every label observed so far is a bare
+// PascalCase word/phrase (Vault, LimitOrder, ...), not free text, so this
+// simple split is enough without a hand-maintained per-type display name.
+function humanize(label: string): string {
+  return label.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+}
+
 /**
  * Jupiter's hosted positions API — the maintained successor to the
  * SonarWatch portfolio engine after Jupiter acquired it (see commit
@@ -78,6 +91,12 @@ function resolveAsset(
  * Order, Perps, DCA, ...), NOT third-party protocols like
  * Marinade/Kamino/Raydium/Drift — those still show up nowhere in this app
  * until a wallet-specific list of protocols to hand-build is provided.
+ *
+ * Every returned holding is tagged with `protocol` (e.g. "Jupiter Earn")
+ * and `protocol_url` (a deep link to the position on jup.ag) when Jupiter's
+ * response has them, so the UI can show which product a DeFi position
+ * lives in and link straight to it — the same breakdown DeBank/Rabby show
+ * for EVM DeFi, just sourced from Jupiter instead of a paid aggregator.
  *
  * Kept as its own adapter (not folded into jupiter.ts's plain SPL-balance
  * fetch) since a failure here must never discard the wallet's regular
@@ -102,6 +121,7 @@ export async function fetchJupiterPositions(address: string): Promise<JupiterPos
 
   for (const el of body.elements ?? []) {
     const label = el.name ?? el.label ?? el.fetcherId ?? el.type;
+    const protocol = `Jupiter ${humanize(label)}`;
 
     if (el.type === "liquidity" && el.data?.liquidities) {
       for (const liq of el.data.liquidities) {
@@ -119,6 +139,8 @@ export async function fetchJupiterPositions(address: string): Promise<JupiterPos
             category: "defi",
             chain: "solana-defi",
             icon_url: asset.icon,
+            protocol,
+            protocol_url: liq.link ?? null,
           });
         } else if (liq.value != null && liq.value !== 0) {
           holdings.push({
@@ -129,6 +151,8 @@ export async function fetchJupiterPositions(address: string): Promise<JupiterPos
             category: "defi",
             chain: "solana-defi",
             icon_url: null,
+            protocol,
+            protocol_url: liq.link ?? null,
           });
         }
       }
@@ -150,6 +174,8 @@ export async function fetchJupiterPositions(address: string): Promise<JupiterPos
         category: "defi",
         chain: "solana-defi",
         icon_url: asset.icon,
+        protocol,
+        protocol_url: el.data.link ?? null,
       });
       continue;
     }
@@ -166,6 +192,8 @@ export async function fetchJupiterPositions(address: string): Promise<JupiterPos
         category: "defi",
         chain: "solana-defi",
         icon_url: null,
+        protocol,
+        protocol_url: el.data?.link ?? null,
       });
     }
   }

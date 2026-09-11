@@ -84,6 +84,8 @@ function toHolding(h: AdapterHolding, index: number): Holding {
     category: h.category,
     chain: h.chain,
     icon_url: h.icon_url,
+    protocol: h.protocol ?? null,
+    protocol_url: h.protocol_url ?? null,
     updated_at: new Date().toISOString(),
   };
 }

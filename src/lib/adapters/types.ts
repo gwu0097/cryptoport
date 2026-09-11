@@ -22,4 +22,13 @@ export interface AdapterHolding {
    * the same "no silent gap" reason as `chain`: Hyperliquid has no icon
    * source and explicitly passes null rather than omitting the field. */
   icon_url: string | null;
+  /** Which DeFi protocol/product this position lives in (e.g. "Jupiter
+   * Earn") and a link to it, when the adapter's source has that concept —
+   * unlike `chain`/`icon_url`, genuinely optional (not "required but often
+   * null"): a plain token balance has no protocol, and every existing
+   * non-DeFi adapter site is correct to simply omit these two rather than
+   * being forced to add `protocol: null` everywhere. Only set by adapters
+   * producing 'defi' category holdings (currently jupiterPositions.ts). */
+  protocol?: string | null;
+  protocol_url?: string | null;
 }

@@ -304,3 +304,46 @@ alter table cryptoport.price_refresh_state enable row level security;
 grant all on cryptoport.price_refresh_state to service_role;
 
 insert into cryptoport.price_refresh_state (id, refreshed_at, status) values (1, null, null);
+
+-- DeFi position breakdown (which protocol a position lives in, and a link
+-- to it — DeBank/Rabby-style) — see adapters/jupiterPositions.ts, the first
+-- adapter to populate these. Null for every plain token holding.
+alter table cryptoport.holdings
+  add column protocol text,
+  add column protocol_url text;
+
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
