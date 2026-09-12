@@ -31,14 +31,14 @@ const MASK = "••••••";
  * not this shared component's to reach into.
  *
  * Label and number read as one inline phrase ("Total value: $X", eye right
- * after it) pinned to the row's right edge via `ml-auto`, rather than
- * label-left/number-right spanning the whole row — that split read as two
- * unrelated pieces of a wide, mostly-empty line. `actions` is an optional
- * left-of-that slot (e.g. Dashboard's own "Refresh prices" button + its
- * "Last priced" caption) so a page can fold its own header action into
- * this same box instead of giving it a separate row above — `ml-auto` on
- * the value phrase still pins it to the right even when `actions` is
- * omitted, so every other page renders exactly as before.
+ * after it) on the row's left edge, rather than label-left/number-right
+ * spanning the whole row — that split read as two unrelated pieces of a
+ * wide, mostly-empty line. `actions` is an optional right-of-that slot
+ * (e.g. Dashboard's own "Refresh prices" button + its "Last priced"
+ * caption), pinned to the row's right edge via `ml-auto` when present —
+ * so a page can fold its own header action into this same box instead of
+ * giving it a separate row above, without disturbing every other page
+ * that doesn't pass one.
  */
 export function TotalValuePanel({
   total,
@@ -67,8 +67,7 @@ export function TotalValuePanel({
   return (
     <Panel className="mb-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {actions}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
           <p className="text-lg font-semibold tabular-nums text-fg">
             <span className="text-sm font-normal text-fg-muted">Total value: </span>
             {masked ? MASK : formatUsd(total)}
@@ -83,6 +82,7 @@ export function TotalValuePanel({
             {hidden ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
           </button>
         </div>
+        {actions && <div className="ml-auto">{actions}</div>}
       </div>
       {children}
     </Panel>
