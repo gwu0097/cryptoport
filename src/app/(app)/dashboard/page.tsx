@@ -94,13 +94,15 @@ export default async function DashboardPage() {
 
       {/* Chart and heatmap side by side rather than each full-width and
           stacked — together they used to run well past one screen's worth
-          of scroll before you'd reach movers/watchlist below.
-          items-start (not the grid default of stretch): before enough
-          snapshot history exists, ValueHistoryChart renders a one-line
-          "still building" message instead of a chart — stretch would
-          blow that short panel up to match the heatmap's full height,
-          trading one whitespace problem for another. */}
-      <div className="mb-4 grid items-start gap-4 lg:grid-cols-2">
+          of scroll before you'd reach movers/watchlist below. Default
+          grid stretch (not items-start): before enough snapshot history
+          exists, ValueHistoryChart's own empty state is built to be
+          stretched (centered icon + message, matching SignInPrompt/
+          ComingSoon's shared shape) — items-start previously kept that
+          panel short instead, which left an ungrounded gap of bare page
+          background below it rather than a panel that reads as
+          deliberately sized. */}
+      <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <ValueHistoryChart points={history} />
         <CryptoHeatmapPanel />
       </div>

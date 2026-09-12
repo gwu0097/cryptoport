@@ -1,3 +1,4 @@
+import { LineChart } from "lucide-react";
 import type { PortfolioHistoryPoint } from "@/lib/queries";
 import { formatUsdSigned, formatPercent } from "@/lib/format";
 import { scalePoints, linePath, areaPath } from "@/lib/chart";
@@ -24,11 +25,20 @@ function shortDate(isoDate: string): string {
  */
 export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] }) {
   if (points.length < 2) {
+    // Same centered icon + message shape as SignInPrompt/ComingSoon (their
+    // own doc comments call this the shared empty-state pattern) —
+    // min-h-64 + place-items-center means this panel still reads as a
+    // deliberate empty state rather than a mostly-blank box, including
+    // where it sits in /dashboard's 2-column grid next to a much taller
+    // panel and gets stretched to match.
     return (
-      <Panel title="Value history">
-        <p className="text-sm text-fg-muted">
-          Building your value history — check back in a few days. A snapshot is captured once a day.
-        </p>
+      <Panel className="grid min-h-64 place-items-center text-center">
+        <div className="flex flex-col items-center gap-3">
+          <LineChart className="size-10 text-fg-muted" aria-hidden="true" />
+          <p className="max-w-sm text-sm text-fg-muted">
+            Building your value history — check back in a few days. A snapshot is captured once a day.
+          </p>
+        </div>
       </Panel>
     );
   }
