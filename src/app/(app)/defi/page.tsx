@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { DefiTable } from "@/components/DefiTable";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { GuestBanner } from "@/components/GuestBanner";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "DeFi · CryptoPort" };
@@ -16,7 +16,7 @@ export default async function DefiPage() {
     <>
       <PageHeader title="DeFi" subtitle="Lending, staking, and other protocol positions, grouped by protocol" />
 
-      {user && (
+      {user ? (
         <TotalValuePanel total={grand.total}>
           {grand.unpricedCount > 0 && (
             <p className="mt-2 text-sm text-warning">
@@ -25,6 +25,8 @@ export default async function DefiPage() {
             </p>
           )}
         </TotalValuePanel>
+      ) : (
+        <GuestBanner message="Sign up or connect a wallet to see your own DeFi positions here." />
       )}
 
       {groups.length === 0 ? (
@@ -36,7 +38,9 @@ export default async function DefiPage() {
             </p>
           </Panel>
         ) : (
-          <SignInPrompt message="Sign up or connect a wallet to start tracking your DeFi positions." />
+          <Panel className="text-center">
+            <p className="text-sm text-fg-muted">Log in and add a wallet to see your DeFi positions here.</p>
+          </Panel>
         )
       ) : (
         <DefiTable groups={groups} />

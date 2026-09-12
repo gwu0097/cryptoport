@@ -8,7 +8,7 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { AssetsTable } from "@/components/AssetsTable";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { GuestBanner } from "@/components/GuestBanner";
 import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
@@ -83,7 +83,7 @@ export default async function AssetsPage({
         }
       />
 
-      {user && (
+      {user ? (
         <TotalValuePanel total={grand.total}>
           {grand.unpricedCount > 0 && (
             <p className="mt-2 text-sm text-warning">
@@ -92,6 +92,8 @@ export default async function AssetsPage({
             </p>
           )}
         </TotalValuePanel>
+      ) : (
+        <GuestBanner message="Sign up or connect a wallet to see your own assets here." />
       )}
 
       {groups.length === 0 ? (
@@ -102,7 +104,9 @@ export default async function AssetsPage({
             </p>
           </Panel>
         ) : (
-          <SignInPrompt message="Sign up or connect a wallet to start tracking your portfolio." />
+          <Panel className="text-center">
+            <p className="text-sm text-fg-muted">Log in and add a wallet to see your assets here.</p>
+          </Panel>
         )
       ) : (
         <>

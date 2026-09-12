@@ -9,7 +9,7 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { buttonClass } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { WalletsTable } from "@/components/WalletsTable";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { GuestBanner } from "@/components/GuestBanner";
 import { refreshPricesAction, refreshTokenRegistryAction, syncAllWallets } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
@@ -68,7 +68,7 @@ export default async function WalletsPage() {
         }
       />
 
-      {user && (
+      {user ? (
         <TotalValuePanel total={grand.total}>
           {grand.unpricedCount > 0 && (
             <p className="mt-2 text-sm text-warning">
@@ -77,6 +77,8 @@ export default async function WalletsPage() {
             </p>
           )}
         </TotalValuePanel>
+      ) : (
+        <GuestBanner message="Sign up or connect a wallet to see your own wallets here." />
       )}
 
       {wallets.length === 0 ? (
@@ -88,7 +90,9 @@ export default async function WalletsPage() {
             </Link>
           </Panel>
         ) : (
-          <SignInPrompt message="Sign up or connect a wallet to start tracking your portfolio." />
+          <Panel className="text-center">
+            <p className="text-sm text-fg-muted">Log in and add a wallet to see your wallets here.</p>
+          </Panel>
         )
       ) : (
         <Panel padding={false} className="overflow-hidden">

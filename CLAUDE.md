@@ -217,12 +217,28 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
 ## UI conventions
 
 - Reuse shared primitives (`Panel`, `PageHeader`, `SignInPrompt`,
-  `ui/table.ts`'s class exports, `buttonClass`/`SubmitButton`) before
-  building a new one-off. Small presentational duplication (e.g. a
-  `ChangeCell`-style color helper redefined per file) is preferred over a
-  shared component when the surrounding markup differs enough that sharing
-  would need its own prop-plumbing — don't force abstraction just to avoid
-  a five-line duplicate.
+  `GuestBanner`, `AuthButtons`, `ui/table.ts`'s class exports,
+  `buttonClass`/`SubmitButton`) before building a new one-off. Small
+  presentational duplication (e.g. a `ChangeCell`-style color helper
+  redefined per file) is preferred over a shared component when the
+  surrounding markup differs enough that sharing would need its own
+  prop-plumbing — don't force abstraction just to avoid a five-line
+  duplicate.
+- **Guest state on a data page (Dashboard, Portfolio, Wallets, Assets,
+  DeFi, Analytics) renders the real page shell** — same Panels, same
+  layout — not a full-page `SignInPrompt` replacing everything. One
+  `GuestBanner` sits where `TotalValuePanel` would (the page's only
+  sign-up/log-in CTA), and every section below it still renders its own
+  Panel/title with an honest muted "Log in and add a wallet to see your
+  {noun} here." placeholder instead of real data — no button on these,
+  just the one banner. **Never mock/fabricate data for the placeholder**
+  (a fake total or fake table rows) — that's exactly the "plausible-
+  looking wrong number" the Data Correctness rule above exists to
+  prevent, guest or not. Public, non-personal data (the Dashboard's
+  Coin360 heatmap) renders live for everyone regardless of auth — it was
+  never gated on `user` to begin with. `SignInPrompt` (the original full-
+  block version) is still correct for a page with genuinely nothing to
+  preview — `wallets/new`'s form, `settings`' account-specific panels.
 - Every number gets explicit formatting via `src/lib/format.ts`
   (`formatUsd`, `formatPercent`, `formatQty`, `formatStaleness`, …) — `—`
   for missing, colored (`text-positive`/`text-negative`/`text-warning`) for

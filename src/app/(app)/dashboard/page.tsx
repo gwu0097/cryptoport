@@ -3,10 +3,9 @@ import { getAssetsGroupedByTicker, getValueHistory, getPriceRefreshState } from 
 import { getUser } from "@/lib/auth";
 import { formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
 import { blendedChange } from "@/lib/dashboard";
-import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { GuestBanner } from "@/components/GuestBanner";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
@@ -32,15 +31,6 @@ export default async function DashboardPage() {
     getPriceRefreshState(),
     getUser(),
   ]);
-
-  if (!user) {
-    return (
-      <>
-        <PageHeader title="Dashboard" />
-        <SignInPrompt message="Sign up or connect a wallet to see your dashboard." />
-      </>
-    );
-  }
 
   const moversEligible = groups.filter((g) => g.change24h !== null && g.total >= LOW_VALUE_USD);
   // Gainers/losers, not just "biggest movers either direction" — in a
@@ -68,29 +58,33 @@ export default async function DashboardPage() {
           (still shown on Assets/Portfolio, where "which holdings" is the
           point) — on an at-a-glance dashboard it's a footnote competing
           with the one number that actually matters here. */}
-      <TotalValuePanel
-        total={grand.total}
-        actions={
-          <form action={refreshPricesAction} className="flex items-center gap-3">
-            <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
-              <RefreshCw className="size-3.5" aria-hidden="true" />
-              Refresh prices
-            </SubmitButton>
-            <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
-          </form>
-        }
-      >
-        {change && (
-          <p
-            className={`mt-1 text-sm tabular-nums ${
-              change.pct > 0 ? "text-positive" : change.pct < 0 ? "text-negative" : "text-fg-muted"
-            }`}
-          >
-            {formatUsdSigned(change.usd)} ({formatPercent(change.pct)}) as of last refresh · based on{" "}
-            {change.coveragePct.toFixed(0)}% of tracked value
-          </p>
-        )}
-      </TotalValuePanel>
+      {user ? (
+        <TotalValuePanel
+          total={grand.total}
+          actions={
+            <form action={refreshPricesAction} className="flex items-center gap-3">
+              <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                Refresh prices
+              </SubmitButton>
+              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+            </form>
+          }
+        >
+          {change && (
+            <p
+              className={`mt-1 text-sm tabular-nums ${
+                change.pct > 0 ? "text-positive" : change.pct < 0 ? "text-negative" : "text-fg-muted"
+              }`}
+            >
+              {formatUsdSigned(change.usd)} ({formatPercent(change.pct)}) as of last refresh · based on{" "}
+              {change.coveragePct.toFixed(0)}% of tracked value
+            </p>
+          )}
+        </TotalValuePanel>
+      ) : (
+        <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
+      )}
 
       {/* Chart and heatmap side by side rather than each full-width and
           stacked — together they used to run well past one screen's worth
@@ -101,15 +95,41 @@ export default async function DashboardPage() {
           ComingSoon's shared shape) — items-start previously kept that
           panel short instead, which left an ungrounded gap of bare page
           background below it rather than a panel that reads as
-          deliberately sized. */}
+          deliberately sized. The heatmap itself isn't gated on `user` at
+          all — it's public market data, not something that needs an
+          account to see. */}
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
-        <ValueHistoryChart points={history} />
+        {user ? (
+          <ValueHistoryChart points={history} />
+        ) : (
+          <Panel title="Value history">
+            <p className="text-sm text-fg-muted">Log in and add a wallet to see your value history here.</p>
+          </Panel>
+        )}
         <CryptoHeatmapPanel />
       </div>
 
+      {/* MoverList's own empty state ("Not enough 24h data yet") is wrong
+          for a guest — that's for a signed-in user whose holdings just
+          don't have 24h data, not "you have no holdings at all" — so
+          guests get their own placeholder panels here instead of an empty
+          MoverList. */}
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <MoverList title="Top gainers (24h)" groups={gainers} />
-        <MoverList title="Top losers (24h)" groups={losers} />
+        {user ? (
+          <>
+            <MoverList title="Top gainers (24h)" groups={gainers} />
+            <MoverList title="Top losers (24h)" groups={losers} />
+          </>
+        ) : (
+          <>
+            <Panel title="Top gainers (24h)">
+              <p className="text-sm text-fg-muted">Log in and add a wallet to see your top movers here.</p>
+            </Panel>
+            <Panel title="Top losers (24h)">
+              <p className="text-sm text-fg-muted">Log in and add a wallet to see your top movers here.</p>
+            </Panel>
+          </>
+        )}
       </div>
 
       <Panel padding={false} className="flex items-center justify-between gap-3 px-5 py-3">

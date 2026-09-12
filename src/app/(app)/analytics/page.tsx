@@ -7,7 +7,8 @@ import { estimateSeries, estimateCoverage, stitchSeries, type PriceHistoryMap } 
 import { valueHolding, type PriceMap } from "@/lib/valuation";
 import type { Holding } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { Panel } from "@/components/ui/Panel";
+import { GuestBanner } from "@/components/GuestBanner";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { PerformanceChart, type WalletSeriesOption } from "@/components/analytics/PerformanceChart";
 import { backfillHistoryAction } from "./actions";
@@ -66,11 +67,21 @@ export default async function AnalyticsPage({
 }) {
   const { wallet: initialWalletId } = await searchParams;
   const user = await getUser();
+  // PerformanceChart is a client component built around real wallet data
+  // (coverage %, range presets over actual points) — not something that
+  // has a sensible "zero wallets" rendering, unlike the other tabs' plain
+  // tables. A placeholder panel here rather than trying to feed it empty
+  // options.
   if (!user) {
     return (
       <>
         <PageHeader title="Analytics" subtitle="How your holdings have performed over time" />
-        <SignInPrompt message="Sign up or connect a wallet to see your analytics." />
+        <GuestBanner message="Sign up or connect a wallet to see your own performance chart here." />
+        <Panel className="text-center">
+          <p className="text-sm text-fg-muted">
+            Log in and add a wallet to see how your holdings have performed over time.
+          </p>
+        </Panel>
       </>
     );
   }

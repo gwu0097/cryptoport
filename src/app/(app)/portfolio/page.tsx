@@ -3,9 +3,10 @@ import { getAssetsGroupedByChain, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatStaleness } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
+import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { GuestBanner } from "@/components/GuestBanner";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { refreshPricesAction, syncAllWallets } from "../wallets/actions";
 
@@ -33,7 +34,7 @@ export default async function PortfolioPage({
     <>
       <PageHeader title="Portfolio" subtitle="Every holding across all your wallets, grouped by chain" />
 
-      {user && (
+      {user ? (
         <TotalValuePanel
           total={grand.total}
           actions={
@@ -61,10 +62,17 @@ export default async function PortfolioPage({
             </p>
           )}
         </TotalValuePanel>
+      ) : (
+        <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
       )}
 
-      {groups.length === 0 && !user ? (
-        <SignInPrompt message="Sign up or connect a wallet to start tracking your portfolio." />
+      {/* groups is always [] for a guest (getAssetsGroupedByChain's own
+          no-user guard), so this only ever needs to check `user`, not
+          groups.length too. */}
+      {!user ? (
+        <Panel className="text-center">
+          <p className="text-sm text-fg-muted">Log in and add a wallet to see your portfolio here.</p>
+        </Panel>
       ) : (
         <ChainGroupedHoldings
           groups={groups}

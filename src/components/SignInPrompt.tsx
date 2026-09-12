@@ -1,29 +1,22 @@
-import Link from "next/link";
 import { LogIn } from "lucide-react";
 import { Panel } from "./ui/Panel";
-import { buttonClass } from "./ui/Button";
+import { AuthButtons } from "./AuthButtons";
 
-/** The guest-facing empty state for any page that normally shows account
- * data — same visual shape as ComingSoon.tsx (icon + centered message in a
- * Panel), with sign-up/log-in buttons instead of a "Coming soon" pill.
- * Every page is viewable without a session; this is what replaces the data
- * itself where there's nothing to show a guest. /login and /signup both
- * already have the WalletButton mode="signin" flow, so "connect a wallet
- * instead" is one click away from either — no separate button needed here. */
+/** The guest-facing empty state for a page with genuinely nothing to
+ * preview (wallets/new's form, settings' account-specific panels) — same
+ * visual shape as ComingSoon.tsx (icon + centered message in a Panel).
+ * Every other data page (Dashboard, Portfolio, Wallets, Assets, DeFi,
+ * Analytics) instead renders its real layout for guests with one
+ * GuestBanner (a compact version of this same sign-up/log-in pair) plus
+ * honest "log in to see this" placeholders per section — see GuestBanner's
+ * own doc comment and CLAUDE.md's UI conventions note. */
 export function SignInPrompt({ message }: { message: string }) {
   return (
     <Panel className="grid min-h-64 place-items-center text-center">
       <div className="flex flex-col items-center gap-3">
         <LogIn className="size-10 text-fg-muted" aria-hidden="true" />
         <p className="max-w-sm text-sm text-fg-muted">{message}</p>
-        <div className="flex gap-2">
-          <Link href="/signup" className={buttonClass("primary", "sm")}>
-            Sign up
-          </Link>
-          <Link href="/login" className={buttonClass("secondary", "sm")}>
-            Log in
-          </Link>
-        </div>
+        <AuthButtons />
       </div>
     </Panel>
   );
