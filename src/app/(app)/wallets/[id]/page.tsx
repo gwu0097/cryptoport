@@ -5,6 +5,7 @@ import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "
 import { getUser } from "@/lib/auth";
 import { formatStaleness, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
+import { isEvmChainId } from "@/lib/adapters/evmChains";
 import { pinnedWalletChain } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
@@ -35,19 +36,27 @@ import {
 // is silently capped, so a very multi-chain wallet may still need a retry.
 export const maxDuration = 300;
 
-/** Live-verified: debank.com/profile/<address> (200, real profile — DeBank
- * aggregates across every EVM chain for one 0x address, no chain-specific
- * path needed) and jup.ag/portfolio/<address> (200 for a real address,
- * 404 for a nonsense route — confirming it's a real per-address page, not
- * just always-200; the old portfolio.jup.ag/portfolio/<address> now
- * redirects away from the address entirely, so that host is stale).
- * EVM/SOL only for now, matching pinnedWalletChain's own scope — every
- * other chain has no equivalent "one link, aggregates everything" viewer
- * picked yet. */
-function externalPortfolioUrl(pinnedChain: "ETH" | "SOL", address: string): string {
-  return pinnedChain === "ETH"
-    ? `https://debank.com/profile/${address}`
-    : `https://jup.ag/portfolio/${address}`;
+/** Deliberately separate from pinnedWalletChain: that function answers "can
+ * this chain sign a wallet-auth challenge" (BTC can't — no scheme
+ * implemented — so it returns null for BTC), which is a different question
+ * from "is there a free external viewer for this address." Live-verified:
+ * debank.com/profile/<address> (200, real profile — DeBank aggregates
+ * across every EVM chain for one 0x address, no chain-specific path
+ * needed), jup.ag/portfolio/<address> (200 for a real address, 404 for a
+ * nonsense route — confirming it's a real per-address page, not just
+ * always-200; the old portfolio.jup.ag/portfolio/<address> now redirects
+ * away from the address entirely, so that host is stale), and
+ * unisat.io/address/<address> (200, and its own header text confirms it
+ * covers "Ordinals, Runes, Alkanes" for a Bitcoin address — this is a
+ * client-rendered SPA so curl/WebFetch can't diff real-vs-fake addresses
+ * the way DeBank/Jupiter could, but UniSat is the same product behind the
+ * Open API researched for native Runes-balance support, so it's a known-
+ * real service, not a guess). */
+function externalPortfolioViewer(chain: string, address: string): { url: string; label: string } | null {
+  if (isEvmChainId(chain)) return { url: `https://debank.com/profile/${address}`, label: "DeBank" };
+  if (chain === "SOL") return { url: `https://jup.ag/portfolio/${address}`, label: "Jupiter Portfolio" };
+  if (chain === "BTC") return { url: `https://unisat.io/address/${address}`, label: "UniSat" };
+  return null;
 }
 
 export default async function WalletDetailPage(
@@ -96,6 +105,11 @@ export default async function WalletDetailPage(
   const pinnedChain = pinnedWalletChain(wallet.chain);
   const alreadyLinked =
     pinnedChain && wallet.address ? await isWalletLinked(pinnedChain, wallet.address) : false;
+  // isBtcXpub excluded: an xpub/ypub/zpub is a key that derives many
+  // addresses, not a spendable address itself — UniSat's address page has
+  // no meaningful equivalent to link to for one.
+  const externalViewer =
+    wallet.address && !isBtcXpub ? externalPortfolioViewer(wallet.chain, wallet.address) : null;
 
   return (
     <>
@@ -132,13 +146,13 @@ export default async function WalletDetailPage(
             ) : (
               <VerifyWalletModal pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
             ))}
-            {pinnedChain && wallet.address && (
+            {externalViewer && (
               <a
-                href={externalPortfolioUrl(pinnedChain, wallet.address)}
+                href={externalViewer.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`View on ${pinnedChain === "ETH" ? "DeBank" : "Jupiter Portfolio"}`}
-                aria-label={`View on ${pinnedChain === "ETH" ? "DeBank" : "Jupiter Portfolio"}`}
+                title={`View on ${externalViewer.label}`}
+                aria-label={`View on ${externalViewer.label}`}
                 className="text-fg-muted transition hover:text-fg"
               >
                 <ExternalLink className="size-3.5" aria-hidden="true" />
