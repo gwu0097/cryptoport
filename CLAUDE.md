@@ -68,6 +68,18 @@ re-made from scratch next time.)
   the threshold to extract a shared version rather than adding a third.
   When that constraint bites, duplicate the small helper locally rather than
   pulling in the dependency.
+- **A heavy-dependency file (viem/siwe/@noble/curves/...) must not also
+  hold the small, pure helpers other unrelated code needs.** `walletAuth.ts`
+  used to export `pinnedWalletChain`/`walletDisplayName` (plain string
+  logic, no heavy deps) alongside its actual signature-verification code —
+  and because `(app)/layout.tsx` (wrapping every page in the app) and
+  `queries.ts` (imported by every data-heavy read page) only needed those
+  pure helpers, every single page load still pulled in the full viem/siwe/
+  @noble/curves/@scure/base graph. Split into `walletDisplay.ts` (pure,
+  imported by the hot read paths) and `walletAuth.ts` (heavy, imported only
+  by the actual sign-in/link-wallet flow). When a file needs `server-only`
+  for a genuinely heavy/sensitive reason, periodically check whether
+  everything it exports still needs to be in that file.
 
 ## Data correctness — the rule that must never break
 
@@ -153,6 +165,21 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
    list" action). Extend this pattern for new slow-changing external data.
    Never apply it to live prices/balances without the same staleness-
    caption discipline everywhere else in this app (`formatStaleness`).
+3. **`next.config.ts` sets `experimental.staleTimes.dynamic = 60`** — the
+   client Router Cache's window for reusing a `force-dynamic` page's
+   already-rendered result on a repeat visit (every page in `(app)/` is
+   `force-dynamic`). This defaulted to 0s as of Next 15+ (a training-data
+   trap — earlier versions defaulted to 30s), which meant every single
+   navigation back to a page re-ran every query from scratch even a few
+   seconds later; reported as "clicking Portfolio takes 7 seconds even
+   though I was just there." Safe for this app's per-user financial data
+   specifically because `revalidatePath` (called by every mutating Server
+   Action already) currently invalidates the client cache for *every*
+   previously-visited page, not just the path passed in — a real
+   balance/holdings change is never masked by this window. If a future
+   Next version narrows `revalidatePath` to only invalidate its own path
+   (their own docs call the current all-pages behavior "temporary"),
+   re-check this before trusting it again.
 
 ## Loading feedback — every click should either be fast or say why it isn't
 

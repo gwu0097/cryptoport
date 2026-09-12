@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceDb } from "./supabase";
-import { truncateAddress, type WalletChain } from "./walletAuth";
+import { truncateAddress, type WalletChain } from "./walletDisplay";
 
 type Db = ReturnType<typeof serviceDb>;
 

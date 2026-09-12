@@ -2,7 +2,7 @@ import { getUser } from "@/lib/auth";
 import { updateAccountPassword } from "./actions";
 import { unlinkWallet } from "./walletActions";
 import { getLinkedWallets } from "@/lib/queries";
-import { isSyntheticEmail, truncateAddress, walletDisplayName } from "@/lib/walletAuth";
+import { isSyntheticEmail, truncateAddress, walletDisplayName } from "@/lib/walletDisplay";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";

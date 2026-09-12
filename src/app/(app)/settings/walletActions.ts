@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { userDb } from "@/lib/supabase";
 import { createChallenge, completeChallenge } from "@/lib/walletChallenge";
-import { isSyntheticEmail, type WalletChain } from "@/lib/walletAuth";
+import { isSyntheticEmail } from "@/lib/walletDisplay";
+import type { WalletChain } from "@/lib/walletAuth";
 import { ensureTrackedWallet } from "@/lib/trackedWallet";
 
 // {ok, error} return values, NOT throw-on-error — unlike settings/actions.ts

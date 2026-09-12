@@ -10,72 +10,24 @@
 // build instead, the same condition Next's server bundle itself uses. The
 // stateful half (issuing/reading the challenge cookie, which needs
 // next/headers) lives in walletChallenge.ts instead.
+//
+// pinnedWalletChain/truncateAddress/walletDisplayName/the synthetic-email
+// helpers moved to walletDisplay.ts — they're pure (no viem/siwe/noble/
+// scure needed) but used to live here, which meant every page that just
+// wanted to show a wallet-derived display name (including (app)/layout.tsx,
+// wrapping literally every route) pulled in this entire signing-library
+// graph too. WalletChain re-exported from there (type-only, free) so the
+// signature-verification code below — which does genuinely need the heavy
+// imports — doesn't have to duplicate the type.
 import "server-only";
 import { createSiweMessage } from "viem/siwe";
 import { recoverMessageAddress, isAddress, hexToBytes, type Hex } from "viem";
 import { base58 } from "@scure/base";
 import { ed25519 } from "@noble/curves/ed25519";
-import { isEvmChainId } from "./adapters/evmChains.ts";
+import type { WalletChain } from "./walletDisplay.ts";
 
-export type WalletChain = "ETH" | "SOL";
+export type { WalletChain };
 export type ChallengePurpose = "signin" | "link";
-
-/**
- * Which wallet-auth chain (if any) a tracked wallet's own `chain` label maps
- * to — every EVM chain this app tracks (RON, SEI, ARB, ... all resolve to
- * 'ETH', one secp256k1 signature covers all of them) and 'SOL' maps to
- * itself; everything else (BTC, ADA, ...) has no wallet-auth signature
- * scheme implemented, so there's nothing to verify/link. Shared by the
- * wallet detail page and the wallets list table so "does this wallet get a
- * Verify affordance at all" is answered identically in both places — see
- * evmChains.ts's isEvmChainId for why this file can safely import it (no
- * server-only marker on either side).
- */
-export function pinnedWalletChain(chain: string): WalletChain | null {
-  if (isEvmChainId(chain)) return "ETH";
-  if (chain === "SOL") return "SOL";
-  return null;
-}
-
-/**
- * An RFC 2606 reserved TLD, so this can never resolve to a real mailbox.
- * Wallet-first accounts still need an auth.users row, which Supabase Auth
- * requires an email for — this is that placeholder. Deliberately random
- * (see generateSyntheticEmail), never derived from the wallet address:
- * an address-derived email would let anyone pre-register it through the
- * public /signup form and squat on a wallet's account before its real
- * owner ever connects.
- */
-export const SYNTHETIC_WALLET_DOMAIN = "wallet.cryptoport.invalid";
-
-export function generateSyntheticEmail(): string {
-  return `${crypto.randomUUID()}@${SYNTHETIC_WALLET_DOMAIN}`;
-}
-
-export function isSyntheticEmail(email: string): boolean {
-  return email.toLowerCase().endsWith(`@${SYNTHETIC_WALLET_DOMAIN}`);
-}
-
-/** First5…last5, the same convention TruncatedAddress.tsx uses client-side
- * — this is the plain-string version for server-rendered contexts (TopBar,
- * the Account panel) that can't reach for a "use client" component. */
-export function truncateAddress(address: string): string {
-  return address.length > 12 ? `${address.slice(0, 5)}…${address.slice(-5)}` : address;
-}
-
-/** What to show instead of an email for a wallet-only account (a synthetic
- * @wallet.cryptoport.invalid address is meaningless to a person) — falls
- * back to null so callers keep showing the real email for every other
- * account. wallet_address/wallet_chain are set once, at account creation,
- * in completeWalletSignIn's admin.createUser call. */
-export function walletDisplayName(user: {
-  email?: string | null;
-  user_metadata?: { wallet_address?: string; wallet_chain?: string };
-}): string | null {
-  if (!user.email || !isSyntheticEmail(user.email)) return null;
-  const address = user.user_metadata?.wallet_address;
-  return address ? truncateAddress(address) : null;
-}
 
 /**
  * Validates and canonicalizes an address for a given chain. Throws on

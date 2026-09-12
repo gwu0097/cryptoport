@@ -5,7 +5,7 @@ import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "
 import { getUser } from "@/lib/auth";
 import { formatStaleness, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
-import { pinnedWalletChain } from "@/lib/walletAuth";
+import { pinnedWalletChain } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { SubmitButton } from "@/components/ui/SubmitButton";

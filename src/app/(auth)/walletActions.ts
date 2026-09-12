@@ -2,7 +2,7 @@
 
 import { serviceDb, serviceAuth, userAuth } from "@/lib/supabase";
 import { createChallenge, completeChallenge } from "@/lib/walletChallenge";
-import { generateSyntheticEmail, type WalletChain } from "@/lib/walletAuth";
+import { generateSyntheticEmail, type WalletChain } from "@/lib/walletDisplay";
 import { ensureTrackedWallet } from "@/lib/trackedWallet";
 
 // Called directly from WalletButton.tsx's click handlers, not through a

@@ -12,7 +12,7 @@ import {
 } from "./valuation";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
-import { pinnedWalletChain, type WalletChain } from "./walletAuth";
+import { pinnedWalletChain, type WalletChain } from "./walletDisplay.ts";
 import type { Holding, LinkedWallet, Price, Tag, Wallet, WalletWithTag } from "./types";
 
 export interface PriceRefreshState {
@@ -192,16 +192,13 @@ export interface WalletWithTotal extends WalletWithTag {
    * page's isWalletLinked, computed once here against a single
    * getLinkedWallets() call instead of one query per row. */
   verified: boolean;
-  /** Computed here (server-side, via walletAuth.ts's pinnedWalletChain)
-   * rather than in WalletsTable.tsx itself — that file is a client
-   * component, and walletAuth.ts pulls in viem/siwe, @noble/curves, and
-   * @scure/base for its signature-verification code; every other client
-   * reference to that module is a type-only import specifically to keep
-   * that code server-only (see WalletButton.tsx's own doc comment), so a
-   * plain value import from a client component would be a real regression
-   * even if it happens to tree-shake away today. null means this chain has
-   * no wallet-auth signature scheme at all (BTC, ADA, ...) — never show a
-   * Verify affordance for it. */
+  /** Computed here (server-side, via walletDisplay.ts's pinnedWalletChain)
+   * rather than in WalletsTable.tsx itself, so "does this wallet get a
+   * Verify affordance at all" is answered identically here and on the
+   * wallet detail page — one shared implementation, not two copies of the
+   * same chain-to-scheme mapping. null means this chain has no wallet-auth
+   * signature scheme at all (BTC, ADA, ...) — never show a Verify
+   * affordance for it. */
   pinnedChain: WalletChain | null;
 }
 

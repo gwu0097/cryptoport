@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { getUser } from "@/lib/auth";
-import { walletDisplayName } from "@/lib/walletAuth";
+import { walletDisplayName } from "@/lib/walletDisplay";
 
 // Deliberately its own top-level route, not under (app) — the address
 // lookup is read-only and saves nothing (see lookup/page.tsx's own

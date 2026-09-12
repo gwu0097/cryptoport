@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { getUser } from "@/lib/auth";
-import { walletDisplayName } from "@/lib/walletAuth";
+import { walletDisplayName } from "@/lib/walletDisplay";
 
 // Every real page of the app lives under this route group (invisible in
 // the URL — /wallets is still /wallets) so it can share one layout for the
@@ -13,7 +13,7 @@ import { walletDisplayName } from "@/lib/walletAuth";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();
   // A wallet-only account's real "email" is a meaningless synthetic UUID
-  // (see walletAuth.ts) — show its linked address instead wherever this
+  // (see walletDisplay.ts) — show its linked address instead wherever this
   // reaches TopBar.
   return (
     <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>

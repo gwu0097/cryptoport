@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { userAuth, siteUrl } from "@/lib/supabase";
-import { isSyntheticEmail } from "@/lib/walletAuth";
+import { isSyntheticEmail } from "@/lib/walletDisplay";
 import { validatePassword } from "@/lib/password";
 
 export type AuthFormState = { error?: string; success?: string } | undefined;
