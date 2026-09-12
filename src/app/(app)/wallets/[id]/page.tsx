@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Trash, RefreshCw, TriangleAlert } from "lucide-react";
+import { Trash, RefreshCw, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatStaleness, formatDuration } from "@/lib/format";
@@ -34,6 +34,21 @@ import {
 // duration available on the current plan; on plans below that ceiling this
 // is silently capped, so a very multi-chain wallet may still need a retry.
 export const maxDuration = 300;
+
+/** Live-verified: debank.com/profile/<address> (200, real profile — DeBank
+ * aggregates across every EVM chain for one 0x address, no chain-specific
+ * path needed) and jup.ag/portfolio/<address> (200 for a real address,
+ * 404 for a nonsense route — confirming it's a real per-address page, not
+ * just always-200; the old portfolio.jup.ag/portfolio/<address> now
+ * redirects away from the address entirely, so that host is stale).
+ * EVM/SOL only for now, matching pinnedWalletChain's own scope — every
+ * other chain has no equivalent "one link, aggregates everything" viewer
+ * picked yet. */
+function externalPortfolioUrl(pinnedChain: "ETH" | "SOL", address: string): string {
+  return pinnedChain === "ETH"
+    ? `https://debank.com/profile/${address}`
+    : `https://jup.ag/portfolio/${address}`;
+}
 
 export default async function WalletDetailPage(
   props: PageProps<"/wallets/[id]"> & {
@@ -117,6 +132,18 @@ export default async function WalletDetailPage(
             ) : (
               <VerifyWalletModal pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
             ))}
+            {pinnedChain && wallet.address && (
+              <a
+                href={externalPortfolioUrl(pinnedChain, wallet.address)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`View on ${pinnedChain === "ETH" ? "DeBank" : "Jupiter Portfolio"}`}
+                aria-label={`View on ${pinnedChain === "ETH" ? "DeBank" : "Jupiter Portfolio"}`}
+                className="text-fg-muted transition hover:text-fg"
+              >
+                <ExternalLink className="size-3.5" aria-hidden="true" />
+              </a>
+            )}
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
             <span>{wallet.chain}</span>
