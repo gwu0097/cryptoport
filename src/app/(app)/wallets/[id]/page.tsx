@@ -131,8 +131,15 @@ export default async function WalletDetailPage(
           token with no natural wrap points, which used to force the whole
           header to wrap onto two rows instead of just the text underneath
           it wrapping. TruncatedAddress below removes the giant unbroken
-          string entirely, but this stays robust either way. */}
-      <div className="mb-6 flex items-start justify-between gap-4">
+          string entirely, but this stays robust either way. flex-wrap
+          (matches PageHeader's own header row) is required too — without
+          it, on a narrow viewport the shrink-0 actions column refused to
+          shrink and min-w-0 let the title column get squeezed down to a
+          near-zero width instead, wrapping the wallet name one word per
+          line and burying the edit/verify/external-link icons under the
+          action buttons. With flex-wrap, the actions column drops to its
+          own row below the title once it no longer fits alongside it. */}
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-1">
             <h1 className="text-xl font-semibold text-fg">{wallet.name}</h1>
@@ -194,8 +201,8 @@ export default async function WalletDetailPage(
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {wallet.mode === "auto" &&
               (wallet.last_refresh_status === "syncing" ? (
                 // A sync already in flight (runs in the background — see
