@@ -26,7 +26,15 @@ export function MoverList({ title, groups }: { title: string; groups: AssetGroup
                 <span className="truncate text-sm font-medium text-fg">{g.ticker}</span>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <span className="text-sm tabular-nums text-fg-muted">{formatUsd(g.total)}</span>
+                {/* Per-unit price, not the user's own position value (g.total)
+                    — a "Top gainers/losers" ticker list means the market
+                    price, matching AssetsTable's own price column; showing
+                    position size here read as a wrong/implausible price
+                    (e.g. a $54 ETH "price" that was really a small position's
+                    USD value). */}
+                <span className="text-sm tabular-nums text-fg-muted">
+                  {g.price !== null ? formatUsd(g.price) : "—"}
+                </span>
                 <ChangeText value={g.change24h} />
               </div>
             </li>
