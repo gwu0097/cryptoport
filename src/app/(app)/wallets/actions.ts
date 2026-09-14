@@ -34,38 +34,84 @@ export async function refreshTokenRegistryAction() {
   revalidatePath("/wallets");
 }
 
-export async function refreshPricesAction() {
-  await requireUser();
-  const results = await refreshPrices();
-  const failed = results.filter((r) => !r.ok);
-  const status =
-    results.length === 0
-      ? "no priced holdings"
-      : failed.length === 0
-        ? "ok"
-        : `${failed.length}/${results.length} ticker(s) failed`;
-
-  // Prices are keyed by ticker, not wallet — refreshPrices() touches the
-  // shared `prices` table, never a specific wallet's own holdings. This
-  // used to stamp every active wallet's last_refresh_at/last_refresh_status
-  // instead of using its own state, which conflated "prices were refreshed"
-  // with "this wallet was synced" into one column (a wallet's real sync
-  // status kept getting overwritten by an unrelated price refresh). One
-  // singleton row instead — see price_refresh_state in schema.sql.
-  const { error } = await serviceDb()
-    .from("price_refresh_state")
-    .update({ refreshed_at: new Date().toISOString(), status })
-    .eq("id", 1);
-  if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
-
-  // Prices are global (see the comment above), so every page that reads
-  // them needs revalidating, not just /wallets — this used to leave
-  // /assets, /portfolio, /defi showing stale prices until their own
-  // unrelated revalidation happened to fire.
+// Prices are global (touches the shared `prices` table plus every EVM
+// holding's usd_override — never just one wallet), so every page that
+// shows a price needs revalidating, not just /wallets.
+function revalidateAllPriceConsumers() {
   revalidatePath("/wallets");
   revalidatePath("/assets");
   revalidatePath("/portfolio");
   revalidatePath("/defi");
+  revalidatePath("/dashboard");
+}
+
+/** The actual work — resolved either by refreshPricesAction or
+ * refreshPricesForWalletAction, each inside its own after() so the extra
+ * path either one also needs to revalidate (a specific wallet page, for
+ * the latter) fires only once the real result exists, not on the
+ * near-instant initial response. Never throws — a failure is recorded as
+ * this singleton row's own status instead, same as every other sync
+ * action in this app. */
+async function runPriceRefresh(): Promise<void> {
+  try {
+    const results = await refreshPrices();
+    const failed = results.filter((r) => !r.ok);
+    const status =
+      results.length === 0
+        ? "no priced holdings"
+        : failed.length === 0
+          ? "ok"
+          : `${failed.length}/${results.length} ticker(s) failed`;
+
+    // Prices are keyed by ticker, not wallet — refreshPrices() touches
+    // the shared `prices` table, never a specific wallet's own holdings.
+    // This used to stamp every active wallet's own last_refresh_at/
+    // last_refresh_status instead of using its own state, which
+    // conflated "prices were refreshed" with "this wallet was synced"
+    // into one column (a wallet's real sync status kept getting
+    // overwritten by an unrelated price refresh). One singleton row
+    // instead — see price_refresh_state in schema.sql.
+    const { error } = await serviceDb()
+      .from("price_refresh_state")
+      .update({ refreshed_at: new Date().toISOString(), status })
+      .eq("id", 1);
+    if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
+  } catch (e) {
+    await serviceDb()
+      .from("price_refresh_state")
+      .update({ status: `error: ${(e as Error).message}` })
+      .eq("id", 1);
+  }
+}
+
+/**
+ * Same after() pattern as syncWalletHoldings, for the same reason: a real
+ * refresh (517 distinct pricing operations on this app's own largest
+ * portfolio, measured at ~30s even after parallelizing its three
+ * independent phases — see prices.ts) used to be awaited directly here,
+ * which froze every other click app-wide for that whole 30s (Server
+ * Actions and client-side navigations share one sequential dispatch queue
+ * per client — see CLAUDE.md's Loading feedback section). `status`
+ * doubles as a real in-flight signal now ("refreshing", not just a final
+ * outcome) — see PriceRefreshCaption, the shared caption component every
+ * page with this button renders instead of hand-rolling "Last priced: X"
+ * five times over.
+ */
+export async function refreshPricesAction() {
+  await requireUser();
+
+  const { error: markError } = await serviceDb()
+    .from("price_refresh_state")
+    .update({ status: "refreshing" })
+    .eq("id", 1);
+  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
+
+  after(async () => {
+    await runPriceRefresh();
+    revalidateAllPriceConsumers();
+  });
+
+  revalidateAllPriceConsumers();
 }
 
 // Same global refresh (prices are keyed by ticker, not wallet — there's no
@@ -74,9 +120,26 @@ export async function refreshPricesAction() {
 // the wallet detail page (came up directly: a freshly-synced ADA holding
 // showed unpriced with no obvious way to fix it short of navigating back
 // to the wallets list) reflects the update immediately instead of needing
-// a manual reload.
+// a manual reload. Duplicates refreshPricesAction's own body (rather than
+// calling through to it) specifically so this extra revalidatePath can
+// live inside the *same* after() callback — calling through would have no
+// way to hook into "after the background work this kicked off finishes."
 export async function refreshPricesForWalletAction(walletId: string) {
-  await refreshPricesAction();
+  await requireUser();
+
+  const { error: markError } = await serviceDb()
+    .from("price_refresh_state")
+    .update({ status: "refreshing" })
+    .eq("id", 1);
+  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
+
+  after(async () => {
+    await runPriceRefresh();
+    revalidateAllPriceConsumers();
+    revalidatePath(`/wallets/${walletId}`);
+  });
+
+  revalidateAllPriceConsumers();
   revalidatePath(`/wallets/${walletId}`);
 }
 

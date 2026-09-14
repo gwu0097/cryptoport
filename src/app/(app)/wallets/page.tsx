@@ -2,7 +2,7 @@ import Link from "next/link";
 import { RefreshCw, Database } from "lucide-react";
 import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatStaleness } from "@/lib/format";
+import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
@@ -55,7 +55,7 @@ export default async function WalletsPage() {
                     Refresh prices
                   </SubmitButton>
                 </form>
-                <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+                <PriceRefreshCaption priceState={priceState} />
               </div>
               <form action={refreshTokenRegistryAction}>
                 <SubmitButton variant="secondary" size="sm">

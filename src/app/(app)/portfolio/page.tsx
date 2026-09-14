@@ -1,7 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByChain, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatStaleness } from "@/lib/format";
+import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
@@ -51,7 +51,7 @@ export default async function PortfolioPage({
                   Refresh prices
                 </SubmitButton>
               </form>
-              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+              <PriceRefreshCaption priceState={priceState} />
             </div>
           }
         >

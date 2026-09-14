@@ -18,6 +18,7 @@ import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
+import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -244,7 +245,7 @@ export default async function WalletDetailPage(
                   Refresh prices
                 </SubmitButton>
               </form>
-              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+              <PriceRefreshCaption priceState={priceState} />
             </div>
             <form action={deleteWallet.bind(null, wallet.id)}>
               <ConfirmDeleteButton

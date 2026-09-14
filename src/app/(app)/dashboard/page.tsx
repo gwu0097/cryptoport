@@ -1,7 +1,8 @@
 import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByTicker, getValueHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsdSigned, formatPercent, formatStaleness } from "@/lib/format";
+import { formatUsdSigned, formatPercent } from "@/lib/format";
+import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
 import { blendedChange } from "@/lib/dashboard";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
@@ -67,7 +68,7 @@ export default async function DashboardPage() {
                 <RefreshCw className="size-3.5" aria-hidden="true" />
                 Refresh prices
               </SubmitButton>
-              <p className="text-xs text-fg-muted">Last priced: {formatStaleness(priceState.refreshedAt)}</p>
+              <PriceRefreshCaption priceState={priceState} />
             </form>
           }
         >
