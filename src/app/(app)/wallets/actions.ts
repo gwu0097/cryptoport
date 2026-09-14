@@ -110,24 +110,23 @@ export async function refreshPricesAction() {
   const requestedAt = Date.now();
   await requireUser();
 
-  // The "mark refreshing" write moved into after() (used to be awaited
-  // right here) — real, user-reported waste: it was blocking the action's
-  // own response on a database round-trip that has nothing to do with
-  // returning fast. The click already gets instant feedback for free from
-  // the button's own pending state (see SubmitButton); this write only
-  // exists to flip the *next* page render to "Refreshing…" instead of a
-  // stale "Last priced," and that doesn't need to happen before the
-  // response — the first poll (see PriceRefreshCaption, ~1.2s later)
-  // picks it up either way.
+  // TEMPORARY REVERT — moving this write into after() (previous version of
+  // this comment) broke the polling bootstrap entirely: AutoRefreshWhileSyncing
+  // only starts polling if it sees `syncing === true` on a render, and once
+  // this write no longer happened before the response, the first render
+  // after clicking almost always still showed the old status, so polling
+  // never started and the whole live-progress UI silently stopped working.
+  // Real regression, reported. This whole click -> lock -> live-progress ->
+  // poll-until-done pattern is being redesigned properly (see the
+  // conversation) rather than re-patched piecemeal; this restores the
+  // known-working synchronous write in the meantime.
+  const { error: markError } = await serviceDb()
+    .from("price_refresh_state")
+    .update({ status: "refreshing" })
+    .eq("id", 1);
+  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
+
   after(async () => {
-    // Best-effort, not awaited-and-checked the way the synchronous version
-    // was — a failure here must never skip the actual price refresh below
-    // just because the cosmetic "refreshing" status flag couldn't be set.
-    try {
-      await serviceDb().from("price_refresh_state").update({ status: "refreshing" }).eq("id", 1);
-    } catch {
-      // swallowed — see comment above
-    }
     await runPriceRefresh(requestedAt);
     revalidateAllPriceConsumers();
   });
@@ -149,14 +148,14 @@ export async function refreshPricesForWalletAction(walletId: string) {
   const requestedAt = Date.now();
   await requireUser();
 
-  // See refreshPricesAction's own comment for why this write moved into
-  // after() rather than being awaited here.
+  // TEMPORARY REVERT — see refreshPricesAction's own comment.
+  const { error: markError } = await serviceDb()
+    .from("price_refresh_state")
+    .update({ status: "refreshing" })
+    .eq("id", 1);
+  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
+
   after(async () => {
-    try {
-      await serviceDb().from("price_refresh_state").update({ status: "refreshing" }).eq("id", 1);
-    } catch {
-      // swallowed — a failure here must never skip the actual refresh below
-    }
     await runPriceRefresh(requestedAt);
     revalidateAllPriceConsumers();
     revalidatePath(`/wallets/${walletId}`);
