@@ -11,6 +11,7 @@ import { SubmitButton } from "@/components/ui/SubmitButton";
 import { TransactionsWalletFilter } from "@/components/TransactionsWalletFilter";
 import { TransactionsTable } from "@/components/TransactionsTable";
 import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
+import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { syncWalletTransactions, syncAllWalletTransactions } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,9 @@ export default async function TransactionsPage({
   return (
     <>
       <AutoRefreshWhileSyncing syncing={syncing} />
+      {selectedWallet && (
+        <RecordRecentWallet id={selectedWallet.id} name={selectedWallet.name} namespace="transactionsWallets" />
+      )}
       <PageHeader
         title="Transactions"
         subtitle="On-chain activity across your wallets — synced, not live (see Sync below)."

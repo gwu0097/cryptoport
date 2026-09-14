@@ -138,6 +138,28 @@ export function NavItemsList({ pathname, onLinkClick }: { pathname: string; onLi
             />
           );
         }
+        if (item.href === "/transactions") {
+          return (
+            <CollapsibleNavItem
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item.href)}
+              pathname={pathname}
+              onLinkClick={onLinkClick}
+              namespace="transactionsWallets"
+              openStorageKey="cryptoport:recentTransactionsWalletsOpen"
+              linkFor={(w) => `/transactions?wallet=${w.id}`}
+              // Transactions' wallet selection is a real ?wallet= query
+              // param (unlike Analytics' client-state one), but `pathname`
+              // here is path-only — no search params threaded through
+              // Sidebar/MobileNav to compare against. Same honest
+              // "can't tell from here, don't guess" call as Analytics
+              // rather than plumbing searchParams through two more
+              // components just for this highlight.
+              isRecentActive={() => false}
+            />
+          );
+        }
         return <NavLink key={item.href} {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />;
       })}
     </>
