@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/layout/AppShell";
+import { JobPollerProvider } from "@/components/jobs/JobPoller";
 import { getUser } from "@/lib/auth";
 import { walletDisplayName } from "@/lib/walletDisplay";
 
@@ -16,6 +17,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // (see walletDisplay.ts) — show its linked address instead wherever this
   // reaches TopBar.
   return (
-    <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>
+    <JobPollerProvider>
+      <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>
+    </JobPollerProvider>
   );
 }
