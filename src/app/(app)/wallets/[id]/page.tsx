@@ -240,7 +240,7 @@ export default async function WalletDetailPage(
               ))}
             <div className="flex flex-col items-center gap-1">
               <form action={refreshPricesForWalletAction.bind(null, wallet.id)}>
-                <SubmitButton variant="secondary" size="sm">
+                <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
                   <RefreshCw className="size-3.5" aria-hidden="true" />
                   Refresh prices
                 </SubmitButton>

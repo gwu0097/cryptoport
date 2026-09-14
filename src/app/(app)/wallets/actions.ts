@@ -110,13 +110,24 @@ export async function refreshPricesAction() {
   const requestedAt = Date.now();
   await requireUser();
 
-  const { error: markError } = await serviceDb()
-    .from("price_refresh_state")
-    .update({ status: "refreshing" })
-    .eq("id", 1);
-  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
-
+  // The "mark refreshing" write moved into after() (used to be awaited
+  // right here) — real, user-reported waste: it was blocking the action's
+  // own response on a database round-trip that has nothing to do with
+  // returning fast. The click already gets instant feedback for free from
+  // the button's own pending state (see SubmitButton); this write only
+  // exists to flip the *next* page render to "Refreshing…" instead of a
+  // stale "Last priced," and that doesn't need to happen before the
+  // response — the first poll (see PriceRefreshCaption, ~1.2s later)
+  // picks it up either way.
   after(async () => {
+    // Best-effort, not awaited-and-checked the way the synchronous version
+    // was — a failure here must never skip the actual price refresh below
+    // just because the cosmetic "refreshing" status flag couldn't be set.
+    try {
+      await serviceDb().from("price_refresh_state").update({ status: "refreshing" }).eq("id", 1);
+    } catch {
+      // swallowed — see comment above
+    }
     await runPriceRefresh(requestedAt);
     revalidateAllPriceConsumers();
   });
@@ -138,13 +149,14 @@ export async function refreshPricesForWalletAction(walletId: string) {
   const requestedAt = Date.now();
   await requireUser();
 
-  const { error: markError } = await serviceDb()
-    .from("price_refresh_state")
-    .update({ status: "refreshing" })
-    .eq("id", 1);
-  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
-
+  // See refreshPricesAction's own comment for why this write moved into
+  // after() rather than being awaited here.
   after(async () => {
+    try {
+      await serviceDb().from("price_refresh_state").update({ status: "refreshing" }).eq("id", 1);
+    } catch {
+      // swallowed — a failure here must never skip the actual refresh below
+    }
     await runPriceRefresh(requestedAt);
     revalidateAllPriceConsumers();
     revalidatePath(`/wallets/${walletId}`);
