@@ -41,7 +41,7 @@ export async function syncWalletTransactions(walletId: string) {
     // reasoning as syncWalletHoldings.
     const afterDb = await userDb();
     try {
-      const transactions = await fetchWalletTransactions(
+      const { transactions, attemptedChains } = await fetchWalletTransactions(
         walletId,
         wallet.chain,
         wallet.address!,
@@ -51,6 +51,25 @@ export async function syncWalletTransactions(walletId: string) {
       const rows = [...transactions]
         .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
         .slice(0, MAX_STORED_PER_WALLET);
+
+      // A plain upsert only ever touches rows present in the fresh fetch —
+      // it can't remove one that dropped out (a spam token the filter now
+      // correctly excludes, a transaction that fell outside this sync's
+      // cap window). Real bug, caught live: a wallet's spam-token rows
+      // survived a sync that had, in fact, filtered them out of the fetch,
+      // because nothing ever deleted the old ones. Clearing every row for
+      // exactly the chains this sync actually queried — never a chain that
+      // wasn't attempted this time — before inserting the fresh set is
+      // what makes this a real replace instead of an ever-growing
+      // accumulation of everything ever seen.
+      if (attemptedChains.length > 0) {
+        const { error: deleteError } = await afterDb
+          .from("transactions")
+          .delete()
+          .eq("wallet_id", walletId)
+          .in("chain", attemptedChains);
+        if (deleteError) throw new Error(`Failed to clear stale transactions: ${deleteError.message}`);
+      }
 
       // `leg` is assigned here (not by each adapter) — the shared "more
       // than one asset moved in the same transaction" numbering scheme

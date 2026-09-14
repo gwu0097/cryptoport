@@ -42,22 +42,39 @@ export function hasTransactionCoverage(chain: string): boolean {
  * EVM-family wallet" for the wallet-level chain field, not "is this one of
  * the 25 specific sub-chain ids."
  */
+export interface WalletTransactionsResult {
+  transactions: AdapterTransaction[];
+  /** Every sub-chain actually queried this sync (real API calls made, real
+   * answer received or empty-and-trusted) — distinct from which chains
+   * happen to appear in `transactions`, which is only the chains that
+   * returned at least one surviving leg. A chain the spam filter now
+   * clears out entirely (e.g. a wallet whose only Base activity was spam)
+   * still needs to show up here, or the caller (actions.ts) has no way to
+   * know its old, now-stale rows should be deleted rather than left
+   * behind forever — see that file's own doc comment for the bug this
+   * fixed (real airdrop-spam rows survived a sync that had, in fact,
+   * correctly filtered them out of the fresh fetch, because a plain
+   * upsert only touches rows present in the new result and never deletes
+   * ones that dropped out). */
+  attemptedChains: string[];
+}
+
 export async function fetchWalletTransactions(
   walletId: string,
   chain: string,
   address: string,
   btcScriptType: ScriptType | null,
-): Promise<AdapterTransaction[]> {
+): Promise<WalletTransactionsResult> {
   if (chain === "BTC") {
     const addresses = isExtendedPublicKey(address)
       ? (await scanExtendedKey(address, { cachedScriptType: btcScriptType })).addresses
       : [address];
-    if (addresses.length === 0) return [];
-    return fetchBitcoinTransactions(addresses);
+    if (addresses.length === 0) return { transactions: [], attemptedChains: [] };
+    return { transactions: await fetchBitcoinTransactions(addresses), attemptedChains: ["bitcoin"] };
   }
 
   if (chain === "SOL") {
-    return fetchSolanaTransactions(address);
+    return { transactions: await fetchSolanaTransactions(address), attemptedChains: ["solana"] };
   }
 
   if (isEvmChainId(chain)) {
@@ -97,8 +114,11 @@ export async function fetchWalletTransactions(
         return fetchBlockscoutTransactions(evmChainId, address, evmChain.nativeSymbol);
       }),
     ]);
-    return [...etherscanResults.flat(), ...blockscoutResults.flat()];
+    return {
+      transactions: [...etherscanResults.flat(), ...blockscoutResults.flat()],
+      attemptedChains: [...etherscanChains, ...blockscoutChains],
+    };
   }
 
-  return []; // no free source researched/wired up for this chain yet
+  return { transactions: [], attemptedChains: [] }; // no free source researched/wired up for this chain yet
 }

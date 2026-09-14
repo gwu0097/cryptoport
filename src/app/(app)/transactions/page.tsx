@@ -10,6 +10,7 @@ import { GuestBanner } from "@/components/GuestBanner";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { TransactionsWalletFilter } from "@/components/TransactionsWalletFilter";
 import { TransactionsTable } from "@/components/TransactionsTable";
+import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { syncWalletTransactions, syncAllWalletTransactions } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -61,9 +62,20 @@ export default async function TransactionsPage({
   const transactions = await getTransactions(selectedWallet?.id);
 
   const covered = selectedWallet ? hasTransactionCoverage(selectedWallet.chain) : true;
+  // Same background-sync polling as the wallet detail page (see
+  // AutoRefreshWhileSyncing's own doc comment) — without this, a sync
+  // completing in after() never reaches an already-open tab: revalidatePath
+  // only affects the *next* navigation/request to this path, not a page
+  // already rendered in the browser. Scoped to whichever wallet(s) this
+  // view is actually watching — the selected one, or (in the "All
+  // wallets" view) any wallet still mid-sync.
+  const syncing = selectedWallet
+    ? selectedWallet.tx_sync_status === "syncing"
+    : wallets.some((w) => w.tx_sync_status === "syncing");
 
   return (
     <>
+      <AutoRefreshWhileSyncing syncing={syncing} />
       <PageHeader
         title="Transactions"
         subtitle="On-chain activity across your wallets — synced, not live (see Sync below)."
