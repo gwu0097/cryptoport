@@ -3,7 +3,11 @@ import { serviceDb } from "./supabase";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { refreshEvmHoldingPrices } from "./adapters/multicallEvm";
+import { fetchTokenPrices, fetchNativeMarketCaps } from "./adapters/coingecko";
+import { EVM_CHAINS } from "./adapters/evmChains";
+import { resolveCoingeckoKey } from "./priceKey";
 import { mapWithConcurrency } from "./adapters/http";
+import type { HoldingSource } from "./types";
 
 // Coinbase's Exchange API host (used for the delisting check + 24h stats,
 // see coinbase.ts) throttles hard under an unbounded burst — verified live
@@ -33,27 +37,108 @@ interface HoldingTickerInfo {
    * this only matters for the Jupiter-fallback lookup below, not for
    * anything security- or money-sensitive, so "first seen" is fine. */
   contract: string | null;
+  /** Same "first non-null seen" reasoning as contract — only used by the
+   * market-cap resolution below (resolveCoingeckoKey needs both). */
+  chain: string | null;
+  /** Plain first-seen, no null-preference — only used to skip manual_usd
+   * tickers in the market-cap step below. Getting this "wrong" (picking a
+   * non-manual source when a manual holding shares the ticker) only means
+   * a market cap that could have shown does not — never a wrong number,
+   * so it doesn't need contract/chain's more careful merge logic. */
+  source: string;
 }
 
 // Prices are driven by holdings, not by adapters: every distinct ticker any
 // holding uses needs a price, including BTC, which no adapter ever touches.
 async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
-  const { data, error } = await serviceDb().from("holdings").select("ticker, contract");
+  const { data, error } = await serviceDb().from("holdings").select("ticker, contract, chain, source");
   if (error) throw new Error(`Failed to load holding tickers: ${error.message}`);
 
-  const byTicker = new Map<string, string | null>();
-  for (const row of data as { ticker: string; contract: string | null }[]) {
-    if (!byTicker.has(row.ticker) || (!byTicker.get(row.ticker) && row.contract)) {
-      byTicker.set(row.ticker, row.contract);
+  const byTicker = new Map<string, HoldingTickerInfo>();
+  for (const row of data as { ticker: string; contract: string | null; chain: string | null; source: string }[]) {
+    const existing = byTicker.get(row.ticker);
+    if (!existing) {
+      byTicker.set(row.ticker, { ticker: row.ticker, contract: row.contract, chain: row.chain, source: row.source });
+    } else {
+      if (!existing.contract && row.contract) existing.contract = row.contract;
+      if (!existing.chain && row.chain) existing.chain = row.chain;
     }
   }
-  return [...byTicker.entries()].map(([ticker, contract]) => ({ ticker, contract }));
+  return [...byTicker.values()];
 }
 
 async function getExistingPriceSources(): Promise<Map<string, string | null>> {
   const { data, error } = await serviceDb().from("prices").select("ticker, source");
   if (error) throw new Error(`Failed to load existing prices: ${error.message}`);
   return new Map((data as { ticker: string; source: string | null }[]).map((r) => [r.ticker, r.source]));
+}
+
+const EVM_COINGECKO_PLATFORMS = new Set(EVM_CHAINS.map((c) => c.coingeckoPlatform));
+
+/**
+ * Best-effort market cap for every ticker not already covered by the EVM
+ * per-contract path — multicallEvm.ts writes market cap straight onto
+ * token_registry as a side effect of pricing an EVM ERC-20 (see its
+ * saveChange24h), for free, on every sync/refresh that holds one; this
+ * covers everything else (BTC/ETH/SOL and other native/major tickers, plus
+ * non-EVM contract-based tokens like a Solana SPL mint). Resolves each
+ * ticker to a CoinGecko key via the same resolveCoingeckoKey used for
+ * historical pricing (priceKey.ts) — contract+chain based, so it can't
+ * cross-contaminate across an unrelated token that happens to share a
+ * ticker the way a plain symbol lookup could (see CLAUDE.md's Solana
+ * ticker-collision gap). Purely informational, never fed into valuation —
+ * a resolution failure or a CoinGecko miss just leaves market_cap null,
+ * never a wrong number.
+ */
+async function refreshTickerMarketCaps(tickers: HoldingTickerInfo[]): Promise<void> {
+  const nativeIds = new Set<string>();
+  const nativeIdTickers = new Map<string, string>(); // coingecko id -> ticker
+  const contractsByPlatform = new Map<string, { ticker: string; contract: string }[]>();
+
+  for (const t of tickers) {
+    if (t.source === "manual_usd") continue;
+    const key = resolveCoingeckoKey({
+      ticker: t.ticker,
+      source: t.source as HoldingSource,
+      contract: t.contract,
+      chain: t.chain,
+    });
+    if (!key) continue;
+
+    const colon = key.indexOf(":");
+    if (colon === -1) {
+      nativeIds.add(key);
+      nativeIdTickers.set(key, t.ticker);
+    } else {
+      const platform = key.slice(0, colon);
+      if (EVM_COINGECKO_PLATFORMS.has(platform)) continue; // covered for free via token_registry already
+      const contract = key.slice(colon + 1);
+      if (!contractsByPlatform.has(platform)) contractsByPlatform.set(platform, []);
+      contractsByPlatform.get(platform)!.push({ ticker: t.ticker, contract });
+    }
+  }
+
+  const rows: { ticker: string; market_cap: number }[] = [];
+
+  if (nativeIds.size > 0) {
+    const caps = await fetchNativeMarketCaps([...nativeIds]);
+    for (const [id, ticker] of nativeIdTickers) {
+      const cap = caps.get(id);
+      if (cap !== undefined) rows.push({ ticker, market_cap: cap });
+    }
+  }
+
+  for (const [platform, entries] of contractsByPlatform) {
+    const prices = await fetchTokenPrices(platform, entries.map((e) => e.contract));
+    for (const { ticker, contract } of entries) {
+      const cap = prices.get(contract.toLowerCase())?.marketCap;
+      if (cap != null) rows.push({ ticker, market_cap: cap });
+    }
+  }
+
+  if (rows.length === 0) return;
+  const { error } = await serviceDb().from("prices").upsert(rows, { onConflict: "ticker" });
+  if (error) throw new Error(`Failed to save market caps: ${error.message}`);
 }
 
 async function upsertPrice(
@@ -160,6 +245,17 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   // Coinbase failure in the combined results.
   const jupiterSucceeded = new Set(jupiterResults.filter((r) => r.ok).map((r) => r.ticker));
   const evmResults = await refreshEvmHoldingPrices();
+
+  // Same "cosmetic, never take down real price data" reasoning as
+  // multicallEvm.ts's own try/catch around its 24h-change/market-cap
+  // writes — a CoinGecko hiccup here must never fail the actual price
+  // refresh this runs alongside.
+  try {
+    await refreshTickerMarketCaps(holdingTickers);
+  } catch {
+    // swallowed — market cap is purely informational
+  }
+
   return [
     ...coinbaseResults.filter((r) => r.ok || !jupiterSucceeded.has(r.ticker)),
     ...jupiterResults,

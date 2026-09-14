@@ -172,6 +172,37 @@ export const getContractChangeMap = cache(async (): Promise<Record<string, numbe
   return changes;
 });
 
+/** Same "first-seen-casing" ticker-keyed lookup as getPriceChangeMap, for
+ * prices.market_cap (see prices.ts's refreshTickerMarketCaps). Cached
+ * per-request — same reasoning as getPriceMap's doc comment. */
+export const getPriceMarketCapMap = cache(async (): Promise<Record<string, number | null>> => {
+  const { data, error } = await serviceDb().from("prices").select("ticker, market_cap");
+  if (error) throw new Error(`Failed to load price market caps: ${error.message}`);
+
+  const caps: Record<string, number | null> = {};
+  for (const row of data as { ticker: string; market_cap: number | string | null }[]) {
+    caps[row.ticker] = parseNumeric(row.market_cap);
+  }
+  return caps;
+});
+
+/** Same contract-keyed lookup as getContractChangeMap, for
+ * token_registry.market_cap (see multicallEvm.ts's saveChange24h). Cached
+ * per-request — same reasoning as getPriceMap's doc comment. */
+export const getContractMarketCapMap = cache(async (): Promise<Record<string, number | null>> => {
+  const { data, error } = await serviceDb()
+    .from("token_registry")
+    .select("contract, market_cap")
+    .not("market_cap", "is", null);
+  if (error) throw new Error(`Failed to load token registry market caps: ${error.message}`);
+
+  const caps: Record<string, number | null> = {};
+  for (const row of data as { contract: string; market_cap: number | string | null }[]) {
+    caps[row.contract.toLowerCase()] = parseNumeric(row.market_cap);
+  }
+  return caps;
+});
+
 // The ticker-keyed `prices` table is deliberately never consulted for a
 // holding that already carries usd_override (see valuation.ts) — but the
 // per-unit "Price" column still wants a number to show instead of a
@@ -433,6 +464,12 @@ export interface AssetGroup {
   /** 24h % change (see prices.change_24h_pct) — null when unavailable,
    * same "don't distinguish why" reasoning as `price`. */
   change24h: number | null;
+  /** The asset's total market cap (not this portfolio's position size in
+   * it) — same contract-keyed-first-then-ticker-keyed resolution as
+   * change24h, see getContractMarketCapMap/getPriceMarketCapMap. Purely
+   * informational (sort/reference only), null when CoinGecko has no market
+   * cap for this asset or it couldn't be resolved to a CoinGecko id. */
+  marketCap: number | null;
   holdings: AssetHoldingEntry[];
 }
 
@@ -455,11 +492,13 @@ export interface AssetsByTickerResult {
  */
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, priceChanges, contractChanges] = await Promise.all([
+  const [rows, prices, priceChanges, contractChanges, priceMarketCaps, contractMarketCaps] = await Promise.all([
     getActiveWalletsWithHoldings(),
     getPriceMap(),
     getPriceChangeMap(),
     getContractChangeMap(),
+    getPriceMarketCapMap(),
+    getContractMarketCapMap(),
   ]);
 
   const byTicker = new Map<string, AssetGroup>();
@@ -489,6 +528,7 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
           unpricedCount: 0,
           price: null,
           change24h: null,
+          marketCap: null,
           holdings: [],
         };
         byTicker.set(key, group);
@@ -515,6 +555,13 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
         const change = (holding.contract ? contractChanges[holding.contract.toLowerCase()] : undefined) ??
           priceChanges[holding.ticker];
         if (change != null) group.change24h = change;
+      }
+      if (group.marketCap === null) {
+        // Same contract-keyed-first-then-ticker-keyed resolution as
+        // change24h just above, same reasoning.
+        const cap = (holding.contract ? contractMarketCaps[holding.contract.toLowerCase()] : undefined) ??
+          priceMarketCaps[holding.ticker];
+        if (cap != null) group.marketCap = cap;
       }
       const qty = parseNumeric(holding.qty);
       if (qty !== null) group.totalQty = (group.totalQty ?? 0) + qty;

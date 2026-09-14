@@ -118,9 +118,13 @@ export interface CoingeckoPrice {
    * include_24hr_change=true. Null when CoinGecko has no 24h stats for this
    * asset, which doesn't block the price itself from being used. */
   change24h: number | null;
+  /** Free in the same response via include_market_cap=true — no extra call
+   * over what this function already makes. Null when CoinGecko has no
+   * market cap for this asset (a token too new/thin for it to compute). */
+  marketCap: number | null;
 }
 
-/** contract (lowercase) -> {usd, change24h}, only for contracts CoinGecko can price. */
+/** contract (lowercase) -> {usd, change24h, marketCap}, only for contracts CoinGecko can price. */
 export async function fetchTokenPrices(
   coingeckoPlatform: string,
   contracts: string[],
@@ -129,21 +133,46 @@ export async function fetchTokenPrices(
   if (contracts.length === 0) return prices;
 
   for (const batch of chunk(contracts, PRICE_BATCH_SIZE)) {
-    const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true`;
+    const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     const res = await fetchWithRetry(url, { headers: headers() });
     if (!res.ok) throw new Error(`CoinGecko token_price(${coingeckoPlatform}) failed: HTTP ${res.status}`);
-    const body: Record<string, { usd?: number; usd_24h_change?: number }> = await res.json();
+    const body: Record<string, { usd?: number; usd_24h_change?: number; usd_market_cap?: number }> =
+      await res.json();
     for (const [contract, price] of Object.entries(body)) {
       if (typeof price.usd === "number") {
         prices.set(contract.toLowerCase(), {
           usd: price.usd,
           change24h: typeof price.usd_24h_change === "number" ? price.usd_24h_change : null,
+          marketCap: typeof price.usd_market_cap === "number" ? price.usd_market_cap : null,
         });
       }
     }
   }
 
   return prices;
+}
+
+/** coingecko-id -> market cap, batched the same way fetchTokenPrices is —
+ * for ticker-keyed native/major assets (BTC, ETH, SOL, ...), which don't
+ * go through fetchTokenPrices' contract-address lookup at all. Only the
+ * market-cap half is needed here: prices.ts already has these tickers'
+ * actual usd price from Coinbase/Jupiter, which stays authoritative for
+ * valuation — this is purely the extra informational column. */
+export async function fetchNativeMarketCaps(coingeckoIds: string[]): Promise<Map<string, number>> {
+  const caps = new Map<string, number>();
+  if (coingeckoIds.length === 0) return caps;
+
+  for (const batch of chunk(coingeckoIds, PRICE_BATCH_SIZE)) {
+    const url = `${API_BASE}/simple/price?ids=${batch.join(",")}&vs_currencies=usd&include_market_cap=true`;
+    const res = await fetchWithRetry(url, { headers: headers() });
+    if (!res.ok) throw new Error(`CoinGecko simple/price (market cap) failed: HTTP ${res.status}`);
+    const body: Record<string, { usd_market_cap?: number }> = await res.json();
+    for (const [id, entry] of Object.entries(body)) {
+      if (typeof entry.usd_market_cap === "number") caps.set(id, entry.usd_market_cap);
+    }
+  }
+
+  return caps;
 }
 
 const IMAGE_BATCH_SIZE = 250; // coins/markets' own per-call ids cap

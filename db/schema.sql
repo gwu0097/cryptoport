@@ -461,3 +461,18 @@ grant select on cryptoport.price_history to authenticated;
 
 create policy "price_history: readable by all signed-in users"
   on cryptoport.price_history for select to authenticated using (true);
+
+-- Asset market cap for the Assets page's sortable "Market Cap" column —
+-- purely informational, never fed into valuation. Two write paths, same
+-- split as change_24h_pct above: token_registry.market_cap for EVM
+-- contract-based holdings (free in the same CoinGecko call multicallEvm.ts
+-- already makes to price them), prices.market_cap for everything else
+-- (native/major tickers and non-EVM contract-based tokens, resolved via
+-- priceKey.ts's resolveCoingeckoKey — see prices.ts's
+-- refreshTickerMarketCaps). Both volatile, rewritten on every
+-- sync/refresh that touches the asset, same lifetime as price/24h-change.
+alter table cryptoport.token_registry
+  add column market_cap numeric;
+
+alter table cryptoport.prices
+  add column market_cap numeric;

@@ -8,6 +8,21 @@ export function formatUsd(value: number): string {
   return usdFormatter.format(value);
 }
 
+const compactUsdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+/** For a number too large to read comfortably at full precision (market
+ * cap) — $78.3B, not $78,317,412,904.11. Null covers "not available",
+ * consistent with formatPercent's convention. */
+export function formatCompactUsd(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  return compactUsdFormatter.format(value);
+}
+
 /** Same explicit "+" convention as formatPercent (Intl's own formatting
  * only signs negatives) — for a delta like a 24h portfolio change, not a
  * plain total. formatUsd itself stays unsigned; nowhere else needs a "+". */

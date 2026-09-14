@@ -4,13 +4,13 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
-import { formatUsd, formatQty, formatPercent } from "@/lib/format";
+import { formatUsd, formatCompactUsd, formatQty, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { usePersistedState } from "./usePersistedState";
 
-type SortKey = "ticker" | "price" | "change24h" | "qty" | "wallets" | "value";
+type SortKey = "ticker" | "price" | "change24h" | "marketCap" | "qty" | "wallets" | "value";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:assetsSort";
@@ -24,6 +24,8 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
       return group.price ?? -Infinity;
     case "change24h":
       return group.change24h ?? -Infinity;
+    case "marketCap":
+      return group.marketCap ?? -Infinity;
     case "qty":
       return group.totalQty ?? -Infinity;
     case "wallets":
@@ -179,6 +181,14 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                 className={hideOnMobileClass}
               />
               <Header
+                label="Market Cap"
+                sortKeyValue="marketCap"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className={hideOnMobileClass}
+              />
+              <Header
                 label="Qty"
                 sortKeyValue="qty"
                 sortKey={sortKey}
@@ -226,6 +236,9 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                     <td className={`${tdClass} ${hideOnMobileClass}`}>
                       <ChangeCell value={group.change24h} />
                     </td>
+                    <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
+                      {formatCompactUsd(group.marketCap)}
+                    </td>
                     <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
                       {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
                     </td>
@@ -234,7 +247,7 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={7} className="border-b border-border bg-bg p-0">
+                      <td colSpan={8} className="border-b border-border bg-bg p-0">
                         <table className={tableClass}>
                           <thead>
                             <tr className={theadRowClass}>

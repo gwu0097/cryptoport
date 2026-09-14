@@ -108,15 +108,16 @@ async function saveImageUrls(
   await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
 
-// Unlike decimals/images (fetched once, cached forever), 24h change is
-// volatile — written on every sync that holds the token, same lifetime as
-// the price itself. Read back by queries.ts's getContractChangeMap, keyed
-// by (chain_id, contract) so the same ticker on different chains (or a
-// ticker collision with an unrelated token) never cross-contaminates —
-// see the "prices" ticker-keyed table's own limitation this sidesteps.
+// Unlike decimals/images (fetched once, cached forever), 24h change and
+// market cap are volatile — written on every sync/refresh that holds the
+// token, same lifetime as the price itself. Read back by queries.ts's
+// getContractChangeMap/getContractMarketCapMap, keyed by (chain_id,
+// contract) so the same ticker on different chains (or a ticker collision
+// with an unrelated token) never cross-contaminates — see the "prices"
+// ticker-keyed table's own limitation this sidesteps.
 async function saveChange24h(
   chainId: string,
-  rows: { contract: string; symbol: string; change_24h_pct: number | null }[],
+  rows: { contract: string; symbol: string; change_24h_pct: number | null; market_cap: number | null }[],
 ) {
   await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
@@ -277,24 +278,25 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     priceable.map((x) => x.token.contract),
   );
 
-  const included: { token: RegistryToken; qty: number; usd: number; change24h: number | null }[] = [];
+  const included: { token: RegistryToken; qty: number; usd: number; change24h: number | null; marketCap: number | null }[] = [];
   for (const { token, result } of priceable) {
     const price = prices.get(token.contract.toLowerCase());
     if (price === undefined) continue; // no live price — dropped, see doc comment above
     const qty = Number(formatUnits(result.result as unknown as bigint, token.decimals!));
     const usd = qty * price.usd;
     if (usd <= TOKEN_USD_FLOOR) continue;
-    included.push({ token, qty, usd, change24h: price.change24h });
+    included.push({ token, qty, usd, change24h: price.change24h, marketCap: price.marketCap });
   }
 
   // Volatile, unlike decimals/images above — written every sync regardless
   // of whether token_registry already had a value, so a token's 24h change
   // never goes stale between refreshTokenRegistry runs.
   try {
-    const changeRows = included.map(({ token, change24h }) => ({
+    const changeRows = included.map(({ token, change24h, marketCap }) => ({
       contract: token.contract,
       symbol: token.symbol,
       change_24h_pct: change24h,
+      market_cap: marketCap,
     }));
     if (changeRows.length > 0) await saveChange24h(chain.id, changeRows);
   } catch {
@@ -482,7 +484,12 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
 
     type Upsert = { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number };
     const upserts: Upsert[] = [];
-    const changeRows: { contract: string; symbol: string; change_24h_pct: number | null }[] = [];
+    const changeRows: {
+      contract: string;
+      symbol: string;
+      change_24h_pct: number | null;
+      market_cap: number | null;
+    }[] = [];
 
     if (contractRows.length > 0) {
       try {
@@ -505,7 +512,12 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
             source: "auto",
             usd_override: qty * price.usd,
           });
-          changeRows.push({ contract: row.contract, symbol: row.ticker, change_24h_pct: price.change24h });
+          changeRows.push({
+            contract: row.contract,
+            symbol: row.ticker,
+            change_24h_pct: price.change24h,
+            market_cap: price.marketCap,
+          });
         }
       } catch (e) {
         for (const row of contractRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
