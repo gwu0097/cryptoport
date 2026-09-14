@@ -1,6 +1,7 @@
 import "server-only";
 import { EVM_CHAINS, isEvmChainId } from "./evmChains";
 import { ETHERSCAN_EXPLORERS, FREE_TIER_UNSUPPORTED, fetchEvmTransactions } from "./etherscan";
+import { BLOCKSCOUT_HOSTS, fetchBlockscoutTransactions } from "./blockscout";
 import { fetchBitcoinTransactions } from "./bitcoinTx";
 import { fetchSolanaTransactions } from "./solanaTx";
 import { scanExtendedKey, isExtendedPublicKey, type ScriptType } from "./bitcoinXpub";
@@ -21,15 +22,18 @@ export function hasTransactionCoverage(chain: string): boolean {
 
 /**
  * Fetches a wallet's transaction history from whichever free source(s)
- * cover its chain — see etherscan.ts's own doc comment for exactly which
- * EVM chains that is: 13 of this app's 25, after live-testing with a real
- * key turned up a second gate beyond chainlist membership (Base, Optimism,
- * Avalanche, BSC, and Gnosis are all permanently paid-only on Etherscan's
- * free tier, despite being routable). A wallet on an uncovered chain
- * (every non-EVM chain except BTC/SOL, an EVM sub-chain outside
- * ETHERSCAN_EXPLORERS, or one in FREE_TIER_UNSUPPORTED) returns an empty
- * list rather than throwing — the caller shows "not yet supported" for
- * those, never a silently-empty list pretending to be complete history.
+ * cover its chain. For EVM, that's two genuinely independent services —
+ * Etherscan's unified API (13 of this app's 25 EVM chains actually free;
+ * Base/Optimism/Avalanche/BSC/Gnosis are routable but paid-only, see
+ * etherscan.ts) and Blockscout's per-chain hosted instances (10 more
+ * chains, including 2 of Etherscan's paid-only ones — see blockscout.ts)
+ * — dispatched per chain to whichever covers it, never both. A wallet on a
+ * chain neither covers (every non-EVM chain except BTC/SOL, or an EVM
+ * sub-chain in neither ETHERSCAN_EXPLORERS-minus-FREE_TIER_UNSUPPORTED nor
+ * BLOCKSCOUT_HOSTS — currently just Avalanche, BSC, Manta) returns an
+ * empty list rather than throwing — the caller shows "not yet supported"
+ * for those, never a silently-empty list pretending to be complete
+ * history.
  *
  * `isEvmChainId(chain)` here is the same coincidence pinnedWalletChain.ts
  * relies on: every EVM wallet's own `wallets.chain` is literally the
@@ -73,13 +77,27 @@ export async function fetchWalletTransactions(
     if (error) throw new Error(`Failed to load wallet chains: ${error.message}`);
 
     const heldChains = [...new Set((data as { chain: string }[]).map((r) => r.chain))];
-    const covered = heldChains.filter((c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c));
+    // Two independent free sources, dispatched to whichever actually
+    // covers a given chain — Etherscan first where it's genuinely free
+    // (see FREE_TIER_UNSUPPORTED), Blockscout for the chains Etherscan has
+    // no coverage for at all or paywalls. No chain currently needs both
+    // (the two sets don't overlap), but the `!etherscanChains.includes`
+    // guard keeps it that way even if that ever changes, rather than
+    // double-fetching the same chain from two sources.
+    const etherscanChains = heldChains.filter((c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c));
+    const blockscoutChains = heldChains.filter((c) => c in BLOCKSCOUT_HOSTS && !etherscanChains.includes(c));
 
-    const perChain = await mapWithConcurrency(covered, 2, (evmChainId) => {
-      const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-      return fetchEvmTransactions(evmChainId, address, evmChain.nativeSymbol);
-    });
-    return perChain.flat();
+    const [etherscanResults, blockscoutResults] = await Promise.all([
+      mapWithConcurrency(etherscanChains, 2, (evmChainId) => {
+        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
+        return fetchEvmTransactions(evmChainId, address, evmChain.nativeSymbol);
+      }),
+      mapWithConcurrency(blockscoutChains, 3, (evmChainId) => {
+        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
+        return fetchBlockscoutTransactions(evmChainId, address, evmChain.nativeSymbol);
+      }),
+    ]);
+    return [...etherscanResults.flat(), ...blockscoutResults.flat()];
   }
 
   return []; // no free source researched/wired up for this chain yet

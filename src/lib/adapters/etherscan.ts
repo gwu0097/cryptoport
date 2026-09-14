@@ -127,6 +127,7 @@ export async function fetchEvmTransactions(
 
   for (const row of native) {
     if (row.isError === "1") continue; // reverted — no real transfer happened, would show a misleading amount
+    if (row.value === "0") continue; // a contract call (approve, swap routing, ...), not a real native transfer — its actual effect (if any) is in `tokens` below
     const from = row.from.toLowerCase();
     const to = row.to.toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";

@@ -109,8 +109,8 @@ export default async function TransactionsPage({
         <Panel className="mb-4">
           <p className="text-sm text-fg-muted">
             {selectedWallet!.name} is on {selectedWallet!.chain}, which has no free transaction-history source
-            wired up yet — Bitcoin, Solana, and 13 EVM chains are covered so far (Base, Optimism,
-            Avalanche, BSC, and Gnosis are routable but permanently gated behind Etherscan&rsquo;s paid tier).
+            wired up yet — Bitcoin, Solana, and 23 EVM chains are covered so far (Avalanche, BSC, and Manta
+            are the remaining EVM gaps — no free source found for those).
           </p>
         </Panel>
       )}
