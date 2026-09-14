@@ -131,8 +131,12 @@ export async function fetchEvmTransactions(
   for (const row of native) {
     if (row.isError === "1") continue; // reverted — no real transfer happened, would show a misleading amount
     if (row.value === "0") continue; // a contract call (approve, swap routing, ...), not a real native transfer — its actual effect (if any) is in `tokens` below
-    const from = row.from.toLowerCase();
-    const to = row.to.toLowerCase();
+    // Defensive fallback, not documented Etherscan behavior — see
+    // blockscout.ts's own from/to null crash this session for why an
+    // unguarded field access here isn't worth the risk even on an API
+    // whose docs say these are always populated strings.
+    const from = (row.from ?? "").toLowerCase();
+    const to = (row.to ?? "").toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";
     results.push({
       txHash: row.hash,
@@ -165,7 +169,7 @@ export async function fetchEvmTransactions(
   // every one being wrongly treated as spam. spamFilterAvailable tracks
   // which of those two states applied.
   const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
-  const contracts = [...new Set(tokens.map((r) => r.contractAddress.toLowerCase()))];
+  const contracts = [...new Set(tokens.filter((r) => r.contractAddress).map((r) => r.contractAddress.toLowerCase()))];
   let priced = new Map<string, unknown>();
   let spamFilterAvailable = false;
   if (evmChain && contracts.length > 0) {
@@ -178,9 +182,10 @@ export async function fetchEvmTransactions(
   }
 
   for (const row of tokens) {
+    if (!row.contractAddress) continue; // no contract to identify or price this leg by — can't be shown honestly
     if (spamFilterAvailable && !priced.has(row.contractAddress.toLowerCase())) continue;
-    const from = row.from.toLowerCase();
-    const to = row.to.toLowerCase();
+    const from = (row.from ?? "").toLowerCase();
+    const to = (row.to ?? "").toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";
     const decimals = Number(row.tokenDecimal) || 18;
     results.push({

@@ -45,7 +45,13 @@ interface BlockscoutTxItem {
   timestamp: string;
   status: string; // "ok" | "error"
   value: string; // wei, as a string
-  from: BlockscoutAddressRef;
+  // Real bug, caught live: `from` is null too on at least some L2 chains'
+  // synthetic/system transactions (e.g. an L1-attributes or deposit-style
+  // entry an Optimism-family chain injects) — a plain `tx.from.hash`
+  // crashed a real sync ("Cannot read properties of undefined"). Typed as
+  // nullable like `to` already was, and every access site below is guarded
+  // the same way.
+  from: BlockscoutAddressRef | null;
   to: BlockscoutAddressRef | null; // null for a contract-creation tx
   fee: { value: string | null };
 }
@@ -90,7 +96,7 @@ export async function fetchBlockscoutTransactions(
   for (const tx of native) {
     if (tx.status !== "ok") continue; // reverted — no real transfer happened
     if (tx.value === "0") continue; // a contract-call/token-only tx — its real transfer (if any) is in `tokens` below
-    const from = tx.from.hash.toLowerCase();
+    const from = tx.from?.hash.toLowerCase();
     const to = tx.to?.hash.toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";
     results.push({
@@ -100,7 +106,7 @@ export async function fetchBlockscoutTransactions(
       direction,
       ticker: nativeSymbol,
       amount: Number(tx.value) / 1e18,
-      counterparty: direction === "out" ? (tx.to?.hash ?? null) : tx.from.hash,
+      counterparty: direction === "out" ? (tx.to?.hash ?? null) : (tx.from?.hash ?? null),
       explorerUrl: `${explorerBase}/tx/${tx.hash}`,
       fee: from === lower && tx.fee.value ? Number(tx.fee.value) / 1e18 : null,
     });
@@ -119,7 +125,9 @@ export async function fetchBlockscoutTransactions(
   // guard: a CoinGecko hiccup here must never take down this chain's real
   // transaction data.
   const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
-  const contracts = [...new Set(tokens.filter((t) => t.total).map((t) => t.token.address_hash.toLowerCase()))];
+  const contracts = [
+    ...new Set(tokens.filter((t) => t.total && t.token.address_hash).map((t) => t.token.address_hash.toLowerCase())),
+  ];
   let priced = new Map<string, unknown>();
   let spamFilterAvailable = false;
   if (evmChain && contracts.length > 0) {
@@ -133,6 +141,12 @@ export async function fetchBlockscoutTransactions(
 
   for (const row of tokens) {
     if (!row.total) continue; // an NFT transfer, not a fungible amount — no honest single "amount" to show
+    // Defensive, not just tidy — a couple of the older Blockscout versions
+    // this app talks to (Merlin, Metis) shape this payload slightly
+    // differently already (see this file's own header comment), so a
+    // missing field here is plausible; skip that one row rather than let
+    // it throw and take down every other row this chain actually has.
+    if (!row.token.address_hash || !row.from?.hash || !row.to?.hash) continue;
     if (spamFilterAvailable && !priced.has(row.token.address_hash.toLowerCase())) continue;
     const from = row.from.hash.toLowerCase();
     const to = row.to.hash.toLowerCase();
