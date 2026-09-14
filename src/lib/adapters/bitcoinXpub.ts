@@ -63,9 +63,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function scanChain(chainKey: HDKey, scriptType: ScriptType): Promise<{ sats: number; used: boolean }> {
+async function scanChain(
+  chainKey: HDKey,
+  scriptType: ScriptType,
+): Promise<{ sats: number; used: boolean; addresses: string[] }> {
   let totalSats = 0;
   let anyUsed = false;
+  const addresses: string[] = [];
 
   for (let batchStart = 0; batchStart < MAX_INDEX; batchStart += GAP_LIMIT) {
     if (batchStart > 0) await sleep(BATCH_PAUSE_MS);
@@ -75,15 +79,16 @@ async function scanChain(chainKey: HDKey, scriptType: ScriptType): Promise<{ sat
       const address = deriveAddress(chainKey.deriveChild(i), scriptType);
       const stats = await fetchAddressStats(address);
       const used = stats.chain_stats.tx_count > 0 || stats.mempool_stats.tx_count > 0;
-      return { used, sats: satsFromStats(stats) };
+      return { used, sats: satsFromStats(stats), address };
     });
 
     totalSats += batch.reduce((sum, r) => sum + r.sats, 0);
+    for (const r of batch) if (r.used) addresses.push(r.address);
     if (batch.some((r) => r.used)) anyUsed = true;
     if (batch.every((r) => !r.used)) break; // a full gap-limit window with nothing used — done
   }
 
-  return { sats: totalSats, used: anyUsed };
+  return { sats: totalSats, used: anyUsed, addresses };
 }
 
 export interface ScanResult {
@@ -95,6 +100,13 @@ export interface ScanResult {
    * silently under-report the other from then on, so it's deliberately
    * left uncached and every sync keeps checking all three). */
   detectedScriptType: ScriptType | null;
+  /** Every derived address (across both the receive and change chains, and
+   * every script type actually checked) that's ever had a transaction —
+   * not just the ones currently holding a balance. This is what
+   * transactionSync.ts needs to pull an xpub wallet's tx history: an
+   * address that's been fully swept still has past transactions worth
+   * showing, even though scanChain's `sats` no longer counts it. */
+  addresses: string[];
 }
 
 /**
@@ -143,6 +155,7 @@ export async function scanExtendedKey(
   const usedTypes = [...new Set(results.filter((r) => r.used).map((r) => r.scriptType))];
   const detectedScriptType =
     scriptTypes.length === 1 ? scriptTypes[0] : usedTypes.length === 1 ? usedTypes[0] : null;
+  const addresses = results.flatMap((r) => r.addresses);
 
-  return { sats, detectedScriptType };
+  return { sats, detectedScriptType, addresses };
 }

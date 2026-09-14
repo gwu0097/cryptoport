@@ -476,3 +476,54 @@ alter table cryptoport.token_registry
 
 alter table cryptoport.prices
   add column market_cap numeric;
+
+-- Per-wallet transaction history for the /transactions tab. Explicit
+-- "Sync transactions" action, not live/on every page load (rate limits +
+-- "every click fast") and not folded into syncWalletHoldings (transaction
+-- fetching is slower and shouldn't make the existing balance sync worse) —
+-- see src/lib/adapters/transactionDispatch.ts, the single dispatch point
+-- for which free source covers which chain.
+--
+-- `leg` (not just wallet_id/chain/tx_hash) is part of the uniqueness key
+-- because one transaction can move more than one asset for this wallet at
+-- once — an EVM tx moving native ETH *and* a token in the same call, or a
+-- Solana swap (token A out, token B in) — and each becomes its own row
+-- sharing the same tx_hash. Capped at each source's own per-call limit
+-- (not unbounded backfill, not further paginated) — see etherscan.ts/
+-- bitcoinShared.ts/solanaTx.ts's own caps.
+create table cryptoport.transactions (
+  id           uuid primary key default gen_random_uuid(),
+  wallet_id    uuid not null references cryptoport.wallets(id) on delete cascade,
+  chain        text not null,        -- sub-chain: 'bitcoin' | 'solana' | 'eth' | 'arb' | ...
+  tx_hash      text not null,
+  leg          int not null default 0,
+  occurred_at  timestamptz not null,
+  direction    text not null,        -- 'in' | 'out' | 'self' | 'unknown'
+  ticker       text,
+  amount       numeric,
+  counterparty text,
+  explorer_url text,
+  fee          numeric,
+  synced_at    timestamptz not null default now(),
+  unique (wallet_id, chain, tx_hash, leg)
+);
+
+alter table cryptoport.transactions enable row level security;
+grant all on cryptoport.transactions to service_role;
+grant select on cryptoport.transactions to authenticated;
+
+create policy "transactions: owner only" on cryptoport.transactions
+  for select using (
+    wallet_id in (select id from cryptoport.wallets where user_id = auth.uid())
+  );
+
+create index transactions_wallet_occurred_idx
+  on cryptoport.transactions (wallet_id, occurred_at desc);
+
+-- Separate from last_refresh_at/last_refresh_status (holdings sync) —
+-- "staleness is two independent things" already applied to prices vs.
+-- wallet sync, now extended to a third: transaction sync has its own
+-- cadence and can fail independently of a holdings sync.
+alter table cryptoport.wallets
+  add column tx_synced_at timestamptz,
+  add column tx_sync_status text;

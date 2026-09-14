@@ -83,6 +83,11 @@ export interface Wallet {
    * Never goes stale (a payment address's staking credential can't change
    * once set), unlike BTC's script-type cache. */
   cardano_stake_address: string | null;
+  /** Separate from last_refresh_at/last_refresh_status (holdings) — see
+   * schema.sql's own comment: transaction sync has its own cadence and can
+   * fail independently of a holdings sync. */
+  tx_synced_at: string | null;
+  tx_sync_status: string | null;
   created_at: string;
 }
 
@@ -90,6 +95,22 @@ export interface Wallet {
  * embedded (see queries.ts), never just the bare tag_id. */
 export interface WalletWithTag extends Wallet {
   tag: Tag | null;
+}
+
+export interface Transaction {
+  id: string;
+  wallet_id: string;
+  chain: string;
+  tx_hash: string;
+  leg: number;
+  occurred_at: string;
+  direction: "in" | "out" | "self" | "unknown";
+  ticker: string | null;
+  amount: number | string | null;
+  counterparty: string | null;
+  explorer_url: string | null;
+  fee: number | string | null;
+  synced_at: string;
 }
 
 export interface Holding {

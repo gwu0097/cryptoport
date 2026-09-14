@@ -13,7 +13,7 @@ import {
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
 import { pinnedWalletChain, type WalletChain } from "./walletDisplay.ts";
-import type { Holding, LinkedWallet, Price, Tag, Wallet, WalletWithTag } from "./types";
+import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTag } from "./types";
 
 export interface PriceRefreshState {
   refreshedAt: string | null;
@@ -695,5 +695,42 @@ export async function getValueHistory(walletId?: string): Promise<PortfolioHisto
   return (data as { snapshot_date: string; total_usd: number | string }[]).map((row) => ({
     date: row.snapshot_date,
     total: parseNumeric(row.total_usd) ?? 0,
+  }));
+}
+
+export interface TransactionRow extends Omit<Transaction, "amount" | "fee"> {
+  walletName: string;
+  amount: number | null;
+  fee: number | null;
+}
+
+/**
+ * `walletId` omitted reads every transaction across every active wallet
+ * this user owns, newest first — RLS on cryptoport.transactions (owner-
+ * only via the same wallets.user_id subquery pattern as holdings) already
+ * scopes this to just their own rows, so no manual per-wallet loop/merge
+ * is needed here the way the Dashboard's movers list has to do for
+ * ticker-grouping. Capped at 500 rows — this is a read of already-synced,
+ * already-capped-per-wallet data (see transactions/actions.ts), not a live
+ * fetch, so this cap is just "don't hand the client an unbounded table,"
+ * not a rate-limit concern.
+ */
+export async function getTransactions(walletId?: string): Promise<TransactionRow[]> {
+  if (!(await getUser())) return [];
+  const db = await userDb();
+
+  const { data, error } = await (walletId
+    ? db.from("transactions").select("*, wallets(name)").eq("wallet_id", walletId)
+    : db.from("transactions").select("*, wallets(name)")
+  )
+    .order("occurred_at", { ascending: false })
+    .limit(500);
+  if (error) throw new Error(`Failed to load transactions: ${error.message}`);
+
+  return (data as (Transaction & { wallets: { name: string } | null })[]).map((row) => ({
+    ...row,
+    walletName: row.wallets?.name ?? "Unknown wallet",
+    amount: parseNumeric(row.amount),
+    fee: parseNumeric(row.fee),
   }));
 }

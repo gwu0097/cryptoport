@@ -46,3 +46,32 @@ export function satsFromStats(stats: AddressStats): number {
   const mempool = stats.mempool_stats.funded_txo_sum - stats.mempool_stats.spent_txo_sum;
   return confirmed + mempool;
 }
+
+export interface EsploraTxOutput {
+  scriptpubkey_address?: string;
+  value: number;
+}
+
+export interface EsploraTx {
+  txid: string;
+  vin: { prevout?: EsploraTxOutput }[];
+  vout: EsploraTxOutput[];
+  status: { confirmed: boolean; block_time?: number };
+}
+
+/** The 25 most recent transactions (confirmed + mempool, newest first) —
+ * see transactionSync.ts's own cap reasoning for why this app doesn't
+ * paginate past Esplora's own single-page size (`/txs/chain/{last_txid}`
+ * exists for that but isn't used here). */
+export async function fetchAddressTxs(address: string): Promise<EsploraTx[]> {
+  try {
+    const res = await fetchWithRetry(`${PRIMARY_BASE}/address/${address}/txs`, {}, { attempts: 2 });
+    if (res.ok) return res.json();
+  } catch {
+    // fall through to the fallback host below
+  }
+
+  const res = await fetchWithRetry(`${FALLBACK_BASE}/address/${address}/txs`);
+  if (!res.ok) throw new Error(`Bitcoin address tx lookup failed: HTTP ${res.status}`);
+  return res.json();
+}

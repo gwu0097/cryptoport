@@ -32,3 +32,36 @@ export interface AdapterHolding {
   protocol?: string | null;
   protocol_url?: string | null;
 }
+
+/** What a transaction adapter hands back for one on-chain event, before
+ * insertion into cryptoport.transactions. Deliberately loose on amount/
+ * direction/counterparty (all nullable) rather than requiring an adapter
+ * to force a guess when a transaction's effect on the wallet genuinely
+ * can't be determined cleanly (e.g. a Solana transaction touching many
+ * accounts at once) — same "unknown beats a plausible-looking wrong
+ * number" reasoning as valuation.ts's Valuation type. */
+export interface AdapterTransaction {
+  /** Chain-native transaction id — the primary key half that makes a
+   * transaction unique together with wallet_id (see transactions' unique
+   * constraint doc comment in schema.sql for why chain is also part of
+   * it: one EVM "wallet" spans many chains with independent hash spaces). */
+  txHash: string;
+  /** Sub-chain this happened on, same vocabulary as holdings.chain — 'eth'
+   * | 'arb' | ... for EVM, 'bitcoin', 'solana'. */
+  chain: string;
+  occurredAt: string; // ISO timestamp
+  direction: "in" | "out" | "self" | "unknown";
+  /** Display ticker for the asset that moved — null when a transaction
+   * touched multiple assets/instructions and no single one is "the"
+   * transfer (shown as a bare hash + timestamp rather than guessed at). */
+  ticker: string | null;
+  amount: number | null;
+  /** The other address involved, when there's a clear single one — null
+   * for the same multi-instruction reason as ticker. */
+  counterparty: string | null;
+  explorerUrl: string | null;
+  /** Fee paid, in the transaction's native unit (ETH, BTC, SOL) — null
+   * when the wallet wasn't the one paying it (an incoming transfer) or the
+   * adapter has no fee data. Purely informational, shown on the row. */
+  fee: number | null;
+}
