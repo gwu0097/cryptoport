@@ -152,27 +152,37 @@ export async function fetchTokenPrices(
   return prices;
 }
 
-/** coingecko-id -> market cap, batched the same way fetchTokenPrices is —
- * for ticker-keyed native/major assets (BTC, ETH, SOL, ...), which don't
- * go through fetchTokenPrices' contract-address lookup at all. Only the
- * market-cap half is needed here: prices.ts already has these tickers'
- * actual usd price from Coinbase/Jupiter, which stays authoritative for
- * valuation — this is purely the extra informational column. */
-export async function fetchNativeMarketCaps(coingeckoIds: string[]): Promise<Map<string, number>> {
-  const caps = new Map<string, number>();
-  if (coingeckoIds.length === 0) return caps;
+/** coingecko-id -> {usd, change24h, marketCap}, batched the same way
+ * fetchTokenPrices is — for ticker-keyed native/major assets (BTC, ETH,
+ * SOL, ADA, ...), which don't go through fetchTokenPrices' contract-
+ * address lookup at all. Used by prices.ts as the primary source for any
+ * ticker priceKey.ts's resolveCoingeckoKey can resolve to a bare coin id —
+ * batched (up to 100 ids/call with a key) instead of Coinbase's one-
+ * ticker-per-call shape, which is what makes CoinGecko-first tractable for
+ * a whole portfolio's worth of tickers in a couple of calls instead of
+ * one round-trip per ticker. */
+export async function fetchNativePrices(coingeckoIds: string[]): Promise<Map<string, CoingeckoPrice>> {
+  const prices = new Map<string, CoingeckoPrice>();
+  if (coingeckoIds.length === 0) return prices;
 
   for (const batch of chunk(coingeckoIds, PRICE_BATCH_SIZE)) {
-    const url = `${API_BASE}/simple/price?ids=${batch.join(",")}&vs_currencies=usd&include_market_cap=true`;
+    const url = `${API_BASE}/simple/price?ids=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     const res = await fetchWithRetry(url, { headers: headers() });
-    if (!res.ok) throw new Error(`CoinGecko simple/price (market cap) failed: HTTP ${res.status}`);
-    const body: Record<string, { usd_market_cap?: number }> = await res.json();
+    if (!res.ok) throw new Error(`CoinGecko simple/price failed: HTTP ${res.status}`);
+    const body: Record<string, { usd?: number; usd_24h_change?: number; usd_market_cap?: number }> =
+      await res.json();
     for (const [id, entry] of Object.entries(body)) {
-      if (typeof entry.usd_market_cap === "number") caps.set(id, entry.usd_market_cap);
+      if (typeof entry.usd === "number") {
+        prices.set(id, {
+          usd: entry.usd,
+          change24h: typeof entry.usd_24h_change === "number" ? entry.usd_24h_change : null,
+          marketCap: typeof entry.usd_market_cap === "number" ? entry.usd_market_cap : null,
+        });
+      }
     }
   }
 
-  return caps;
+  return prices;
 }
 
 const IMAGE_BATCH_SIZE = 250; // coins/markets' own per-call ids cap

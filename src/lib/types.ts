@@ -33,7 +33,7 @@ export type Chain =
 export type WalletMode = "manual" | "auto";
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
 export type HoldingCategory = "token" | "defi";
-export type PriceSource = "coinbase" | "jupiter";
+export type PriceSource = "coingecko" | "coinbase" | "jupiter";
 
 export interface Tag {
   id: string;

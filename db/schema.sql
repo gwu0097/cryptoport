@@ -40,7 +40,7 @@ create table cryptoport.holdings (
 create table cryptoport.prices (
   ticker         text primary key,
   usd            numeric,
-  source         text,            -- 'coinbase' | 'jupiter'
+  source         text,            -- 'coingecko' | 'coinbase' | 'jupiter'
   updated_at     timestamptz,
   -- 24h % change, e.g. 1.81 for +1.81%. Coinbase-sourced tickers: computed
   -- from the Exchange API's /products/{id}/stats (open vs last) — a call

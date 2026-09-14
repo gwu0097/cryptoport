@@ -3,7 +3,7 @@ import { serviceDb } from "./supabase";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { refreshEvmHoldingPrices } from "./adapters/multicallEvm";
-import { fetchTokenPrices, fetchNativeMarketCaps } from "./adapters/coingecko";
+import { fetchTokenPrices, fetchNativePrices } from "./adapters/coingecko";
 import { EVM_CHAINS } from "./adapters/evmChains";
 import { resolveCoingeckoKey } from "./priceKey";
 import { mapWithConcurrency } from "./adapters/http";
@@ -15,7 +15,10 @@ import type { HoldingSource } from "./types";
 // a plain Promise.all here) got the large majority of /stats calls 429'd,
 // even for perfectly ordinary, actively-traded tickers. This is the first
 // of two mitigations (coinbase.ts's own retry-with-backoff is the second,
-// for whatever still gets throttled through this).
+// for whatever still gets throttled through this). Matters much less now
+// that Coinbase only ever sees the residual tickers CoinGecko couldn't
+// safely resolve (see refreshPrices' own doc comment) — but the cap stays,
+// since that residual set's exact size varies run to run.
 const COINBASE_CONCURRENCY = 4;
 
 export interface PriceRefreshResult {
@@ -37,14 +40,15 @@ interface HoldingTickerInfo {
    * this only matters for the Jupiter-fallback lookup below, not for
    * anything security- or money-sensitive, so "first seen" is fine. */
   contract: string | null;
-  /** Same "first non-null seen" reasoning as contract — only used by the
-   * market-cap resolution below (resolveCoingeckoKey needs both). */
+  /** Same "first non-null seen" reasoning as contract — needed to resolve
+   * a CoinGecko key (contract+chain, or chain-native-symbol match). */
   chain: string | null;
   /** Plain first-seen, no null-preference — only used to skip manual_usd
-   * tickers in the market-cap step below. Getting this "wrong" (picking a
-   * non-manual source when a manual holding shares the ticker) only means
-   * a market cap that could have shown does not — never a wrong number,
-   * so it doesn't need contract/chain's more careful merge logic. */
+   * tickers in the CoinGecko resolution step below. Getting this "wrong"
+   * (picking a non-manual source when a manual holding shares the ticker)
+   * only means a ticker that could have resolved via CoinGecko falls back
+   * to Coinbase instead — never a wrong number, so it doesn't need
+   * contract/chain's more careful merge logic. */
   source: string;
 }
 
@@ -75,127 +79,192 @@ async function getExistingPriceSources(): Promise<Map<string, string | null>> {
 
 const EVM_COINGECKO_PLATFORMS = new Set(EVM_CHAINS.map((c) => c.coingeckoPlatform));
 
-/**
- * Best-effort market cap for every ticker not already covered by the EVM
- * per-contract path — multicallEvm.ts writes market cap straight onto
- * token_registry as a side effect of pricing an EVM ERC-20 (see its
- * saveChange24h), for free, on every sync/refresh that holds one; this
- * covers everything else (BTC/ETH/SOL and other native/major tickers, plus
- * non-EVM contract-based tokens like a Solana SPL mint). Resolves each
- * ticker to a CoinGecko key via the same resolveCoingeckoKey used for
- * historical pricing (priceKey.ts) — contract+chain based, so it can't
- * cross-contaminate across an unrelated token that happens to share a
- * ticker the way a plain symbol lookup could (see CLAUDE.md's Solana
- * ticker-collision gap). Purely informational, never fed into valuation —
- * a resolution failure or a CoinGecko miss just leaves market_cap null,
- * never a wrong number.
- */
-async function refreshTickerMarketCaps(tickers: HoldingTickerInfo[]): Promise<void> {
-  const nativeIds = new Set<string>();
-  const nativeIdTickers = new Map<string, string>(); // coingecko id -> ticker
-  const contractsByPlatform = new Map<string, { ticker: string; contract: string }[]>();
-
-  for (const t of tickers) {
-    if (t.source === "manual_usd") continue;
-    const key = resolveCoingeckoKey({
-      ticker: t.ticker,
-      source: t.source as HoldingSource,
-      contract: t.contract,
-      chain: t.chain,
-    });
-    if (!key) continue;
-
-    const colon = key.indexOf(":");
-    if (colon === -1) {
-      nativeIds.add(key);
-      nativeIdTickers.set(key, t.ticker);
-    } else {
-      const platform = key.slice(0, colon);
-      if (EVM_COINGECKO_PLATFORMS.has(platform)) continue; // covered for free via token_registry already
-      const contract = key.slice(colon + 1);
-      if (!contractsByPlatform.has(platform)) contractsByPlatform.set(platform, []);
-      contractsByPlatform.get(platform)!.push({ ticker: t.ticker, contract });
-    }
-  }
-
-  const rows: { ticker: string; market_cap: number }[] = [];
-
-  if (nativeIds.size > 0) {
-    const caps = await fetchNativeMarketCaps([...nativeIds]);
-    for (const [id, ticker] of nativeIdTickers) {
-      const cap = caps.get(id);
-      if (cap !== undefined) rows.push({ ticker, market_cap: cap });
-    }
-  }
-
-  for (const [platform, entries] of contractsByPlatform) {
-    const prices = await fetchTokenPrices(platform, entries.map((e) => e.contract));
-    for (const { ticker, contract } of entries) {
-      const cap = prices.get(contract.toLowerCase())?.marketCap;
-      if (cap != null) rows.push({ ticker, market_cap: cap });
-    }
-  }
-
-  if (rows.length === 0) return;
-  const { error } = await serviceDb().from("prices").upsert(rows, { onConflict: "ticker" });
-  if (error) throw new Error(`Failed to save market caps: ${error.message}`);
-}
-
 async function upsertPrice(
   ticker: string,
   usd: string,
-  source: "coinbase" | "jupiter",
+  source: "coingecko" | "coinbase" | "jupiter",
   change24h: number | null,
+  marketCap?: number | null,
 ) {
-  const { error } = await serviceDb()
-    .from("prices")
-    .upsert({ ticker, usd, source, change_24h_pct: change24h, updated_at: new Date().toISOString() });
+  const row: { ticker: string; usd: string; source: string; change_24h_pct: number | null; updated_at: string; market_cap?: number | null } = {
+    ticker,
+    usd,
+    source,
+    change_24h_pct: change24h,
+    updated_at: new Date().toISOString(),
+  };
+  // Omitted (not set to null) for coinbase/jupiter — a partial-column
+  // upsert only ever touches the columns actually given (same behavior
+  // multicallEvm.ts's saveDecimals/saveImageUrls/saveChange24h already
+  // rely on for token_registry), so a ticker's market cap from an earlier
+  // CoinGecko-sourced cycle survives a later Coinbase/Jupiter refresh
+  // instead of being wiped to null just because those sources don't know
+  // market cap at all.
+  if (marketCap !== undefined) row.market_cap = marketCap;
+  const { error } = await serviceDb().from("prices").upsert(row);
   if (error) throw new Error(error.message);
 }
 
+interface ResolvedTicker {
+  ticker: string;
+  key: string; // "<platform>:<contract>" or a bare coingecko id
+}
+
 /**
- * Refreshes the `prices` table from Coinbase (authoritative) and, only for
- * tickers Coinbase doesn't cover, Jupiter. Coinbase-sourced rows are never
- * overwritten by Jupiter — not just within one run, but across runs: a
- * ticker that has ever been priced by Coinbase stays Coinbase's even if
- * Coinbase happens to fail on some later refresh, because `prices.ticker`
- * is the primary key and a Solana spam token that happens to share a
- * symbol with a real asset (e.g. "BTC") would otherwise silently overwrite
- * that asset's real price. One ticker's failure never touches another's
- * (upsert, never wipe) — a ticker neither source can price keeps its
- * previous value and timestamp.
- *
- * One deliberate exception to "Coinbase's forever": a *confirmed* delisting
- * (CoinbaseDelistedError, not just any failure) does let Jupiter take over
- * — Coinbase's own v2 spot-price endpoint keeps serving a frozen last-trade
- * number for a delisted product with no "this is stale" signal in the
- * response itself (real bug found on JUP: showed $0.0003 instead of the
- * real ~$0.25 for months after Coinbase delisted it), so treating a
- * confirmed delisting the same as an ordinary transient failure would leave
- * that ticker permanently mispriced instead of ever recovering.
- *
- * Also runs refreshEvmHoldingPrices alongside the ticker-keyed refresh
- * above — EVM holdings are valued via usd_override, computed from
- * CoinGecko directly on the holding row, and otherwise only ever updated
- * by that wallet's own next full sync (see multicallEvm.ts). Composed here
- * rather than merged into the Coinbase/Jupiter logic since it's a genuinely
- * separate concern (per-holding usd_override, not the shared ticker
- * table) — this function's job is "make every known price fresh," however
- * many different mechanisms that takes.
+ * Splits every distinct holding ticker into: resolvable via CoinGecko
+ * (a real, collision-safe key — see priceKey.ts's resolveCoingeckoKey)
+ * vs. residual (no safe key — old/manual holdings with no chain hint to
+ * disambiguate by). Pure, synchronous, no network call — which is what
+ * lets the CoinGecko pass and the Coinbase/Jupiter residual pass below
+ * start in true parallel rather than one waiting to learn what the other
+ * needs to attempt.
  */
-/** The Coinbase pass and its own Jupiter fallback — a genuine internal
- * dependency (Jupiter only runs for tickers Coinbase just failed), but as
- * a unit this has no dependency on refreshEvmHoldingPrices or
- * refreshTickerMarketCaps below, which is what lets refreshPrices run all
- * three concurrently instead of one long sequential chain (real fix for a
- * real "Refresh prices takes a while" report — this was previously
- * Coinbase+Jupiter, *then* every EVM chain one at a time, *then* market
- * caps, entirely sequential despite touching three disjoint sets of
- * tickers/holdings with nothing for one to wait on from another). */
+function splitByCoingeckoResolvability(tickers: HoldingTickerInfo[]): {
+  resolved: ResolvedTicker[];
+  residual: HoldingTickerInfo[];
+} {
+  const resolved: ResolvedTicker[] = [];
+  const residual: HoldingTickerInfo[] = [];
+  for (const t of tickers) {
+    if (t.source === "manual_usd") {
+      residual.push(t);
+      continue;
+    }
+    const key = resolveCoingeckoKey({ ticker: t.ticker, source: t.source as HoldingSource, contract: t.contract, chain: t.chain });
+    if (key) resolved.push({ ticker: t.ticker, key });
+    else residual.push(t);
+  }
+  return { resolved, residual };
+}
+
+/**
+ * Primary ticker price source. CoinGecko is used here — unlike Coinbase/
+ * Jupiter, which key on a bare ticker symbol — only via a key already tied
+ * to a real contract or a verified chain-native match, so it can never
+ * price a ticker off an unrelated asset that happens to share its symbol
+ * (see CLAUDE.md's Solana ticker-collision gap, the exact bug this
+ * sidesteps). Batched — up to 100 ids/contracts per call with a key —
+ * which is the entire reason this is fast: Coinbase's API is one ticker
+ * per call with no batch endpoint at all, so what used to be a 27-second,
+ * 156-round-trip pass becomes a small handful of calls.
+ *
+ * EVM contract-based tickers are deliberately skipped (`platform in
+ * EVM_COINGECKO_PLATFORMS`): those holdings are priced via usd_override
+ * directly on the holding row (multicallEvm.ts), which already fetches
+ * this exact CoinGecko data for free as part of its own sync/refresh —
+ * writing it again into the ticker table too would be pure waste, not a
+ * correctness issue (a holding with usd_override set never consults the
+ * ticker-keyed prices table at all — see valuation.ts).
+ *
+ * Solana contract-based tickers CoinGecko doesn't have a price for are
+ * returned in `solanaMisses` rather than just marked failed — CoinGecko is
+ * a curated database that doesn't list every SPL token; Jupiter prices
+ * anything with real on-chain liquidity, which is exactly the long tail
+ * CoinGecko misses, so those get a second chance through the residual
+ * Coinbase/Jupiter pass. No other platform gets this treatment: Jupiter
+ * has no data for a non-Solana contract, so there'd be nothing to fall
+ * through to.
+ *
+ * Each platform's batch (native ids, and each contract platform) runs
+ * concurrently and writes to `prices` the moment its own data lands —
+ * real prices show up within a couple of seconds of a refresh starting,
+ * not after every source finishes.
+ */
+async function refreshCoinGeckoTickers(
+  resolved: ResolvedTicker[],
+): Promise<{ results: PriceRefreshResult[]; solanaMisses: { ticker: string; contract: string }[] }> {
+  const results: PriceRefreshResult[] = [];
+  const solanaMisses: { ticker: string; contract: string }[] = [];
+
+  const nativeIds = new Map<string, string>(); // coingecko id -> ticker
+  const contractsByPlatform = new Map<string, { ticker: string; contract: string }[]>();
+
+  for (const { ticker, key } of resolved) {
+    const colon = key.indexOf(":");
+    if (colon === -1) {
+      nativeIds.set(key, ticker);
+    } else {
+      const platform = key.slice(0, colon);
+      if (EVM_COINGECKO_PLATFORMS.has(platform)) continue; // priced via usd_override instead, see doc comment above
+      const contract = key.slice(colon + 1);
+      if (!contractsByPlatform.has(platform)) contractsByPlatform.set(platform, []);
+      contractsByPlatform.get(platform)!.push({ ticker, contract });
+    }
+  }
+
+  const lanes: Promise<void>[] = [];
+
+  if (nativeIds.size > 0) {
+    lanes.push(
+      (async () => {
+        const prices = await fetchNativePrices([...nativeIds.keys()]);
+        await Promise.all(
+          [...nativeIds].map(async ([id, ticker]) => {
+            const price = prices.get(id);
+            if (!price) {
+              results.push({ ticker, ok: false, error: "No CoinGecko price for this native asset." });
+              return;
+            }
+            const usd = String(price.usd);
+            await upsertPrice(ticker, usd, "coingecko", price.change24h, price.marketCap);
+            results.push({ ticker, ok: true, usd });
+          }),
+        );
+      })(),
+    );
+  }
+
+  for (const [platform, entries] of contractsByPlatform) {
+    lanes.push(
+      (async () => {
+        const prices = await fetchTokenPrices(platform, entries.map((e) => e.contract));
+        await Promise.all(
+          entries.map(async ({ ticker, contract }) => {
+            const price = prices.get(contract.toLowerCase());
+            if (!price) {
+              if (platform === "solana") solanaMisses.push({ ticker, contract });
+              else results.push({ ticker, ok: false, error: "No CoinGecko price for this contract." });
+              return;
+            }
+            const usd = String(price.usd);
+            await upsertPrice(ticker, usd, "coingecko", price.change24h, price.marketCap);
+            results.push({ ticker, ok: true, usd });
+          }),
+        );
+      })(),
+    );
+  }
+
+  await Promise.all(lanes);
+  return { results, solanaMisses };
+}
+
+/** Residual source #1 (Coinbase, ticker-keyed) and #2 (Jupiter, only for
+ * Coinbase failures with a contract) — unchanged from before this
+ * refactor except for *which* tickers reach it: previously every distinct
+ * holding ticker (up to 156, most of which Coinbase doesn't even list —
+ * see refreshPrices' own doc comment), now only ones CoinGecko couldn't
+ * safely resolve at all, plus (in a second, smaller call — see
+ * refreshPrices) Solana contracts CoinGecko doesn't list. Coinbase-sourced
+ * rows are never overwritten by Jupiter — not just within one run, but
+ * across runs: a ticker that has ever been priced by Coinbase stays
+ * Coinbase's even if Coinbase happens to fail on some later refresh,
+ * because `prices.ticker` is the primary key and a spam token that
+ * happens to share a symbol with a real asset would otherwise silently
+ * overwrite that asset's real price. One deliberate exception: a
+ * *confirmed* delisting (CoinbaseDelistedError, not just any failure)
+ * does let Jupiter take over — Coinbase's own v2 spot-price endpoint
+ * keeps serving a frozen last-trade number for a delisted product with no
+ * "this is stale" signal in the response itself (real bug found on JUP:
+ * showed $0.0003 instead of the real ~$0.25 for months after Coinbase
+ * delisted it).
+ */
 async function refreshCoinbaseAndJupiter(
   holdingTickers: HoldingTickerInfo[],
   existingSources: Map<string, string | null>,
 ): Promise<{ coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] }> {
+  if (holdingTickers.length === 0) return { coinbaseResults: [], jupiterResults: [] };
+
   const coinbaseResults = await mapWithConcurrency(
     holdingTickers,
     COINBASE_CONCURRENCY,
@@ -253,33 +322,86 @@ async function refreshCoinbaseAndJupiter(
   return { coinbaseResults, jupiterResults };
 }
 
+/**
+ * Refreshes every price this app tracks, from three sources with three
+ * different jobs — not three competitors picked for speed, each fills a
+ * gap the others structurally can't:
+ *
+ * 1. CoinGecko (refreshCoinGeckoTickers) — primary, for any ticker that
+ *    resolves to a real, collision-safe key (contract+chain, or a
+ *    verified chain-native match). Batched, so this covers the large
+ *    majority of tickers in a couple of calls.
+ * 2. Coinbase (inside refreshCoinbaseAndJupiter) — residual fallback for
+ *    tickers with no safe CoinGecko key at all (old/manual holdings with
+ *    no chain hint). A real exchange, trustworthy for the major coins
+ *    this residual set is mostly made of.
+ * 3. Jupiter — final fallback for (a) Coinbase failures with a contract,
+ *    and (b) Solana contracts CoinGecko itself doesn't list (its curated
+ *    database doesn't cover every SPL token the way Jupiter's on-chain-
+ *    liquidity pricing does).
+ *
+ * All three run concurrently, not staged one after another — CoinGecko's
+ * fast batched lane and Coinbase/Jupiter's slower per-ticker residual lane
+ * have nothing for one to wait on from the other (the split between them
+ * is computed locally, not from a network response — see
+ * splitByCoingeckoResolvability), so real prices for most of a portfolio
+ * land within a couple of seconds even while the residual lane is still
+ * working through Coinbase's much smaller remaining set. The one
+ * genuinely sequential piece left is Solana misses: those can only be
+ * identified after CoinGecko's own Solana batch call returns, so they're
+ * queued as a small follow-up Coinbase/Jupiter call rather than blocking
+ * the initial parallel dispatch.
+ *
+ * Also runs refreshEvmHoldingPrices alongside all of the above — EVM
+ * holdings are valued via usd_override, computed from CoinGecko directly
+ * on the holding row, and otherwise only ever updated by that wallet's
+ * own next full sync (see multicallEvm.ts). Composed here rather than
+ * merged into the ticker-table logic since it's a genuinely separate
+ * concern (per-holding usd_override, not the shared ticker table) — this
+ * function's job is "make every known price fresh," however many
+ * different mechanisms that takes.
+ */
 export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
   const existingSources = await getExistingPriceSources();
+  const { resolved, residual } = splitByCoingeckoResolvability(holdingTickers);
 
-  // Started (not awaited) before the Promise.all below so it's genuinely
-  // running concurrently with the other two, not just declared early —
-  // already wrapped so it can never reject and take the refresh down with
-  // it (same "cosmetic, never take down real price data" reasoning as
-  // multicallEvm.ts's own try/catch around its 24h-change/market-cap
-  // writes).
-  const marketCapPromise = refreshTickerMarketCaps(holdingTickers).catch(() => {
-    // swallowed — market cap is purely informational
-  });
-
-  const [{ coinbaseResults, jupiterResults }, evmResults] = await Promise.all([
-    refreshCoinbaseAndJupiter(holdingTickers, existingSources),
+  const [coingecko, { coinbaseResults, jupiterResults }, evmResults] = await Promise.all([
+    refreshCoinGeckoTickers(resolved),
+    refreshCoinbaseAndJupiter(residual, existingSources),
     refreshEvmHoldingPrices(),
   ]);
-  await marketCapPromise;
+
+  // Small, second-stage follow-up for Solana contracts CoinGecko didn't
+  // have a price for — see refreshCoinGeckoTickers' own doc comment for
+  // why this can't be known until after that call returns, and refreshPrices'
+  // own doc comment for why that's an acceptable, small sequential tail
+  // rather than something worth restructuring further.
+  let solanaMissResults: { coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] } = {
+    coinbaseResults: [],
+    jupiterResults: [],
+  };
+  if (coingecko.solanaMisses.length > 0) {
+    const solanaMissTickers: HoldingTickerInfo[] = coingecko.solanaMisses.map((m) => ({
+      ticker: m.ticker,
+      contract: m.contract,
+      chain: "solana",
+      source: "auto",
+    }));
+    solanaMissResults = await refreshCoinbaseAndJupiter(solanaMissTickers, existingSources);
+  }
 
   // A ticker that succeeded via Jupiter shouldn't also be reported as a
   // Coinbase failure in the combined results.
-  const jupiterSucceeded = new Set(jupiterResults.filter((r) => r.ok).map((r) => r.ticker));
+  const allJupiterResults = [...jupiterResults, ...solanaMissResults.jupiterResults];
+  const jupiterSucceeded = new Set(allJupiterResults.filter((r) => r.ok).map((r) => r.ticker));
 
   return [
-    ...coinbaseResults.filter((r) => r.ok || !jupiterSucceeded.has(r.ticker)),
-    ...jupiterResults,
+    ...coingecko.results,
+    ...[...coinbaseResults, ...solanaMissResults.coinbaseResults].filter(
+      (r) => r.ok || !jupiterSucceeded.has(r.ticker),
+    ),
+    ...allJupiterResults,
     ...evmResults,
   ];
 }
