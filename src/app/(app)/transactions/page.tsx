@@ -89,10 +89,12 @@ export default async function TransactionsPage({
               </form>
             )}
             {selectedWallet && (
-              <p className="text-xs text-fg-muted">
+              <p className={`max-w-xs text-right text-xs ${selectedWallet.tx_sync_status?.startsWith("error:") ? "text-negative" : "text-fg-muted"}`}>
                 {selectedWallet.tx_sync_status === "syncing"
                   ? "Syncing…"
-                  : `Last synced: ${formatStaleness(selectedWallet.tx_synced_at)}`}
+                  : selectedWallet.tx_sync_status?.startsWith("error:")
+                    ? `Sync failed: ${selectedWallet.tx_sync_status.slice("error: ".length)}`
+                    : `Last synced: ${formatStaleness(selectedWallet.tx_synced_at)}`}
               </p>
             )}
           </div>

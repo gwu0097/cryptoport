@@ -510,12 +510,17 @@ create table cryptoport.transactions (
 
 alter table cryptoport.transactions enable row level security;
 grant all on cryptoport.transactions to service_role;
-grant select on cryptoport.transactions to authenticated;
+-- `for all` + insert/update/delete granted (not just select) — the sync
+-- action writes through the signed-in user's own client (userDb(), same
+-- as syncWalletHoldings' write path), matching holdings' own "owner only"
+-- policy shape exactly. select-only here was a real bug: the very first
+-- live sync 403'd with "permission denied for table transactions."
+grant select, insert, update, delete on cryptoport.transactions to authenticated;
 
 create policy "transactions: owner only" on cryptoport.transactions
-  for select using (
-    wallet_id in (select id from cryptoport.wallets where user_id = auth.uid())
-  );
+  for all
+  using (wallet_id in (select id from cryptoport.wallets where user_id = auth.uid()))
+  with check (wallet_id in (select id from cryptoport.wallets where user_id = auth.uid()));
 
 create index transactions_wallet_occurred_idx
   on cryptoport.transactions (wallet_id, occurred_at desc);

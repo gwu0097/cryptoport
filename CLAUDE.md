@@ -273,7 +273,15 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   empty) — known and non-blocking, not something to chase.
 - `diag_*.mjs` untracked scratch scripts in the repo root are the
   established way to inspect/verify real DB state directly. Read-only ones
-  can stay; delete anything destructive right after use.
+  can stay; delete anything destructive right after use. A diag script
+  that needs real TS module resolution (importing a `server-only` `.ts`
+  file directly, not just plain JS) needs `.ts` instead of `.mjs`, run via
+  `NODE_OPTIONS="--conditions=react-server" npx --no-install tsx
+  diag_whatever.ts` — but never name one ending in `_test.ts`/`-test.ts`/
+  `.test.ts`: Node's test runner auto-discovers that exact suffix pattern
+  and tries to run it as a test file, breaking `npm test` (real bug hit
+  this session — `diag_full_sync_test.ts` got picked up and reported as a
+  failing test until renamed/removed).
 - Before declaring a fix "done" — especially a data-correctness bug —
   verify against real data/live calls, not just passing type checks. Two
   real catches this session (a Coinbase rate-limit bug, a Dashboard query
