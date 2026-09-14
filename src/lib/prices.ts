@@ -399,7 +399,21 @@ async function refreshCoinbaseAndJupiter(
 type PhaseName = "coingecko" | "coinbase" | "evm";
 type PhaseState = { status: "running" | "done" | "error"; ms: number | null };
 
-export async function refreshPrices(): Promise<PriceRefreshResult[]> {
+/**
+ * `startedAt` (epoch ms) lets a caller pass in when the refresh was really
+ * requested — e.g. the moment refreshPricesAction started, before
+ * requireUser(), the "mark refreshing" write, and the gap between a
+ * Server Action returning and its after() callback actually beginning
+ * (all real time, none of it visible in a t0 computed only once this
+ * function's own body starts running). Defaults to "now" for a caller
+ * (a diag script, a test) that doesn't have an earlier moment to anchor
+ * to. Real user report this fixes: the per-lane timings (see phases
+ * below) were reading noticeably shorter than the actual click-to-
+ * updated-price time — because they were, structurally: every phase's
+ * clock started only once this function's own body was already running,
+ * which is itself downstream of all of the above.
+ */
+export async function refreshPrices(startedAt: number = Date.now()): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
   const existingSources = await getExistingPriceSources();
   const { resolved, residual } = splitByCoingeckoResolvability(holdingTickers);
@@ -432,11 +446,12 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   // lane actually finishes — not just recorded in memory and reported
   // once at the very end — so a page polling mid-refresh (see
   // PriceRefreshCaption) can show real progress: which lane is still
-  // running, which are done, and how long each one took. Timed from this
-  // shared start, not per-lane, so "ms" reflects wall-clock elapsed since
-  // the refresh began, comparable across lanes even though they run
-  // concurrently.
-  const t0 = Date.now();
+  // running, which are done, and how long each one took. Timed from
+  // `startedAt` (see this function's own doc comment for why that's not
+  // just "now"), not per-lane, so "ms" reflects wall-clock elapsed since
+  // the refresh was actually requested, comparable across lanes even
+  // though they run concurrently.
+  const t0 = startedAt;
   const phases: Record<PhaseName, PhaseState> = {
     coingecko: { status: "running", ms: null },
     coinbase: { status: "running", ms: null },

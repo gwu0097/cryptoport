@@ -51,10 +51,19 @@ function revalidateAllPriceConsumers() {
  * the latter) fires only once the real result exists, not on the
  * near-instant initial response. Never throws — a failure is recorded as
  * this singleton row's own status instead, same as every other sync
- * action in this app. */
-async function runPriceRefresh(): Promise<void> {
+ * action in this app.
+ *
+ * `requestedAt` is the caller's own Date.now() from before requireUser()
+ * — passed all the way through to refreshPrices so its per-lane timings
+ * reflect time since the button was actually clicked, not just since this
+ * function's own body started running (see refreshPrices' own doc
+ * comment for why that gap is real and was worth closing: requireUser(),
+ * the "mark refreshing" write, and the gap between a Server Action
+ * returning and after() actually starting are all real, otherwise-
+ * invisible latency). */
+async function runPriceRefresh(requestedAt: number): Promise<void> {
   try {
-    const results = await refreshPrices();
+    const results = await refreshPrices(requestedAt);
     const failed = results.filter((r) => !r.ok);
     const status =
       results.length === 0
@@ -98,6 +107,7 @@ async function runPriceRefresh(): Promise<void> {
  * five times over.
  */
 export async function refreshPricesAction() {
+  const requestedAt = Date.now();
   await requireUser();
 
   const { error: markError } = await serviceDb()
@@ -107,7 +117,7 @@ export async function refreshPricesAction() {
   if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
 
   after(async () => {
-    await runPriceRefresh();
+    await runPriceRefresh(requestedAt);
     revalidateAllPriceConsumers();
   });
 
@@ -125,6 +135,7 @@ export async function refreshPricesAction() {
 // live inside the *same* after() callback — calling through would have no
 // way to hook into "after the background work this kicked off finishes."
 export async function refreshPricesForWalletAction(walletId: string) {
+  const requestedAt = Date.now();
   await requireUser();
 
   const { error: markError } = await serviceDb()
@@ -134,7 +145,7 @@ export async function refreshPricesForWalletAction(walletId: string) {
   if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
 
   after(async () => {
-    await runPriceRefresh();
+    await runPriceRefresh(requestedAt);
     revalidateAllPriceConsumers();
     revalidatePath(`/wallets/${walletId}`);
   });
