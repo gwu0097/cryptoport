@@ -173,8 +173,10 @@ export const getContractChangeMap = cache(async (): Promise<Record<string, numbe
 });
 
 /** Same "first-seen-casing" ticker-keyed lookup as getPriceChangeMap, for
- * prices.market_cap (see prices.ts's refreshTickerMarketCaps). Cached
- * per-request — same reasoning as getPriceMap's doc comment. */
+ * prices.market_cap (see prices.ts's refreshCoinGeckoTickers, the primary
+ * ticker-price source — market cap comes free in the same CoinGecko call
+ * as price/24h-change). Cached per-request — same reasoning as
+ * getPriceMap's doc comment. */
 export const getPriceMarketCapMap = cache(async (): Promise<Record<string, number | null>> => {
   const { data, error } = await serviceDb().from("prices").select("ticker, market_cap");
   if (error) throw new Error(`Failed to load price market caps: ${error.message}`);
