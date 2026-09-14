@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import { formatStaleness } from "@/lib/format";
 import type { PriceRefreshPhases, PriceRefreshState } from "@/lib/queries";
 import { AutoRefreshWhileSyncing } from "./AutoRefreshWhileSyncing";
@@ -45,11 +48,31 @@ function PhaseRow({ name, phase }: { name: string; phase: PriceRefreshPhases[str
  * holdings) — refreshPrices runs all three concurrently and writes each
  * one's status to price_refresh_state.phases as it actually finishes (see
  * that function's own doc comment), so this updates progressively while a
- * refresh is in flight, then stays as a record of how long each lane took
- * once it's done — real requested behavior, not just a spinner.
+ * refresh is in flight. It's meant purely as "how long did the refresh I
+ * just ran take" — a client component (not just a server-rendered prop),
+ * specifically so a fresh page load/navigation starts with it hidden
+ * rather than resurrecting some earlier refresh's now-irrelevant timing:
+ * `hasObservedRefresh` only flips true once *this* mounted instance
+ * actually sees status go to "refreshing" itself, so the breakdown shows
+ * live while that's happening and stays as a record right after — but a
+ * plain reload or switching pages starts over with it gone, even though
+ * price_refresh_state.phases itself is still sitting there server-side.
  */
 export function PriceRefreshCaption({ priceState }: { priceState: PriceRefreshState }) {
   const refreshing = priceState.status === "refreshing";
+  const hasObservedRefresh = useRef(false);
+  const [showPhases, setShowPhases] = useState(false);
+
+  useEffect(() => {
+    if (refreshing) {
+      hasObservedRefresh.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowPhases(true);
+    } else if (hasObservedRefresh.current) {
+      setShowPhases(true);
+    }
+  }, [refreshing]);
+
   return (
     <>
       {/* 1.2s, not the 4s default — CoinGecko (the fastest lane) can finish
@@ -61,7 +84,7 @@ export function PriceRefreshCaption({ priceState }: { priceState: PriceRefreshSt
       <p className="text-xs text-fg-muted">
         {refreshing ? "Refreshing…" : `Last priced: ${formatStaleness(priceState.refreshedAt)}`}
       </p>
-      {priceState.phases && (
+      {showPhases && priceState.phases && (
         <p className="flex flex-wrap justify-end gap-x-2 text-[11px] text-fg-muted/70">
           {PHASE_ORDER.filter((name) => priceState.phases![name]).map((name) => (
             <PhaseRow key={name} name={name} phase={priceState.phases![name]} />

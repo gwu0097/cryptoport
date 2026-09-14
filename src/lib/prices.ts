@@ -457,20 +457,26 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
     }
   }
 
-  const [coingecko, { coinbaseResults, jupiterResults }, evmResults] = await Promise.all([
+  // "coinbase" is deliberately NOT wrapped in tracked() — real bug, caught
+  // live: the initial residual call finishing would mark it "done" at,
+  // say, 2.2s, then the Solana-miss follow-up below (still to come) would
+  // silently overwrite that same "done" a second time at 7.6s once it
+  // finished — showing a lane as complete, then un-completing and
+  // re-completing it, which read as broken rather than as one lane taking
+  // a while. The phase only gets its one "done" write below, once the
+  // whole thing (both steps) is actually finished.
+  const [coingecko, coinbaseAndJupiter, evmResults] = await Promise.all([
     tracked("coingecko", refreshCoinGeckoTickers(resolved)),
-    tracked("coinbase", refreshCoinbaseAndJupiter(residual, existingSources)),
+    refreshCoinbaseAndJupiter(residual, existingSources),
     tracked("evm", refreshEvmHoldingPrices()),
   ]);
+  const { coinbaseResults, jupiterResults } = coinbaseAndJupiter;
 
   // Small, second-stage follow-up for Solana contracts CoinGecko didn't
   // have a price for — see refreshCoinGeckoTickers' own doc comment for
   // why this can't be known until after that call returns, and refreshPrices'
   // own doc comment for why that's an acceptable, small sequential tail
-  // rather than something worth restructuring further. Folded into the
-  // "coinbase" phase's own reported timing (extends it, doesn't add a
-  // fourth visible phase for what's usually zero tickers) since it reuses
-  // that exact same function.
+  // rather than something worth restructuring further.
   let solanaMissResults: { coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] } = {
     coinbaseResults: [],
     jupiterResults: [],
@@ -483,9 +489,9 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
       source: "auto",
     }));
     solanaMissResults = await refreshCoinbaseAndJupiter(solanaMissTickers, existingSources);
-    phases.coinbase = { status: "done", ms: Date.now() - t0 };
-    await persistPhases(phases);
   }
+  phases.coinbase = { status: "done", ms: Date.now() - t0 };
+  await persistPhases(phases);
 
   // A ticker that succeeded via Jupiter shouldn't also be reported as a
   // Coinbase failure in the combined results.
