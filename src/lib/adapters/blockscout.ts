@@ -1,5 +1,7 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
+import { EVM_CHAINS } from "./evmChains";
+import { fetchTokenPrices } from "./coingecko";
 import type { AdapterTransaction } from "./types";
 
 /**
@@ -53,7 +55,7 @@ interface BlockscoutTokenTransferItem {
   timestamp: string;
   from: BlockscoutAddressRef;
   to: BlockscoutAddressRef;
-  token: { symbol: string | null; decimals: string | null };
+  token: { symbol: string | null; decimals: string | null; address_hash: string };
   total: { value: string; decimals: string | null } | null; // null for an NFT transfer (no fungible amount)
 }
 
@@ -104,8 +106,34 @@ export async function fetchBlockscoutTransactions(
     });
   }
 
+  // Same CoinGecko-listing spam filter as etherscan.ts, same reasoning —
+  // Blockscout's own `reputation`/`exchange_rate` fields turned out
+  // unreliable for this (a real, 189,000-holder USDT transfer on Scroll
+  // still showed exchange_rate: null, right alongside actual airdrop-spam
+  // tokens on Base), so CoinGecko listing status is the trusted signal
+  // instead — this app already prices real assets from it everywhere
+  // else, and it never lists unsolicited spam. Display-only curation, not
+  // a valuation decision, so the known false-positive risk (a genuinely
+  // new, not-yet-listed real token also gets hidden) is acceptable here.
+  // Fails open, not closed — same reasoning as etherscan.ts's identical
+  // guard: a CoinGecko hiccup here must never take down this chain's real
+  // transaction data.
+  const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
+  const contracts = [...new Set(tokens.filter((t) => t.total).map((t) => t.token.address_hash.toLowerCase()))];
+  let priced = new Map<string, unknown>();
+  let spamFilterAvailable = false;
+  if (evmChain && contracts.length > 0) {
+    try {
+      priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
+      spamFilterAvailable = true;
+    } catch {
+      // swallowed — see comment above
+    }
+  }
+
   for (const row of tokens) {
     if (!row.total) continue; // an NFT transfer, not a fungible amount — no honest single "amount" to show
+    if (spamFilterAvailable && !priced.has(row.token.address_hash.toLowerCase())) continue;
     const from = row.from.hash.toLowerCase();
     const to = row.to.hash.toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";

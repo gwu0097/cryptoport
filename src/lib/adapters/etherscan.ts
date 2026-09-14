@@ -1,5 +1,7 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
+import { EVM_CHAINS } from "./evmChains";
+import { fetchTokenPrices } from "./coingecko";
 import type { AdapterTransaction } from "./types";
 
 const API_BASE = "https://api.etherscan.io/v2/api";
@@ -78,6 +80,7 @@ interface EtherscanTokenRow {
   timeStamp: string;
   tokenSymbol: string;
   tokenDecimal: string;
+  contractAddress: string;
 }
 
 async function callEtherscan<T>(chainId: number, params: Record<string, string>): Promise<T[]> {
@@ -144,7 +147,38 @@ export async function fetchEvmTransactions(
     });
   }
 
+  // Unsolicited airdrop-spam tokens (a real, very common attack: mass-send
+  // a worthless token with a scammy/impersonating name to random addresses
+  // — see this feature's own research notes) are otherwise indistinguishable
+  // from a real transfer at this layer: Etherscan's tokentx doesn't carry
+  // any reputation signal at all. CoinGecko listing status is the same
+  // trusted source this whole app already prices real assets from — spam
+  // tokens are never listed there, so "no CoinGecko price for this
+  // contract" is used as the filter. Purely a display-list curation, not a
+  // valuation decision (transactions are never summed into any total), so
+  // the known false-positive risk (a genuinely new, legitimate, not-yet-
+  // listed token also gets hidden) is an acceptable trade here in a way it
+  // wouldn't be for pricing.
+  // Fails open, not closed: a CoinGecko hiccup (rate limit, network blip)
+  // here must never take down this chain's real transaction data — if the
+  // lookup itself fails, every token leg is kept unfiltered rather than
+  // every one being wrongly treated as spam. spamFilterAvailable tracks
+  // which of those two states applied.
+  const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
+  const contracts = [...new Set(tokens.map((r) => r.contractAddress.toLowerCase()))];
+  let priced = new Map<string, unknown>();
+  let spamFilterAvailable = false;
+  if (evmChain && contracts.length > 0) {
+    try {
+      priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
+      spamFilterAvailable = true;
+    } catch {
+      // swallowed — see comment above
+    }
+  }
+
   for (const row of tokens) {
+    if (spamFilterAvailable && !priced.has(row.contractAddress.toLowerCase())) continue;
     const from = row.from.toLowerCase();
     const to = row.to.toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";
