@@ -396,22 +396,70 @@ async function refreshCoinbaseAndJupiter(
  * function's job is "make every known price fresh," however many
  * different mechanisms that takes.
  */
+type PhaseName = "coingecko" | "coinbase" | "evm";
+type PhaseState = { status: "running" | "done" | "error"; ms: number | null };
+
+/** Writes the *entire* current phases object each call — a plain column
+ * update, not a partial JSONB merge, so the caller always passes the full
+ * in-memory snapshot rather than one phase's delta. Best-effort: a failure
+ * here is purely cosmetic status reporting, never worth failing the actual
+ * price refresh over. */
+async function persistPhases(phases: Record<PhaseName, PhaseState>): Promise<void> {
+  try {
+    await serviceDb().from("price_refresh_state").update({ phases }).eq("id", 1);
+  } catch {
+    // swallowed — see doc comment
+  }
+}
+
 export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
   const existingSources = await getExistingPriceSources();
   const { resolved, residual } = splitByCoingeckoResolvability(holdingTickers);
 
+  // Live per-lane status, written to price_refresh_state.phases as each
+  // lane actually finishes — not just recorded in memory and reported
+  // once at the very end — so a page polling mid-refresh (see
+  // PriceRefreshCaption) can show real progress: which lane is still
+  // running, which are done, and how long each one took. Timed from this
+  // shared start, not per-lane, so "ms" reflects wall-clock elapsed since
+  // the refresh began, comparable across lanes even though they run
+  // concurrently.
+  const t0 = Date.now();
+  const phases: Record<PhaseName, PhaseState> = {
+    coingecko: { status: "running", ms: null },
+    coinbase: { status: "running", ms: null },
+    evm: { status: "running", ms: null },
+  };
+  await persistPhases(phases);
+
+  async function tracked<T>(name: PhaseName, work: Promise<T>): Promise<T> {
+    try {
+      const result = await work;
+      phases[name] = { status: "done", ms: Date.now() - t0 };
+      await persistPhases(phases);
+      return result;
+    } catch (e) {
+      phases[name] = { status: "error", ms: Date.now() - t0 };
+      await persistPhases(phases);
+      throw e;
+    }
+  }
+
   const [coingecko, { coinbaseResults, jupiterResults }, evmResults] = await Promise.all([
-    refreshCoinGeckoTickers(resolved),
-    refreshCoinbaseAndJupiter(residual, existingSources),
-    refreshEvmHoldingPrices(),
+    tracked("coingecko", refreshCoinGeckoTickers(resolved)),
+    tracked("coinbase", refreshCoinbaseAndJupiter(residual, existingSources)),
+    tracked("evm", refreshEvmHoldingPrices()),
   ]);
 
   // Small, second-stage follow-up for Solana contracts CoinGecko didn't
   // have a price for — see refreshCoinGeckoTickers' own doc comment for
   // why this can't be known until after that call returns, and refreshPrices'
   // own doc comment for why that's an acceptable, small sequential tail
-  // rather than something worth restructuring further.
+  // rather than something worth restructuring further. Folded into the
+  // "coinbase" phase's own reported timing (extends it, doesn't add a
+  // fourth visible phase for what's usually zero tickers) since it reuses
+  // that exact same function.
   let solanaMissResults: { coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] } = {
     coinbaseResults: [],
     jupiterResults: [],
@@ -424,6 +472,8 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
       source: "auto",
     }));
     solanaMissResults = await refreshCoinbaseAndJupiter(solanaMissTickers, existingSources);
+    phases.coinbase = { status: "done", ms: Date.now() - t0 };
+    await persistPhases(phases);
   }
 
   // A ticker that succeeded via Jupiter shouldn't also be reported as a

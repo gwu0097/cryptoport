@@ -217,6 +217,14 @@ create table cryptoport.price_refresh_state (
   id           int primary key default 1,
   refreshed_at timestamptz,
   status       text,
+  -- Per-lane live status/timing for the current or most recent refresh —
+  -- {"coingecko": {"status": "running"|"done"|"error", "ms": number|null}, ...}
+  -- for "coingecko" | "coinbase" | "evm" (see prices.ts's refreshPrices).
+  -- Written incrementally as each lane finishes (not just once at the very
+  -- end), which is what lets the UI show real per-lane progress while a
+  -- refresh is still in flight, plus how long each one actually took once
+  -- it's done.
+  phases       jsonb,
   constraint price_refresh_state_singleton check (id = 1)
 );
 

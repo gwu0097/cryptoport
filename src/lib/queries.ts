@@ -15,9 +15,22 @@ import { formatTicker } from "./format";
 import { pinnedWalletChain, type WalletChain } from "./walletDisplay.ts";
 import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTag } from "./types";
 
+export type PriceRefreshPhaseStatus = "running" | "done" | "error";
+export interface PriceRefreshPhase {
+  status: PriceRefreshPhaseStatus;
+  ms: number | null;
+}
+export type PriceRefreshPhases = Record<string, PriceRefreshPhase>;
+
 export interface PriceRefreshState {
   refreshedAt: string | null;
   status: string | null;
+  /** Per-lane ("coingecko" | "coinbase" | "evm") live status/timing for the
+   * current or most recent refresh — see prices.ts's refreshPrices, which
+   * writes this incrementally as each lane finishes rather than only once
+   * at the very end. Null before the very first refresh this app has ever
+   * run. */
+  phases: PriceRefreshPhases | null;
 }
 
 /** The one global "prices last refreshed" timestamp — see
@@ -28,11 +41,15 @@ export interface PriceRefreshState {
 export const getPriceRefreshState = cache(async (): Promise<PriceRefreshState> => {
   const { data, error } = await serviceDb()
     .from("price_refresh_state")
-    .select("refreshed_at, status")
+    .select("refreshed_at, status, phases")
     .eq("id", 1)
     .maybeSingle();
   if (error) throw new Error(`Failed to load price refresh state: ${error.message}`);
-  return { refreshedAt: data?.refreshed_at ?? null, status: data?.status ?? null };
+  return {
+    refreshedAt: data?.refreshed_at ?? null,
+    status: data?.status ?? null,
+    phases: (data?.phases as PriceRefreshPhases | null) ?? null,
+  };
 });
 
 /** Every tag *this user* has ever created — populates the datalist for the
