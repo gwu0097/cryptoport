@@ -54,21 +54,56 @@ interface HoldingTickerInfo {
 
 // Prices are driven by holdings, not by adapters: every distinct ticker any
 // holding uses needs a price, including BTC, which no adapter ever touches.
+//
+// A row that genuinely resolves to a native (chain-verified) CoinGecko key
+// is always the correct representative for a ticker when one exists among
+// its holdings, even if some other holding under that same ticker happens
+// to have a contract — real bug, caught live: "ETH" stopped getting any
+// ticker-table price at all once one Scroll holding's own contract (a
+// bridged ETH representation, distinct from native ETH) won the previous
+// "first non-null contract seen" merge over 68 other plain native-ETH
+// holdings across other chains. That made the whole ticker resolve as a
+// Scroll-contract lookup — which the CoinGecko pass correctly skips (EVM
+// contract tokens are priced via usd_override, not the ticker table — see
+// refreshCoinGeckoTickers), so "ETH" fell into neither lane and just went
+// stale. Same live-verified for SOL, USDC, MNT, and POL — every ticker
+// that has both native and contract-based holdings.
+//
+// Checked via resolveCoingeckoKey itself, not just "contract is null" —
+// a null-contract row only counts as the strong native representative if
+// it actually resolves to a bare (non-colon) key; a contract-less manual
+// USDC entry, say, doesn't (USDC isn't any chain's native asset), so it
+// must not force the group away from a real contract-based resolution
+// that would otherwise work fine.
 async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
   const { data, error } = await serviceDb().from("holdings").select("ticker, contract, chain, source");
   if (error) throw new Error(`Failed to load holding tickers: ${error.message}`);
 
-  const byTicker = new Map<string, HoldingTickerInfo>();
-  for (const row of data as { ticker: string; contract: string | null; chain: string | null; source: string }[]) {
-    const existing = byTicker.get(row.ticker);
-    if (!existing) {
-      byTicker.set(row.ticker, { ticker: row.ticker, contract: row.contract, chain: row.chain, source: row.source });
-    } else {
-      if (!existing.contract && row.contract) existing.contract = row.contract;
-      if (!existing.chain && row.chain) existing.chain = row.chain;
-    }
+  const rows = data as { ticker: string; contract: string | null; chain: string | null; source: string }[];
+  const byTicker = new Map<string, typeof rows>();
+  for (const row of rows) {
+    if (!byTicker.has(row.ticker)) byTicker.set(row.ticker, []);
+    byTicker.get(row.ticker)!.push(row);
   }
-  return [...byTicker.values()];
+
+  const result: HoldingTickerInfo[] = [];
+  for (const [ticker, group] of byTicker) {
+    const nativeMatch = group.find((r) => {
+      if (r.contract !== null || r.chain === null) return false;
+      const key = resolveCoingeckoKey({ ticker, source: r.source as HoldingSource, contract: null, chain: r.chain });
+      return key !== null && !key.includes(":");
+    });
+    const contractRow = group.find((r) => r.contract !== null);
+    const fallbackRow = group.find((r) => r.chain !== null) ?? group[0];
+    const representative = nativeMatch ?? contractRow ?? fallbackRow;
+    result.push({
+      ticker,
+      contract: nativeMatch ? null : (contractRow?.contract ?? null),
+      chain: representative.chain,
+      source: group[0].source,
+    });
+  }
+  return result;
 }
 
 async function getExistingPriceSources(): Promise<Map<string, string | null>> {
