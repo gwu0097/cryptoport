@@ -183,10 +183,19 @@ async function upsertPrice(
  * table) — this function's job is "make every known price fresh," however
  * many different mechanisms that takes.
  */
-export async function refreshPrices(): Promise<PriceRefreshResult[]> {
-  const holdingTickers = await getDistinctHoldingTickers();
-  const existingSources = await getExistingPriceSources();
-
+/** The Coinbase pass and its own Jupiter fallback — a genuine internal
+ * dependency (Jupiter only runs for tickers Coinbase just failed), but as
+ * a unit this has no dependency on refreshEvmHoldingPrices or
+ * refreshTickerMarketCaps below, which is what lets refreshPrices run all
+ * three concurrently instead of one long sequential chain (real fix for a
+ * real "Refresh prices takes a while" report — this was previously
+ * Coinbase+Jupiter, *then* every EVM chain one at a time, *then* market
+ * caps, entirely sequential despite touching three disjoint sets of
+ * tickers/holdings with nothing for one to wait on from another). */
+async function refreshCoinbaseAndJupiter(
+  holdingTickers: HoldingTickerInfo[],
+  existingSources: Map<string, string | null>,
+): Promise<{ coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] }> {
   const coinbaseResults = await mapWithConcurrency(
     holdingTickers,
     COINBASE_CONCURRENCY,
@@ -241,20 +250,32 @@ export async function refreshPrices(): Promise<PriceRefreshResult[]> {
           );
         })();
 
+  return { coinbaseResults, jupiterResults };
+}
+
+export async function refreshPrices(): Promise<PriceRefreshResult[]> {
+  const holdingTickers = await getDistinctHoldingTickers();
+  const existingSources = await getExistingPriceSources();
+
+  // Started (not awaited) before the Promise.all below so it's genuinely
+  // running concurrently with the other two, not just declared early —
+  // already wrapped so it can never reject and take the refresh down with
+  // it (same "cosmetic, never take down real price data" reasoning as
+  // multicallEvm.ts's own try/catch around its 24h-change/market-cap
+  // writes).
+  const marketCapPromise = refreshTickerMarketCaps(holdingTickers).catch(() => {
+    // swallowed — market cap is purely informational
+  });
+
+  const [{ coinbaseResults, jupiterResults }, evmResults] = await Promise.all([
+    refreshCoinbaseAndJupiter(holdingTickers, existingSources),
+    refreshEvmHoldingPrices(),
+  ]);
+  await marketCapPromise;
+
   // A ticker that succeeded via Jupiter shouldn't also be reported as a
   // Coinbase failure in the combined results.
   const jupiterSucceeded = new Set(jupiterResults.filter((r) => r.ok).map((r) => r.ticker));
-  const evmResults = await refreshEvmHoldingPrices();
-
-  // Same "cosmetic, never take down real price data" reasoning as
-  // multicallEvm.ts's own try/catch around its 24h-change/market-cap
-  // writes — a CoinGecko hiccup here must never fail the actual price
-  // refresh this runs alongside.
-  try {
-    await refreshTickerMarketCaps(holdingTickers);
-  } catch {
-    // swallowed — market cap is purely informational
-  }
 
   return [
     ...coinbaseResults.filter((r) => r.ok || !jupiterSucceeded.has(r.ticker)),

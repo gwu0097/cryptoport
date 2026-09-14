@@ -475,99 +475,116 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
     byChain.get(row.chain)!.push(row);
   }
 
-  const results: { ticker: string; ok: boolean; error?: string }[] = [];
+  // Each chain's block below is fully self-contained (its own CoinGecko
+  // calls, its own holdings/token_registry writes, its own slice of
+  // `results`) — nothing for one chain to wait on from another, so this
+  // used to be pure wasted wall-clock time as a sequential for-of loop.
+  // Real fix for a real "Refresh prices takes a while" report: a
+  // 20-chain portfolio was making CoinGecko round-trip #2 wait for #1 to
+  // fully finish, back to back, 20 times, for no reason. Concurrency 5 is
+  // well inside CoinGecko's documented free-tier rate limit even with a
+  // configured key (100 req/min) — this app's own EVM chain count doesn't
+  // come close to saturating that even fully parallel.
+  const EVM_PRICE_CONCURRENCY = 5;
 
-  for (const [chainId, chainRows] of byChain) {
-    const chain = EVM_CHAINS.find((c) => c.id === chainId)!;
-    const contractRows = chainRows.filter((r): r is EvmHoldingRow & { contract: string } => r.contract !== null);
-    const nativeRows = chainRows.filter((r) => r.contract === null);
+  const perChainResults = await mapWithConcurrency(
+    [...byChain.entries()],
+    EVM_PRICE_CONCURRENCY,
+    async ([chainId, chainRows]): Promise<{ ticker: string; ok: boolean; error?: string }[]> => {
+      const chain = EVM_CHAINS.find((c) => c.id === chainId)!;
+      const contractRows = chainRows.filter((r): r is EvmHoldingRow & { contract: string } => r.contract !== null);
+      const nativeRows = chainRows.filter((r) => r.contract === null);
 
-    type Upsert = { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number };
-    const upserts: Upsert[] = [];
-    const changeRows: {
-      contract: string;
-      symbol: string;
-      change_24h_pct: number | null;
-      market_cap: number | null;
-    }[] = [];
+      const results: { ticker: string; ok: boolean; error?: string }[] = [];
+      type Upsert = { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number };
+      const upserts: Upsert[] = [];
+      const changeRows: {
+        contract: string;
+        symbol: string;
+        change_24h_pct: number | null;
+        market_cap: number | null;
+      }[] = [];
 
-    if (contractRows.length > 0) {
-      try {
-        const prices = await fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract));
-        for (const row of contractRows) {
-          const price = prices.get(row.contract.toLowerCase());
-          if (!price) {
-            results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this contract." });
-            continue;
+      if (contractRows.length > 0) {
+        try {
+          const prices = await fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract));
+          for (const row of contractRows) {
+            const price = prices.get(row.contract.toLowerCase());
+            if (!price) {
+              results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this contract." });
+              continue;
+            }
+            const qty = Number(row.qty);
+            if (!Number.isFinite(qty)) {
+              results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
+              continue;
+            }
+            upserts.push({
+              id: row.id,
+              wallet_id: row.wallet_id,
+              ticker: row.ticker,
+              source: "auto",
+              usd_override: qty * price.usd,
+            });
+            changeRows.push({
+              contract: row.contract,
+              symbol: row.ticker,
+              change_24h_pct: price.change24h,
+              market_cap: price.marketCap,
+            });
           }
-          const qty = Number(row.qty);
-          if (!Number.isFinite(qty)) {
-            results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
-            continue;
-          }
-          upserts.push({
-            id: row.id,
-            wallet_id: row.wallet_id,
-            ticker: row.ticker,
-            source: "auto",
-            usd_override: qty * price.usd,
-          });
-          changeRows.push({
-            contract: row.contract,
-            symbol: row.ticker,
-            change_24h_pct: price.change24h,
-            market_cap: price.marketCap,
-          });
+        } catch (e) {
+          for (const row of contractRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
         }
-      } catch (e) {
-        for (const row of contractRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
       }
-    }
 
-    if (nativeRows.length > 0) {
-      try {
-        const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId);
-        for (const row of nativeRows) {
-          if (nativePrice === null) {
-            results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this native asset." });
-            continue;
+      if (nativeRows.length > 0) {
+        try {
+          const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId);
+          for (const row of nativeRows) {
+            if (nativePrice === null) {
+              results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this native asset." });
+              continue;
+            }
+            const qty = Number(row.qty);
+            if (!Number.isFinite(qty)) {
+              results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
+              continue;
+            }
+            upserts.push({
+              id: row.id,
+              wallet_id: row.wallet_id,
+              ticker: row.ticker,
+              source: "auto",
+              usd_override: qty * nativePrice,
+            });
           }
-          const qty = Number(row.qty);
-          if (!Number.isFinite(qty)) {
-            results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
-            continue;
-          }
-          upserts.push({
-            id: row.id,
-            wallet_id: row.wallet_id,
-            ticker: row.ticker,
-            source: "auto",
-            usd_override: qty * nativePrice,
-          });
+        } catch (e) {
+          for (const row of nativeRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
         }
+      }
+
+      if (upserts.length === 0) return results;
+
+      // Write outcome decides ok/fail for every row in this chain's batch
+      // — deferred until now (rather than pushed optimistically above)
+      // specifically so a DB failure here doesn't mislabel rows as
+      // successfully repriced when the write never actually landed.
+      try {
+        for (let i = 0; i < upserts.length; i += 1000) {
+          const chunk = upserts.slice(i, i + 1000);
+          const { error: upsertError } = await serviceDb().from("holdings").upsert(chunk, { onConflict: "id" });
+          if (upsertError) throw new Error(upsertError.message);
+        }
+        for (const u of upserts) results.push({ ticker: u.ticker, ok: true });
+        if (changeRows.length > 0) await saveChange24h(chainId, changeRows);
       } catch (e) {
-        for (const row of nativeRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
+        for (const u of upserts) results.push({ ticker: u.ticker, ok: false, error: (e as Error).message });
       }
-    }
 
-    if (upserts.length === 0) continue;
+      return results;
+    },
+  );
 
-    // Write outcome decides ok/fail for every row in this chain's batch —
-    // deferred until now (rather than pushed optimistically above)
-    // specifically so a DB failure here doesn't mislabel rows as
-    // successfully repriced when the write never actually landed.
-    try {
-      for (let i = 0; i < upserts.length; i += 1000) {
-        const chunk = upserts.slice(i, i + 1000);
-        const { error: upsertError } = await serviceDb().from("holdings").upsert(chunk, { onConflict: "id" });
-        if (upsertError) throw new Error(upsertError.message);
-      }
-      for (const u of upserts) results.push({ ticker: u.ticker, ok: true });
-      if (changeRows.length > 0) await saveChange24h(chainId, changeRows);
-    } catch (e) {
-      for (const u of upserts) results.push({ ticker: u.ticker, ok: false, error: (e as Error).message });
-    }
-  }
-
-  return results;
+  return perChainResults.flat();
 }
