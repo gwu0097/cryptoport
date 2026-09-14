@@ -399,23 +399,34 @@ async function refreshCoinbaseAndJupiter(
 type PhaseName = "coingecko" | "coinbase" | "evm";
 type PhaseState = { status: "running" | "done" | "error"; ms: number | null };
 
-/** Writes the *entire* current phases object each call — a plain column
- * update, not a partial JSONB merge, so the caller always passes the full
- * in-memory snapshot rather than one phase's delta. Best-effort: a failure
- * here is purely cosmetic status reporting, never worth failing the actual
- * price refresh over. */
-async function persistPhases(phases: Record<PhaseName, PhaseState>): Promise<void> {
-  try {
-    await serviceDb().from("price_refresh_state").update({ phases }).eq("id", 1);
-  } catch {
-    // swallowed — see doc comment
-  }
-}
-
 export async function refreshPrices(): Promise<PriceRefreshResult[]> {
   const holdingTickers = await getDistinctHoldingTickers();
   const existingSources = await getExistingPriceSources();
   const { resolved, residual } = splitByCoingeckoResolvability(holdingTickers);
+
+  // Writes are queued (chained onto `writeQueue`), not fired independently
+  // — three lanes finishing close together means three persistPhases calls
+  // racing over the network, and without this, a later, more-complete
+  // snapshot's response arriving before an earlier, less-complete one's
+  // would get silently clobbered back to the stale state a moment later.
+  // Queuing guarantees writes land in the order they were made, regardless
+  // of individual request timing. Scoped locally to this one refreshPrices
+  // call (not module-level) so two concurrent refreshes, if that ever
+  // happens, don't serialize against each other. Best-effort — a write
+  // failure here is purely cosmetic status reporting, never worth failing
+  // the actual price refresh over.
+  let writeQueue: Promise<void> = Promise.resolve();
+  function persistPhases(phases: Record<PhaseName, PhaseState>): Promise<void> {
+    const snapshot = { ...phases };
+    writeQueue = writeQueue.then(async () => {
+      try {
+        await serviceDb().from("price_refresh_state").update({ phases: snapshot }).eq("id", 1);
+      } catch {
+        // swallowed — see doc comment
+      }
+    });
+    return writeQueue;
+  }
 
   // Live per-lane status, written to price_refresh_state.phases as each
   // lane actually finishes — not just recorded in memory and reported

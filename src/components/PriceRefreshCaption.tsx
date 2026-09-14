@@ -52,7 +52,12 @@ export function PriceRefreshCaption({ priceState }: { priceState: PriceRefreshSt
   const refreshing = priceState.status === "refreshing";
   return (
     <>
-      <AutoRefreshWhileSyncing syncing={refreshing} />
+      {/* 1.2s, not the 4s default — CoinGecko (the fastest lane) can finish
+          in a few seconds; a 4s poll would only get one or two chances to
+          ever catch a lane mid-flight, which read as "nothing updates
+          live, they all just appear at once at the end" even though the
+          writes themselves were happening progressively the whole time. */}
+      <AutoRefreshWhileSyncing syncing={refreshing} pollMs={1200} />
       <p className="text-xs text-fg-muted">
         {refreshing ? "Refreshing…" : `Last priced: ${formatStaleness(priceState.refreshedAt)}`}
       </p>
