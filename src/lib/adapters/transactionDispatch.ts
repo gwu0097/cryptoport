@@ -1,6 +1,6 @@
 import "server-only";
 import { EVM_CHAINS, isEvmChainId } from "./evmChains";
-import { ETHERSCAN_EXPLORERS, fetchEvmTransactions } from "./etherscan";
+import { ETHERSCAN_EXPLORERS, FREE_TIER_UNSUPPORTED, fetchEvmTransactions } from "./etherscan";
 import { fetchBitcoinTransactions } from "./bitcoinTx";
 import { fetchSolanaTransactions } from "./solanaTx";
 import { scanExtendedKey, isExtendedPublicKey, type ScriptType } from "./bitcoinXpub";
@@ -22,11 +22,14 @@ export function hasTransactionCoverage(chain: string): boolean {
 /**
  * Fetches a wallet's transaction history from whichever free source(s)
  * cover its chain — see etherscan.ts's own doc comment for exactly which
- * EVM chains that is (18 of this app's 25, ~79% of EVM holdings by count).
- * A wallet on an uncovered chain (every non-EVM chain except BTC/SOL, or
- * an EVM sub-chain outside ETHERSCAN_EXPLORERS) returns an empty list
- * rather than throwing — the caller shows "not yet supported" for those,
- * never a silently-empty list pretending to be complete history.
+ * EVM chains that is: 13 of this app's 25, after live-testing with a real
+ * key turned up a second gate beyond chainlist membership (Base, Optimism,
+ * Avalanche, BSC, and Gnosis are all permanently paid-only on Etherscan's
+ * free tier, despite being routable). A wallet on an uncovered chain
+ * (every non-EVM chain except BTC/SOL, an EVM sub-chain outside
+ * ETHERSCAN_EXPLORERS, or one in FREE_TIER_UNSUPPORTED) returns an empty
+ * list rather than throwing — the caller shows "not yet supported" for
+ * those, never a silently-empty list pretending to be complete history.
  *
  * `isEvmChainId(chain)` here is the same coincidence pinnedWalletChain.ts
  * relies on: every EVM wallet's own `wallets.chain` is literally the
@@ -70,7 +73,7 @@ export async function fetchWalletTransactions(
     if (error) throw new Error(`Failed to load wallet chains: ${error.message}`);
 
     const heldChains = [...new Set((data as { chain: string }[]).map((r) => r.chain))];
-    const covered = heldChains.filter((c) => c in ETHERSCAN_EXPLORERS);
+    const covered = heldChains.filter((c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c));
 
     const perChain = await mapWithConcurrency(covered, 2, (evmChainId) => {
       const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;

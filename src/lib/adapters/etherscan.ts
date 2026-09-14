@@ -8,15 +8,24 @@ const API_KEY = process.env.ETHERSCAN_API_KEY;
 /**
  * Live-verified against api.etherscan.io/v2/chainlist (62 chains total):
  * only these of this app's 25 EVM_CHAINS entries are covered by
- * Etherscan's unified V2 API — Scroll, zkSync Era, Manta, Mode, Merlin,
- * ZetaChain, Metis, Ronin, PulseChain, Cronos, Kava, and Chiliz/Soneium
- * (no holdings on those last few yet) have no coverage here at all.
- * transactionSync.ts skips a wallet's holdings on an uncovered chain
- * rather than calling an endpoint that would just error — see the
- * /transactions feature's own coverage research for the numbers (covers
- * ~79% of this app's actual EVM holdings by count at the time this was
- * written). Keyed by this app's own EVM_CHAINS `id`, not the numeric
- * chainId, since that's what every other call site already has on hand.
+ * Etherscan's unified V2 API at all — Scroll, zkSync Era, Manta, Mode,
+ * Merlin, ZetaChain, Metis, Ronin, PulseChain, Cronos, Kava, and
+ * Chiliz/Soneium have no coverage here. Keyed by this app's own
+ * EVM_CHAINS `id`, not the numeric chainId, since that's what every other
+ * call site already has on hand.
+ *
+ * IMPORTANT — being in `chainlist` is not the same as being free. A real
+ * key + a live per-chain probe (not just this list) turned up a second,
+ * narrower gate: Base, Optimism, Avalanche, BSC, and Gnosis all return
+ * `{"status":"0","message":"NOTOK","result":"Free API access is not
+ * supported for this chain. Please upgrade your api plan..."}` on the
+ * free tier — a real, permanent restriction, not a fluke or a quota. See
+ * FREE_TIER_UNSUPPORTED below, which callEtherscan's error-swallowing
+ * would otherwise silently turn into an indistinguishable-from-genuinely-
+ * empty result. (Separately, the free tier also has a shared daily quota
+ * — hit "Community Free API Limit reached" on Celo mid-research, which
+ * resets at UTC midnight; that one's transient, not a permanent gap, and
+ * isn't specially handled here.)
  */
 export const ETHERSCAN_EXPLORERS: Record<string, { chainId: number; base: string }> = {
   eth: { chainId: 1, base: "https://etherscan.io" },
@@ -38,6 +47,17 @@ export const ETHERSCAN_EXPLORERS: Record<string, { chainId: number; base: string
   blast: { chainId: 81457, base: "https://blastscan.io" },
   taiko: { chainId: 167000, base: "https://taikoscan.io" },
 };
+
+/** Chains from ETHERSCAN_EXPLORERS above that are permanently gated behind
+ * a paid Etherscan plan even with a real free-tier key — see that
+ * constant's own doc comment for the exact live-verified error. Excluded
+ * from transactionDispatch.ts's dispatch entirely: calling one of these
+ * would just burn a request for a guaranteed "Free API access is not
+ * supported for this chain" every time, and (worse) that error currently
+ * looks identical to "this wallet genuinely has no activity here" once
+ * callEtherscan swallows it — so these chains are treated as uncovered,
+ * same as Scroll/zkSync/etc., rather than silently attempted and failed. */
+export const FREE_TIER_UNSUPPORTED = new Set(["base", "op", "avax", "bsc", "xdai"]);
 
 interface EtherscanNativeRow {
   hash: string;
