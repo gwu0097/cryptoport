@@ -1,16 +1,14 @@
-import { RefreshCw } from "lucide-react";
 import { getUser } from "@/lib/auth";
 import { userDb } from "@/lib/supabase";
 import { getTransactions } from "@/lib/queries";
 import { hasTransactionCoverage } from "@/lib/adapters/transactionDispatch";
-import { formatStaleness } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { GuestBanner } from "@/components/GuestBanner";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { TransactionsWalletFilter } from "@/components/TransactionsWalletFilter";
 import { TransactionsTable } from "@/components/TransactionsTable";
-import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
+import { TransactionSyncButton } from "@/components/TransactionSyncButton";
+import { TransactionSyncAllButton } from "@/components/TransactionSyncAllButton";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { syncWalletTransactions, syncAllWalletTransactions } from "./actions";
 
@@ -28,6 +26,7 @@ interface WalletOption {
   chain: string;
   tx_synced_at: string | null;
   tx_sync_status: string | null;
+  tx_sync_started_at: string | null;
 }
 
 export default async function TransactionsPage({
@@ -53,7 +52,7 @@ export default async function TransactionsPage({
   const db = await userDb();
   const { data: walletsData, error: walletsError } = await db
     .from("wallets")
-    .select("id, name, chain, tx_synced_at, tx_sync_status")
+    .select("id, name, chain, tx_synced_at, tx_sync_status, tx_sync_started_at")
     .eq("active", true)
     .order("name");
   if (walletsError) throw new Error(`Failed to load wallets: ${walletsError.message}`);
@@ -63,20 +62,9 @@ export default async function TransactionsPage({
   const transactions = await getTransactions(selectedWallet?.id);
 
   const covered = selectedWallet ? hasTransactionCoverage(selectedWallet.chain) : true;
-  // Same background-sync polling as the wallet detail page (see
-  // AutoRefreshWhileSyncing's own doc comment) — without this, a sync
-  // completing in after() never reaches an already-open tab: revalidatePath
-  // only affects the *next* navigation/request to this path, not a page
-  // already rendered in the browser. Scoped to whichever wallet(s) this
-  // view is actually watching — the selected one, or (in the "All
-  // wallets" view) any wallet still mid-sync.
-  const syncing = selectedWallet
-    ? selectedWallet.tx_sync_status === "syncing"
-    : wallets.some((w) => w.tx_sync_status === "syncing");
 
   return (
     <>
-      <AutoRefreshWhileSyncing syncing={syncing} />
       {selectedWallet && (
         <RecordRecentWallet id={selectedWallet.id} name={selectedWallet.name} namespace="transactionsWallets" />
       )}
@@ -84,36 +72,20 @@ export default async function TransactionsPage({
         title="Transactions"
         subtitle="On-chain activity across your wallets — synced, not live (see Sync below)."
         actions={
-          <div className="flex flex-col items-end gap-1">
-            {selectedWallet ? (
-              covered ? (
-                <form action={syncWalletTransactions.bind(null, selectedWallet.id)}>
-                  <SubmitButton variant="secondary" size="sm" pendingLabel="Starting…">
-                    <RefreshCw className="size-3.5" aria-hidden="true" />
-                    Sync this wallet
-                  </SubmitButton>
-                </form>
-              ) : (
-                <span className="text-xs text-fg-muted">Not yet supported for {selectedWallet.chain}</span>
-              )
+          selectedWallet ? (
+            covered ? (
+              <TransactionSyncButton
+                txSyncStatus={selectedWallet.tx_sync_status}
+                txSyncStartedAt={selectedWallet.tx_sync_started_at}
+                txSyncedAt={selectedWallet.tx_synced_at}
+                sync={syncWalletTransactions.bind(null, selectedWallet.id)}
+              />
             ) : (
-              <form action={syncAllWalletTransactions}>
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Starting…">
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Sync all
-                </SubmitButton>
-              </form>
-            )}
-            {selectedWallet && (
-              <p className={`max-w-xs text-right text-xs ${selectedWallet.tx_sync_status?.startsWith("error:") ? "text-negative" : "text-fg-muted"}`}>
-                {selectedWallet.tx_sync_status === "syncing"
-                  ? "Syncing…"
-                  : selectedWallet.tx_sync_status?.startsWith("error:")
-                    ? `Sync failed: ${selectedWallet.tx_sync_status.slice("error: ".length)}`
-                    : `Last synced: ${formatStaleness(selectedWallet.tx_synced_at)}`}
-              </p>
-            )}
-          </div>
+              <span className="text-xs text-fg-muted">Not yet supported for {selectedWallet.chain}</span>
+            )
+          ) : (
+            <TransactionSyncAllButton wallets={wallets} syncAll={syncAllWalletTransactions} />
+          )
         }
       />
 

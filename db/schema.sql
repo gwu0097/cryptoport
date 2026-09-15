@@ -540,3 +540,9 @@ create index transactions_wallet_occurred_idx
 alter table cryptoport.wallets
   add column tx_synced_at timestamptz,
   add column tx_sync_status text;
+
+-- Compare-and-set claim timestamp for syncWalletTransactions, mirroring
+-- sync_started_at above (holdings sync) — its own column, not a reused
+-- one, because a transaction sync and a holdings sync are independent
+-- jobs that can each be mid-run on their own schedule.
+alter table cryptoport.wallets add column tx_sync_started_at timestamptz;

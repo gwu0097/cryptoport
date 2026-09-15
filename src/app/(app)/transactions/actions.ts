@@ -6,6 +6,7 @@ import { userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { fetchWalletTransactions } from "@/lib/adapters/transactionDispatch";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
+import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 
 // Not unbounded — each adapter already caps its own per-call fetch (see
 // etherscan.ts/bitcoinShared.ts/solanaTx.ts), and the merged result across
@@ -21,8 +22,15 @@ const MAX_STORED_PER_WALLET = 200;
  * feedback section). Deliberately its own action, not folded into
  * syncWalletHoldings — a slower, separate concern shouldn't make the
  * existing balance sync any slower than it already is.
+ *
+ * Same compare-and-set claim as syncWalletHoldings, on its own
+ * tx_sync_status/tx_sync_started_at pair rather than reusing the holdings
+ * sync's columns — these are genuinely different jobs that can each be
+ * mid-run independently, so they need independent claims. Returns
+ * JobStartResult (lib/jobStatus.ts) instead of throwing on "already
+ * syncing", same reasoning as syncWalletHoldings.
  */
-export async function syncWalletTransactions(walletId: string) {
+export async function syncWalletTransactions(walletId: string): Promise<JobStartResult> {
   await requireUser();
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
@@ -33,8 +41,18 @@ export async function syncWalletTransactions(walletId: string) {
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (!wallet.address) throw new Error("This wallet has no address set.");
 
-  const { error: markError } = await db.from("wallets").update({ tx_sync_status: "syncing" }).eq("id", walletId);
+  const syncStartedAt = Date.now();
+  const staleBefore = new Date(syncStartedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await db
+    .from("wallets")
+    .update({ tx_sync_status: "syncing", tx_sync_started_at: new Date(syncStartedAt).toISOString() })
+    .eq("id", walletId)
+    .or(`tx_sync_status.neq.syncing,tx_sync_status.is.null,tx_sync_started_at.lt.${staleBefore}`)
+    .select("id");
   if (markError) throw new Error(`Failed to start transaction sync: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A transaction sync is already running for this wallet." };
+  }
 
   after(async () => {
     // Fresh client inside after(), not the outer `db` — same documented
@@ -118,20 +136,26 @@ export async function syncWalletTransactions(walletId: string) {
   });
 
   revalidatePath("/transactions");
+  return { started: true };
 }
 
 /** Same shape as wallets/actions.ts's syncAllWallets — kicks off every
- * active wallet's transaction sync as its own background task, skipping
- * any already mid-sync, and itself returns fast since each individual
- * call's real work happens in its own after(). */
-export async function syncAllWalletTransactions() {
+ * active wallet's transaction sync as its own background task and itself
+ * returns fast since each individual call's real work happens in its own
+ * after(). Parallel (Promise.all), not a sequential loop — a sequential
+ * version of this exact pattern in syncAllWallets was live-reported as
+ * leaving its button stuck on an in-flight state for 8+ seconds with more
+ * than a couple of wallets; each wallet's own CAS claim decides whether
+ * it actually starts, same as a single "Sync this wallet" click. */
+export async function syncAllWalletTransactions(): Promise<JobStartResult> {
   await requireUser();
   const db = await userDb();
-  const { data: wallets, error } = await db.from("wallets").select("id, tx_sync_status").eq("active", true);
+  const { data: wallets, error } = await db.from("wallets").select("id").eq("active", true);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
+  if (wallets.length === 0) return { started: false, reason: "No wallets to sync." };
 
-  for (const wallet of wallets as { id: string; tx_sync_status: string | null }[]) {
-    if (wallet.tx_sync_status === "syncing") continue;
-    await syncWalletTransactions(wallet.id);
-  }
+  const results = await Promise.all(wallets.map((wallet) => syncWalletTransactions(wallet.id)));
+  const claimedCount = results.filter((r) => r.started).length;
+  if (claimedCount === 0) return { started: false, reason: "All wallets are already syncing." };
+  return { started: true };
 }
