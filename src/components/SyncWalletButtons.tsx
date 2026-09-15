@@ -44,7 +44,6 @@ export function SyncWalletButtons({
       <div className="flex flex-wrap items-center justify-end gap-2">
         <JobButton
           busy={busy}
-          isPending={job.isPending}
           submit={job.submit}
           busyLabel={
             <>
@@ -65,7 +64,6 @@ export function SyncWalletButtons({
         {fullSync && (
           <JobButton
             busy={busy}
-            isPending={fullJob.isPending}
             submit={fullJob.submit}
             busyLabel="Syncing…"
             variant="secondary"

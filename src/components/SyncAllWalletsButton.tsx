@@ -35,7 +35,7 @@ export function SyncAllWalletsButton({
     }
   }
 
-  const { busy, isPending, submit, error } = useJob({
+  const { busy, submit, error } = useJob({
     status: { running, stale: false, startedAt: latestStartedAt, outcome: null, detail: null },
     start: syncAll,
   });
@@ -44,7 +44,6 @@ export function SyncAllWalletsButton({
     <div className="flex flex-col items-end gap-1">
       <JobButton
         busy={busy}
-        isPending={isPending}
         submit={submit}
         busyLabel={
           <>

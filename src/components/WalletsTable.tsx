@@ -20,17 +20,15 @@ import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/(app)/wall
 /** The per-row sync icon-button — its own component (not inlined in the
  * map below) because it needs its own useJob() call, one per wallet. */
 function WalletSyncButton({ walletId, walletName, status }: { walletId: string; walletName: string; status: ReturnType<typeof deriveJobStatus> }) {
-  const { busy, isPending, submit } = useJob({
+  const { busy, submit } = useJob({
     status,
     start: (): Promise<JobStartResult> => syncWalletHoldings(walletId, false),
   });
   return (
     <JobButton
       busy={busy}
-      isPending={isPending}
       submit={submit}
       busyLabel={<RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />}
-      pendingLabel={<RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />}
       variant="secondary"
       size="sm"
       aria-label={busy ? `${walletName} is syncing` : `Sync ${walletName}`}
