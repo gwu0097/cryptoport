@@ -19,20 +19,72 @@ import type { AdapterHolding } from "@/lib/adapters/types";
 import type { WalletMode } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 
+/** The actual work — same shape as runPriceRefresh below: never throws,
+ * a failure is recorded as token_registry_state's own status instead. */
+async function runTokenRegistryRefresh(): Promise<void> {
+  try {
+    const results = await refreshTokenRegistry();
+    const totalCount = results.reduce((sum, r) => sum + r.count, 0);
+    const { error } = await serviceDb()
+      .from("token_registry_state")
+      .update({
+        refreshed_at: new Date().toISOString(),
+        status: `ok (${totalCount} tokens across ${results.length} chains)`,
+      })
+      .eq("id", 1);
+    if (error) throw new Error(`Failed to record token registry refresh: ${error.message}`);
+  } catch (e) {
+    await serviceDb()
+      .from("token_registry_state")
+      .update({ status: `error: ${(e as Error).message}` })
+      .eq("id", 1);
+  }
+}
+
 // The EVM sync (evm.ts -> multicallEvm.ts) reads on-chain balances only for
 // tokens already in cryptoport.token_registry — this is what populates it,
 // from CoinGecko's coins/list. Manual/on-demand rather than automatic: it's
 // slow (every EVM chain's full token list, tens of thousands of rows for
 // Ethereum) and registry data doesn't need to be fresher than "before your
 // next EVM wallet sync."
-export async function refreshTokenRegistryAction() {
+//
+// Used to be awaited directly with zero status tracking — a documented
+// CLAUDE.md "known offender," the last Server Action in this app not
+// following the after()/CAS-claim/JobButton pattern every sync/refresh
+// action now does (see syncWalletHoldings for the original of this
+// pattern). Same compare-and-set claim on a new token_registry_state
+// singleton row (this data is global, not per-user, same as
+// price_refresh_state) — lets a second click/tab/user agree on whether a
+// refresh is genuinely already running, and recovers one stuck at
+// "refreshing" if an earlier run's after() got killed by the platform's
+// time limit.
+export async function refreshTokenRegistryAction(): Promise<JobStartResult> {
+  const requestedAt = Date.now();
   // No cross-tenant data risk (token_registry is global, serviceDb()-only)
   // but it's expensive and rate-limit-sensitive shared state — not
   // something to leave open to an unauthenticated, unlimited trigger now
   // that every page (and its buttons) renders for a guest too.
   await requireUser();
-  await refreshTokenRegistry();
+
+  const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await serviceDb()
+    .from("token_registry_state")
+    .update({ status: "refreshing", started_at: new Date(requestedAt).toISOString() })
+    .eq("id", 1)
+    .or(`status.neq.refreshing,status.is.null,started_at.lt.${staleBefore}`)
+    .select("id");
+  if (markError) throw new Error(`Failed to start token registry refresh: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A token list refresh is already running." };
+  }
+
+  after(async () => {
+    await runTokenRegistryRefresh();
+    revalidatePath("/wallets");
+  });
+
   revalidatePath("/wallets");
+  return { started: true };
 }
 
 // Prices are global (touches the shared `prices` table plus every EVM

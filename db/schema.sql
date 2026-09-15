@@ -242,6 +242,26 @@ insert into cryptoport.price_refresh_state (id, refreshed_at, status) values (1,
 -- killed by the platform's own time limit.
 alter table cryptoport.price_refresh_state add column started_at timestamptz;
 
+-- Same singleton-row pattern as price_refresh_state, for
+-- refreshTokenRegistryAction (Refresh token list) — this used to be
+-- awaited directly with zero status tracking at all (a real, documented
+-- CLAUDE.md "known offender": a Server Action that does real work
+-- without the after()/CAS-claim/JobButton pattern every other sync
+-- action in this app follows). token_registry itself (the actual rows
+-- this refresh writes) is global, not per-user, so this state is too.
+create table cryptoport.token_registry_state (
+  id           int primary key default 1,
+  refreshed_at timestamptz,
+  status       text,
+  started_at   timestamptz,
+  constraint token_registry_state_singleton check (id = 1)
+);
+
+alter table cryptoport.token_registry_state enable row level security;
+grant all on cryptoport.token_registry_state to service_role;
+
+insert into cryptoport.token_registry_state (id, refreshed_at, status, started_at) values (1, null, null, null);
+
 -- DeFi position breakdown (which protocol a position lives in, and a link
 -- to it — DeBank/Rabby-style) — see adapters/jupiterPositions.ts, the first
 -- adapter to populate these. Null for every plain token holding.

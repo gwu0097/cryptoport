@@ -58,6 +58,30 @@ export const getPriceRefreshState = cache(async (): Promise<PriceRefreshState> =
   };
 });
 
+export interface TokenRegistryState {
+  refreshedAt: string | null;
+  status: string | null;
+  startedAt: string | null;
+}
+
+/** Same singleton-row pattern as getPriceRefreshState, for the "Refresh
+ * token list" button — see token_registry_state in schema.sql. Cached
+ * per-request via React's cache(), same reasoning as every other function
+ * in this file that does. */
+export const getTokenRegistryState = cache(async (): Promise<TokenRegistryState> => {
+  const { data, error } = await serviceDb()
+    .from("token_registry_state")
+    .select("refreshed_at, status, started_at")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load token registry state: ${error.message}`);
+  return {
+    refreshedAt: data?.refreshed_at ?? null,
+    status: data?.status ?? null,
+    startedAt: data?.started_at ?? null,
+  };
+});
+
 /** Every tag *this user* has ever created — populates the datalist for the
  * free-text "tag" input on the wallet add/edit forms (see resolveTagId in
  * wallets/actions.ts, which creates one the first time its name is used).

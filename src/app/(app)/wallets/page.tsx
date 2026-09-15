@@ -1,13 +1,12 @@
 import Link from "next/link";
-import { Database } from "lucide-react";
-import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
+import { getWalletsWithTotals, getTags, getPriceRefreshState, getTokenRegistryState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
+import { TokenRegistryRefreshButton } from "@/components/TokenRegistryRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { buttonClass } from "@/components/ui/Button";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { WalletsTable } from "@/components/WalletsTable";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
@@ -25,10 +24,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export default async function WalletsPage() {
-  const [{ wallets, grand }, tags, priceState, user] = await Promise.all([
+  const [{ wallets, grand }, tags, priceState, tokenRegistryState, user] = await Promise.all([
     getWalletsWithTotals(),
     getTags(),
     getPriceRefreshState(),
+    getTokenRegistryState(),
     getUser(),
   ]);
   const tagNames = tags.map((t) => t.name);
@@ -45,12 +45,7 @@ export default async function WalletsPage() {
               </Link>
               <SyncAllWalletsButton wallets={wallets} syncAll={syncAllWallets} />
               <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
-              <form action={refreshTokenRegistryAction}>
-                <SubmitButton variant="secondary" size="sm">
-                  <Database className="size-3.5" aria-hidden="true" />
-                  Refresh token list
-                </SubmitButton>
-              </form>
+              <TokenRegistryRefreshButton tokenRegistryState={tokenRegistryState} refresh={refreshTokenRegistryAction} />
             </>
           )
         }
