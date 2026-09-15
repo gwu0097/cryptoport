@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { Trash, RefreshCw, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatStaleness, formatDuration } from "@/lib/format";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import { pinnedWalletChain } from "@/lib/walletDisplay";
@@ -16,9 +15,9 @@ import { HoldingsTable } from "@/components/HoldingsTable";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
-import { AutoRefreshWhileSyncing } from "@/components/AutoRefreshWhileSyncing";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
+import { SyncWalletButtons } from "@/components/SyncWalletButtons";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -115,9 +114,8 @@ export default async function WalletDetailPage(
   return (
     <>
       <RecordRecentWallet id={wallet.id} name={wallet.name} />
-      <AutoRefreshWhileSyncing syncing={wallet.last_refresh_status === "syncing"} />
       <AutoSyncOnMount
-        enabled={autosync === "1" && wallet.mode === "auto" && wallet.last_refresh_status !== "syncing"}
+        enabled={autosync === "1" && wallet.mode === "auto"}
         sync={syncWalletHoldings.bind(null, wallet.id, false)}
       />
       <p className="mb-2">
@@ -203,41 +201,17 @@ export default async function WalletDetailPage(
         </div>
 
         <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {wallet.mode === "auto" &&
-              (wallet.last_refresh_status === "syncing" ? (
-                // A sync already in flight (runs in the background — see
-                // syncWalletHoldings — so a fresh click would otherwise
-                // queue up a redundant duplicate sync).
-                <span className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-2.5 py-1.5 text-xs font-medium text-fg opacity-50">
-                  <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
-                  Syncing…
-                </span>
-              ) : (
-                <>
-                  <form action={syncWalletHoldings.bind(null, wallet.id, false)}>
-                    <SubmitButton variant="secondary" size="sm">
-                      <RefreshCw className="size-3.5" aria-hidden="true" />
-                      Sync holdings
-                    </SubmitButton>
-                  </form>
-                  {/* Only worth offering once a cache exists to override —
-                      without one, plain "Sync holdings" already does the
-                      full check. For e.g. a wallet that switched address
-                      format and needs re-detecting. */}
-                  {isBtcXpub && wallet.btc_script_type && (
-                    <form action={syncWalletHoldings.bind(null, wallet.id, true)}>
-                      <SubmitButton
-                        variant="secondary"
-                        size="sm"
-                        title="Re-check all address formats instead of using the cached one — use this if the wallet's address format changed."
-                      >
-                        Full sync
-                      </SubmitButton>
-                    </form>
-                  )}
-                </>
-              ))}
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            {wallet.mode === "auto" && (
+              <SyncWalletButtons
+                lastRefreshStatus={wallet.last_refresh_status}
+                syncStartedAt={wallet.sync_started_at}
+                lastRefreshAt={wallet.last_refresh_at}
+                lastSyncDurationMs={wallet.last_sync_duration_ms}
+                sync={syncWalletHoldings.bind(null, wallet.id, false)}
+                fullSync={isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null}
+              />
+            )}
             <div className="flex flex-col items-center gap-1">
               <form action={refreshPricesForWalletAction.bind(null, wallet.id)}>
                 <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
@@ -256,18 +230,6 @@ export default async function WalletDetailPage(
               </ConfirmDeleteButton>
             </form>
           </div>
-          <p className="text-xs text-fg-muted">
-            {wallet.last_refresh_status === "syncing" ? (
-              "Syncing…"
-            ) : (
-              <>
-                Synced: {formatStaleness(wallet.last_refresh_at)}
-                {wallet.last_sync_duration_ms !== null && (
-                  <> · took {formatDuration(wallet.last_sync_duration_ms)}</>
-                )}
-              </>
-            )}
-          </p>
           {isBtcXpub && !wallet.btc_script_type && wallet.last_refresh_status !== "syncing" && (
             <p className="max-w-xs text-right text-xs text-fg-muted">
               First sync checks all 3 Bitcoin address formats and can take a few minutes — once it

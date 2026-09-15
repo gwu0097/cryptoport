@@ -14,7 +14,7 @@ import { useRouter, usePathname } from "next/navigation";
  * via router.replace once fired, so reloading this page later doesn't
  * re-trigger a sync every time.
  */
-export function AutoSyncOnMount({ enabled, sync }: { enabled: boolean; sync: () => Promise<void> }) {
+export function AutoSyncOnMount({ enabled, sync }: { enabled: boolean; sync: () => Promise<unknown> }) {
   const firedRef = useRef(false);
   const router = useRouter();
   const pathname = usePathname();

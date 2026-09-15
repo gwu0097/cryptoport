@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Button, type ButtonProps } from "../ui/Button";
 
 /**
@@ -21,8 +22,8 @@ export function JobButton({
   busy: boolean;
   isPending: boolean;
   submit: () => void;
-  pendingLabel?: string;
-  busyLabel: string;
+  pendingLabel?: ReactNode;
+  busyLabel: ReactNode;
 } & Omit<ButtonProps, "onClick" | "disabled" | "type">) {
   return (
     <Button type="button" onClick={submit} disabled={busy} {...props}>

@@ -17,6 +17,7 @@ import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { WalletMode } from "@/lib/types";
+import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 
 // The EVM sync (evm.ts -> multicallEvm.ts) reads on-chain balances only for
 // tokens already in cryptoport.token_registry — this is what populates it,
@@ -436,7 +437,18 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
 // formats, for a wallet that's switched to a different one. Bound
 // directly as a second argument before the form's own FormData (see
 // updateHolding/deleteHolding above for the same .bind(null, ...) shape).
-export async function syncWalletHoldings(walletId: string, forceFullScan = false) {
+//
+// Returns JobStartResult (see lib/jobStatus.ts) instead of throwing for
+// the expected "already syncing" case — useJob() reads that as a normal,
+// displayable outcome, not a crash. The "mark syncing" write below is a
+// real compare-and-set claim (only succeeds if the wallet isn't already
+// actively syncing, or its claim has gone stale past JOB_STALE_MS), not a
+// plain update — this is what makes a second click, a second tab, and
+// "Sync all wallets" all agree on whether a sync is genuinely running,
+// and it's also what recovers a wallet stuck showing "syncing" forever if
+// an earlier run's after() got killed by the platform's own time limit
+// before its own catch block ever ran.
+export async function syncWalletHoldings(walletId: string, forceFullScan = false): Promise<JobStartResult> {
   await requireUser();
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
@@ -455,11 +467,17 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
   }
 
   const syncStartedAt = Date.now();
-  const { error: markError } = await db
+  const staleBefore = new Date(syncStartedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await db
     .from("wallets")
     .update({ last_refresh_status: "syncing", sync_started_at: new Date(syncStartedAt).toISOString() })
-    .eq("id", walletId);
+    .eq("id", walletId)
+    .or(`last_refresh_status.neq.syncing,last_refresh_status.is.null,sync_started_at.lt.${staleBefore}`)
+    .select("id");
   if (markError) throw new Error(`Failed to start sync: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A sync is already running for this wallet." };
+  }
 
   after(async () => {
     // A fresh userDb() call here, not the outer `db` closed over above —
@@ -529,6 +547,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");
+  return { started: true };
 }
 
 // Kicks off a sync for every active auto-mode wallet not already syncing —
@@ -545,20 +564,26 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
 // fetchWithRetry/mapWithConcurrency), and this app's wallet count is
 // small enough that hammering a shared provider with a few more
 // concurrent callers hasn't been an issue in practice.
-export async function syncAllWallets() {
+// No pre-check for "already syncing" here anymore — syncWalletHoldings'
+// own compare-and-set claim decides that per wallet now, which is strictly
+// better than the plain-read check this used to do: that older check
+// would skip a wallet forever once its status said "syncing," even if
+// that run had gone stale (its after() killed by the platform's time
+// limit) — the CAS claim correctly re-attempts it instead.
+export async function syncAllWallets(): Promise<JobStartResult> {
   await requireUser();
   const db = await userDb();
   const { data: wallets, error } = await db
     .from("wallets")
-    .select("id, last_refresh_status")
+    .select("id")
     .eq("mode", "auto")
     .eq("active", true);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
 
   for (const wallet of wallets) {
-    if (wallet.last_refresh_status === "syncing") continue; // already in flight, don't double-trigger
     await syncWalletHoldings(wallet.id, false);
   }
+  return { started: true };
 }
 
 // Soft delete: wallets.active already exists for exactly this (the wallets

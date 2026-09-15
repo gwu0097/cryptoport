@@ -1,5 +1,5 @@
 import { RefreshCw } from "lucide-react";
-import { getAssetsGroupedByChain, getPriceRefreshState } from "@/lib/queries";
+import { getAssetsGroupedByChain, getPriceRefreshState, getWalletsWithTotals } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
 import { PageHeader } from "@/components/PageHeader";
@@ -8,6 +8,7 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
 import { refreshPricesAction, syncAllWallets } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +25,11 @@ export default async function PortfolioPage({
   searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string }>;
 }) {
   const { chain: selectedChain, hideUnpriced, hideLow } = await searchParams;
-  const [{ groups, grand }, priceState, user] = await Promise.all([
+  const [{ groups, grand }, priceState, user, { wallets }] = await Promise.all([
     getAssetsGroupedByChain(),
     getPriceRefreshState(),
     getUser(),
+    getWalletsWithTotals(),
   ]);
 
   return (
@@ -39,12 +41,7 @@ export default async function PortfolioPage({
           total={grand.total}
           actions={
             <div className="flex items-center gap-3">
-              <form action={syncAllWallets}>
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Starting…">
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Sync all
-                </SubmitButton>
-              </form>
+              <SyncAllWalletsButton wallets={wallets} syncAll={syncAllWallets} />
               <form action={refreshPricesAction}>
                 <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
                   <RefreshCw className="size-3.5" aria-hidden="true" />
