@@ -92,9 +92,14 @@ export function PriceRefreshButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         Refresh prices
       </JobButton>
-      <p className="text-xs text-fg-muted">
-        {busy ? "Refreshing…" : `Last priced: ${formatStaleness(priceState.refreshedAt)}`}
-      </p>
+      {/* No plain "Refreshing…" caption while busy — the button's own
+          busyLabel already says that; reported directly as redundant
+          ("if the button already says refreshing doesn't need a status
+          underneath it saying the same thing"). The phase breakdown right
+          below isn't redundant, though — it's genuinely new information
+          (which lane is running, how long each took) the button label
+          can't show. */}
+      {!busy && <p className="text-xs text-fg-muted">{`Last priced: ${formatStaleness(priceState.refreshedAt)}`}</p>}
       {showPhases && priceState.phases && (
         <p className="flex flex-wrap justify-end gap-x-2 text-[11px] text-fg-muted/70">
           {PHASE_ORDER.filter((name) => priceState.phases![name]).map((name) => (

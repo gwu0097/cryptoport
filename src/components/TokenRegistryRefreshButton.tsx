@@ -44,9 +44,12 @@ export function TokenRegistryRefreshButton({
         <Database className="size-3.5" aria-hidden="true" />
         Refresh token list
       </JobButton>
-      <p className="text-xs text-fg-muted">
-        {busy ? "Refreshing…" : `Last refreshed: ${formatStaleness(tokenRegistryState.refreshedAt)}`}
-      </p>
+      {/* No caption while busy — the button's own busyLabel already says
+          "Refreshing…"; a duplicate line underneath was reported directly
+          as redundant. */}
+      {!busy && (
+        <p className="text-xs text-fg-muted">{`Last refreshed: ${formatStaleness(tokenRegistryState.refreshedAt)}`}</p>
+      )}
       {error && <p className="max-w-xs text-right text-xs text-negative">{error}</p>}
     </div>
   );

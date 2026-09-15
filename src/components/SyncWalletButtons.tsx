@@ -74,18 +74,20 @@ export function SyncWalletButtons({
           </JobButton>
         )}
       </div>
-      <p className="text-xs text-fg-muted">
-        {busy ? (
-          "Syncing…"
-        ) : status.outcome === "error" ? (
-          <span className="text-negative">{status.detail}</span>
-        ) : (
-          <>
-            Synced: {formatStaleness(lastRefreshAt)}
-            {lastSyncDurationMs !== null && <> · took {formatDuration(lastSyncDurationMs)}</>}
-          </>
-        )}
-      </p>
+      {/* No "Syncing…" caption while busy — the button's own busyLabel
+          already says that; reported directly as redundant. */}
+      {!busy && (
+        <p className="text-xs text-fg-muted">
+          {status.outcome === "error" ? (
+            <span className="text-negative">{status.detail}</span>
+          ) : (
+            <>
+              Synced: {formatStaleness(lastRefreshAt)}
+              {lastSyncDurationMs !== null && <> · took {formatDuration(lastSyncDurationMs)}</>}
+            </>
+          )}
+        </p>
+      )}
       {error && <p className="max-w-xs text-right text-xs text-negative">{error}</p>}
     </div>
   );

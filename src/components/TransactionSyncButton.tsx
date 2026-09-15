@@ -50,13 +50,15 @@ export function TransactionSyncButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         Sync this wallet
       </JobButton>
-      <p className={`max-w-xs text-right text-xs ${status.outcome === "error" ? "text-negative" : "text-fg-muted"}`}>
-        {busy
-          ? "Syncing…"
-          : status.outcome === "error"
+      {/* No "Syncing…" caption while busy — the button's own busyLabel
+          already says that; reported directly as redundant. */}
+      {!busy && (
+        <p className={`max-w-xs text-right text-xs ${status.outcome === "error" ? "text-negative" : "text-fg-muted"}`}>
+          {status.outcome === "error"
             ? `Sync failed: ${status.detail?.slice("error: ".length)}`
             : `Last synced: ${formatStaleness(txSyncedAt)}`}
-      </p>
+        </p>
+      )}
       {error && <p className="max-w-xs text-right text-xs text-negative">{error}</p>}
     </div>
   );
