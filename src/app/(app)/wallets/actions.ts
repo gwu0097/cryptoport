@@ -579,10 +579,20 @@ export async function syncAllWallets(): Promise<JobStartResult> {
     .eq("mode", "auto")
     .eq("active", true);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
+  if (wallets.length === 0) return { started: false, reason: "No auto-mode wallets to sync." };
 
+  // Count real claims, not just "the loop ran" — every wallet's own CAS
+  // claim can independently fail (already syncing from something else),
+  // and if every single one does, no new sync_started_at ever lands.
+  // Reporting {started: true} anyway would leave "Sync all" stuck busy
+  // forever: useJob's baseline never clears because the row it's watching
+  // never actually changes.
+  let claimedCount = 0;
   for (const wallet of wallets) {
-    await syncWalletHoldings(wallet.id, false);
+    const result = await syncWalletHoldings(wallet.id, false);
+    if (result.started) claimedCount++;
   }
+  if (claimedCount === 0) return { started: false, reason: "All wallets are already syncing." };
   return { started: true };
 }
 

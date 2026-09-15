@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 interface JobPollerContextValue {
   register: (id: string, busy: boolean, pollMs: number) => void;
   unregister: (id: string) => void;
+  tick: number;
 }
 
 const JobPollerContext = createContext<JobPollerContextValue | null>(null);
@@ -31,6 +32,13 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const jobsRef = useRef(new Map<string, { busy: boolean; pollMs: number }>());
   const [minPollMs, setMinPollMs] = useState<number | null>(null);
+  // Increments on every poll (and every visibility-driven refresh) so
+  // useNow() can re-read Date.now() in step with real server data landing,
+  // not just when the polled row's own fields happen to change — a job
+  // stuck at "syncing" forever (its after() killed mid-run) has fields
+  // that never change, so without this tick "now" would freeze at the
+  // moment the claim was first observed and staleness could never fire.
+  const [tick, setTick] = useState(0);
 
   const recompute = useCallback(() => {
     let min: number | null = null;
@@ -59,14 +67,18 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (minPollMs === null) return;
 
-    const tick = () => {
+    const poll = () => {
       if (document.hidden) return;
       router.refresh();
+      setTick((t) => t + 1);
     };
-    const interval = setInterval(tick, minPollMs);
+    const interval = setInterval(poll, minPollMs);
 
     const onVisible = () => {
-      if (!document.hidden) router.refresh();
+      if (!document.hidden) {
+        router.refresh();
+        setTick((t) => t + 1);
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
@@ -78,7 +90,7 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
     };
   }, [minPollMs, router]);
 
-  return <JobPollerContext.Provider value={{ register, unregister }}>{children}</JobPollerContext.Provider>;
+  return <JobPollerContext.Provider value={{ register, unregister, tick }}>{children}</JobPollerContext.Provider>;
 }
 
 let nextId = 0;
@@ -99,4 +111,14 @@ export function useJobPolling(busy: boolean, pollMs: number): void {
     ctx.register(id, busy, pollMs);
     return () => ctx.unregister(id);
   }, [ctx, busy, pollMs]);
+}
+
+/** The shared poller's tick counter — increments each time it actually
+ * polls (or refreshes on visibility return). See useNow() in
+ * useJobStatus.ts, the reason this exists: a job stuck at "syncing"
+ * forever has row fields that never change on their own, so re-reading
+ * Date.now() needs to be driven by real poll events, not by those fields
+ * changing. Returns 0 (never advances) if no provider is mounted. */
+export function useJobPollerTick(): number {
+  return useContext(JobPollerContext)?.tick ?? 0;
 }
