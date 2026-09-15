@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Trash, RefreshCw, TriangleAlert, ExternalLink } from "lucide-react";
+import { Trash, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
@@ -8,7 +8,6 @@ import { isEvmChainId } from "@/lib/adapters/evmChains";
 import { pinnedWalletChain } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { HoldingsTable } from "@/components/HoldingsTable";
@@ -16,7 +15,7 @@ import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
-import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
+import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { SyncWalletButtons } from "@/components/SyncWalletButtons";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
@@ -212,15 +211,10 @@ export default async function WalletDetailPage(
                 fullSync={isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null}
               />
             )}
-            <div className="flex flex-col items-center gap-1">
-              <form action={refreshPricesForWalletAction.bind(null, wallet.id)}>
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Refresh prices
-                </SubmitButton>
-              </form>
-              <PriceRefreshCaption priceState={priceState} />
-            </div>
+            <PriceRefreshButton
+              priceState={priceState}
+              refresh={refreshPricesForWalletAction.bind(null, wallet.id)}
+            />
             <form action={deleteWallet.bind(null, wallet.id)}>
               <ConfirmDeleteButton
                 confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}

@@ -233,6 +233,15 @@ grant all on cryptoport.price_refresh_state to service_role;
 
 insert into cryptoport.price_refresh_state (id, refreshed_at, status) values (1, null, null);
 
+-- Compare-and-set claim timestamp for refreshPricesAction/
+-- refreshPricesForWalletAction, mirroring wallets.sync_started_at — a
+-- refresh is global (this whole table is one singleton row), so this is
+-- what lets a second click, a second tab, or a second user all agree on
+-- whether a refresh is genuinely already running, and recovers a refresh
+-- stuck showing "refreshing" forever if an earlier run's after() got
+-- killed by the platform's own time limit.
+alter table cryptoport.price_refresh_state add column started_at timestamptz;
+
 -- DeFi position breakdown (which protocol a position lives in, and a link
 -- to it — DeBank/Rabby-style) — see adapters/jupiterPositions.ts, the first
 -- adapter to populate these. Null for every plain token holding.

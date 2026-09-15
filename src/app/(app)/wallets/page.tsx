@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { RefreshCw, Database } from "lucide-react";
+import { Database } from "lucide-react";
 import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
+import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
@@ -44,15 +44,7 @@ export default async function WalletsPage() {
                 + Add wallet
               </Link>
               <SyncAllWalletsButton wallets={wallets} syncAll={syncAllWallets} />
-              <div className="flex flex-col items-center gap-1">
-                <form action={refreshPricesAction}>
-                  <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
-                    <RefreshCw className="size-3.5" aria-hidden="true" />
-                    Refresh prices
-                  </SubmitButton>
-                </form>
-                <PriceRefreshCaption priceState={priceState} />
-              </div>
+              <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
               <form action={refreshTokenRegistryAction}>
                 <SubmitButton variant="secondary" size="sm">
                   <Database className="size-3.5" aria-hidden="true" />

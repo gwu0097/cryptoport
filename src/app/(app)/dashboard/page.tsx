@@ -1,13 +1,11 @@
-import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByTicker, getValueHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { formatUsdSigned, formatPercent } from "@/lib/format";
-import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
+import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { blendedChange } from "@/lib/dashboard";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { GuestBanner } from "@/components/GuestBanner";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
 import { CryptoHeatmapPanel } from "@/components/dashboard/CryptoHeatmap";
@@ -62,15 +60,7 @@ export default async function DashboardPage() {
       {user ? (
         <TotalValuePanel
           total={grand.total}
-          actions={
-            <form action={refreshPricesAction} className="flex items-center gap-3">
-              <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
-                <RefreshCw className="size-3.5" aria-hidden="true" />
-                Refresh prices
-              </SubmitButton>
-              <PriceRefreshCaption priceState={priceState} />
-            </form>
-          }
+          actions={<PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />}
         >
           {change && (
             <p

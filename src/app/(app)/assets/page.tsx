@@ -1,12 +1,10 @@
-import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByTicker, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
+import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { AssetsTable } from "@/components/AssetsTable";
 import { GuestBanner } from "@/components/GuestBanner";
 import { refreshPricesAction } from "../wallets/actions";
@@ -68,19 +66,7 @@ export default async function AssetsPage({
       <PageHeader
         title="Assets"
         subtitle="Every token you hold, aggregated across all your wallets"
-        actions={
-          user && (
-            <div className="flex flex-col items-center gap-1">
-              <form action={refreshPricesAction}>
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Refresh prices
-                </SubmitButton>
-              </form>
-              <PriceRefreshCaption priceState={priceState} />
-            </div>
-          )
-        }
+        actions={user && <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />}
       />
 
       {user ? (

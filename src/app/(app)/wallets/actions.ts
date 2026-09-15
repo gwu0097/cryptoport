@@ -97,35 +97,36 @@ async function runPriceRefresh(requestedAt: number): Promise<void> {
 /**
  * Same after() pattern as syncWalletHoldings, for the same reason: a real
  * refresh (517 distinct pricing operations on this app's own largest
- * portfolio, measured at ~30s even after parallelizing its three
- * independent phases — see prices.ts) used to be awaited directly here,
- * which froze every other click app-wide for that whole 30s (Server
- * Actions and client-side navigations share one sequential dispatch queue
- * per client — see CLAUDE.md's Loading feedback section). `status`
- * doubles as a real in-flight signal now ("refreshing", not just a final
- * outcome) — see PriceRefreshCaption, the shared caption component every
- * page with this button renders instead of hand-rolling "Last priced: X"
- * five times over.
+ * portfolio, measured at ~30s before this app's pricing pipeline was
+ * redesigned around CoinGecko, ~9s now — see prices.ts) used to be awaited
+ * directly here, which froze every other click app-wide until it finished
+ * (Server Actions and client-side navigations share one sequential
+ * dispatch queue per client — see CLAUDE.md's Loading feedback section).
+ *
+ * Same compare-and-set claim as syncWalletHoldings, on price_refresh_state's
+ * own started_at — this is a *global* singleton row (prices aren't
+ * per-wallet), so the claim is what lets a second click, a second tab, or
+ * a second user's own click all agree on whether a refresh is genuinely
+ * already running, and recovers a refresh stuck showing "refreshing"
+ * forever if an earlier run's after() got killed by the platform's own
+ * time limit before its own catch block ran. Returns JobStartResult
+ * (lib/jobStatus.ts) instead of throwing on "already refreshing".
  */
-export async function refreshPricesAction() {
+export async function refreshPricesAction(): Promise<JobStartResult> {
   const requestedAt = Date.now();
   await requireUser();
 
-  // TEMPORARY REVERT — moving this write into after() (previous version of
-  // this comment) broke the polling bootstrap entirely: AutoRefreshWhileSyncing
-  // only starts polling if it sees `syncing === true` on a render, and once
-  // this write no longer happened before the response, the first render
-  // after clicking almost always still showed the old status, so polling
-  // never started and the whole live-progress UI silently stopped working.
-  // Real regression, reported. This whole click -> lock -> live-progress ->
-  // poll-until-done pattern is being redesigned properly (see the
-  // conversation) rather than re-patched piecemeal; this restores the
-  // known-working synchronous write in the meantime.
-  const { error: markError } = await serviceDb()
+  const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await serviceDb()
     .from("price_refresh_state")
-    .update({ status: "refreshing" })
-    .eq("id", 1);
+    .update({ status: "refreshing", started_at: new Date(requestedAt).toISOString() })
+    .eq("id", 1)
+    .or(`status.neq.refreshing,status.is.null,started_at.lt.${staleBefore}`)
+    .select("id");
   if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A price refresh is already running." };
+  }
 
   after(async () => {
     await runPriceRefresh(requestedAt);
@@ -133,6 +134,7 @@ export async function refreshPricesAction() {
   });
 
   revalidateAllPriceConsumers();
+  return { started: true };
 }
 
 // Same global refresh (prices are keyed by ticker, not wallet — there's no
@@ -145,16 +147,21 @@ export async function refreshPricesAction() {
 // calling through to it) specifically so this extra revalidatePath can
 // live inside the *same* after() callback — calling through would have no
 // way to hook into "after the background work this kicked off finishes."
-export async function refreshPricesForWalletAction(walletId: string) {
+export async function refreshPricesForWalletAction(walletId: string): Promise<JobStartResult> {
   const requestedAt = Date.now();
   await requireUser();
 
-  // TEMPORARY REVERT — see refreshPricesAction's own comment.
-  const { error: markError } = await serviceDb()
+  const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await serviceDb()
     .from("price_refresh_state")
-    .update({ status: "refreshing" })
-    .eq("id", 1);
+    .update({ status: "refreshing", started_at: new Date(requestedAt).toISOString() })
+    .eq("id", 1)
+    .or(`status.neq.refreshing,status.is.null,started_at.lt.${staleBefore}`)
+    .select("id");
   if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A price refresh is already running." };
+  }
 
   after(async () => {
     await runPriceRefresh(requestedAt);
@@ -164,6 +171,7 @@ export async function refreshPricesForWalletAction(walletId: string) {
 
   revalidateAllPriceConsumers();
   revalidatePath(`/wallets/${walletId}`);
+  return { started: true };
 }
 
 // A wallet's `chain` field itself isn't restricted to a fixed set (see

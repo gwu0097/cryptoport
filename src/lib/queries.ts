@@ -25,6 +25,11 @@ export type PriceRefreshPhases = Record<string, PriceRefreshPhase>;
 export interface PriceRefreshState {
   refreshedAt: string | null;
   status: string | null;
+  /** Compare-and-set claim timestamp for the current or most recent
+   * refresh — see refreshPricesAction's own doc comment. Feeds
+   * deriveJobStatus (lib/jobStatus.ts) the same way wallets.sync_started_at
+   * does for a wallet sync. */
+  startedAt: string | null;
   /** Per-lane ("coingecko" | "coinbase" | "evm") live status/timing for the
    * current or most recent refresh — see prices.ts's refreshPrices, which
    * writes this incrementally as each lane finishes rather than only once
@@ -41,13 +46,14 @@ export interface PriceRefreshState {
 export const getPriceRefreshState = cache(async (): Promise<PriceRefreshState> => {
   const { data, error } = await serviceDb()
     .from("price_refresh_state")
-    .select("refreshed_at, status, phases")
+    .select("refreshed_at, status, started_at, phases")
     .eq("id", 1)
     .maybeSingle();
   if (error) throw new Error(`Failed to load price refresh state: ${error.message}`);
   return {
     refreshedAt: data?.refreshed_at ?? null,
     status: data?.status ?? null,
+    startedAt: data?.started_at ?? null,
     phases: (data?.phases as PriceRefreshPhases | null) ?? null,
   };
 });

@@ -445,7 +445,7 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
   // Live per-lane status, written to price_refresh_state.phases as each
   // lane actually finishes — not just recorded in memory and reported
   // once at the very end — so a page polling mid-refresh (see
-  // PriceRefreshCaption) can show real progress: which lane is still
+  // PriceRefreshButton) can show real progress: which lane is still
   // running, which are done, and how long each one took. Timed from
   // `startedAt` (see this function's own doc comment for why that's not
   // just "now"), not per-lane, so "ms" reflects wall-clock elapsed since

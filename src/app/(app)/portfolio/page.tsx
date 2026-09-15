@@ -1,13 +1,11 @@
-import { RefreshCw } from "lucide-react";
 import { getAssetsGroupedByChain, getPriceRefreshState, getWalletsWithTotals } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { PriceRefreshCaption } from "@/components/PriceRefreshCaption";
+import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { GuestBanner } from "@/components/GuestBanner";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
 import { refreshPricesAction, syncAllWallets } from "../wallets/actions";
 
@@ -42,13 +40,7 @@ export default async function PortfolioPage({
           actions={
             <div className="flex items-center gap-3">
               <SyncAllWalletsButton wallets={wallets} syncAll={syncAllWallets} />
-              <form action={refreshPricesAction}>
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Refreshing prices…">
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  Refresh prices
-                </SubmitButton>
-              </form>
-              <PriceRefreshCaption priceState={priceState} />
+              <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
             </div>
           }
         >
