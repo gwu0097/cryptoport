@@ -553,14 +553,21 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
 // Kicks off a sync for every active auto-mode wallet not already syncing —
 // each one still runs the same way a single "Sync" click does (marked
 // 'syncing' fast, real fetch work happens in its own after() background
-// task, see syncWalletHoldings above), so this loop itself finishes in
-// well under a second regardless of wallet count: it's only doing N fast
-// DB writes, not waiting on N real syncs. All of those background tasks
-// then genuinely run concurrently — bounded by whichever single wallet is
-// slowest (a full BTC xpub scan, typically a few minutes), not by their
-// sum — comfortably inside this page's 300s maxDuration even with every
-// wallet syncing at once. No cross-wallet throttling: individual syncs
-// already retry through free-RPC flakiness on their own (see
+// task, see syncWalletHoldings above). The N claims below run via
+// Promise.all, not a sequential loop — a sequential `for (...) await
+// syncWalletHoldings(...)` was live-reported as leaving "Sync all" stuck
+// on its "Starting…" (isPending) state for 8+ seconds with more than a
+// couple of wallets, because that state is tied to this action's own
+// round-trip, and N sequential DB round-trips (one select + one CAS
+// update each) add up even though none of them waits on a real chain
+// sync. Parallel calls make this action's own round-trip roughly as fast
+// as a single wallet's claim, regardless of wallet count. All of the
+// after() background tasks these calls register then genuinely run
+// concurrently too — bounded by whichever single wallet is slowest (a
+// full BTC xpub scan, typically a few minutes), not by their sum —
+// comfortably inside this page's 300s maxDuration even with every wallet
+// syncing at once. No cross-wallet throttling: individual syncs already
+// retry through free-RPC flakiness on their own (see
 // fetchWithRetry/mapWithConcurrency), and this app's wallet count is
 // small enough that hammering a shared provider with a few more
 // concurrent callers hasn't been an issue in practice.
@@ -581,17 +588,14 @@ export async function syncAllWallets(): Promise<JobStartResult> {
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
   if (wallets.length === 0) return { started: false, reason: "No auto-mode wallets to sync." };
 
-  // Count real claims, not just "the loop ran" — every wallet's own CAS
-  // claim can independently fail (already syncing from something else),
-  // and if every single one does, no new sync_started_at ever lands.
-  // Reporting {started: true} anyway would leave "Sync all" stuck busy
-  // forever: useJob's baseline never clears because the row it's watching
-  // never actually changes.
-  let claimedCount = 0;
-  for (const wallet of wallets) {
-    const result = await syncWalletHoldings(wallet.id, false);
-    if (result.started) claimedCount++;
-  }
+  // Count real claims, not just "every call resolved" — each wallet's own
+  // CAS claim can independently fail (already syncing from something
+  // else), and if every single one does, no new sync_started_at ever
+  // lands. Reporting {started: true} anyway would leave "Sync all" stuck
+  // busy forever: useJob's baseline never clears because the row it's
+  // watching never actually changes.
+  const results = await Promise.all(wallets.map((wallet) => syncWalletHoldings(wallet.id, false)));
+  const claimedCount = results.filter((r) => r.started).length;
   if (claimedCount === 0) return { started: false, reason: "All wallets are already syncing." };
   return { started: true };
 }
