@@ -4,20 +4,27 @@ import { ETHERSCAN_EXPLORERS, FREE_TIER_UNSUPPORTED, fetchEvmTransactions } from
 import { BLOCKSCOUT_HOSTS, fetchBlockscoutTransactions } from "./blockscout";
 import { fetchBitcoinTransactions } from "./bitcoinTx";
 import { fetchSolanaTransactions } from "./solanaTx";
+import { fetchCardanoTransactions, fetchCardanoTransactionsByAddress } from "./cardanoTx";
+import { fetchInjectiveTransactions } from "./injectiveTx";
 import { scanExtendedKey, isExtendedPublicKey, type ScriptType } from "./bitcoinXpub";
 import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
 import type { AdapterTransaction } from "./types";
 
 /** Whether this app has *any* transaction-history source wired up for a
- * wallet's chain — BTC/SOL always do, an EVM wallet does too (though only
- * some of its actual sub-chains, see etherscan.ts), everything else (ADA,
- * ATOM, INJ, SUI, FIL, BCH, NEAR, DOT, TAO, NEO, XRP, TON, APT, ICP) does
- * not yet. Used by the /transactions page to show "not yet supported"
- * instead of a Sync button for a wallet on one of those chains, rather
- * than silently offering a sync that would just return nothing. */
+ * wallet's chain — BTC/SOL/ADA/INJ always do, an EVM wallet does too
+ * (though only some of its actual sub-chains, see etherscan.ts), everything
+ * else (ATOM, SUI, FIL, BCH, NEAR, DOT, TAO, NEO, XRP, TON, APT, ICP) does
+ * not yet — ATOM specifically was researched and came up empty: the
+ * generic Cosmos SDK LCD tx-search live-verified as returning zero results
+ * for a real wallet with 76 known signed transactions, and no free
+ * Injective-style dedicated indexer was found for Cosmos Hub (see the
+ * transactions-chain-backlog memory for the fuller writeup). Used by the
+ * /transactions page to show "not yet supported" instead of a Sync button
+ * for a wallet on one of those chains, rather than silently offering a
+ * sync that would just return nothing. */
 export function hasTransactionCoverage(chain: string): boolean {
-  return chain === "BTC" || chain === "SOL" || isEvmChainId(chain);
+  return chain === "BTC" || chain === "SOL" || chain === "ADA" || chain === "INJ" || isEvmChainId(chain);
 }
 
 /**
@@ -64,6 +71,7 @@ export async function fetchWalletTransactions(
   chain: string,
   address: string,
   btcScriptType: ScriptType | null,
+  cardanoStakeAddress: string | null,
 ): Promise<WalletTransactionsResult> {
   if (chain === "BTC") {
     const addresses = isExtendedPublicKey(address)
@@ -75,6 +83,23 @@ export async function fetchWalletTransactions(
 
   if (chain === "SOL") {
     return { transactions: await fetchSolanaTransactions(address), attemptedChains: ["solana"] };
+  }
+
+  if (chain === "ADA") {
+    // cachedStakeAddress mirrors cardano.ts's own fetchCardanoHoldingsForSync
+    // — present for the overwhelming majority of wallets (a base address's
+    // stake credential is derived once, offline, and cached permanently,
+    // never re-derived per sync); the rare address type with no inline
+    // staking credential (pointer/enterprise) falls back to its own single
+    // address, same as the balance sync does.
+    const transactions = cardanoStakeAddress
+      ? await fetchCardanoTransactions(cardanoStakeAddress)
+      : await fetchCardanoTransactionsByAddress(address);
+    return { transactions, attemptedChains: ["cardano"] };
+  }
+
+  if (chain === "INJ") {
+    return { transactions: await fetchInjectiveTransactions(address), attemptedChains: ["injective"] };
   }
 
   if (isEvmChainId(chain)) {

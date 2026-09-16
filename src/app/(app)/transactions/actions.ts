@@ -35,7 +35,7 @@ export async function syncWalletTransactions(walletId: string): Promise<JobStart
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
     .from("wallets")
-    .select("id, chain, address, btc_script_type")
+    .select("id, chain, address, btc_script_type, cardano_stake_address")
     .eq("id", walletId)
     .single();
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
@@ -64,6 +64,7 @@ export async function syncWalletTransactions(walletId: string): Promise<JobStart
         wallet.chain,
         wallet.address!,
         wallet.btc_script_type as ScriptType | null,
+        wallet.cardano_stake_address,
       );
 
       const rows = [...transactions]
