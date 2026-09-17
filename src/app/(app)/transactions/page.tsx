@@ -30,20 +30,25 @@ interface WalletOption {
   tx_sync_started_at: string | null;
 }
 
-// Defaults to hidden (checked) — reported directly: a wallet with real
-// address-poisoning spam (many "Sent 0 USDC" rows to near-identical
-// counterparty addresses, a well-known on-chain scam that broadcasts a
-// zero-value transfer hoping a later copy-paste from tx history grabs the
-// attacker's look-alike address instead of a real one) made the whole
-// page unreadable. Only ever the exact number 0 — a genuinely unknown
-// amount (null, e.g. an undecoded multi-leg transaction) is a different,
-// real state and stays visible regardless (see CLAUDE.md's "unknown is
-// never silently 0" rule, the same reasoning in reverse: a real 0 must
-// never hide behind "unknown" either).
-function buildHref(walletId: string | undefined, hideZero: boolean): string {
+// $5, not a raw token-quantity threshold — 0.0001 BTC is worth real money,
+// 1000 of a near-worthless spam token isn't, so this has to filter on
+// *value*, not amount. Reported directly after the first version of this
+// (a plain "amount === 0" filter, still catches real zero-value address-
+// poisoning spam — see transactions.usdValue's own doc comment) left
+// small-but-nonzero dust (0.0001 USDC, etc.) still cluttering the list.
+const LOW_VALUE_USD = 5;
+
+// Defaults to hidden (checked). Filters on usdValue < LOW_VALUE_USD only
+// when usdValue is a real, resolved number — a transaction whose ticker
+// has no current price (usdValue: null) always stays visible regardless
+// of this filter, same "unknown is never silently treated as low/zero"
+// reasoning as CLAUDE.md's data-correctness rule elsewhere in this app:
+// hiding an unpriced transaction would be guessing it's probably
+// low-value, not knowing it.
+function buildHref(walletId: string | undefined, hideLowValue: boolean): string {
   const params = new URLSearchParams();
   if (walletId) params.set("wallet", walletId);
-  if (!hideZero) params.set("hideZero", "0");
+  if (!hideLowValue) params.set("hideLowValue", "0");
   const qs = params.toString();
   return qs ? `/transactions?${qs}` : "/transactions";
 }
@@ -51,10 +56,10 @@ function buildHref(walletId: string | undefined, hideZero: boolean): string {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ wallet?: string; hideZero?: string }>;
+  searchParams: Promise<{ wallet?: string; hideLowValue?: string }>;
 }) {
-  const { wallet: selectedWalletId, hideZero: hideZeroParam } = await searchParams;
-  const hideZero = hideZeroParam !== "0";
+  const { wallet: selectedWalletId, hideLowValue: hideLowValueParam } = await searchParams;
+  const hideLowValue = hideLowValueParam !== "0";
   const user = await getUser();
 
   if (!user) {
@@ -80,8 +85,9 @@ export default async function TransactionsPage({
 
   const selectedWallet = selectedWalletId ? wallets.find((w) => w.id === selectedWalletId) : undefined;
   const allTransactions = await getTransactions(selectedWallet?.id);
-  const zeroCount = allTransactions.filter((t) => t.amount === 0).length;
-  const transactions = hideZero ? allTransactions.filter((t) => t.amount !== 0) : allTransactions;
+  const isLowValue = (t: (typeof allTransactions)[number]) => t.usdValue !== null && t.usdValue < LOW_VALUE_USD;
+  const lowValueCount = allTransactions.filter(isLowValue).length;
+  const transactions = hideLowValue ? allTransactions.filter((t) => !isLowValue(t)) : allTransactions;
 
   const covered = selectedWallet ? hasTransactionCoverage(selectedWallet.chain) : true;
 
@@ -115,9 +121,9 @@ export default async function TransactionsPage({
         <TransactionsWalletFilter wallets={wallets} selected={selectedWallet?.id} />
         {allTransactions.length > 0 && (
           <CheckboxLink
-            href={buildHref(selectedWallet?.id, !hideZero)}
-            checked={hideZero}
-            label={`Hide zero-amount transactions${zeroCount > 0 ? ` (${zeroCount})` : ""}`}
+            href={buildHref(selectedWallet?.id, !hideLowValue)}
+            checked={hideLowValue}
+            label={`Hide low-value transactions (< $${LOW_VALUE_USD})${lowValueCount > 0 ? ` (${lowValueCount})` : ""}`}
           />
         )}
       </div>
@@ -136,7 +142,7 @@ export default async function TransactionsPage({
         <Panel className="text-center">
           <p className="text-sm text-fg-muted">
             {allTransactions.length > 0
-              ? "Every synced transaction here is zero-amount — uncheck “Hide zero-amount transactions” above to see them."
+              ? "Every synced transaction here is low-value — uncheck “Hide low-value transactions” above to see them."
               : covered
                 ? "No synced transactions yet — click Sync above to pull recent history."
                 : "Nothing to show for this chain yet."}

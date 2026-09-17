@@ -782,6 +782,18 @@ export interface TransactionRow extends Omit<Transaction, "amount" | "fee"> {
   walletName: string;
   amount: number | null;
   fee: number | null;
+  /** amount × the ticker's current price (same ticker-keyed `prices`
+   * table getPriceMap uses everywhere else) — null when either is
+   * unavailable (unpriced ticker, or amount itself unknown), never
+   * guessed at. This is a *current*-price estimate of what the moved
+   * amount is worth today, not the value at the time of the transaction
+   * (this app has no historical per-transaction pricing) — good enough
+   * for "is this worth showing," not for anything that needs to be
+   * exact. Transactions don't carry a `contract` column (unlike
+   * holdings), so this can't disambiguate a ticker collision the way
+   * getContractStatsMap does — a real, accepted precision gap, not an
+   * oversight. */
+  usdValue: number | null;
 }
 
 /**
@@ -799,18 +811,26 @@ export async function getTransactions(walletId?: string): Promise<TransactionRow
   if (!(await getUser())) return [];
   const db = await userDb();
 
-  const { data, error } = await (walletId
-    ? db.from("transactions").select("*, wallets(name)").eq("wallet_id", walletId)
-    : db.from("transactions").select("*, wallets(name)")
-  )
-    .order("occurred_at", { ascending: false })
-    .limit(500);
+  const [{ data, error }, prices] = await Promise.all([
+    (walletId
+      ? db.from("transactions").select("*, wallets(name)").eq("wallet_id", walletId)
+      : db.from("transactions").select("*, wallets(name)")
+    )
+      .order("occurred_at", { ascending: false })
+      .limit(500),
+    getPriceMap(),
+  ]);
   if (error) throw new Error(`Failed to load transactions: ${error.message}`);
 
-  return (data as (Transaction & { wallets: { name: string } | null })[]).map((row) => ({
-    ...row,
-    walletName: row.wallets?.name ?? "Unknown wallet",
-    amount: parseNumeric(row.amount),
-    fee: parseNumeric(row.fee),
-  }));
+  return (data as (Transaction & { wallets: { name: string } | null })[]).map((row) => {
+    const amount = parseNumeric(row.amount);
+    const price = row.ticker ? parseNumeric(prices[row.ticker]) : null;
+    return {
+      ...row,
+      walletName: row.wallets?.name ?? "Unknown wallet",
+      amount,
+      fee: parseNumeric(row.fee),
+      usdValue: amount !== null && price !== null ? amount * price : null,
+    };
+  });
 }
