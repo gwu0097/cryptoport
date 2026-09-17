@@ -14,6 +14,33 @@ const HIDE_BALANCE_KEY = "cryptoport:hideBalance";
 const MASK = "••••••";
 
 /**
+ * The shared "is privacy mode on" read — TotalValuePanel uses this for its
+ * own headline number, and any other component showing a raw dollar
+ * figure derived from the total (not an individual holding's own price,
+ * which doesn't reveal portfolio size) should too. Reported directly:
+ * Dashboard's blended-24h-change caption showed the real $ delta right
+ * next to the masked total ("+$10,093.07 (+2.57%)") — since
+ * total = delta / pct, that $ figure alone defeats the whole point of
+ * masking the headline number above it. formatPercent already signs its
+ * own output, so a masked caption can drop straight to "+2.57%" with no
+ * dollar prefix at all, not a masked placeholder.
+ *
+ * `hidden` starts `true` until mount (see the inline comment below) so
+ * server-rendered HTML never contains a real number that would flash
+ * on-screen for a beat before the persisted preference is read.
+ */
+export function useHideBalance(): { hidden: boolean; setHidden: (hidden: boolean) => void } {
+  const [hidden, setHidden] = usePersistedState(HIDE_BALANCE_KEY, false);
+  const [mounted, setMounted] = useState(false);
+  // Same SSR/hydration exception usePersistedState.ts's own read effect
+  // documents — this synchronizes with "has the client actually taken
+  // over yet," not state derivable during render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
+  return { hidden: !mounted || hidden, setHidden };
+}
+
+/**
  * The "Total value" summary block shared by every page that shows a
  * portfolio/wallet/protocol total — portfolio, assets, defi, dashboard,
  * wallets list, and a single wallet's detail page. Only the genuinely
@@ -26,9 +53,14 @@ const MASK = "••••••";
  * line, and one that silently dropped the unpriced warning other pages
  * all show for the same underlying data).
  *
- * The eye toggle only masks this headline number, not `children` — a
- * page's own caption lines (24h $ change, etc.) are that page's content,
- * not this shared component's to reach into.
+ * This component only masks its own headline number — a page's own
+ * caption lines (children) are that page's content, not this shared
+ * component's to reach into. But any child that itself derives a raw
+ * dollar figure from the total (not an individual holding's own price)
+ * needs to mask that figure too, via the exported `useHideBalance` hook —
+ * a masked total sitting next to an unmasked $ delta right below it
+ * defeats the point (delta / pct recovers the total). See
+ * BlendedChangeCaption for the one place this actually came up.
  *
  * Label and number read as one inline phrase ("Total value: $X", eye right
  * after it) on the row's left edge, rather than label-left/number-right
@@ -49,20 +81,7 @@ export function TotalValuePanel({
   actions?: ReactNode;
   children?: ReactNode;
 }) {
-  const [hidden, setHidden] = usePersistedState(HIDE_BALANCE_KEY, false);
-  // usePersistedState seeds `false` (localStorage isn't available during
-  // SSR) and only swaps in the real stored value post-mount — without this,
-  // the server-rendered HTML always contains the real number, so anyone
-  // who'd turned hiding on would still see it flash on-screen for a beat
-  // on every page load/navigation before the effect catches up. Masked
-  // until this component has actually mounted client-side closes that.
-  const [mounted, setMounted] = useState(false);
-  // Same SSR/hydration exception usePersistedState.ts's own read effect
-  // documents — this synchronizes with "has the client actually taken
-  // over yet," not state derivable during render.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
-  const masked = !mounted || hidden;
+  const { hidden, setHidden } = useHideBalance();
 
   return (
     <Panel className="mb-4">
@@ -70,7 +89,7 @@ export function TotalValuePanel({
         <div className="flex items-center gap-1.5">
           <p className="text-lg font-semibold tabular-nums text-fg">
             <span className="text-sm font-normal text-fg-muted">Total value: </span>
-            {masked ? MASK : formatUsd(total)}
+            {hidden ? MASK : formatUsd(total)}
           </p>
           <button
             type="button"

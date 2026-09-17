@@ -1,8 +1,11 @@
+"use client";
+
 import { LineChart } from "lucide-react";
 import type { PortfolioHistoryPoint } from "@/lib/queries";
 import { formatUsdSigned, formatPercent } from "@/lib/format";
 import { scalePoints, linePath, areaPath } from "@/lib/chart";
 import { Panel } from "../ui/Panel";
+import { useHideBalance } from "../TotalValuePanel";
 
 const WIDTH = 600;
 const HEIGHT = 160;
@@ -24,6 +27,8 @@ function shortDate(isoDate: string): string {
  * something that wants tooltips/zoom once there's months of data.
  */
 export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] }) {
+  const { hidden } = useHideBalance();
+
   if (points.length < 2) {
     // Same centered icon + message shape as SignInPrompt/ComingSoon (their
     // own doc comments call this the shared empty-state pattern) —
@@ -81,7 +86,7 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
       <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
         <span>{shortDate(points[0].date)}</span>
         <span className={`text-sm font-medium tabular-nums ${trendClass}`}>
-          {formatUsdSigned(deltaUsd)} ({formatPercent(deltaPct)})
+          {hidden ? formatPercent(deltaPct) : `${formatUsdSigned(deltaUsd)} (${formatPercent(deltaPct)})`}
         </span>
         <span>{shortDate(points[points.length - 1].date)}</span>
       </div>

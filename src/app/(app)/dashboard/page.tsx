@@ -1,10 +1,10 @@
 import { getAssetsGroupedByTicker, getValueHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { formatUsdSigned, formatPercent } from "@/lib/format";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { blendedChange } from "@/lib/dashboard";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
+import { BlendedChangeCaption } from "@/components/BlendedChangeCaption";
 import { GuestBanner } from "@/components/GuestBanner";
 import { MoverList } from "@/components/dashboard/MoverList";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
@@ -62,16 +62,7 @@ export default async function DashboardPage() {
           total={grand.total}
           actions={<PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />}
         >
-          {change && (
-            <p
-              className={`mt-1 text-sm tabular-nums ${
-                change.pct > 0 ? "text-positive" : change.pct < 0 ? "text-negative" : "text-fg-muted"
-              }`}
-            >
-              {formatUsdSigned(change.usd)} ({formatPercent(change.pct)}) as of last refresh · based on{" "}
-              {change.coveragePct.toFixed(0)}% of tracked value
-            </p>
-          )}
+          {change && <BlendedChangeCaption change={change} />}
         </TotalValuePanel>
       ) : (
         <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
