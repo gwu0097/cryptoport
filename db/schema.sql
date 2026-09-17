@@ -599,3 +599,79 @@ alter table cryptoport.prices
   add column change_1h_pct numeric,
   add column change_7d_pct numeric,
   add column change_30d_pct numeric;
+
+-- Watchlist: track tokens you don't hold, across multiple named lists (see
+-- (app)/watchlist/). Three tables:
+--   watchlists       — one row per named list, owner-only RLS like wallets.
+--   watchlist_items  — coingecko_id-keyed (never ticker-keyed — CoinGecko
+--                       returns 20+ distinct coins for a symbol like
+--                       "PEPE" alone; pricing by ticker would silently mix
+--                       one coin's price onto another's row, the same
+--                       class of bug valuation.ts's "KNOWN GAP" comment
+--                       already documents for Solana holdings). Identity
+--                       fields (ticker/name/image_url) are captured at
+--                       add-time from the search result the user actually
+--                       picked, not re-derived later.
+--   coin_market_data — shared/global market data (price + 1h/24h/7d/30d
+--                       change + market cap), refreshed alongside the
+--                       existing holdings-driven price refresh (see
+--                       wallets/actions.ts's runPriceRefresh) via the same
+--                       "Refresh prices" button, not a second mechanism.
+--                       Same "service_role writes, authenticated reads"
+--                       shape as price_history.
+create table cryptoport.watchlists (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  name       text not null,
+  created_at timestamptz not null default now()
+);
+alter table cryptoport.watchlists enable row level security;
+grant all on cryptoport.watchlists to service_role;
+grant select, insert, update, delete on cryptoport.watchlists to authenticated;
+create policy "watchlists: owner only" on cryptoport.watchlists
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- unique(watchlist_id, coingecko_id), not (watchlist_id, ticker) — so two
+-- genuinely different coins that happen to share a symbol can both be
+-- watched in the same list.
+create table cryptoport.watchlist_items (
+  id           uuid primary key default gen_random_uuid(),
+  watchlist_id uuid not null references cryptoport.watchlists(id) on delete cascade,
+  coingecko_id text not null,
+  ticker       text not null,
+  name         text not null,
+  image_url    text,
+  created_at   timestamptz not null default now(),
+  unique (watchlist_id, coingecko_id)
+);
+alter table cryptoport.watchlist_items enable row level security;
+grant all on cryptoport.watchlist_items to service_role;
+grant select, insert, update, delete on cryptoport.watchlist_items to authenticated;
+create policy "watchlist_items: owner only" on cryptoport.watchlist_items
+  for all
+  using (watchlist_id in (select id from cryptoport.watchlists where user_id = auth.uid()))
+  with check (watchlist_id in (select id from cryptoport.watchlists where user_id = auth.uid()));
+create index watchlist_items_watchlist_idx on cryptoport.watchlist_items (watchlist_id);
+
+-- No foreign key from watchlist_items.coingecko_id to this table's own
+-- primary key, deliberately — a newly-added item is saved before its
+-- market-data row exists (see (app)/watchlist/actions.ts's
+-- addWatchlistItem), so a FK here would make that insert fail. queries.ts's
+-- getWatchlistItems joins the two in code instead of via a PostgREST
+-- embedded-relationship select.
+create table cryptoport.coin_market_data (
+  coingecko_id text primary key,
+  price_usd    numeric,
+  change_1h    numeric,
+  change_24h   numeric,
+  change_7d    numeric,
+  change_30d   numeric,
+  market_cap   numeric,
+  updated_at   timestamptz not null default now()
+);
+alter table cryptoport.coin_market_data enable row level security;
+grant all on cryptoport.coin_market_data to service_role;
+grant select on cryptoport.coin_market_data to authenticated;
+create policy "coin_market_data: readable by all signed-in users"
+  on cryptoport.coin_market_data for select to authenticated using (true);
+  add column change_30d_pct numeric;

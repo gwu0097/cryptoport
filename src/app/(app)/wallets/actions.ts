@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { refreshPrices } from "@/lib/prices";
+import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
@@ -101,6 +102,9 @@ function revalidateAllPriceConsumers() {
   // captureUserSnapshot), Analytics' own value-history chart needs
   // revalidating too — it wasn't a price consumer before this.
   revalidatePath("/analytics");
+  // Watchlist coins are refreshed alongside holdings' prices (see
+  // runPriceRefresh) via the same button, so it's a price consumer too.
+  revalidatePath("/watchlist");
 }
 
 /** The actual work — resolved either by refreshPricesAction or
@@ -120,6 +124,21 @@ function revalidateAllPriceConsumers() {
  * returning and after() actually starting are all real, otherwise-
  * invisible latency). */
 async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: string[] = []): Promise<void> {
+  // Launched alongside refreshPrices below, not chained after it — the two
+  // are independent CoinGecko-driven refreshes with no data dependency on
+  // each other (holdings-driven ticker prices vs. watchlist coingecko-id
+  // market data), so running them concurrently is a real wall-clock win.
+  // Deliberately NOT sequenced one-after-the-other inside this same
+  // function — that shape (new work awaited after the "real" work, inside
+  // one after() callback) is exactly what caused a reported regression
+  // earlier ("had to wait for processes to complete" to navigate away) —
+  // see scheduleUserSnapshot's doc comment for the full incident. A
+  // watchlist refresh failure is swallowed here (best-effort, same
+  // reasoning as scheduleUserSnapshot) rather than folded into
+  // price_refresh_state's own status column, which is specifically about
+  // holdings pricing.
+  const watchlistRefresh = refreshWatchlistMarketData().catch(() => {});
+
   try {
     const results = await refreshPrices(requestedAt);
     const failed = results.filter((r) => !r.ok);
@@ -149,6 +168,8 @@ async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: 
       .update({ status: `error: ${(e as Error).message}` })
       .eq("id", 1);
   }
+
+  await watchlistRefresh;
 
   // Nested after(), registered only now that prices are actually
   // refreshed — not called concurrently with the work above, which would

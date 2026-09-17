@@ -298,6 +298,41 @@ export async function fetchNativePrice(coingeckoId: string): Promise<number | nu
   return body[coingeckoId]?.usd ?? null;
 }
 
+export interface CoinSearchResult {
+  id: string;
+  symbol: string;
+  name: string;
+  imageUrl: string | null;
+  marketCapRank: number | null;
+}
+
+/**
+ * Live-verified (2026-09): free, keyless, same API_BASE this file already
+ * uses elsewhere. Exists specifically to disambiguate a bare ticker symbol
+ * — CoinGecko returns every coin sharing that symbol (e.g. 20+ distinct
+ * coins for "PEPE"), ordered by relevance/market-cap rank, which is exactly
+ * what the Watchlist's add flow needs to let a user pick the real coin
+ * instead of guessing. Nothing else in this file resolves a bare symbol —
+ * every other lookup here needs a contract+chain or a known native-chain
+ * symbol (see priceKey.ts's resolveCoingeckoKey, which deliberately never
+ * guesses either).
+ */
+export async function searchCoins(query: string): Promise<CoinSearchResult[]> {
+  const url = `${API_BASE}/search?query=${encodeURIComponent(query)}`;
+  const res = await fetchWithRetry(url, { headers: headers() });
+  if (!res.ok) throw new Error(`CoinGecko search failed: HTTP ${res.status}`);
+  const body: {
+    coins?: { id: string; symbol: string; name: string; thumb?: string; market_cap_rank?: number | null }[];
+  } = await res.json();
+  return (body.coins ?? []).map((c) => ({
+    id: c.id,
+    symbol: c.symbol.toUpperCase(),
+    name: c.name,
+    imageUrl: c.thumb || null,
+    marketCapRank: typeof c.market_cap_rank === "number" ? c.market_cap_rank : null,
+  }));
+}
+
 export interface DailyPricePoint {
   /** UTC calendar date, YYYY-MM-DD — matches portfolio_snapshots' and
    * wallet_snapshots' own snapshot_date semantics. */

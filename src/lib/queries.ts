@@ -834,3 +834,109 @@ export async function getTransactions(walletId?: string): Promise<TransactionRow
     };
   });
 }
+
+export interface WatchlistSummary {
+  id: string;
+  name: string;
+  itemCount: number;
+}
+
+/** Every watchlist *this user* owns, with each list's item count — RLS on
+ * cryptoport.watchlists already scopes this to auth.uid(), same "short-
+ * circuit before touching Postgres for a guest" reasoning as getTags. Not
+ * cached via React's cache() — unlike getTags, this is only ever read once
+ * per request (the watchlist page itself), so there's no second caller in
+ * the same render to dedupe against. */
+export async function getWatchlists(): Promise<WatchlistSummary[]> {
+  if (!(await getUser())) return [];
+  const db = await userDb();
+  const { data, error } = await db
+    .from("watchlists")
+    .select("id, name, watchlist_items(count)")
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Failed to load watchlists: ${error.message}`);
+
+  return (data as { id: string; name: string; watchlist_items: { count: number }[] }[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    itemCount: row.watchlist_items[0]?.count ?? 0,
+  }));
+}
+
+export interface WatchlistRow {
+  id: string;
+  coingeckoId: string;
+  ticker: string;
+  name: string;
+  imageUrl: string | null;
+  price: number | null;
+  change1h: number | null;
+  change24h: number | null;
+  change7d: number | null;
+  change30d: number | null;
+  marketCap: number | null;
+}
+
+/** One watchlist's items, merged in code against the shared, coingecko-id-
+ * keyed cryptoport.coin_market_data (see coinMarketData.ts's own doc
+ * comment for why this is id-keyed rather than reusing the ticker-keyed
+ * `prices` table getPriceMap reads) — two plain queries, not a PostgREST
+ * embedded-relationship select, since there's deliberately no foreign key
+ * from watchlist_items.coingecko_id to coin_market_data.coingecko_id (a
+ * newly-added coin's item row is saved before its market-data row exists —
+ * see addWatchlistItem's own comment — so a FK here would make that insert
+ * fail). A coin with no market_data row yet (just added, not refreshed) or
+ * one CoinGecko no longer returns data for renders every numeric field
+ * null — the table shows "—", never a fabricated number. RLS on
+ * watchlist_items (via the watchlists.user_id subquery) already confirms
+ * this list belongs to the caller; coin_market_data's own policy opens
+ * select to every signed-in user (it's global market data, not per-user). */
+export async function getWatchlistItems(watchlistId: string): Promise<WatchlistRow[]> {
+  if (!(await getUser())) return [];
+  const db = await userDb();
+  const { data: items, error } = await db
+    .from("watchlist_items")
+    .select("id, coingecko_id, ticker, name, image_url")
+    .eq("watchlist_id", watchlistId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
+
+  type ItemRow = { id: string; coingecko_id: string; ticker: string; name: string; image_url: string | null };
+  const rows = items as ItemRow[];
+  if (rows.length === 0) return [];
+
+  const ids = [...new Set(rows.map((r) => r.coingecko_id))];
+  const { data: marketRows, error: marketError } = await db
+    .from("coin_market_data")
+    .select("coingecko_id, price_usd, change_1h, change_24h, change_7d, change_30d, market_cap")
+    .in("coingecko_id", ids);
+  if (marketError) throw new Error(`Failed to load coin market data: ${marketError.message}`);
+
+  type MarketRow = {
+    coingecko_id: string;
+    price_usd: number | null;
+    change_1h: number | null;
+    change_24h: number | null;
+    change_7d: number | null;
+    change_30d: number | null;
+    market_cap: number | null;
+  };
+  const marketById = new Map((marketRows as MarketRow[]).map((m) => [m.coingecko_id, m]));
+
+  return rows.map((row) => {
+    const market = marketById.get(row.coingecko_id) ?? null;
+    return {
+      id: row.id,
+      coingeckoId: row.coingecko_id,
+      ticker: row.ticker,
+      name: row.name,
+      imageUrl: row.image_url,
+      price: parseNumeric(market?.price_usd ?? null),
+      change1h: parseNumeric(market?.change_1h ?? null),
+      change24h: parseNumeric(market?.change_24h ?? null),
+      change7d: parseNumeric(market?.change_7d ?? null),
+      change30d: parseNumeric(market?.change_30d ?? null),
+      marketCap: parseNumeric(market?.market_cap ?? null),
+    };
+  });
+}
