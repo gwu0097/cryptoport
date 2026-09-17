@@ -125,8 +125,8 @@ export default async function DashboardPage() {
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         {user ? (
           <>
-            <MoverList title="Top gainers (24h) · Holdings" items={holdingsGainers} />
-            <MoverList title="Top losers (24h) · Holdings" items={holdingsLosers} />
+            <MoverList title="Top gainers (24h) · Holdings" items={holdingsGainers} href="/assets?sort=change24h&dir=desc" />
+            <MoverList title="Top losers (24h) · Holdings" items={holdingsLosers} href="/assets?sort=change24h&dir=asc" />
           </>
         ) : (
           <>
@@ -143,8 +143,8 @@ export default async function DashboardPage() {
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         {user ? (
           <>
-            <MoverList title="Top gainers (24h) · Watchlist" items={watchlistGainers} />
-            <MoverList title="Top losers (24h) · Watchlist" items={watchlistLosers} />
+            <MoverList title="Top gainers (24h) · Watchlist" items={watchlistGainers} href="/watchlist?sort=change24h&dir=desc" />
+            <MoverList title="Top losers (24h) · Watchlist" items={watchlistLosers} href="/watchlist?sort=change24h&dir=asc" />
           </>
         ) : (
           <>

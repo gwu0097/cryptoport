@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { ArrowUp, ArrowDown, ChevronsUpDown, Search, X } from "lucide-react";
 import type { WatchlistRow } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
@@ -10,8 +10,22 @@ import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass
 import { usePersistedState } from "../usePersistedState";
 import { removeWatchlistItem } from "@/app/(app)/watchlist/actions";
 
-type SortKey = "ticker" | "price" | "change1h" | "change24h" | "change7d" | "change30d" | "marketCap";
-type Sort = { key: SortKey; dir: "asc" | "desc" };
+export type SortKey = "ticker" | "price" | "change1h" | "change24h" | "change7d" | "change30d" | "marketCap";
+export type Sort = { key: SortKey; dir: "asc" | "desc" };
+
+// See AssetsTable's own SORT_KEYS for why this is exported — same "let the
+// page validate a URL sort param against what the component actually
+// understands" reasoning, for the watchlist/page.tsx side of the same
+// Dashboard "view all" link feature.
+export const SORT_KEYS: readonly SortKey[] = [
+  "ticker",
+  "price",
+  "change1h",
+  "change24h",
+  "change7d",
+  "change30d",
+  "marketCap",
+];
 
 const STORAGE_KEY = "cryptoport:watchlistSort";
 const DEFAULT_SORT: Sort = { key: "marketCap", dir: "desc" };
@@ -81,11 +95,21 @@ function Header({
 /** Structural sibling of AssetsTable — same search/sort/persisted-column-
  * toggle shell — but market-data-only columns (no Qty/Wallets/Value: these
  * are coins being watched, not held) and a per-row remove instead of an
- * expandable per-wallet breakdown. */
-export function WatchlistTable({ items }: { items: WatchlistRow[] }) {
+ * expandable per-wallet breakdown.
+ *
+ * `initialSort` — see AssetsTable's own doc comment for the full
+ * reasoning (same "force-apply after usePersistedState's own rehydration
+ * effect" shape, used by watchlist/page.tsx for the same Dashboard "view
+ * all" link feature). */
+export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; initialSort?: Sort }) {
   const [search, setSearch] = useState("");
-  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, initialSort ?? DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
+
+  useEffect(() => {
+    if (initialSort) setSort(initialSort);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [showExtraChanges, setShowExtraChanges] = usePersistedState(SHOW_EXTRA_CHANGES_KEY, true);
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [, startTransition] = useTransition();

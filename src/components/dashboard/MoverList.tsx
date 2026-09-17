@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { Panel } from "../ui/Panel";
@@ -29,9 +31,26 @@ function ChangeText({ value }: { value: number | null }) {
   return <span className={`${className} text-sm font-medium tabular-nums`}>{formatPercent(value)}</span>;
 }
 
-export function MoverList({ title, items }: { title: string; items: MoverItem[] }) {
+/**
+ * `href` — set by dashboard/page.tsx to the full list (Assets or
+ * Watchlist) pre-sorted by the same 24h-change direction this panel is
+ * showing (`?sort=change24h&dir=desc|asc`), so clicking through the 5-row
+ * preview lands on the full list in the same order — "go from the 5
+ * tokens to the full list," per the direct ask. The whole title row is
+ * the click target (not a separate small "view all" link) since a Panel
+ * title with nothing else interactive in it is an obvious, low-risk place
+ * to put one extra affordance rather than adding new chrome.
+ */
+export function MoverList({ title, items, href }: { title: string; items: MoverItem[]; href: string }) {
   return (
-    <Panel title={title}>
+    <Panel
+      title={
+        <Link href={href} className="flex items-center justify-between gap-2 hover:text-accent">
+          {title}
+          <ChevronRight className="size-4 shrink-0 text-fg-muted" aria-hidden="true" />
+        </Link>
+      }
+    >
       {items.length === 0 ? (
         <p className="text-sm text-fg-muted">Not enough 24h data yet.</p>
       ) : (

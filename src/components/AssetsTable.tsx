@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
@@ -10,7 +10,7 @@ import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { usePersistedState } from "./usePersistedState";
 
-type SortKey =
+export type SortKey =
   | "ticker"
   | "price"
   | "change1h"
@@ -21,7 +21,24 @@ type SortKey =
   | "qty"
   | "wallets"
   | "value";
-type Sort = { key: SortKey; dir: "asc" | "desc" };
+export type Sort = { key: SortKey; dir: "asc" | "desc" };
+
+// Exported so assets/page.tsx can validate a `?sort=`/`&dir=` pair coming
+// from a Dashboard "view all" link (see MoverList) against the same set
+// this component actually understands, instead of duplicating the key
+// list in the page.
+export const SORT_KEYS: readonly SortKey[] = [
+  "ticker",
+  "price",
+  "change1h",
+  "change24h",
+  "change7d",
+  "change30d",
+  "marketCap",
+  "qty",
+  "wallets",
+  "value",
+];
 
 const STORAGE_KEY = "cryptoport:assetsSort";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
@@ -132,11 +149,30 @@ function Header({
  * that part stays server-driven via searchParams like the rest of the
  * app). Clicking a row expands it in place to show which wallets/chains
  * contribute to that total, instead of navigating away.
+ *
+ * `initialSort` — set by assets/page.tsx from a `?sort=`/`&dir=` pair when
+ * present (a Dashboard "view all" link from a movers panel, see
+ * MoverList) — wins over whatever sort usePersistedState rehydrates from
+ * localStorage: seeded as the hook's own default (matters the very first
+ * time this ever renders, before localStorage has anything stored), then
+ * force-applied again in an effect declared after the hook call, so it
+ * runs after — not before — usePersistedState's own mount-time rehydration
+ * effect (effects fire in declaration order within one commit). Applying
+ * it via setSort also persists it, same as a manual header click would, so
+ * the next organic visit remembers this as the new "last sort" too.
  */
-export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
+export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; initialSort?: Sort }) {
   const [search, setSearch] = useState("");
-  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, initialSort ?? DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
+
+  useEffect(() => {
+    if (initialSort) setSort(initialSort);
+    // Only ever meant to apply once, from the URL this component happened
+    // to mount with — re-running on every initialSort identity change
+    // would fight a user's own subsequent header-click sort choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showExtraChanges, setShowExtraChanges] = usePersistedState(SHOW_EXTRA_CHANGES_KEY, true);
   const columnCount = 8 + (showExtraChanges ? 3 : 0);

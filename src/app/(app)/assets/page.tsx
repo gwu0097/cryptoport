@@ -5,9 +5,21 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
-import { AssetsTable } from "@/components/AssetsTable";
+import { AssetsTable, SORT_KEYS, type Sort } from "@/components/AssetsTable";
 import { GuestBanner } from "@/components/GuestBanner";
 import { refreshPricesAction } from "../wallets/actions";
+
+// A Dashboard movers panel ("Top gainers (24h) · Holdings", see
+// MoverList) links here with `?sort=change24h&dir=desc` (or `dir=asc` for
+// losers) so clicking through the 5-row preview lands on the full list
+// sorted the same way, instead of resetting to whatever was last sorted
+// (see AssetsTable's own doc comment for how this wins over the persisted
+// sort). Validated against SORT_KEYS rather than trusted — a stray/typo'd
+// query string should just fall back to no override, not crash the page.
+function parseInitialSort(sort?: string, dir?: string): Sort | undefined {
+  if (!sort || !SORT_KEYS.includes(sort as (typeof SORT_KEYS)[number])) return undefined;
+  return { key: sort as (typeof SORT_KEYS)[number], dir: dir === "asc" ? "asc" : "desc" };
+}
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
@@ -33,11 +45,12 @@ function buildHref(hideUnpriced: boolean, hideLow: boolean): string {
 export default async function AssetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ hideUnpriced?: string; hideLow?: string }>;
+  searchParams: Promise<{ hideUnpriced?: string; hideLow?: string; sort?: string; dir?: string }>;
 }) {
-  const { hideUnpriced: hideUnpricedParam, hideLow: hideLowParam } = await searchParams;
+  const { hideUnpriced: hideUnpricedParam, hideLow: hideLowParam, sort, dir } = await searchParams;
   const hideUnpriced = hideUnpricedParam !== "0";
   const hideLow = hideLowParam !== "0";
+  const initialSort = parseInitialSort(sort, dir);
 
   const [{ groups, grand }, user, priceState] = await Promise.all([
     getAssetsGroupedByTicker(),
@@ -114,7 +127,7 @@ export default async function AssetsPage({
               <p className="text-sm text-fg-muted">Nothing to show here.</p>
             </Panel>
           ) : (
-            <AssetsTable groups={visibleGroups} />
+            <AssetsTable groups={visibleGroups} initialSort={initialSort} />
           )}
         </>
       )}

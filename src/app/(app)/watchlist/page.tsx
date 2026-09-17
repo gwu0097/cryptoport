@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { GuestBanner } from "@/components/GuestBanner";
 import { WatchlistTabs } from "@/components/watchlist/WatchlistTabs";
-import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
+import { WatchlistTable, SORT_KEYS, type Sort } from "@/components/watchlist/WatchlistTable";
 import { AddCoinPanel } from "@/components/watchlist/AddCoinPanel";
 import { createWatchlist } from "./actions";
 import { refreshPricesAction } from "../wallets/actions";
@@ -20,18 +20,34 @@ export const metadata = { title: "Watchlist · CryptoPort" };
 // data (see wallets/actions.ts's runPriceRefresh), on top of holdings.
 export const maxDuration = 300;
 
+// See assets/page.tsx's own parseInitialSort for the full reasoning — same
+// Dashboard "view all" link feature, validated against this table's own
+// SORT_KEYS rather than trusted.
+function parseInitialSort(sort?: string, dir?: string): Sort | undefined {
+  if (!sort || !SORT_KEYS.includes(sort as (typeof SORT_KEYS)[number])) return undefined;
+  return { key: sort as (typeof SORT_KEYS)[number], dir: dir === "asc" ? "asc" : "desc" };
+}
+
 export default async function WatchlistPage({
   searchParams,
 }: {
-  searchParams: Promise<{ list?: string }>;
+  searchParams: Promise<{ list?: string; sort?: string; dir?: string }>;
 }) {
-  const { list: listParam } = await searchParams;
+  const { list: listParam, sort, dir } = await searchParams;
+  const initialSort = parseInitialSort(sort, dir);
   const [watchlists, user, priceState] = await Promise.all([
     getWatchlists(),
     getUser(),
     getPriceRefreshState(),
   ]);
 
+  // A Dashboard "view all" link (see MoverList) has no particular list in
+  // mind — Dashboard's own Watchlist movers panel is summarized across
+  // every list (getAllWatchlistItems), which this page has no single-list
+  // equivalent of — so it just lands on whichever list is selected/first,
+  // sorted the way the click asked for. Good enough for the common case
+  // (one main watchlist); a true cross-list "full list" view is a bigger
+  // feature this wasn't asked to build.
   const selected = watchlists.find((w) => w.id === listParam) ?? watchlists[0];
   const items = selected ? await getWatchlistItems(selected.id) : [];
 
@@ -75,7 +91,7 @@ export default async function WatchlistPage({
               </p>
             </Panel>
           ) : (
-            <WatchlistTable items={items} />
+            <WatchlistTable items={items} initialSort={initialSort} />
           )}
         </>
       )}
