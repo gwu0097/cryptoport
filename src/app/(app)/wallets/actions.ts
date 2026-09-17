@@ -119,7 +119,7 @@ function revalidateAllPriceConsumers() {
  * the "mark refreshing" write, and the gap between a Server Action
  * returning and after() actually starting are all real, otherwise-
  * invisible latency). */
-async function runPriceRefresh(requestedAt: number, userId: string): Promise<void> {
+async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: string[] = []): Promise<void> {
   try {
     const results = await refreshPrices(requestedAt);
     const failed = results.filter((r) => !r.ok);
@@ -150,18 +150,54 @@ async function runPriceRefresh(requestedAt: number, userId: string): Promise<voi
       .eq("id", 1);
   }
 
-  // Best-effort, deliberately outside the try/catch above — a snapshot
-  // failure is a real but minor degradation (the chart just stays one
-  // refresh further behind), not something that should make this
-  // function report the whole price refresh as failed. See
-  // captureUserSnapshot's own doc comment for why this call exists at
-  // all: reported directly that "Total value" and the Value history
-  // chart's headline visibly disagreed after a manual refresh.
-  try {
-    await captureUserSnapshot(userId);
-  } catch {
-    // swallowed — see comment above
-  }
+  // Nested after(), registered only now that prices are actually
+  // refreshed — not called concurrently with the work above, which would
+  // let it read stale (pre-refresh) prices via its own getPriceMap()
+  // call. See scheduleUserSnapshot's own doc comment for why this still
+  // needs to be its own after() registration rather than just an awaited
+  // call right here, though.
+  scheduleUserSnapshot(userId, extraPaths);
+}
+
+/**
+ * Registers its own, separate after() call — from inside runPriceRefresh
+ * (once the price update lands) and inside syncWalletHoldings' own
+ * after() (once the synced holdings are saved), never awaited inline at
+ * either call site. A real regression, reported directly ("had to wait
+ * for processes to complete" just to navigate to Dashboard): an earlier
+ * version awaited this snapshot capture directly inside the SAME after()
+ * callback as the real refresh/sync work, so revalidateAllPriceConsumers()
+ * (or the sync's own revalidatePath calls) — the signal that tells
+ * useJob's polling "this job is done, stop refreshing" — didn't fire
+ * until the snapshot capture ALSO finished, even though the actual
+ * price/holdings update had already landed in the DB earlier. That
+ * extended how long JobPoller kept calling router.refresh() for no
+ * reason, which is exactly what collides with a real navigation click.
+ * Next's own after() docs confirm nested/multiple after() registrations
+ * each get their own independent waitUntil() — one running longer never
+ * gates another's own revalidatePath calls, which is what makes calling
+ * this via after() (not a plain await) the actual fix, not just moving
+ * the call around. Still has to be called only once its own prerequisite
+ * data (fresh prices, or freshly-saved holdings) is actually ready,
+ * though — calling it concurrently with that work risks reading stale
+ * data via its own getPriceMap()/holdings query, which is why this isn't
+ * simply registered as a third, fully-independent after() at each outer
+ * call site instead. Best-effort: a snapshot failure is a real but minor
+ * degradation (the chart just stays one refresh further behind), never
+ * something that should affect the actual refresh/sync's own reported
+ * outcome.
+ */
+function scheduleUserSnapshot(userId: string, extraPaths: string[] = []) {
+  after(async () => {
+    try {
+      await captureUserSnapshot(userId);
+      revalidatePath("/dashboard");
+      revalidatePath("/analytics");
+      for (const path of extraPaths) revalidatePath(path);
+    } catch {
+      // swallowed — see comment above
+    }
+  });
 }
 
 /**
@@ -234,7 +270,7 @@ export async function refreshPricesForWalletAction(walletId: string): Promise<Jo
   }
 
   after(async () => {
-    await runPriceRefresh(requestedAt, user.id);
+    await runPriceRefresh(requestedAt, user.id, [`/wallets/${walletId}`]);
     revalidateAllPriceConsumers();
     revalidatePath(`/wallets/${walletId}`);
   });
@@ -252,7 +288,7 @@ export async function refreshPricesForWalletAction(walletId: string): Promise<Jo
 // check is belt-and-suspenders rather than the only guard). Non-EVM chains
 // come from nonEvmChains.ts's single list (see that file's header — this
 // used to be its own hand-copied array, kept in sync by hand with
-// ChainModeFields's copy). EVM chains aren't in that list — any of the 31
+// ChainModeFields's copy). EVM chains aren't in that list — any of the 32
 // chains in evmChains.ts is auto-capable, checked dynamically via
 // isEvmChainId, since a wallet's EVM-format address is scanned across
 // every configured EVM chain regardless of which one it's labeled with
@@ -610,16 +646,16 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       if (wallet.chain === "ADA") updates.cardano_stake_address = cardanoStakeAddress;
       await afterDb.from("wallets").update(updates).eq("id", walletId);
 
-      // Best-effort, own try/catch — a snapshot failure shouldn't turn a
-      // successful holdings sync into a reported error. Same reasoning as
-      // runPriceRefresh's own call to this: a sync just changed what's
-      // owned, which changes the total exactly as much as a price move
-      // does, so it gets the same "keep today's snapshot current" fix.
-      try {
-        await captureUserSnapshot(user.id);
-      } catch {
-        // swallowed — see comment above
-      }
+      // Nested after(), registered only now that holdings are actually
+      // saved — not called unconditionally alongside the outer after()
+      // above, which would let it start reading (stale, pre-sync)
+      // holdings concurrently with this same sync still writing them.
+      // Nesting after() inside another after() callback is Next's own
+      // documented pattern for exactly this ("schedule more work once
+      // this work is done, without blocking on it") — see
+      // scheduleUserSnapshot's own doc comment for the regression this
+      // whole two-after()-calls shape exists to avoid.
+      scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
     } catch (e) {
       await afterDb
         .from("wallets")

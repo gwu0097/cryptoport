@@ -13,7 +13,7 @@ import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 // the client-side hint wrong, never let an unsupported chain actually get
 // saved as auto (the server checks again). The EVM half isn't in that
 // list — isEvmChainId (imported directly from evmChains.ts, the same list
-// evm.ts scans) recognizes any of the 31 configured EVM chains, so typing
+// evm.ts scans) recognizes any of the 32 configured EVM chains, so typing
 // "RON" or "SEI" enables Auto mode exactly like "ETH" does, without
 // needing every EVM chain cluttering the datalist below.
 // "ETH" stands in for "any EVM chain" in the suggestion list — listing all
