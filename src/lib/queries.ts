@@ -877,32 +877,24 @@ export interface WatchlistRow {
   marketCap: number | null;
 }
 
-/** One watchlist's items, merged in code against the shared, coingecko-id-
- * keyed cryptoport.coin_market_data (see coinMarketData.ts's own doc
- * comment for why this is id-keyed rather than reusing the ticker-keyed
- * `prices` table getPriceMap reads) — two plain queries, not a PostgREST
- * embedded-relationship select, since there's deliberately no foreign key
- * from watchlist_items.coingecko_id to coin_market_data.coingecko_id (a
- * newly-added coin's item row is saved before its market-data row exists —
- * see addWatchlistItem's own comment — so a FK here would make that insert
- * fail). A coin with no market_data row yet (just added, not refreshed) or
- * one CoinGecko no longer returns data for renders every numeric field
- * null — the table shows "—", never a fabricated number. RLS on
- * watchlist_items (via the watchlists.user_id subquery) already confirms
- * this list belongs to the caller; coin_market_data's own policy opens
- * select to every signed-in user (it's global market data, not per-user). */
-export async function getWatchlistItems(watchlistId: string): Promise<WatchlistRow[]> {
-  if (!(await getUser())) return [];
-  const db = await userDb();
-  const { data: items, error } = await db
-    .from("watchlist_items")
-    .select("id, coingecko_id, ticker, name, image_url")
-    .eq("watchlist_id", watchlistId)
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
+type WatchlistItemRow = { id: string; coingecko_id: string; ticker: string; name: string; image_url: string | null };
 
-  type ItemRow = { id: string; coingecko_id: string; ticker: string; name: string; image_url: string | null };
-  const rows = items as ItemRow[];
+/** Shared by getWatchlistItems and getAllWatchlistItems — merges item rows
+ * in code against the shared, coingecko-id-keyed cryptoport.coin_market_data
+ * (see coinMarketData.ts's own doc comment for why this is id-keyed rather
+ * than reusing the ticker-keyed `prices` table getPriceMap reads). Two
+ * plain queries, not a PostgREST embedded-relationship select, since
+ * there's deliberately no foreign key from watchlist_items.coingecko_id to
+ * coin_market_data.coingecko_id (a newly-added coin's item row is saved
+ * before its market-data row exists — see addWatchlistItem's own comment —
+ * so a FK here would make that insert fail). A coin with no market_data
+ * row yet (just added, not refreshed) or one CoinGecko no longer returns
+ * data for renders every numeric field null — "—", never a fabricated
+ * number. */
+async function mergeWithMarketData(
+  rows: WatchlistItemRow[],
+  db: Awaited<ReturnType<typeof userDb>>,
+): Promise<WatchlistRow[]> {
   if (rows.length === 0) return [];
 
   const ids = [...new Set(rows.map((r) => r.coingecko_id))];
@@ -939,4 +931,43 @@ export async function getWatchlistItems(watchlistId: string): Promise<WatchlistR
       marketCap: parseNumeric(market?.market_cap ?? null),
     };
   });
+}
+
+/** One watchlist's items — RLS on watchlist_items (via the watchlists.user_id
+ * subquery) already confirms this list belongs to the caller;
+ * coin_market_data's own policy opens select to every signed-in user (it's
+ * global market data, not per-user). */
+export async function getWatchlistItems(watchlistId: string): Promise<WatchlistRow[]> {
+  if (!(await getUser())) return [];
+  const db = await userDb();
+  const { data: items, error } = await db
+    .from("watchlist_items")
+    .select("id, coingecko_id, ticker, name, image_url")
+    .eq("watchlist_id", watchlistId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
+
+  return mergeWithMarketData(items as WatchlistItemRow[], db);
+}
+
+/** Every coin *this user* is watching, across every one of their
+ * watchlists — deduped by coingecko_id (the same coin can be added to more
+ * than one list; a Dashboard summary widget should count it once, not
+ * once per list). Used by the Dashboard's Watchlist movers panels, which
+ * have no per-list selector the way /watchlist itself does. */
+export async function getAllWatchlistItems(): Promise<WatchlistRow[]> {
+  if (!(await getUser())) return [];
+  const db = await userDb();
+  const { data: items, error } = await db.from("watchlist_items").select("id, coingecko_id, ticker, name, image_url");
+  if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
+
+  const rows = items as WatchlistItemRow[];
+  const seen = new Set<string>();
+  const deduped = rows.filter((r) => {
+    if (seen.has(r.coingecko_id)) return false;
+    seen.add(r.coingecko_id);
+    return true;
+  });
+
+  return mergeWithMarketData(deduped, db);
 }
