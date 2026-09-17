@@ -1,44 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { formatUsd } from "@/lib/format";
 import { Panel } from "./ui/Panel";
-import { usePersistedState } from "./usePersistedState";
+import { useHideBalance } from "./HideBalanceProvider";
 
-// Shared across every page that renders TotalValuePanel (see its own doc
-// comment) — one toggle, one stored preference, so hiding it anywhere
-// hides it everywhere the same way a real "privacy mode" would, rather
-// than each page needing its own separate on/off state.
-const HIDE_BALANCE_KEY = "cryptoport:hideBalance";
 const MASK = "••••••";
-
-/**
- * The shared "is privacy mode on" read — TotalValuePanel uses this for its
- * own headline number, and any other component showing a raw dollar
- * figure derived from the total (not an individual holding's own price,
- * which doesn't reveal portfolio size) should too. Reported directly:
- * Dashboard's blended-24h-change caption showed the real $ delta right
- * next to the masked total ("+$10,093.07 (+2.57%)") — since
- * total = delta / pct, that $ figure alone defeats the whole point of
- * masking the headline number above it. formatPercent already signs its
- * own output, so a masked caption can drop straight to "+2.57%" with no
- * dollar prefix at all, not a masked placeholder.
- *
- * `hidden` starts `true` until mount (see the inline comment below) so
- * server-rendered HTML never contains a real number that would flash
- * on-screen for a beat before the persisted preference is read.
- */
-export function useHideBalance(): { hidden: boolean; setHidden: (hidden: boolean) => void } {
-  const [hidden, setHidden] = usePersistedState(HIDE_BALANCE_KEY, false);
-  const [mounted, setMounted] = useState(false);
-  // Same SSR/hydration exception usePersistedState.ts's own read effect
-  // documents — this synchronizes with "has the client actually taken
-  // over yet," not state derivable during render.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
-  return { hidden: !mounted || hidden, setHidden };
-}
 
 /**
  * The "Total value" summary block shared by every page that shows a
@@ -57,10 +25,13 @@ export function useHideBalance(): { hidden: boolean; setHidden: (hidden: boolean
  * caption lines (children) are that page's content, not this shared
  * component's to reach into. But any child that itself derives a raw
  * dollar figure from the total (not an individual holding's own price)
- * needs to mask that figure too, via the exported `useHideBalance` hook —
- * a masked total sitting next to an unmasked $ delta right below it
- * defeats the point (delta / pct recovers the total). See
- * BlendedChangeCaption for the one place this actually came up.
+ * needs to mask that figure too, via HideBalanceProvider's exported
+ * `useHideBalance` hook (a shared context, not a per-component
+ * usePersistedState call — see that file's own doc comment for the real
+ * cross-component sync bug that distinction fixes) — a masked total
+ * sitting next to an unmasked $ delta right below it defeats the point
+ * (delta / pct recovers the total). See BlendedChangeCaption for the one
+ * place this actually came up.
  *
  * Label and number read as one inline phrase ("Total value: $X", eye right
  * after it) on the row's left edge, rather than label-left/number-right

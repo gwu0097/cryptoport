@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { JobPollerProvider } from "@/components/jobs/JobPoller";
+import { HideBalanceProvider } from "@/components/HideBalanceProvider";
 import { getUser } from "@/lib/auth";
 import { walletDisplayName } from "@/lib/walletDisplay";
 
@@ -18,7 +19,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // reaches TopBar.
   return (
     <JobPollerProvider>
-      <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>
+      <HideBalanceProvider>
+        <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>
+      </HideBalanceProvider>
     </JobPollerProvider>
   );
 }

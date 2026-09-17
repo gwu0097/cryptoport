@@ -2,7 +2,7 @@
 
 import { formatUsdSigned, formatPercent } from "@/lib/format";
 import type { BlendedChange } from "@/lib/dashboard";
-import { useHideBalance } from "./TotalValuePanel";
+import { useHideBalance } from "./HideBalanceProvider";
 
 /**
  * Dashboard's "+$10,093.07 (+2.57%) as of last refresh · based on 100% of

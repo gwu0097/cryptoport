@@ -5,7 +5,7 @@ import type { PortfolioHistoryPoint } from "@/lib/queries";
 import { formatUsdSigned, formatPercent } from "@/lib/format";
 import { scalePoints, linePath, areaPath } from "@/lib/chart";
 import { Panel } from "../ui/Panel";
-import { useHideBalance } from "../TotalValuePanel";
+import { useHideBalance } from "../HideBalanceProvider";
 
 const WIDTH = 600;
 const HEIGHT = 160;
