@@ -47,14 +47,14 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
         rangeStorageKey={RANGE_STORAGE_KEY}
       />
       {/* Reported directly as a "discrepancy" between this chart's headline
-          and the live Total value panel above it — it's not a bug, just an
-          undocumented gap: this chart's most recent point is whatever the
-          once-daily snapshot cron captured (a fixed moment, e.g. 6:44am
-          UTC), while Total value is recomputed live on every page load.
-          Real market movement between the snapshot and "now" shows up as
-          a real difference between the two numbers. */}
+          and the live Total value panel above it — see snapshots.ts's
+          captureUserSnapshot for the actual fix (a manual refresh/sync now
+          updates today's snapshot too, not just the once-daily cron).
+          This caption covers the narrower gap that's left: between two
+          refreshes, prices keep moving live while today's snapshot sits at
+          whatever the last one captured. */}
       <p className="mt-2 text-xs text-fg-muted">
-        Reflects the most recent daily snapshot, not live — may differ from Total value above.
+        Updates when you refresh prices or sync a wallet — may lag Total value above between refreshes.
       </p>
     </Panel>
   );
