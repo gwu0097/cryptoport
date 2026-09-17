@@ -3,20 +3,34 @@ import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchTokenInfo } from "./jupiter";
 import type { AdapterTransaction } from "./types";
 
-const RPC_URL = "https://api.mainnet-beta.solana.com";
+// Two endpoints, deliberately not one — live-verified (2026-09) under this
+// adapter's real call shape (16 getSignaturesForAddress + ~40
+// getTransaction calls at concurrency 3, matching a real multi-token-
+// account wallet sync): api.mainnet-beta.solana.com 429'd 36 of those 56
+// calls, while PublicNode's Solana endpoint handled the identical burst
+// with zero 429s. But PublicNode's free tier also flatly blocks
+// getTokenAccountsByOwner ("Request blocked", verified against a real
+// wallet address, not just an invalid-param error) — same restriction
+// solanaRpc.ts's getProgramAccounts callers already ran into, so this
+// isn't a one-off. Route accordingly: the one getTokenAccountsByOwner
+// call this adapter makes per wallet (low volume, not the source of the
+// 429s) stays on Solana's own public RPC; every getSignaturesForAddress/
+// getTransaction call (the actual bulk, high-concurrency traffic) goes
+// through PublicNode instead.
+const SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com";
+const PUBLICNODE_RPC_URL = "https://solana-rpc.publicnode.com";
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-// Kept low and capped, not because this app owns the rate limit but
-// because it doesn't: public mainnet-beta RPC already throttles hard under
-// modest concurrency (see solanaRpc.ts's getProgramAccounts callers) —
-// same 3-way concurrency bitcoinXpub.ts settled on for the same reason.
+// Kept low and capped even against PublicNode's much higher tolerance —
+// no reason to push it, and this still protects the getTokenAccountsByOwner
+// call above, which stayed on the stricter original endpoint.
 const RPC_CONCURRENCY = 3;
 const SIGNATURE_LIMIT = 30; // per address (owner + each token account) scanned
 const MAX_TOKEN_ACCOUNTS = 15; // caps how many of a wallet's token accounts get scanned for history
 const EXPLORER_BASE = "https://solscan.io/tx";
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
-async function rpc<T>(method: string, params: unknown[], context: string): Promise<T> {
-  const res = await fetchWithRetry(RPC_URL, {
+async function rpc<T>(url: string, method: string, params: unknown[], context: string): Promise<T> {
+  const res = await fetchWithRetry(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -41,6 +55,7 @@ interface TokenAccountRow {
  * PDA itself, which is what makes scanning them for tx history tractable. */
 async function getOwnedTokenAccounts(owner: string): Promise<string[]> {
   const result = await rpc<{ value: TokenAccountRow[] } | null>(
+    SOLANA_RPC_URL, // PublicNode blocks this method on its free tier — see this file's own doc comment
     "getTokenAccountsByOwner",
     [owner, { programId: TOKEN_PROGRAM_ID }, { encoding: "jsonParsed" }],
     "getTokenAccountsByOwner",
@@ -108,7 +123,12 @@ export async function fetchSolanaTransactions(owner: string): Promise<AdapterTra
   const addressesToScan = [owner, ...tokenAccounts];
 
   const sigLists = await mapWithConcurrency(addressesToScan, RPC_CONCURRENCY, (addr) =>
-    rpc<SignatureInfo[]>("getSignaturesForAddress", [addr, { limit: SIGNATURE_LIMIT }], "getSignaturesForAddress"),
+    rpc<SignatureInfo[]>(
+      PUBLICNODE_RPC_URL,
+      "getSignaturesForAddress",
+      [addr, { limit: SIGNATURE_LIMIT }],
+      "getSignaturesForAddress",
+    ),
   );
   const uniqueSignatures = [
     ...new Set(sigLists.flat().filter((s) => !s.err).map((s) => s.signature)),
@@ -117,6 +137,7 @@ export async function fetchSolanaTransactions(owner: string): Promise<AdapterTra
   const details = await mapWithConcurrency(uniqueSignatures, RPC_CONCURRENCY, async (signature) => {
     try {
       const tx = await rpc<TxResult | null>(
+        PUBLICNODE_RPC_URL,
         "getTransaction",
         [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
         "getTransaction",
