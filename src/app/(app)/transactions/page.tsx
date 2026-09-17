@@ -5,6 +5,7 @@ import { hasTransactionCoverage } from "@/lib/adapters/transactionDispatch";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { GuestBanner } from "@/components/GuestBanner";
+import { CheckboxLink } from "@/components/ui/CheckboxLink";
 import { TransactionsWalletFilter } from "@/components/TransactionsWalletFilter";
 import { TransactionsTable } from "@/components/TransactionsTable";
 import { TransactionSyncButton } from "@/components/TransactionSyncButton";
@@ -29,12 +30,31 @@ interface WalletOption {
   tx_sync_started_at: string | null;
 }
 
+// Defaults to hidden (checked) — reported directly: a wallet with real
+// address-poisoning spam (many "Sent 0 USDC" rows to near-identical
+// counterparty addresses, a well-known on-chain scam that broadcasts a
+// zero-value transfer hoping a later copy-paste from tx history grabs the
+// attacker's look-alike address instead of a real one) made the whole
+// page unreadable. Only ever the exact number 0 — a genuinely unknown
+// amount (null, e.g. an undecoded multi-leg transaction) is a different,
+// real state and stays visible regardless (see CLAUDE.md's "unknown is
+// never silently 0" rule, the same reasoning in reverse: a real 0 must
+// never hide behind "unknown" either).
+function buildHref(walletId: string | undefined, hideZero: boolean): string {
+  const params = new URLSearchParams();
+  if (walletId) params.set("wallet", walletId);
+  if (!hideZero) params.set("hideZero", "0");
+  const qs = params.toString();
+  return qs ? `/transactions?${qs}` : "/transactions";
+}
+
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ wallet?: string }>;
+  searchParams: Promise<{ wallet?: string; hideZero?: string }>;
 }) {
-  const { wallet: selectedWalletId } = await searchParams;
+  const { wallet: selectedWalletId, hideZero: hideZeroParam } = await searchParams;
+  const hideZero = hideZeroParam !== "0";
   const user = await getUser();
 
   if (!user) {
@@ -59,7 +79,9 @@ export default async function TransactionsPage({
   const wallets = walletsData as WalletOption[];
 
   const selectedWallet = selectedWalletId ? wallets.find((w) => w.id === selectedWalletId) : undefined;
-  const transactions = await getTransactions(selectedWallet?.id);
+  const allTransactions = await getTransactions(selectedWallet?.id);
+  const zeroCount = allTransactions.filter((t) => t.amount === 0).length;
+  const transactions = hideZero ? allTransactions.filter((t) => t.amount !== 0) : allTransactions;
 
   const covered = selectedWallet ? hasTransactionCoverage(selectedWallet.chain) : true;
 
@@ -89,8 +111,15 @@ export default async function TransactionsPage({
         }
       />
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <TransactionsWalletFilter wallets={wallets} selected={selectedWallet?.id} />
+        {allTransactions.length > 0 && (
+          <CheckboxLink
+            href={buildHref(selectedWallet?.id, !hideZero)}
+            checked={hideZero}
+            label={`Hide zero-amount transactions${zeroCount > 0 ? ` (${zeroCount})` : ""}`}
+          />
+        )}
       </div>
 
       {!covered && (
@@ -106,9 +135,11 @@ export default async function TransactionsPage({
       {transactions.length === 0 ? (
         <Panel className="text-center">
           <p className="text-sm text-fg-muted">
-            {covered
-              ? "No synced transactions yet — click Sync above to pull recent history."
-              : "Nothing to show for this chain yet."}
+            {allTransactions.length > 0
+              ? "Every synced transaction here is zero-amount — uncheck “Hide zero-amount transactions” above to see them."
+              : covered
+                ? "No synced transactions yet — click Sync above to pull recent history."
+                : "Nothing to show for this chain yet."}
           </p>
         </Panel>
       ) : (
