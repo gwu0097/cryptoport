@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { refreshPrices } from "@/lib/prices";
+import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
@@ -96,6 +97,10 @@ function revalidateAllPriceConsumers() {
   revalidatePath("/portfolio");
   revalidatePath("/defi");
   revalidatePath("/dashboard");
+  // Now that a price refresh also writes today's snapshot (see
+  // captureUserSnapshot), Analytics' own value-history chart needs
+  // revalidating too — it wasn't a price consumer before this.
+  revalidatePath("/analytics");
 }
 
 /** The actual work — resolved either by refreshPricesAction or
@@ -114,7 +119,7 @@ function revalidateAllPriceConsumers() {
  * the "mark refreshing" write, and the gap between a Server Action
  * returning and after() actually starting are all real, otherwise-
  * invisible latency). */
-async function runPriceRefresh(requestedAt: number): Promise<void> {
+async function runPriceRefresh(requestedAt: number, userId: string): Promise<void> {
   try {
     const results = await refreshPrices(requestedAt);
     const failed = results.filter((r) => !r.ok);
@@ -144,6 +149,19 @@ async function runPriceRefresh(requestedAt: number): Promise<void> {
       .update({ status: `error: ${(e as Error).message}` })
       .eq("id", 1);
   }
+
+  // Best-effort, deliberately outside the try/catch above — a snapshot
+  // failure is a real but minor degradation (the chart just stays one
+  // refresh further behind), not something that should make this
+  // function report the whole price refresh as failed. See
+  // captureUserSnapshot's own doc comment for why this call exists at
+  // all: reported directly that "Total value" and the Value history
+  // chart's headline visibly disagreed after a manual refresh.
+  try {
+    await captureUserSnapshot(userId);
+  } catch {
+    // swallowed — see comment above
+  }
 }
 
 /**
@@ -166,7 +184,7 @@ async function runPriceRefresh(requestedAt: number): Promise<void> {
  */
 export async function refreshPricesAction(): Promise<JobStartResult> {
   const requestedAt = Date.now();
-  await requireUser();
+  const user = await requireUser();
 
   const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
   const { data: claimed, error: markError } = await serviceDb()
@@ -181,7 +199,7 @@ export async function refreshPricesAction(): Promise<JobStartResult> {
   }
 
   after(async () => {
-    await runPriceRefresh(requestedAt);
+    await runPriceRefresh(requestedAt, user.id);
     revalidateAllPriceConsumers();
   });
 
@@ -201,7 +219,7 @@ export async function refreshPricesAction(): Promise<JobStartResult> {
 // way to hook into "after the background work this kicked off finishes."
 export async function refreshPricesForWalletAction(walletId: string): Promise<JobStartResult> {
   const requestedAt = Date.now();
-  await requireUser();
+  const user = await requireUser();
 
   const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
   const { data: claimed, error: markError } = await serviceDb()
@@ -216,7 +234,7 @@ export async function refreshPricesForWalletAction(walletId: string): Promise<Jo
   }
 
   after(async () => {
-    await runPriceRefresh(requestedAt);
+    await runPriceRefresh(requestedAt, user.id);
     revalidateAllPriceConsumers();
     revalidatePath(`/wallets/${walletId}`);
   });
@@ -509,7 +527,7 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
 // an earlier run's after() got killed by the platform's own time limit
 // before its own catch block ever ran.
 export async function syncWalletHoldings(walletId: string, forceFullScan = false): Promise<JobStartResult> {
-  await requireUser();
+  const user = await requireUser();
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
     .from("wallets")
@@ -591,6 +609,17 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       if (wallet.chain === "BTC") updates.btc_script_type = detectedScriptType;
       if (wallet.chain === "ADA") updates.cardano_stake_address = cardanoStakeAddress;
       await afterDb.from("wallets").update(updates).eq("id", walletId);
+
+      // Best-effort, own try/catch — a snapshot failure shouldn't turn a
+      // successful holdings sync into a reported error. Same reasoning as
+      // runPriceRefresh's own call to this: a sync just changed what's
+      // owned, which changes the total exactly as much as a price move
+      // does, so it gets the same "keep today's snapshot current" fix.
+      try {
+        await captureUserSnapshot(user.id);
+      } catch {
+        // swallowed — see comment above
+      }
     } catch (e) {
       await afterDb
         .from("wallets")
@@ -602,6 +631,12 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
     } finally {
       revalidatePath(`/wallets/${walletId}`);
       revalidatePath("/wallets");
+      // Now that a successful sync also writes today's snapshot (see
+      // captureUserSnapshot above), Dashboard/Analytics need revalidating
+      // too — harmless to call even on a failed sync (the snapshot write
+      // just didn't happen, so there's nothing new for these to pick up).
+      revalidatePath("/dashboard");
+      revalidatePath("/analytics");
     }
   });
 
