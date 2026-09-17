@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import { getAssetsGroupedByTicker, getAllWatchlistItems, getValueHistory, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
@@ -157,16 +155,6 @@ export default async function DashboardPage() {
           </>
         )}
       </div>
-
-      <Link
-        href="/watchlist"
-        className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-3 text-sm transition hover:bg-surface-raised"
-      >
-        <span className="text-fg-muted">
-          <span className="font-medium text-fg">Watchlist</span> — track tokens you don&rsquo;t hold yet.
-        </span>
-        <ChevronRight className="size-4 shrink-0 text-fg-muted" aria-hidden="true" />
-      </Link>
     </>
   );
 }
