@@ -5,12 +5,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { GuestBanner } from "@/components/GuestBanner";
 import { WatchlistTabs } from "@/components/watchlist/WatchlistTabs";
-import { WatchlistTable, SORT_KEYS, type Sort } from "@/components/watchlist/WatchlistTable";
+import { WatchlistTable, type Sort } from "@/components/watchlist/WatchlistTable";
 import { AddCoinPanel } from "@/components/watchlist/AddCoinPanel";
 import { createWatchlist } from "./actions";
 import { refreshPricesAction } from "../wallets/actions";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { inputClass } from "@/components/ui/Field";
+import { WATCHLIST_SORT_KEYS } from "@/lib/sortKeys";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Watchlist · CryptoPort" };
@@ -20,12 +21,13 @@ export const metadata = { title: "Watchlist · CryptoPort" };
 // data (see wallets/actions.ts's runPriceRefresh), on top of holdings.
 export const maxDuration = 300;
 
-// See assets/page.tsx's own parseInitialSort for the full reasoning — same
-// Dashboard "view all" link feature, validated against this table's own
-// SORT_KEYS rather than trusted.
+// See assets/page.tsx's own parseInitialSort for the full reasoning
+// (including why this imports WATCHLIST_SORT_KEYS from lib/sortKeys.ts —
+// a plain module — rather than from WatchlistTable.tsx, which is "use
+// client" and crashed this page live when it tried).
 function parseInitialSort(sort?: string, dir?: string): Sort | undefined {
-  if (!sort || !SORT_KEYS.includes(sort as (typeof SORT_KEYS)[number])) return undefined;
-  return { key: sort as (typeof SORT_KEYS)[number], dir: dir === "asc" ? "asc" : "desc" };
+  if (!sort || !WATCHLIST_SORT_KEYS.includes(sort as (typeof WATCHLIST_SORT_KEYS)[number])) return undefined;
+  return { key: sort as (typeof WATCHLIST_SORT_KEYS)[number], dir: dir === "asc" ? "asc" : "desc" };
 }
 
 export default async function WatchlistPage({

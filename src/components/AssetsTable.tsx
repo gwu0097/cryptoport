@@ -9,36 +9,19 @@ import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { usePersistedState } from "./usePersistedState";
+import type { AssetSortKey, SortDirection } from "@/lib/sortKeys";
 
-export type SortKey =
-  | "ticker"
-  | "price"
-  | "change1h"
-  | "change24h"
-  | "change7d"
-  | "change30d"
-  | "marketCap"
-  | "qty"
-  | "wallets"
-  | "value";
-export type Sort = { key: SortKey; dir: "asc" | "desc" };
-
-// Exported so assets/page.tsx can validate a `?sort=`/`&dir=` pair coming
-// from a Dashboard "view all" link (see MoverList) against the same set
-// this component actually understands, instead of duplicating the key
-// list in the page.
-export const SORT_KEYS: readonly SortKey[] = [
-  "ticker",
-  "price",
-  "change1h",
-  "change24h",
-  "change7d",
-  "change30d",
-  "marketCap",
-  "qty",
-  "wallets",
-  "value",
-];
+// AssetSortKey/SORT_KEYS live in lib/sortKeys.ts, not here — a plain
+// runtime constant declared in a "use client" file becomes an opaque
+// client-reference stub when a Server Component imports it directly
+// (Next's RSC bundler replaces every export of a client-boundary module,
+// not just its rendered component), which is exactly what broke
+// assets/page.tsx's `SORT_KEYS.includes(...)` validation the first time
+// this shipped — see that file's own comment. Only the type alias lives
+// here (types are erased entirely, no runtime reference crosses the
+// boundary either way) for readability within this file's own body.
+export type SortKey = AssetSortKey;
+export type Sort = { key: SortKey; dir: SortDirection };
 
 const STORAGE_KEY = "cryptoport:assetsSort";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };

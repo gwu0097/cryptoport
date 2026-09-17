@@ -5,8 +5,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
-import { AssetsTable, SORT_KEYS, type Sort } from "@/components/AssetsTable";
+import { AssetsTable, type Sort } from "@/components/AssetsTable";
 import { GuestBanner } from "@/components/GuestBanner";
+import { ASSET_SORT_KEYS } from "@/lib/sortKeys";
 import { refreshPricesAction } from "../wallets/actions";
 
 // A Dashboard movers panel ("Top gainers (24h) · Holdings", see
@@ -14,11 +15,17 @@ import { refreshPricesAction } from "../wallets/actions";
 // losers) so clicking through the 5-row preview lands on the full list
 // sorted the same way, instead of resetting to whatever was last sorted
 // (see AssetsTable's own doc comment for how this wins over the persisted
-// sort). Validated against SORT_KEYS rather than trusted — a stray/typo'd
-// query string should just fall back to no override, not crash the page.
+// sort). Validated against ASSET_SORT_KEYS rather than trusted — a stray/
+// typo'd query string should just fall back to no override, not crash the
+// page. Imported from lib/sortKeys.ts, NOT from AssetsTable.tsx — that
+// file is "use client"; a Server Component importing a runtime constant
+// (not JSX) from a client-boundary module gets an opaque client-reference
+// stub instead of the real array, which is exactly what broke this page
+// live the first time (`.includes` on a stub isn't a real array method —
+// crashed with a server error on every request).
 function parseInitialSort(sort?: string, dir?: string): Sort | undefined {
-  if (!sort || !SORT_KEYS.includes(sort as (typeof SORT_KEYS)[number])) return undefined;
-  return { key: sort as (typeof SORT_KEYS)[number], dir: dir === "asc" ? "asc" : "desc" };
+  if (!sort || !ASSET_SORT_KEYS.includes(sort as (typeof ASSET_SORT_KEYS)[number])) return undefined;
+  return { key: sort as (typeof ASSET_SORT_KEYS)[number], dir: dir === "asc" ? "asc" : "desc" };
 }
 
 export const dynamic = "force-dynamic";

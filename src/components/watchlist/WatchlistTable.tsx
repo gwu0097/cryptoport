@@ -9,23 +9,15 @@ import { inputClass } from "../ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "../ui/table";
 import { usePersistedState } from "../usePersistedState";
 import { removeWatchlistItem } from "@/app/(app)/watchlist/actions";
+import type { WatchlistSortKey, SortDirection } from "@/lib/sortKeys";
 
-export type SortKey = "ticker" | "price" | "change1h" | "change24h" | "change7d" | "change30d" | "marketCap";
-export type Sort = { key: SortKey; dir: "asc" | "desc" };
-
-// See AssetsTable's own SORT_KEYS for why this is exported — same "let the
-// page validate a URL sort param against what the component actually
-// understands" reasoning, for the watchlist/page.tsx side of the same
-// Dashboard "view all" link feature.
-export const SORT_KEYS: readonly SortKey[] = [
-  "ticker",
-  "price",
-  "change1h",
-  "change24h",
-  "change7d",
-  "change30d",
-  "marketCap",
-];
+// WatchlistSortKey/SORT_KEYS live in lib/sortKeys.ts, not here — see
+// AssetsTable's own comment on why a plain runtime constant can't safely
+// live in a "use client" file that a Server Component also needs to
+// import (real bug hit live: watchlist/page.tsx crashed on every request
+// once it imported SORT_KEYS from here). Only the type alias lives here.
+export type SortKey = WatchlistSortKey;
+export type Sort = { key: SortKey; dir: SortDirection };
 
 const STORAGE_KEY = "cryptoport:watchlistSort";
 const DEFAULT_SORT: Sort = { key: "marketCap", dir: "desc" };
