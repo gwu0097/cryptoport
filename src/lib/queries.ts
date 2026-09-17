@@ -525,11 +525,13 @@ export interface AssetGroup {
   /** 1h/7d/30d % change — same contract-keyed-first-then-ticker-keyed
    * resolution as change24h (see getContractStatsMap/getPriceStatsMap).
    * Null more often than change24h: only available at all for a ticker
-   * CoinGecko's /coins/markets can resolve by coin id — EVM contract
-   * tokens need their own coingecko_id cached in token_registry (see
-   * multicallEvm.ts's doc comment), and Solana SPL tokens priced via
-   * simple/token_price don't get these windows at all (that endpoint only
-   * ever returns 24h change — a known, narrower gap than change24h has). */
+   * CoinGecko's /coins/markets can resolve by coin id, which both EVM
+   * contract tokens and Solana SPL tokens now get via their own
+   * coingecko_id cached in token_registry (see multicallEvm.ts's and
+   * prices.ts's refreshCoinGeckoTickers' own doc comments) — actually
+   * priced through a different, 24h-only endpoint either way, so this is
+   * a second, best-effort lookup layered on top and can still come back
+   * empty for a token CoinGecko hasn't cached an id for yet. */
   change1h: number | null;
   change7d: number | null;
   change30d: number | null;

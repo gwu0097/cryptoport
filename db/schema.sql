@@ -581,12 +581,15 @@ alter table cryptoport.wallets add column tx_sync_started_at timestamptz;
 -- change_24h_pct/market_cap above: token_registry for EVM contract-based
 -- holdings, prices for everything else. Narrower coverage than 24h,
 -- though, live-verified (2026-09): only /coins/markets returns these
--- windows — simple/price and simple/token_price cap out at 24h change, so
--- a Solana SPL token (priced via simple/token_price, see prices.ts's
--- refreshCoinGeckoTickers) has no path to these 3 columns at all, and an
--- EVM contract token only gets them when token_registry already has its
--- coingecko_id cached (see multicallEvm.ts's own doc comment) — both
--- correctly left null rather than guessed at when unavailable.
+-- windows — simple/price and simple/token_price (the endpoints that
+-- actually price EVM contract tokens and Solana SPL tokens) cap out at
+-- 24h change. Both token types get a second, best-effort lookup layered
+-- on top instead — resolved to a coingecko_id via token_registry (see
+-- multicallEvm.ts's and prices.ts's refreshCoinGeckoTickers' own doc
+-- comments; token_registry.chain_id = "solana" for SPL mints, populated
+-- by refreshTokenRegistry's own Solana loop from the same coins/list
+-- response the EVM loop already uses) — correctly left null rather than
+-- guessed at when a token has no cached coingecko_id yet.
 alter table cryptoport.token_registry
   add column change_1h_pct numeric,
   add column change_7d_pct numeric,

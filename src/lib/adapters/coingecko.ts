@@ -78,6 +78,47 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
     results.push({ chainId: chain.id, count: rows.length });
   }
 
+  // Same coins/list response, one more platform extracted from it — a
+  // mint -> coingecko_id cache for Solana SPL tokens, same shape as the
+  // EVM loop above. This is what lets prices.ts's refreshCoinGeckoTickers
+  // resolve a Solana contract to a coingecko_id and fetch its 1h/7d/30d
+  // change via fetchMarketStatsByIds — simple/token_price (the endpoint
+  // that actually prices these tokens) only ever returns 24h change,
+  // confirmed live, so those 3 windows need this separate id-based lookup,
+  // same reasoning as the EVM contract-token path in multicallEvm.ts.
+  //
+  // Written under a single chain_id ("solana"), not per holding.chain
+  // value ("solana" vs "solana-defi" both mean the same underlying
+  // Solana platform) — the read side (getContractStatsMap) doesn't scope
+  // by chain_id at all (see its own doc comment: a contract address is
+  // already globally unique in practice), so one canonical entry per
+  // mint is enough regardless of which app-internal chain label a given
+  // holding happens to carry.
+  //
+  // .toLowerCase() here is purely an internal DB-key convention, matching
+  // every other token_registry.contract value in this table — it's never
+  // sent back to an external API expecting the mint's real, case-
+  // sensitive base58 form (Solana addresses ARE case-sensitive, unlike
+  // EVM hex), only used to look itself back up via the exact same
+  // lowercasing this table's read side already applies everywhere.
+  {
+    const solanaPlatform = NON_EVM_PLATFORM_IDS.solana;
+    const rows = coins
+      .filter((c) => c.platforms?.[solanaPlatform])
+      .map((c) => ({
+        chain_id: "solana",
+        contract: c.platforms![solanaPlatform].toLowerCase(),
+        symbol: c.symbol.toUpperCase(),
+        coingecko_id: c.id,
+        updated_at: new Date().toISOString(),
+      }))
+      .filter((r) => r.contract && r.contract !== "");
+
+    await upsertTokenRegistry(rows);
+
+    results.push({ chainId: "solana", count: rows.length });
+  }
+
   const chainIconRows = [
     ...EVM_CHAINS.map((c) => ({ chain_id: c.id, platformId: c.coingeckoPlatform })),
     ...Object.entries(NON_EVM_PLATFORM_IDS).map(([chainId, platformId]) => ({ chain_id: chainId, platformId })),

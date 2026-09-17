@@ -272,7 +272,58 @@ async function refreshCoinGeckoTickers(
   for (const [platform, entries] of contractsByPlatform) {
     lanes.push(
       (async () => {
-        const prices = await fetchTokenPrices(platform, entries.map((e) => e.contract));
+        // 1h/7d/30d change, Solana only — simple/token_price (below) only
+        // ever returns 24h change, confirmed live, same limitation the EVM
+        // contract-token path has. Reported directly: these are real,
+        // fully-listed CoinGecko assets, priced via a different endpoint
+        // than /coins/markets for balance/liquidity reasons, not because
+        // CoinGecko lacks the data — so this resolves each mint to its
+        // coingecko_id via token_registry (refreshTokenRegistry's own
+        // Solana loop populates this, same coins/list response the EVM
+        // loop already uses) and fetches the extra windows the same way
+        // multicallEvm.ts does for EVM contracts.
+        //
+        // Run via Promise.all alongside fetchTokenPrices below, NOT
+        // awaited before it — see multicallEvm.ts's own doc comment for
+        // the exact regression this shape avoids (an earlier version of
+        // this awaited the lookup sequentially, ahead of the real pricing
+        // call, extending every refresh's wall-clock time and, with it,
+        // how long client-side navigation stays vulnerable to colliding
+        // with a JobPoller-triggered router.refresh()). Best-effort: a
+        // failure here shouldn't fail the actual price refresh below.
+        const fetchSolanaMultiWindow = async (): Promise<
+          Map<string, { change1h: number | null; change7d: number | null; change30d: number | null }>
+        > => {
+          if (platform !== "solana") return new Map();
+          try {
+            const { data } = await serviceDb()
+              .from("token_registry")
+              .select("contract, coingecko_id")
+              .eq("chain_id", "solana")
+              .in("contract", entries.map((e) => e.contract.toLowerCase()))
+              .not("coingecko_id", "is", null);
+            const registryRows = (data ?? []) as { contract: string; coingecko_id: string }[];
+            const coingeckoIdByContract = new Map(registryRows.map((r) => [r.contract, r.coingecko_id]));
+            const distinctIds = [...new Set(coingeckoIdByContract.values())];
+            if (distinctIds.length === 0) return new Map();
+            const marketStats = await fetchMarketStatsByIds(distinctIds);
+            const result = new Map<string, { change1h: number | null; change7d: number | null; change30d: number | null }>();
+            for (const [contract, coingeckoId] of coingeckoIdByContract) {
+              const stats = marketStats.get(coingeckoId);
+              if (stats) {
+                result.set(contract, { change1h: stats.change1h, change7d: stats.change7d, change30d: stats.change30d });
+              }
+            }
+            return result;
+          } catch {
+            return new Map();
+          }
+        };
+
+        const [prices, multiWindowByContract] = await Promise.all([
+          fetchTokenPrices(platform, entries.map((e) => e.contract)),
+          fetchSolanaMultiWindow(),
+        ]);
         await Promise.all(
           entries.map(async ({ ticker, contract }) => {
             const price = prices.get(contract.toLowerCase());
@@ -282,7 +333,11 @@ async function refreshCoinGeckoTickers(
               return;
             }
             const usd = String(price.usd);
-            await upsertPrice(ticker, usd, "coingecko", price.change24h, { marketCap: price.marketCap });
+            const multiWindow = multiWindowByContract.get(contract.toLowerCase());
+            await upsertPrice(ticker, usd, "coingecko", price.change24h, {
+              marketCap: price.marketCap,
+              ...multiWindow,
+            });
             results.push({ ticker, ok: true, usd });
           }),
         );
