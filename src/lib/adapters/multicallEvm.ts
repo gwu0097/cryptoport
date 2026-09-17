@@ -542,31 +542,47 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
           // second, independent lookup: token_registry already caches
           // each contract's own coingecko_id from the coins/list import
           // (see refreshTokenRegistry), and fetchMarketStatsByIds
-          // (/coins/markets) accepts that id directly. Self-contained to
-          // this chain's own block, same as every other CoinGecko call
-          // here — never blocks or depends on another chain's work.
+          // (/coins/markets) accepts that id directly.
+          //
+          // Run via Promise.all alongside fetchTokenPrices below, NOT
+          // awaited before it — a real regression caught live (reported
+          // as "clicking Assets now has a delay before it navigates,
+          // something's running in the background first"): an earlier
+          // version of this awaited the registry lookup + market-stats
+          // call sequentially, ahead of fetchTokenPrices, which made
+          // every EVM chain's actual usd_override pricing (the thing
+          // that matters) wait on this best-effort enrichment finishing
+          // first, undoing this exact session's own earlier "parallelize
+          // independent refresh work" fix and extending how long
+          // "Refresh prices" (and its polling) stays active app-wide.
           // Best-effort: a failure here shouldn't fail the actual price
-          // refresh below, so its own errors are swallowed to an empty map.
-          const registryIds = await serviceDb()
-            .from("token_registry")
-            .select("contract, coingecko_id")
-            .eq("chain_id", chainId)
-            .in("contract", contractRows.map((r) => r.contract))
-            .not("coingecko_id", "is", null)
-            .then(
-              (res) => (res.data ?? []) as { contract: string; coingecko_id: string }[],
-              () => [],
-            );
-          const coingeckoIdByContract = new Map(
-            registryIds.map((r) => [r.contract.toLowerCase(), r.coingecko_id]),
-          );
-          const distinctIds = [...new Set(coingeckoIdByContract.values())];
-          const marketStats: Map<string, CoingeckoMarketStats> =
-            distinctIds.length > 0
-              ? await fetchMarketStatsByIds(distinctIds).catch(() => new Map<string, CoingeckoMarketStats>())
-              : new Map();
-
-          const prices = await fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract));
+          // refresh, so its own errors are swallowed to an empty map.
+          const fetchMultiWindow = async (): Promise<{
+            coingeckoIdByContract: Map<string, string>;
+            marketStats: Map<string, CoingeckoMarketStats>;
+          }> => {
+            const registryRows = await serviceDb()
+              .from("token_registry")
+              .select("contract, coingecko_id")
+              .eq("chain_id", chainId)
+              .in("contract", contractRows.map((r) => r.contract))
+              .not("coingecko_id", "is", null)
+              .then(
+                (res) => (res.data ?? []) as { contract: string; coingecko_id: string }[],
+                () => [],
+              );
+            const coingeckoIdByContract = new Map(registryRows.map((r) => [r.contract.toLowerCase(), r.coingecko_id]));
+            const distinctIds = [...new Set(coingeckoIdByContract.values())];
+            const marketStats =
+              distinctIds.length > 0
+                ? await fetchMarketStatsByIds(distinctIds).catch(() => new Map<string, CoingeckoMarketStats>())
+                : new Map<string, CoingeckoMarketStats>();
+            return { coingeckoIdByContract, marketStats };
+          };
+          const [prices, { coingeckoIdByContract, marketStats }] = await Promise.all([
+            fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract)),
+            fetchMultiWindow(),
+          ]);
           for (const row of contractRows) {
             const price = prices.get(row.contract.toLowerCase());
             if (!price) {
