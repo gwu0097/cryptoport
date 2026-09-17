@@ -25,7 +25,7 @@ type Db = ReturnType<typeof serviceDb>;
  * vanished until a fresh sync repopulated it.
  *
  * EVM dedupe deliberately does NOT filter on chain: a wallet tracked under
- * any of the 31 EVM chain labels (RON, SEI, ARB, ...) holds the exact same
+ * any of the 32 EVM chain labels (RON, SEI, ARB, ...) holds the exact same
  * address as one labeled plain ETH — the label is just which chain the
  * wallet is "focused" on for display, not which chains its 0x address
  * actually gets scanned across (see isAutoCapableChain's comment in

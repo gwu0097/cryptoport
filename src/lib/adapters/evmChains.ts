@@ -11,7 +11,7 @@
  * (unlike the Rabby indexer). Every `rpc` URL below was hand-verified
  * (matching `eth_chainId` against the real chain ID) before being added.
  *
- * 31 chains as of this writing — every EVM chain PublicNode serves
+ * 32 chains as of this writing — every EVM chain PublicNode serves
  * keylessly that responded correctly to a real eth_chainId check (a
  * handful of others, e.g. Fantom/Moonbeam/Flare, aren't on PublicNode's
  * keyless tier and were left out rather than guessed at). Ronin is the one
@@ -329,6 +329,15 @@ export const EVM_CHAINS: EvmChain[] = [
     nativeCoingeckoId: "ronin",
     nativeSymbol: "RON",
   },
+  {
+    id: "rbh",
+    name: "Robinhood Chain",
+    chainId: 4663,
+    rpc: "https://rpc.mainnet.chain.robinhood.com",
+    coingeckoPlatform: "robinhood",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
 ];
 
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
@@ -337,7 +346,7 @@ const EVM_CHAIN_IDS_UPPER = new Set(EVM_CHAINS.map((c) => c.id.toUpperCase()));
 
 /** Whether `chain` (a wallet's own `chain` field, e.g. "ETH", "RON",
  * "SEI") names one of the EVM chains above — every one of them is reached
- * by scanning the SAME EVM address across all 31 chains (see evm.ts), so a
+ * by scanning the SAME EVM address across all 32 chains (see evm.ts), so a
  * wallet's `chain` value here is purely a display label ("this address is
  * primarily a Ronin wallet"), not a restriction on which chains actually
  * get scanned. */

@@ -10,7 +10,7 @@
  * type. Any EVM chain beyond "ETH" (RON, ARB, ...) isn't listed here
  * (fetchAdapterHoldings in wallets/actions.ts dispatches those by a plain
  * runtime check against evmChains.ts instead, not this union) — "ETH"
- * already covers detection for any 0x address, since which of the 31 EVM
+ * already covers detection for any 0x address, since which of the 32 EVM
  * chains it actually holds anything on can only be known by scanning, not
  * guessed from the address alone. */
 export type Chain =
