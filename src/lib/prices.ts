@@ -3,7 +3,7 @@ import { serviceDb } from "./supabase";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { refreshEvmHoldingPrices } from "./adapters/multicallEvm";
-import { fetchTokenPrices, fetchNativePrices } from "./adapters/coingecko";
+import { fetchTokenPrices, fetchMarketStatsByIds } from "./adapters/coingecko";
 import { EVM_CHAINS } from "./adapters/evmChains";
 import { resolveCoingeckoKey } from "./priceKey";
 import { mapWithConcurrency } from "./adapters/http";
@@ -119,23 +119,38 @@ async function upsertPrice(
   usd: string,
   source: "coingecko" | "coinbase" | "jupiter",
   change24h: number | null,
-  marketCap?: number | null,
+  extra?: { marketCap?: number | null; change1h?: number | null; change7d?: number | null; change30d?: number | null },
 ) {
-  const row: { ticker: string; usd: string; source: string; change_24h_pct: number | null; updated_at: string; market_cap?: number | null } = {
+  const row: {
+    ticker: string;
+    usd: string;
+    source: string;
+    change_24h_pct: number | null;
+    updated_at: string;
+    market_cap?: number | null;
+    change_1h_pct?: number | null;
+    change_7d_pct?: number | null;
+    change_30d_pct?: number | null;
+  } = {
     ticker,
     usd,
     source,
     change_24h_pct: change24h,
     updated_at: new Date().toISOString(),
   };
-  // Omitted (not set to null) for coinbase/jupiter — a partial-column
-  // upsert only ever touches the columns actually given (same behavior
-  // multicallEvm.ts's saveDecimals/saveImageUrls/saveChange24h already
-  // rely on for token_registry), so a ticker's market cap from an earlier
-  // CoinGecko-sourced cycle survives a later Coinbase/Jupiter refresh
-  // instead of being wiped to null just because those sources don't know
-  // market cap at all.
-  if (marketCap !== undefined) row.market_cap = marketCap;
+  // Omitted (not set to null) for coinbase/jupiter, and for CoinGecko's
+  // contract-keyed lane (simple/token_price caps out at 24h change, no
+  // 1h/7d/30d — see fetchMarketStatsByIds' own doc comment) — a
+  // partial-column upsert only ever touches the columns actually given
+  // (same behavior multicallEvm.ts's saveDecimals/saveImageUrls/
+  // saveMarketStats already rely on for token_registry), so a ticker's
+  // market cap/multi-window change from an earlier CoinGecko-markets
+  // cycle survives a later refresh from a source that doesn't know those
+  // fields at all, instead of being wiped to null.
+  if (extra?.marketCap !== undefined) row.market_cap = extra.marketCap;
+  if (extra?.change1h !== undefined) row.change_1h_pct = extra.change1h;
+  if (extra?.change7d !== undefined) row.change_7d_pct = extra.change7d;
+  if (extra?.change30d !== undefined) row.change_30d_pct = extra.change30d;
   const { error } = await serviceDb().from("prices").upsert(row);
   if (error) throw new Error(error.message);
 }
@@ -232,7 +247,7 @@ async function refreshCoinGeckoTickers(
   if (nativeIds.size > 0) {
     lanes.push(
       (async () => {
-        const prices = await fetchNativePrices([...nativeIds.keys()]);
+        const prices = await fetchMarketStatsByIds([...nativeIds.keys()]);
         await Promise.all(
           [...nativeIds].map(async ([id, ticker]) => {
             const price = prices.get(id);
@@ -241,7 +256,12 @@ async function refreshCoinGeckoTickers(
               return;
             }
             const usd = String(price.usd);
-            await upsertPrice(ticker, usd, "coingecko", price.change24h, price.marketCap);
+            await upsertPrice(ticker, usd, "coingecko", price.change24h, {
+              marketCap: price.marketCap,
+              change1h: price.change1h,
+              change7d: price.change7d,
+              change30d: price.change30d,
+            });
             results.push({ ticker, ok: true, usd });
           }),
         );
@@ -262,7 +282,7 @@ async function refreshCoinGeckoTickers(
               return;
             }
             const usd = String(price.usd);
-            await upsertPrice(ticker, usd, "coingecko", price.change24h, price.marketCap);
+            await upsertPrice(ticker, usd, "coingecko", price.change24h, { marketCap: price.marketCap });
             results.push({ ticker, ok: true, usd });
           }),
         );

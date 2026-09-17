@@ -10,11 +10,29 @@ import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { usePersistedState } from "./usePersistedState";
 
-type SortKey = "ticker" | "price" | "change24h" | "marketCap" | "qty" | "wallets" | "value";
+type SortKey =
+  | "ticker"
+  | "price"
+  | "change1h"
+  | "change24h"
+  | "change7d"
+  | "change30d"
+  | "marketCap"
+  | "qty"
+  | "wallets"
+  | "value";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:assetsSort";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
+
+// Separate from the sort/search view state above — this is purely which
+// columns render, not a filter or an ordering, but the same "remember my
+// last choice" reasoning applies (see usePersistedState's own doc
+// comment). Defaults to shown: showing 1h/24h/7d/30d together was the
+// actual feature requested, with the checkbox as an escape hatch to
+// reduce clutter later, not the other way around.
+const SHOW_EXTRA_CHANGES_KEY = "cryptoport:assetsShowExtraChanges";
 
 function sortValue(group: AssetGroup, key: SortKey): number | string {
   switch (key) {
@@ -22,8 +40,14 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
       return group.ticker.toLowerCase();
     case "price":
       return group.price ?? -Infinity;
+    case "change1h":
+      return group.change1h ?? -Infinity;
     case "change24h":
       return group.change24h ?? -Infinity;
+    case "change7d":
+      return group.change7d ?? -Infinity;
+    case "change30d":
+      return group.change30d ?? -Infinity;
     case "marketCap":
       return group.marketCap ?? -Infinity;
     case "qty":
@@ -114,6 +138,8 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showExtraChanges, setShowExtraChanges] = usePersistedState(SHOW_EXTRA_CHANGES_KEY, true);
+  const columnCount = 8 + (showExtraChanges ? 3 : 0);
 
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -140,18 +166,29 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="relative max-w-sm p-4 pb-3">
-        <Search
-          className="pointer-events-none absolute left-7 top-1/2 size-4 -translate-y-1/2 text-fg-muted"
-          aria-hidden="true"
-        />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search assets…"
-          className={`${inputClass} pl-9`}
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-3">
+        <div className="relative max-w-sm flex-1">
+          <Search
+            className="pointer-events-none absolute left-7 top-1/2 size-4 -translate-y-1/2 text-fg-muted"
+            aria-hidden="true"
+          />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search assets…"
+            className={`${inputClass} pl-9`}
+          />
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-sm text-fg-muted">
+          <input
+            type="checkbox"
+            checked={showExtraChanges}
+            onChange={(e) => setShowExtraChanges(e.target.checked)}
+            className="size-4 rounded border-border accent-accent"
+          />
+          Show 1h/7d/30d change
+        </label>
       </div>
 
       {sorted.length === 0 ? (
@@ -172,6 +209,16 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
               <th className={thClass}></th>
               <Header label="Asset" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Header label="Price" sortKeyValue="price" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              {showExtraChanges && (
+                <Header
+                  label="1h"
+                  sortKeyValue="change1h"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                  className={hideOnMobileClass}
+                />
+              )}
               <Header
                 label="24h"
                 sortKeyValue="change24h"
@@ -180,6 +227,26 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                 onSort={toggleSort}
                 className={hideOnMobileClass}
               />
+              {showExtraChanges && (
+                <>
+                  <Header
+                    label="7d"
+                    sortKeyValue="change7d"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    className={hideOnMobileClass}
+                  />
+                  <Header
+                    label="30d"
+                    sortKeyValue="change30d"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    className={hideOnMobileClass}
+                  />
+                </>
+              )}
               <Header
                 label="Market Cap"
                 sortKeyValue="marketCap"
@@ -233,9 +300,24 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                     <td className={`${tdClass} tabular-nums`}>
                       {group.price !== null ? formatUsd(group.price) : "—"}
                     </td>
+                    {showExtraChanges && (
+                      <td className={`${tdClass} ${hideOnMobileClass}`}>
+                        <ChangeCell value={group.change1h} />
+                      </td>
+                    )}
                     <td className={`${tdClass} ${hideOnMobileClass}`}>
                       <ChangeCell value={group.change24h} />
                     </td>
+                    {showExtraChanges && (
+                      <>
+                        <td className={`${tdClass} ${hideOnMobileClass}`}>
+                          <ChangeCell value={group.change7d} />
+                        </td>
+                        <td className={`${tdClass} ${hideOnMobileClass}`}>
+                          <ChangeCell value={group.change30d} />
+                        </td>
+                      </>
+                    )}
                     <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
                       {formatCompactUsd(group.marketCap)}
                     </td>
@@ -247,7 +329,7 @@ export function AssetsTable({ groups }: { groups: AssetGroup[] }) {
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={8} className="border-b border-border bg-bg p-0">
+                      <td colSpan={columnCount} className="border-b border-border bg-bg p-0">
                         <table className={tableClass}>
                           <thead>
                             <tr className={theadRowClass}>

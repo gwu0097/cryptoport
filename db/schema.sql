@@ -575,3 +575,24 @@ alter table cryptoport.wallets
 -- one, because a transaction sync and a holdings sync are independent
 -- jobs that can each be mid-run on their own schedule.
 alter table cryptoport.wallets add column tx_sync_started_at timestamptz;
+
+-- 1h/7d/30d % change for the Assets page's optional extra columns
+-- (checkbox-gated — see AssetsTable.tsx). Same two-write-path split as
+-- change_24h_pct/market_cap above: token_registry for EVM contract-based
+-- holdings, prices for everything else. Narrower coverage than 24h,
+-- though, live-verified (2026-09): only /coins/markets returns these
+-- windows — simple/price and simple/token_price cap out at 24h change, so
+-- a Solana SPL token (priced via simple/token_price, see prices.ts's
+-- refreshCoinGeckoTickers) has no path to these 3 columns at all, and an
+-- EVM contract token only gets them when token_registry already has its
+-- coingecko_id cached (see multicallEvm.ts's own doc comment) — both
+-- correctly left null rather than guessed at when unavailable.
+alter table cryptoport.token_registry
+  add column change_1h_pct numeric,
+  add column change_7d_pct numeric,
+  add column change_30d_pct numeric;
+
+alter table cryptoport.prices
+  add column change_1h_pct numeric,
+  add column change_7d_pct numeric,
+  add column change_30d_pct numeric;

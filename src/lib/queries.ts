@@ -173,83 +173,92 @@ export const getPriceMap = cache(async (): Promise<PriceMap> => {
 /** A separate query rather than folding into PriceMap/getPriceMap — that
  * type is threaded through valuation.ts/aggregate/effectivePrice, all of
  * which only ever want the raw usd value; changing its shape to also carry
- * change_24h_pct would ripple into every one of those for a field only the
- * Assets page currently needs. */
-export type PriceChangeMap = Record<string, number | null>;
+ * these stats would ripple into every one of those for fields only the
+ * Assets page currently needs.
+ *
+ * One shape for both the ticker-keyed (`prices`) and contract-keyed
+ * (`token_registry`) lookups below — used to be 4 near-identical map
+ * functions (a change map + a market-cap map, each duplicated once for
+ * contracts), which was already the "two is the threshold" signal before
+ * 1h/7d/30d would have made it 10. */
+export interface PriceStats {
+  change24h: number | null;
+  change1h: number | null;
+  change7d: number | null;
+  change30d: number | null;
+  marketCap: number | null;
+}
+export type PriceStatsMap = Record<string, PriceStats>;
 
 /** Cached per-request — same reasoning as getPriceMap's doc comment. */
-export const getPriceChangeMap = cache(async (): Promise<PriceChangeMap> => {
-  const { data, error } = await serviceDb().from("prices").select("ticker, change_24h_pct");
-  if (error) throw new Error(`Failed to load price changes: ${error.message}`);
-
-  const changes: PriceChangeMap = {};
-  for (const row of data as Pick<Price, "ticker" | "change_24h_pct">[]) {
-    changes[row.ticker] = parseNumeric(row.change_24h_pct);
-  }
-  return changes;
-});
-
-/** lowercase contract -> 24h % change, from token_registry.change_24h_pct
- * (see multicallEvm.ts's saveChange24h). EVM holdings are valued via
- * usd_override and never touch the ticker-keyed `prices` table (see
- * valuation.ts) — this is the equivalent lookup for those, keyed by
- * contract instead of ticker so it can't cross-contaminate across chains
- * or ticker collisions. Not chain-scoped even though token_registry's key
- * is (chain_id, contract): a contract address is already globally unique
- * in practice, and a holding's own `contract` field carries no chain_id to
- * join on without a second query — the same simplification effectivePrice
- * already makes for ticker-keyed prices. Cached per-request — same
- * reasoning as getPriceMap's doc comment. */
-export const getContractChangeMap = cache(async (): Promise<Record<string, number | null>> => {
-  // Excludes null rows up front — token_registry has tens of thousands of
-  // contracts per chain from refreshTokenRegistry's coins/list import, the
-  // overwhelming majority never actually held/synced and so never given a
-  // change_24h_pct. Only the ones a sync has actually priced are useful
-  // here.
+export const getPriceStatsMap = cache(async (): Promise<PriceStatsMap> => {
   const { data, error } = await serviceDb()
-    .from("token_registry")
-    .select("contract, change_24h_pct")
-    .not("change_24h_pct", "is", null);
-  if (error) throw new Error(`Failed to load token registry changes: ${error.message}`);
+    .from("prices")
+    .select("ticker, change_24h_pct, change_1h_pct, change_7d_pct, change_30d_pct, market_cap");
+  if (error) throw new Error(`Failed to load price stats: ${error.message}`);
 
-  const changes: Record<string, number | null> = {};
-  for (const row of data as { contract: string; change_24h_pct: number | string | null }[]) {
-    changes[row.contract.toLowerCase()] = parseNumeric(row.change_24h_pct);
+  const stats: PriceStatsMap = {};
+  for (const row of data as {
+    ticker: string;
+    change_24h_pct: number | string | null;
+    change_1h_pct: number | string | null;
+    change_7d_pct: number | string | null;
+    change_30d_pct: number | string | null;
+    market_cap: number | string | null;
+  }[]) {
+    stats[row.ticker] = {
+      change24h: parseNumeric(row.change_24h_pct),
+      change1h: parseNumeric(row.change_1h_pct),
+      change7d: parseNumeric(row.change_7d_pct),
+      change30d: parseNumeric(row.change_30d_pct),
+      marketCap: parseNumeric(row.market_cap),
+    };
   }
-  return changes;
+  return stats;
 });
 
-/** Same "first-seen-casing" ticker-keyed lookup as getPriceChangeMap, for
- * prices.market_cap (see prices.ts's refreshCoinGeckoTickers, the primary
- * ticker-price source — market cap comes free in the same CoinGecko call
- * as price/24h-change). Cached per-request — same reasoning as
+/** lowercase contract -> stats, from token_registry (see multicallEvm.ts's
+ * saveMarketStats). EVM holdings are valued via usd_override and never
+ * touch the ticker-keyed `prices` table (see valuation.ts) — this is the
+ * equivalent lookup for those, keyed by contract instead of ticker so it
+ * can't cross-contaminate across chains or ticker collisions. Not
+ * chain-scoped even though token_registry's key is (chain_id, contract): a
+ * contract address is already globally unique in practice, and a holding's
+ * own `contract` field carries no chain_id to join on without a second
+ * query — the same simplification effectivePrice already makes for
+ * ticker-keyed prices. Cached per-request — same reasoning as
  * getPriceMap's doc comment. */
-export const getPriceMarketCapMap = cache(async (): Promise<Record<string, number | null>> => {
-  const { data, error } = await serviceDb().from("prices").select("ticker, market_cap");
-  if (error) throw new Error(`Failed to load price market caps: ${error.message}`);
-
-  const caps: Record<string, number | null> = {};
-  for (const row of data as { ticker: string; market_cap: number | string | null }[]) {
-    caps[row.ticker] = parseNumeric(row.market_cap);
-  }
-  return caps;
-});
-
-/** Same contract-keyed lookup as getContractChangeMap, for
- * token_registry.market_cap (see multicallEvm.ts's saveChange24h). Cached
- * per-request — same reasoning as getPriceMap's doc comment. */
-export const getContractMarketCapMap = cache(async (): Promise<Record<string, number | null>> => {
+export const getContractStatsMap = cache(async (): Promise<PriceStatsMap> => {
+  // Excludes rows with no 24h change up front — token_registry has tens of
+  // thousands of contracts per chain from refreshTokenRegistry's coins/list
+  // import, the overwhelming majority never actually held/synced. Only the
+  // ones a sync has actually priced (which always sets change_24h_pct,
+  // even when 1h/7d/30d couldn't be resolved — see saveMarketStats) are
+  // useful here.
   const { data, error } = await serviceDb()
     .from("token_registry")
-    .select("contract, market_cap")
-    .not("market_cap", "is", null);
-  if (error) throw new Error(`Failed to load token registry market caps: ${error.message}`);
+    .select("contract, change_24h_pct, change_1h_pct, change_7d_pct, change_30d_pct, market_cap")
+    .not("change_24h_pct", "is", null);
+  if (error) throw new Error(`Failed to load token registry stats: ${error.message}`);
 
-  const caps: Record<string, number | null> = {};
-  for (const row of data as { contract: string; market_cap: number | string | null }[]) {
-    caps[row.contract.toLowerCase()] = parseNumeric(row.market_cap);
+  const stats: PriceStatsMap = {};
+  for (const row of data as {
+    contract: string;
+    change_24h_pct: number | string | null;
+    change_1h_pct: number | string | null;
+    change_7d_pct: number | string | null;
+    change_30d_pct: number | string | null;
+    market_cap: number | string | null;
+  }[]) {
+    stats[row.contract.toLowerCase()] = {
+      change24h: parseNumeric(row.change_24h_pct),
+      change1h: parseNumeric(row.change_1h_pct),
+      change7d: parseNumeric(row.change_7d_pct),
+      change30d: parseNumeric(row.change_30d_pct),
+      marketCap: parseNumeric(row.market_cap),
+    };
   }
-  return caps;
+  return stats;
 });
 
 // The ticker-keyed `prices` table is deliberately never consulted for a
@@ -513,11 +522,21 @@ export interface AssetGroup {
   /** 24h % change (see prices.change_24h_pct) — null when unavailable,
    * same "don't distinguish why" reasoning as `price`. */
   change24h: number | null;
+  /** 1h/7d/30d % change — same contract-keyed-first-then-ticker-keyed
+   * resolution as change24h (see getContractStatsMap/getPriceStatsMap).
+   * Null more often than change24h: only available at all for a ticker
+   * CoinGecko's /coins/markets can resolve by coin id — EVM contract
+   * tokens need their own coingecko_id cached in token_registry (see
+   * multicallEvm.ts's doc comment), and Solana SPL tokens priced via
+   * simple/token_price don't get these windows at all (that endpoint only
+   * ever returns 24h change — a known, narrower gap than change24h has). */
+  change1h: number | null;
+  change7d: number | null;
+  change30d: number | null;
   /** The asset's total market cap (not this portfolio's position size in
-   * it) — same contract-keyed-first-then-ticker-keyed resolution as
-   * change24h, see getContractMarketCapMap/getPriceMarketCapMap. Purely
-   * informational (sort/reference only), null when CoinGecko has no market
-   * cap for this asset or it couldn't be resolved to a CoinGecko id. */
+   * it) — same resolution as change24h. Purely informational (sort/
+   * reference only), null when CoinGecko has no market cap for this asset
+   * or it couldn't be resolved to a CoinGecko id. */
   marketCap: number | null;
   holdings: AssetHoldingEntry[];
 }
@@ -541,13 +560,11 @@ export interface AssetsByTickerResult {
  */
 export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, priceChanges, contractChanges, priceMarketCaps, contractMarketCaps] = await Promise.all([
+  const [rows, prices, priceStats, contractStats] = await Promise.all([
     getActiveWalletsWithHoldings(),
     getPriceMap(),
-    getPriceChangeMap(),
-    getContractChangeMap(),
-    getPriceMarketCapMap(),
-    getContractMarketCapMap(),
+    getPriceStatsMap(),
+    getContractStatsMap(),
   ]);
 
   const byTicker = new Map<string, AssetGroup>();
@@ -577,6 +594,9 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
           unpricedCount: 0,
           price: null,
           change24h: null,
+          change1h: null,
+          change7d: null,
+          change30d: null,
           marketCap: null,
           holdings: [],
         };
@@ -585,33 +605,42 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
 
       group.holdings.push(entry);
       if (!group.iconUrl && holding.icon_url) group.iconUrl = holding.icon_url;
-      // Filled in from each holding's own already-resolved price/24h-change
-      // (entry.price via effectivePrice, priceChanges keyed the same
-      // exact-case way as `prices` itself) rather than a second lookup by
-      // the group's uppercased key — a group can merge holdings whose raw
-      // ticker casing differs (that's the whole reason grouping uppercases
-      // at all), and `prices`/priceChanges are keyed by that raw, possibly
-      // mixed-case string, so an uppercase-key lookup here could miss a
-      // real price/change that only exists under the original casing.
+      // Filled in from each holding's own already-resolved price (entry.price
+      // via effectivePrice) rather than a second lookup by the group's
+      // uppercased key — a group can merge holdings whose raw ticker casing
+      // differs (that's the whole reason grouping uppercases at all), and
+      // `prices` is keyed by that raw, possibly mixed-case string, so an
+      // uppercase-key lookup here could miss a real price that only exists
+      // under the original casing.
       if (group.price === null && entry.price !== null) group.price = entry.price;
-      if (group.change24h === null) {
-        // Contract-keyed first — EVM holdings are valued via usd_override
-        // and never touch the ticker-keyed `prices` table (see
-        // valuation.ts), so priceChanges[ticker] is never populated for
-        // them; getContractChangeMap is the equivalent lookup for those.
-        // Falls back to the ticker table for everything else (Coinbase/
-        // Jupiter-priced holdings, which have no `contract`).
-        const change = (holding.contract ? contractChanges[holding.contract.toLowerCase()] : undefined) ??
-          priceChanges[holding.ticker];
-        if (change != null) group.change24h = change;
-      }
-      if (group.marketCap === null) {
-        // Same contract-keyed-first-then-ticker-keyed resolution as
-        // change24h just above, same reasoning.
-        const cap = (holding.contract ? contractMarketCaps[holding.contract.toLowerCase()] : undefined) ??
-          priceMarketCaps[holding.ticker];
-        if (cap != null) group.marketCap = cap;
-      }
+      // Contract-keyed first — EVM holdings are valued via usd_override and
+      // never touch the ticker-keyed `prices` table (see valuation.ts), so
+      // priceStats[ticker] is never populated for them; getContractStatsMap
+      // is the equivalent lookup for those. Falls back to the ticker table
+      // for everything else (Coinbase/Jupiter/CoinGecko-native-priced
+      // holdings, which have no `contract`).
+      //
+      // Resolved independently per field, not as one whole-object fallback
+      // — a contract can have a real change_24h_pct (the getContractStatsMap
+      // filter's condition) while still missing e.g. change_1h_pct this
+      // cycle (see multicallEvm.ts's multiWindowRows), and the ticker-keyed
+      // table might separately have that field filled in for the same
+      // ticker from another holding. Falling back to the ticker source for
+      // just that one still-missing field (rather than giving up once the
+      // contract source is found at all) is a genuine improvement a
+      // whole-object fallback would silently lose.
+      const contractRowStats = holding.contract ? contractStats[holding.contract.toLowerCase()] : undefined;
+      const tickerRowStats = priceStats[holding.ticker];
+      const change24h = contractRowStats?.change24h ?? tickerRowStats?.change24h;
+      const change1h = contractRowStats?.change1h ?? tickerRowStats?.change1h;
+      const change7d = contractRowStats?.change7d ?? tickerRowStats?.change7d;
+      const change30d = contractRowStats?.change30d ?? tickerRowStats?.change30d;
+      const marketCap = contractRowStats?.marketCap ?? tickerRowStats?.marketCap;
+      if (group.change24h === null && change24h != null) group.change24h = change24h;
+      if (group.change1h === null && change1h != null) group.change1h = change1h;
+      if (group.change7d === null && change7d != null) group.change7d = change7d;
+      if (group.change30d === null && change30d != null) group.change30d = change30d;
+      if (group.marketCap === null && marketCap != null) group.marketCap = marketCap;
       const qty = parseNumeric(holding.qty);
       if (qty !== null) group.totalQty = (group.totalQty ?? 0) + qty;
       if (valuation.kind === "priced") group.total += valuation.usd;

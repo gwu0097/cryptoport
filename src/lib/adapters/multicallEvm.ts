@@ -1,7 +1,13 @@
 import "server-only";
 import { createPublicClient, http, formatUnits, type Address } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
-import { fetchNativePrice, fetchTokenPrices, fetchTokenImages } from "./coingecko";
+import {
+  fetchNativePrice,
+  fetchTokenPrices,
+  fetchTokenImages,
+  fetchMarketStatsByIds,
+  type CoingeckoMarketStats,
+} from "./coingecko";
 import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
@@ -108,16 +114,28 @@ async function saveImageUrls(
   await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
 
-// Unlike decimals/images (fetched once, cached forever), 24h change and
-// market cap are volatile — written on every sync/refresh that holds the
-// token, same lifetime as the price itself. Read back by queries.ts's
-// getContractChangeMap/getContractMarketCapMap, keyed by (chain_id,
-// contract) so the same ticker on different chains (or a ticker collision
-// with an unrelated token) never cross-contaminates — see the "prices"
-// ticker-keyed table's own limitation this sidesteps.
-async function saveChange24h(
+// Unlike decimals/images (fetched once, cached forever), these stats are
+// volatile — written on every sync/refresh that holds the token, same
+// lifetime as the price itself. Read back by queries.ts's
+// getContractStatsMap, keyed by (chain_id, contract) so the same ticker on
+// different chains (or a ticker collision with an unrelated token) never
+// cross-contaminates — see the "prices" ticker-keyed table's own
+// limitation this sidesteps. change_1h_pct/change_7d_pct/change_30d_pct
+// are omitted (not set to null) for a contract whose coingecko_id isn't
+// known or wasn't resolvable this cycle — same partial-upsert reasoning as
+// prices.ts's own upsertPrice, so a stale-but-real number isn't wiped just
+// because this particular refresh couldn't re-fetch it.
+async function saveMarketStats(
   chainId: string,
-  rows: { contract: string; symbol: string; change_24h_pct: number | null; market_cap: number | null }[],
+  rows: {
+    contract: string;
+    symbol: string;
+    change_24h_pct?: number | null;
+    market_cap?: number | null;
+    change_1h_pct?: number | null;
+    change_7d_pct?: number | null;
+    change_30d_pct?: number | null;
+  }[],
 ) {
   await upsertTokenRegistry(rows.map((r) => ({ chain_id: chainId, ...r })));
 }
@@ -298,7 +316,7 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
       change_24h_pct: change24h,
       market_cap: marketCap,
     }));
-    if (changeRows.length > 0) await saveChange24h(chain.id, changeRows);
+    if (changeRows.length > 0) await saveMarketStats(chain.id, changeRows);
   } catch {
     // Same "cosmetic, never take down real balance data" reasoning as the
     // icon try/catch below.
@@ -498,15 +516,56 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
       const results: { ticker: string; ok: boolean; error?: string }[] = [];
       type Upsert = { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number };
       const upserts: Upsert[] = [];
-      const changeRows: {
+      const changeRows: { contract: string; symbol: string; change_24h_pct: number | null; market_cap: number | null }[] =
+        [];
+      // Written via its own separate upsertTokenRegistry call, not merged
+      // into changeRows above — a bulk upsert's per-row column set isn't
+      // something to rely on being independently respected per row (unlike
+      // upsertPrice's single-row upsert, which is a Postgres/PostgREST
+      // guarantee already leaned on elsewhere in this file); a contract
+      // with no resolvable coingecko_id this cycle is simply left out of
+      // this array entirely, rather than included with these 3 fields
+      // null, so its previously-cached value (if any) survives untouched.
+      const multiWindowRows: {
         contract: string;
         symbol: string;
-        change_24h_pct: number | null;
-        market_cap: number | null;
+        change_1h_pct: number | null;
+        change_7d_pct: number | null;
+        change_30d_pct: number | null;
       }[] = [];
 
       if (contractRows.length > 0) {
         try {
+          // 1h/7d/30d change for these contracts — fetchTokenPrices
+          // (simple/token_price, below) is contract-address-keyed and
+          // confirmed live to only ever return 24h change, so this is a
+          // second, independent lookup: token_registry already caches
+          // each contract's own coingecko_id from the coins/list import
+          // (see refreshTokenRegistry), and fetchMarketStatsByIds
+          // (/coins/markets) accepts that id directly. Self-contained to
+          // this chain's own block, same as every other CoinGecko call
+          // here — never blocks or depends on another chain's work.
+          // Best-effort: a failure here shouldn't fail the actual price
+          // refresh below, so its own errors are swallowed to an empty map.
+          const registryIds = await serviceDb()
+            .from("token_registry")
+            .select("contract, coingecko_id")
+            .eq("chain_id", chainId)
+            .in("contract", contractRows.map((r) => r.contract))
+            .not("coingecko_id", "is", null)
+            .then(
+              (res) => (res.data ?? []) as { contract: string; coingecko_id: string }[],
+              () => [],
+            );
+          const coingeckoIdByContract = new Map(
+            registryIds.map((r) => [r.contract.toLowerCase(), r.coingecko_id]),
+          );
+          const distinctIds = [...new Set(coingeckoIdByContract.values())];
+          const marketStats: Map<string, CoingeckoMarketStats> =
+            distinctIds.length > 0
+              ? await fetchMarketStatsByIds(distinctIds).catch(() => new Map<string, CoingeckoMarketStats>())
+              : new Map();
+
           const prices = await fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract));
           for (const row of contractRows) {
             const price = prices.get(row.contract.toLowerCase());
@@ -532,6 +591,17 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
               change_24h_pct: price.change24h,
               market_cap: price.marketCap,
             });
+            const coingeckoId = coingeckoIdByContract.get(row.contract.toLowerCase());
+            const stats = coingeckoId ? marketStats.get(coingeckoId) : undefined;
+            if (stats) {
+              multiWindowRows.push({
+                contract: row.contract,
+                symbol: row.ticker,
+                change_1h_pct: stats.change1h,
+                change_7d_pct: stats.change7d,
+                change_30d_pct: stats.change30d,
+              });
+            }
           }
         } catch (e) {
           for (const row of contractRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
@@ -577,7 +647,12 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
           if (upsertError) throw new Error(upsertError.message);
         }
         for (const u of upserts) results.push({ ticker: u.ticker, ok: true });
-        if (changeRows.length > 0) await saveChange24h(chainId, changeRows);
+        if (changeRows.length > 0) await saveMarketStats(chainId, changeRows);
+        // Separate call, not merged with the write above — see
+        // multiWindowRows' own doc comment for why these need a uniform-
+        // shaped array of their own rather than being folded into
+        // changeRows for the (common) contract that didn't resolve one.
+        if (multiWindowRows.length > 0) await saveMarketStats(chainId, multiWindowRows);
       } catch (e) {
         for (const u of upserts) results.push({ ticker: u.ticker, ok: false, error: (e as Error).message });
       }
