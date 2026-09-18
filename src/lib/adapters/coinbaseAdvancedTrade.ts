@@ -1,6 +1,6 @@
 import "server-only";
 import { createSign, createPrivateKey, sign as edSign, randomBytes } from "node:crypto";
-import { fetchTokenImagesBySymbol } from "./coingecko";
+import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
 // CoinGecko has no crypto icon for a fiat code, and its "best symbol match"
@@ -206,10 +206,12 @@ export async function fetchCoinbaseBalances(
 
   // Unlike EVM/DeFi adapters, there's no contract/mint to resolve a
   // guaranteed-correct icon from — these are plain ticker symbols, so this
-  // is a best-effort cosmetic lookup only (see fetchTokenImagesBySymbol's
-  // doc comment), not something valuation.ts's usd_override path depends on.
+  // is a best-effort cosmetic lookup only (see resolveTickerIcons' doc
+  // comment), not something valuation.ts's usd_override path depends on.
+  // Cached in ticker_icons — ETH/USDC/BTC never re-hit CoinGecko past the
+  // first sync that ever saw them, from any user's wallet.
   const iconTickers = holdings.map((h) => h.ticker).filter((t) => !FIAT_TICKERS.has(t));
-  const icons = await fetchTokenImagesBySymbol(iconTickers).catch(() => new Map<string, string>());
+  const icons = await resolveTickerIcons(iconTickers).catch(() => new Map<string, string>());
   for (const holding of holdings) {
     holding.icon_url = icons.get(holding.ticker) ?? null;
   }

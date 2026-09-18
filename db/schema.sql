@@ -841,3 +841,18 @@ $$;
 
 grant execute on function cryptoport.sync_exchange_holdings(uuid, jsonb, text) to authenticated;
 grant execute on function cryptoport.sync_exchange_holdings(uuid, jsonb, text) to service_role;
+
+-- Ticker-keyed sibling of token_registry.image_url: a bare symbol (no
+-- contract/chain to disambiguate it, unlike token_registry) fetched at most
+-- once per ticker, ever, then reused by every wallet/user — see
+-- resolveTickerIcons in adapters/coingecko.ts. Currently populated only by
+-- exchange adapters (Coinbase's own currency list), never from an
+-- arbitrary/user-typed ticker.
+create table cryptoport.ticker_icons (
+  ticker     text primary key,
+  image_url  text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table cryptoport.ticker_icons enable row level security;
+grant all on cryptoport.ticker_icons to service_role;

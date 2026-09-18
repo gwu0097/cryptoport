@@ -297,14 +297,14 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
  * symbol the way /search does — exactly one row per symbol, which is what
  * an icon lookup needs and searchCoins deliberately doesn't give). Icon-only
  * — unlike every price-bearing lookup in this file, a wrong symbol match
- * here is a cosmetic risk, not a valuation one (see coinbaseAdvancedTrade.ts,
- * the one caller: Coinbase already prices these tickers via the existing
+ * here is a cosmetic risk, not a valuation one (see resolveTickerIcons, the
+ * one caller: Coinbase already prices these tickers via the existing
  * ticker-keyed `prices` table, this only ever touches `icon_url`). Callers
  * should still skip fiat codes (USD, EUR, ...) — CoinGecko's "best match"
  * for a fiat symbol is some unrelated obscure coin that happens to share it,
  * not a real crypto icon.
  */
-export async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, string>> {
+async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, string>> {
   const images = new Map<string, string>();
   const distinct = [...new Set(symbols.map((s) => s.toLowerCase()))];
   if (distinct.length === 0) return images;
@@ -320,6 +320,40 @@ export async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<s
   }
 
   return images;
+}
+
+/**
+ * ticker (uppercase) -> logo URL, cached in cryptoport.ticker_icons — the
+ * ticker-keyed sibling of token_registry.image_url (that one's fetched at
+ * most once per contract, ever; this is the same idea for a bare symbol).
+ * A ticker alone can collide across unrelated assets in a way a
+ * chain+contract pair never does, so this is only as safe as the caller's
+ * own ticker list — today that's exclusively a connected exchange's own
+ * currency codes (coinbaseAdvancedTrade.ts), never an arbitrary/user-typed
+ * ticker, which is exactly the case fetchTokenImagesBySymbol's own doc
+ * comment already flags as icon-only/cosmetic risk.
+ */
+export async function resolveTickerIcons(tickers: string[]): Promise<Map<string, string>> {
+  const distinct = [...new Set(tickers.map((t) => t.toUpperCase()))];
+  const icons = new Map<string, string>();
+  if (distinct.length === 0) return icons;
+
+  const { data, error } = await serviceDb().from("ticker_icons").select("ticker, image_url").in("ticker", distinct);
+  if (error) throw new Error(`Failed to load ticker_icons: ${error.message}`);
+  for (const row of data as { ticker: string; image_url: string }[]) icons.set(row.ticker, row.image_url);
+
+  const missing = distinct.filter((t) => !icons.has(t));
+  if (missing.length > 0) {
+    const fetched = await fetchTokenImagesBySymbol(missing);
+    if (fetched.size > 0) {
+      const rows = [...fetched].map(([ticker, image_url]) => ({ ticker, image_url }));
+      const { error: upsertError } = await serviceDb().from("ticker_icons").upsert(rows, { onConflict: "ticker" });
+      if (upsertError) throw new Error(`Failed to cache ticker_icons: ${upsertError.message}`);
+      for (const [ticker, url] of fetched) icons.set(ticker, url);
+    }
+  }
+
+  return icons;
 }
 
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
