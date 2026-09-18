@@ -19,9 +19,8 @@ export const EXCHANGE_PROVIDERS: ExchangeProvider[] = [
     portalUrl: "https://portal.cdp.coinbase.com/api-keys/secret",
     steps: [
       "Go to portal.cdp.coinbase.com → API Keys → Secret API Keys → Create API key.",
-      "Signature algorithm: choose ECDSA — not the portal's recommended Ed25519, which won't work here.",
       "Permissions: View only.",
-      "Copy the key name (organizations/.../apiKeys/...) and the private key (the PEM block) below.",
+      "Copy the key name (organizations/.../apiKeys/...) and the private key below — Ed25519 or ECDSA both work, paste it exactly as shown.",
     ],
   },
 ];

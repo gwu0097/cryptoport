@@ -1,5 +1,5 @@
 import "server-only";
-import { createSign, randomBytes } from "node:crypto";
+import { createSign, createPrivateKey, sign as edSign, randomBytes } from "node:crypto";
 import type { AdapterHolding } from "./types";
 
 const API_HOST = "api.coinbase.com";
@@ -10,38 +10,79 @@ const ACCOUNTS_PATH = "/api/v3/brokerage/accounts";
  * OAuth2 — see the "Connect Coinbase" plan for why: OAuth2 client
  * registration turned out to require Coinbase partner approval with no
  * self-serve path, a real blocker found live, not assumed). Every request
- * needs its own ES256 JWT (2-minute expiry, bound to one method+path via
- * the `uri` claim — never cached/reused across calls). No JWT library
- * needed: verified live this session that Node's own `crypto.sign` produces
- * a JOSE-valid signature as long as `dsaEncoding: "ieee-p1363"` is passed —
- * the default DER encoding silently produces an invalid JWT that Coinbase
- * rejects, the exact trap a naive implementation hits.
+ * needs its own JWT (2-minute expiry, bound to one method+path via the
+ * `uri` claim — never cached/reused across calls). No JWT library needed —
+ * Node's own `crypto` produces JOSE-valid signatures for both key types
+ * this supports.
  *
- * The private key a user gets from portal.cdp.coinbase.com is PEM-encoded
- * EC (P-256) — the portal's *recommended* default is actually Ed25519,
- * which silently 401s against this API; the UI copy has to explicitly
- * steer users to select ECDSA instead (see ConnectCoinbaseModal.tsx).
+ * The CDP portal issues two different key shapes, and Coinbase's own
+ * guidance has flipped on which is the default: Ed25519 (`alg: "EdDSA"`)
+ * used to be unsupported for this API, then became the *recommended*
+ * default (confirmed live against Coinbase's own current-master SDK
+ * source, not stale docs) — issued as a raw base64 string (no PEM
+ * envelope), 32 or 64 bytes; the official Python SDK's own
+ * `_load_private_key` takes `raw[:32]` as the seed regardless, mirrored
+ * here exactly. ECDSA/P-256 (`alg: "ES256"`) still exists for older keys,
+ * PEM-encoded (`-----BEGIN EC PRIVATE KEY-----`), signed with
+ * `dsaEncoding: "ieee-p1363"` (the raw r‖s form JOSE requires — the
+ * default DER encoding produces a signature Coinbase silently rejects).
+ * Auto-detected from the pasted value's shape, matching what Coinbase's
+ * own SDK does, rather than asking the user to know or declare which type
+ * they have.
  */
 function base64url(input: Buffer): string {
   return input.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Coinbase's downloaded API-key JSON file stores the private key as a JSON
- * string, with its real line breaks escaped as literal two-character `\n`
- * sequences — copying that value straight out and pasting it into a plain
- * textarea leaves those as literal backslash-n characters, not real
- * newlines, which OpenSSL's PEM decoder can't parse ("error:1E08010C:
- * DECODER routines::unsupported" — a real error hit live, not hypothetical).
- * Idempotent against a key that already has real newlines (nothing to
- * replace), so this is safe regardless of how the key was copied. */
-function normalizePemKey(key: string): string {
-  return key.trim().replace(/\\n/g, "\n");
+const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+
+interface LoadedKey {
+  keyObject: import("node:crypto").KeyObject;
+  algorithm: "ES256" | "EdDSA";
 }
 
-export function mintCoinbaseJwt(keyName: string, rawPemPrivateKey: string, method: string, path: string): string {
-  const pemPrivateKey = normalizePemKey(rawPemPrivateKey);
+function loadPrivateKey(raw: string): LoadedKey {
+  // Coinbase's downloaded API-key JSON file stores a PEM private key as a
+  // JSON string, with its real line breaks escaped as literal two-character
+  // `\n` sequences — copying that value straight out and pasting it into a
+  // plain textarea leaves those as literal backslash-n characters, not real
+  // newlines, which OpenSSL's PEM decoder can't parse ("error:1E08010C:
+  // DECODER routines::unsupported" — a real error hit live). Idempotent
+  // against a key that already has real newlines.
+  const trimmed = raw.trim().replace(/\\n/g, "\n");
+
+  if (trimmed.includes("-----BEGIN")) {
+    const keyObject = createPrivateKey(trimmed);
+    // A PEM block can wrap either key type (Ed25519 is sometimes issued as
+    // PKCS8 PEM too, not just raw base64) — asked the parsed key itself
+    // rather than assumed from the presence of a PEM envelope alone.
+    const algorithm = keyObject.asymmetricKeyType === "ed25519" ? "EdDSA" : "ES256";
+    return { keyObject, algorithm };
+  }
+
+  // No PEM envelope — Coinbase's raw-base64 Ed25519 format only (ECDSA
+  // keys are always PEM). 32-byte seed, or 64-byte seed‖pubkey as the CDP
+  // portal downloads it — only the first 32 bytes are ever the actual
+  // signing material, matching Coinbase's own SDK exactly.
+  const decoded = Buffer.from(trimmed.replace(/\s+/g, ""), "base64");
+  if (decoded.length !== 32 && decoded.length !== 64) {
+    throw new Error(
+      `This doesn't look like a Coinbase key — expected a PEM block or a base64 Ed25519 key (32 or 64 bytes), got ${decoded.length} bytes.`,
+    );
+  }
+  const seed = decoded.subarray(0, 32);
+  const keyObject = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]),
+    format: "der",
+    type: "pkcs8",
+  });
+  return { keyObject, algorithm: "EdDSA" };
+}
+
+export function mintCoinbaseJwt(keyName: string, rawPrivateKey: string, method: string, path: string): string {
+  const { keyObject, algorithm } = loadPrivateKey(rawPrivateKey);
   const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "ES256", typ: "JWT", kid: keyName, nonce: randomBytes(16).toString("hex") };
+  const header = { alg: algorithm, typ: "JWT", kid: keyName, nonce: randomBytes(16).toString("hex") };
   const payload = {
     iss: "cdp",
     sub: keyName,
@@ -54,12 +95,18 @@ export function mintCoinbaseJwt(keyName: string, rawPemPrivateKey: string, metho
   const encodedPayload = base64url(Buffer.from(JSON.stringify(payload)));
   const signingInput = `${encodedHeader}.${encodedPayload}`;
 
-  const signer = createSign("sha256");
-  signer.update(signingInput);
-  signer.end();
-  // ieee-p1363 = raw r‖s (64 bytes for P-256), what JOSE/JWT requires —
-  // createSign's default is DER-encoded, which Coinbase rejects outright.
-  const signature = signer.sign({ key: pemPrivateKey, dsaEncoding: "ieee-p1363" });
+  const signature =
+    algorithm === "EdDSA"
+      ? edSign(null, Buffer.from(signingInput), keyObject)
+      : (() => {
+          const signer = createSign("sha256");
+          signer.update(signingInput);
+          signer.end();
+          // ieee-p1363 = raw r‖s (64 bytes for P-256), what JOSE/JWT
+          // requires — createSign's default is DER-encoded, which
+          // Coinbase rejects outright.
+          return signer.sign({ key: keyObject, dsaEncoding: "ieee-p1363" });
+        })();
 
   return `${signingInput}.${base64url(signature)}`;
 }

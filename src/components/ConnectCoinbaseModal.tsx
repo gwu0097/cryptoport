@@ -62,7 +62,10 @@ export function ConnectCoinbaseModal({ provider }: { provider: ExchangeProvider 
             <input name="keyName" type="text" required className={inputClass} />
           </Field>
 
-          <Field label="Private key" hint="The PEM block, exactly as shown — including the BEGIN/END lines.">
+          <Field
+            label="Private key"
+            hint="Paste it exactly as Coinbase shows it — a PEM block (with BEGIN/END lines) or a plain base64 string, both work."
+          >
             <textarea
               name="privateKey"
               required
