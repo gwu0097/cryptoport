@@ -96,6 +96,12 @@ async function LookupResults({
         <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
           {formatUsd(result.total)}
         </p>
+        {result.warnings.length > 0 && (
+          <p className="mt-2 text-sm text-warning">
+            {result.warnings.length} source{result.warnings.length === 1 ? "" : "s"} failed to load and may
+            be missing from the totals below — try again in a moment.
+          </p>
+        )}
       </Panel>
 
       <ChainGroupedHoldings

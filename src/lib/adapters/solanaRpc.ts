@@ -97,9 +97,7 @@ interface RpcResponse {
   error?: { message: string };
 }
 
-export interface GetProgramAccountsFilter {
-  memcmp: { offset: number; bytes: string };
-}
+export type GetProgramAccountsFilter = { memcmp: { offset: number; bytes: string } } | { dataSize: number };
 
 /**
  * getProgramAccounts against Solana's public mainnet RPC, base64-encoded —

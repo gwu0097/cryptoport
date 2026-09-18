@@ -59,6 +59,13 @@ function toHolding(h: AdapterHolding, index: number): Holding {
 export interface LookupResult extends ValuatedHoldings {
   chain: Chain;
   address: string;
+  /** Non-fatal partial failures from the adapter fan-out (e.g. one DeFi
+   * source's RPC had a bad moment) — previously silently dropped here
+   * (unlike wallets/actions.ts's real sync path, which already surfaces
+   * these via wallets.last_refresh_status), which made a genuinely-missing
+   * position indistinguishable from "the wallet just doesn't have one."
+   * Empty when everything succeeded. */
+  warnings: string[];
 }
 
 /**
@@ -84,20 +91,24 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   // ETH/BTC/ADA/SEI are handled directly (not through NON_EVM_DISPATCH —
   // see nonEvmDispatch.ts's and detectChain's doc comments for why each is
   // special-cased); everything else comes from the same shared dispatch
-  // table syncWalletHoldings uses.
-  const fetchHoldings: Promise<AdapterHolding[]> =
+  // table syncWalletHoldings uses. BTC/ADA/SEI have no warnings concept of
+  // their own (single-source adapters), so those legs just supply [].
+  const fetchResult: Promise<{ holdings: AdapterHolding[]; warnings: string[] }> =
     chain === "ETH"
-      ? fetchEvmHoldings(address).then((r) => r.holdings)
+      ? fetchEvmHoldings(address)
       : chain === "BTC"
-        ? fetchBitcoinHoldings(address)
+        ? fetchBitcoinHoldings(address).then((holdings) => ({ holdings, warnings: [] }))
         : chain === "ADA"
-          ? fetchCardanoHoldings(address)
+          ? fetchCardanoHoldings(address).then((holdings) => ({ holdings, warnings: [] }))
           : chain === "SEI"
-            ? fetchCosmosHoldings("SEI", address)
-            : NON_EVM_DISPATCH[chain].fetch(address).then((r) => r.holdings);
+            ? fetchCosmosHoldings("SEI", address).then((holdings) => ({ holdings, warnings: [] }))
+            : NON_EVM_DISPATCH[chain].fetch(address);
 
-  const [adapterHoldings, prices] = await Promise.all([fetchHoldings, getPriceMap()]);
+  const [{ holdings: adapterHoldings, warnings }, prices] = await Promise.all([fetchResult, getPriceMap()]);
+  if (warnings.length > 0) {
+    console.error(`lookupWallet(${chain} ${address}): ${warnings.join("; ")}`);
+  }
 
   const holdings = adapterHoldings.map(toHolding);
-  return { chain, address, ...valuateHoldings(holdings, defaultChainId(chain), prices) };
+  return { chain, address, warnings, ...valuateHoldings(holdings, defaultChainId(chain), prices) };
 }

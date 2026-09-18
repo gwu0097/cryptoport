@@ -6,6 +6,18 @@ import type { AdapterHolding } from "./types";
 const SKR_PROGRAM = "SKRskrmtL83pcL4YqLWt6iPefDqwXQWHSw9S9vz94BZ";
 const SKR_MINT = "SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3";
 const SKR_DECIMALS = 6;
+// The stake-position account's exact size, confirmed live via
+// getAccountInfo. Passed as a dataSize filter alongside the memcmp below
+// — reported directly that this holding was missing in production while
+// the structurally-identical native-staking query succeeded reliably;
+// the difference is that Stake11111...'s accounts are Solana's own core
+// state (RPC nodes keep it cheap/indexed to serve), while an unconstrained
+// getProgramAccounts scan over an arbitrary third-party program's full
+// account set is a genuinely expensive operation many public RPC
+// providers throttle or reject more readily — narrowing with dataSize
+// first (standard practice for this exact class of call) cuts that cost
+// sharply instead of relying on the memcmp filter alone.
+const STAKE_POSITION_SIZE = 169;
 
 /**
  * Solana Mobile's SKR staking (delegating SKR to a "Guardian" node,
@@ -41,7 +53,7 @@ const SKR_DECIMALS = 6;
 export async function fetchSkrStaking(address: string): Promise<AdapterHolding[]> {
   const accounts = await getProgramAccounts(
     SKR_PROGRAM,
-    [{ memcmp: { offset: 41, bytes: address } }],
+    [{ dataSize: STAKE_POSITION_SIZE }, { memcmp: { offset: 41, bytes: address } }],
     "SKR stake position lookup",
   );
   if (accounts.length === 0) return []; // never staked SKR — a real $0, not an error
