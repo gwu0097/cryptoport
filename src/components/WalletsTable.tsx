@@ -186,7 +186,13 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
     const av = sortValue(a, sortKey);
     const bv = sortValue(b, sortKey);
     const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
-    return sortDir === "desc" ? -cmp : cmp;
+    const primary = sortDir === "desc" ? -cmp : cmp;
+    if (primary !== 0) return primary;
+    // Tie-break: always alphabetical by name, regardless of the primary
+    // column's own direction — e.g. sorting by Chain descending groups
+    // same-chain wallets together but shouldn't also reverse-alphabetize
+    // them within that group.
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
 
   return (
