@@ -1,6 +1,14 @@
 import "server-only";
 import { createSign, createPrivateKey, sign as edSign, randomBytes } from "node:crypto";
+import { fetchTokenImagesBySymbol } from "./coingecko";
 import type { AdapterHolding } from "./types";
+
+// CoinGecko has no crypto icon for a fiat code, and its "best symbol match"
+// for one is some unrelated obscure coin that happens to share the letters
+// (live-verified: "usd" -> a coin literally named "unstable-states-dollar")
+// — worse than the plain letter-avatar TokenIcon already falls back to, so
+// these are never sent to fetchTokenImagesBySymbol at all.
+const FIAT_TICKERS = new Set(["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "SGD"]);
 
 const API_HOST = "api.coinbase.com";
 const ACCOUNTS_PATH = "/api/v3/brokerage/accounts";
@@ -190,11 +198,21 @@ export async function fetchCoinbaseBalances(
         contract: null,
         category: "token",
         chain: "coinbase",
-        icon_url: null,
+        icon_url: null, // filled in below via fetchTokenImagesBySymbol
       });
     }
     cursor = page.has_next ? page.cursor : undefined;
   } while (cursor);
+
+  // Unlike EVM/DeFi adapters, there's no contract/mint to resolve a
+  // guaranteed-correct icon from — these are plain ticker symbols, so this
+  // is a best-effort cosmetic lookup only (see fetchTokenImagesBySymbol's
+  // doc comment), not something valuation.ts's usd_override path depends on.
+  const iconTickers = holdings.map((h) => h.ticker).filter((t) => !FIAT_TICKERS.has(t));
+  const icons = await fetchTokenImagesBySymbol(iconTickers).catch(() => new Map<string, string>());
+  for (const holding of holdings) {
+    holding.icon_url = icons.get(holding.ticker) ?? null;
+  }
 
   const warnings: string[] = [];
   if (perpCount > 0) {

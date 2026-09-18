@@ -14,6 +14,11 @@ export const CHAIN_NAMES: Record<string, string> = {
   ETH: "Ethereum",
   hyperliquid: "Hyperliquid",
   "solana-defi": "Solana DeFi",
+  // Exchange "chain" — not a real chain, but holdings/wallets use the same
+  // chain-grouping machinery, so it needs an entry in both vocabularies
+  // (adapter-native lowercase slug + the wallet's own uppercase chain field).
+  coinbase: "Coinbase",
+  COINBASE: "Coinbase",
 };
 
 export function chainDisplayName(chainId: string): string {

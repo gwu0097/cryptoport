@@ -134,6 +134,16 @@ export async function isWalletLinked(chain: "ETH" | "SOL", address: string): Pro
   return (data?.length ?? 0) > 0;
 }
 
+// Exchange "chains" aren't CoinGecko asset_platforms and have no single
+// native coin to borrow an icon from (see NATIVE_ICON_CHAINS's doc comment
+// in coingeckoIds.ts), so refreshTokenRegistry structurally can never
+// populate a chain_icons row for them — a small hardcoded fallback instead
+// of asking the user to run one-off SQL for a single static logo. CoinGecko
+// itself tracks Coinbase as an exchange (id "gdax") with this exact image.
+const STATIC_CHAIN_ICONS: Record<string, string> = {
+  coinbase: "https://coin-images.coingecko.com/markets/images/23/small/Coinbase_Coin_Primary.png?1706864258",
+};
+
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —
  * see coingecko.ts's refreshTokenRegistry for how this is kept populated.
  * Shared/global, not per-user — serviceDb() is correct here. Cached
@@ -142,7 +152,7 @@ export const getChainIconMap = cache(async (): Promise<Record<string, string>> =
   const { data, error } = await serviceDb().from("chain_icons").select("chain_id, image_url");
   if (error) throw new Error(`Failed to load chain_icons: ${error.message}`);
 
-  const icons: Record<string, string> = {};
+  const icons: Record<string, string> = { ...STATIC_CHAIN_ICONS };
   for (const row of data as { chain_id: string; image_url: string }[]) {
     icons[row.chain_id] = row.image_url;
   }

@@ -290,6 +290,38 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
   return images;
 }
 
+/**
+ * ticker symbol -> logo URL, via coins/markets' `symbols` param (live-
+ * verified: it resolves each symbol to its single highest-market-cap-rank
+ * match, e.g. "eth" -> Ethereum, never a list of every coin sharing that
+ * symbol the way /search does — exactly one row per symbol, which is what
+ * an icon lookup needs and searchCoins deliberately doesn't give). Icon-only
+ * — unlike every price-bearing lookup in this file, a wrong symbol match
+ * here is a cosmetic risk, not a valuation one (see coinbaseAdvancedTrade.ts,
+ * the one caller: Coinbase already prices these tickers via the existing
+ * ticker-keyed `prices` table, this only ever touches `icon_url`). Callers
+ * should still skip fiat codes (USD, EUR, ...) — CoinGecko's "best match"
+ * for a fiat symbol is some unrelated obscure coin that happens to share it,
+ * not a real crypto icon.
+ */
+export async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, string>> {
+  const images = new Map<string, string>();
+  const distinct = [...new Set(symbols.map((s) => s.toLowerCase()))];
+  if (distinct.length === 0) return images;
+
+  for (const batch of chunk(distinct, MARKETS_BATCH_SIZE)) {
+    const url = `${API_BASE}/coins/markets?vs_currency=usd&symbols=${batch.join(",")}`;
+    const res = await fetchWithRetry(url, { headers: headers() });
+    if (!res.ok) throw new Error(`CoinGecko coins/markets(symbols) failed: HTTP ${res.status}`);
+    const body: { symbol: string; image?: string }[] = await res.json();
+    for (const coin of body) {
+      if (coin.image) images.set(coin.symbol.toUpperCase(), coin.image);
+    }
+  }
+
+  return images;
+}
+
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
   const url = `${API_BASE}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
   const res = await fetchWithRetry(url, { headers: headers() });
