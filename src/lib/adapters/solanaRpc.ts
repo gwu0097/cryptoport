@@ -1,7 +1,15 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { fetchWithRetry, mapWithConcurrency } from "./http";
 
 const RPC_URL = "https://api.mainnet-beta.solana.com";
+// Solana RPC's own hard limit on how many pubkeys getMultipleAccounts
+// accepts per call — not a tunable, a protocol constant.
+const MAX_ACCOUNTS_PER_CALL = 100;
+// Same rate-limit caution as prices.ts's COINBASE_CONCURRENCY — this app's
+// public RPC has already 429'd under an unbounded burst once (see
+// getProgramAccounts' own callers), so any batched call here stays capped
+// by construction rather than by hoping.
+const ACCOUNTS_CONCURRENCY = 4;
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -76,4 +84,52 @@ export async function getProgramAccounts(
   const json: RpcResponse = await res.json();
   if (json.error) throw new Error(`${context} failed: ${json.error.message}`);
   return json.result ?? [];
+}
+
+/** A single getMultipleAccounts entry — null when that pubkey doesn't
+ * exist on-chain (e.g. rent-reclaimed, or never created). */
+export type RpcAccountInfo = { data: [string, string] } | null;
+
+interface MultipleAccountsResponse {
+  result?: { value: RpcAccountInfo[] };
+  error?: { message: string };
+}
+
+async function getMultipleAccountsChunk(pubkeys: string[], context: string): Promise<RpcAccountInfo[]> {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "getMultipleAccounts",
+    params: [pubkeys, { encoding: "base64" }],
+  };
+  const res = await fetchWithRetry(RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${context} failed: HTTP ${res.status}`);
+  const json: MultipleAccountsResponse = await res.json();
+  if (json.error) throw new Error(`${context} failed: ${json.error.message}`);
+  return json.result?.value ?? [];
+}
+
+/**
+ * getMultipleAccounts against the same public RPC getProgramAccounts
+ * above uses — transparently chunked at 100 pubkeys/call (Solana RPC's
+ * own hard limit) and concurrency-capped, so a caller with hundreds or
+ * low-thousands of pubkeys (jitoMevRewards.ts's on-chain claim-status
+ * check) never has to know about either constraint itself. Result order
+ * matches the input order 1:1, same as the raw RPC response's own `value`
+ * array — a null entry means that pubkey doesn't exist on-chain.
+ */
+export async function getMultipleAccounts(pubkeys: string[], context: string): Promise<RpcAccountInfo[]> {
+  if (pubkeys.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < pubkeys.length; i += MAX_ACCOUNTS_PER_CALL) {
+    chunks.push(pubkeys.slice(i, i + MAX_ACCOUNTS_PER_CALL));
+  }
+  const results = await mapWithConcurrency(chunks, ACCOUNTS_CONCURRENCY, (chunk) =>
+    getMultipleAccountsChunk(chunk, context),
+  );
+  return results.flat();
 }

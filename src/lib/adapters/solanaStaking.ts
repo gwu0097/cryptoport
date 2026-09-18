@@ -1,7 +1,8 @@
 import "server-only";
 import { getProgramAccounts, base58encode } from "./solanaRpc";
-import { fetchWithRetry, mapWithConcurrency } from "./http";
+import { mapWithConcurrency } from "./http";
 import { fetchTokenInfo } from "./jupiter";
+import { fetchValidatorName } from "./stakewiz";
 import type { AdapterHolding } from "./types";
 
 const STAKE_PROGRAM = "Stake11111111111111111111111111111111111111";
@@ -18,7 +19,6 @@ const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 // worth showing as a holding.
 const STAKE_VARIANT_DISCRIMINANT = base58encode(Uint8Array.of(2, 0, 0, 0));
 
-const STAKEWIZ_BASE = "https://api.stakewiz.com";
 // u64::MAX — this codebase targets ES2017, so BigInt literals (18446744...n)
 // aren't available; every other adapter here builds bigints via BigInt(...)
 // calls for the same reason (see multicallEvm.ts/substrate.ts).
@@ -59,15 +59,9 @@ interface Delegation {
  *           "not deactivating"; anything else means this stake is
  *           unwinding, no longer a real ongoing position
  *
- * Validator name/APY enrichment comes from Stakewiz (api.stakewiz.com,
- * free, keyless, tested live — /validator/{vote_identity} returns
- * `name`/`total_apy`, verified against a real wallet: "Solana Mobile
- * Validator", 5.26% APY, matching jup.ag exactly). Best-effort only: a
- * Stakewiz failure (down, rate-limited, or an obscure validator with no
- * wiz data — its API returns bare `false` rather than 404 for an unknown
- * vote pubkey, not an error status) degrades to a plain truncated-pubkey
- * label rather than dropping the holding — this is real money delegated
- * on-chain, an enrichment-label failure must never make it disappear.
+ * Validator name/APY enrichment is Stakewiz, via the shared
+ * fetchValidatorName (stakewiz.ts) — see that file for the free/keyless
+ * verification and best-effort-fallback reasoning.
  */
 export async function fetchSolanaStaking(address: string): Promise<AdapterHolding[]> {
   const accounts = await getProgramAccounts(
@@ -92,11 +86,11 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
   if (delegations.length === 0) return []; // no active stake — a real $0, not an error
 
   const distinctVoters = [...new Set(delegations.map((d) => d.voter))];
-  const [labels, tokenInfo] = await Promise.all([
-    mapWithConcurrency(distinctVoters, 3, fetchValidatorLabel),
+  const [names, tokenInfo] = await Promise.all([
+    mapWithConcurrency(distinctVoters, 3, fetchValidatorName),
     fetchTokenInfo([WRAPPED_SOL_MINT]).catch(() => new Map()), // icon is cosmetic — never fail the holding over it
   ]);
-  const labelByVoter = new Map(distinctVoters.map((v, i) => [v, labels[i]]));
+  const nameByVoter = new Map(distinctVoters.map((v, i) => [v, names[i]]));
   const solIcon = tokenInfo.get(WRAPPED_SOL_MINT)?.icon ?? null;
 
   return delegations.map(({ voter, qty }) => ({
@@ -107,23 +101,7 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
     category: "defi",
     chain: "solana-defi",
     icon_url: solIcon,
-    protocol: labelByVoter.get(voter)!,
+    protocol: `Solana Staking: ${nameByVoter.get(voter)}`,
     protocol_url: `https://stakewiz.com/validator/${voter}`,
   }));
-}
-
-async function fetchValidatorLabel(voter: string): Promise<string> {
-  try {
-    const res = await fetchWithRetry(`${STAKEWIZ_BASE}/validator/${voter}`);
-    if (res.ok) {
-      const body: { name?: string; total_apy?: number } | false = await res.json();
-      if (body && body.name) {
-        const apy = typeof body.total_apy === "number" ? ` (${body.total_apy.toFixed(2)}% APY)` : "";
-        return `Solana Staking: ${body.name}${apy}`;
-      }
-    }
-  } catch {
-    // best-effort — fall through to the truncated-pubkey label below
-  }
-  return `Solana Staking: ${voter.slice(0, 4)}…${voter.slice(-4)}`;
 }
