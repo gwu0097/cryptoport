@@ -26,7 +26,20 @@ function base64url(input: Buffer): string {
   return input.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function mintCoinbaseJwt(keyName: string, pemPrivateKey: string, method: string, path: string): string {
+/** Coinbase's downloaded API-key JSON file stores the private key as a JSON
+ * string, with its real line breaks escaped as literal two-character `\n`
+ * sequences — copying that value straight out and pasting it into a plain
+ * textarea leaves those as literal backslash-n characters, not real
+ * newlines, which OpenSSL's PEM decoder can't parse ("error:1E08010C:
+ * DECODER routines::unsupported" — a real error hit live, not hypothetical).
+ * Idempotent against a key that already has real newlines (nothing to
+ * replace), so this is safe regardless of how the key was copied. */
+function normalizePemKey(key: string): string {
+  return key.trim().replace(/\\n/g, "\n");
+}
+
+export function mintCoinbaseJwt(keyName: string, rawPemPrivateKey: string, method: string, path: string): string {
+  const pemPrivateKey = normalizePemKey(rawPemPrivateKey);
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "ES256", typ: "JWT", kid: keyName, nonce: randomBytes(16).toString("hex") };
   const payload = {
