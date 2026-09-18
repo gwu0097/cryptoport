@@ -65,6 +65,46 @@ function groupByProtocol(holdings: HoldingWithValuation[]): {
   return { plain, protocolGroups };
 }
 
+/**
+ * What "disappeared" after the hideUnpriced/hideLow filters ran, at
+ * whichever granularity the caller cares about (a whole chain, a DeFi
+ * protocol group within a chain, or an individual plain holding within a
+ * chain) — `raw` and `visible` are both keyed the same way via `keyFn`;
+ * anything in `raw` but not `visible` counts as hidden. Extracted once a
+ * third copy of the identical "diff raw vs visible, tell the user what
+ * vanished" logic showed up below, past this codebase's own "two is the
+ * threshold to extract" rule.
+ */
+function findHidden<T>(raw: T[], visible: T[], keyFn: (item: T) => string): T[] {
+  const visibleKeys = new Set(visible.map(keyFn));
+  return raw.filter((item) => !visibleKeys.has(keyFn(item)));
+}
+
+/** A chain's summary chip always shows its real, unfiltered total, but its
+ * detail panel(s) only render what survives the filters — without this,
+ * a holding (or a whole chain, or one DeFi product within a chain) that's
+ * real, priced, and simply small or unpriced would vanish with zero
+ * explanation: the chip (or a sibling row) promises data, nothing shows
+ * why some of it is missing. Reported directly, twice, at two different
+ * granularities, as "don't see anything" / "why is there a gap." `total`
+ * omitted (e.g. for a plain unpriced holding, which by definition has no
+ * reliable USD figure to show) renders just the label. */
+function HiddenByFiltersNotice({
+  items,
+  className,
+}: {
+  items: { label: string; total?: number }[];
+  className: string;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <p className={className}>
+      {items.map((i) => (i.total !== undefined ? `${i.label} (${formatUsd(i.total)})` : i.label)).join(", ")} hidden
+      by the filters above.
+    </p>
+  );
+}
+
 function cardClass(active: boolean): string {
   const base = "rounded-lg border px-3 py-2 text-left transition";
   return active
@@ -162,11 +202,12 @@ export async function ChainGroupedHoldings({
     }))
     .filter((g) => g.holdings.length > 0);
 
-  // Chains that had real holdings but ended up with none visible after the
-  // hideUnpriced/hideLow filters — see the notice this drives, below.
-  const hiddenGroups = groups
-    .filter((g) => !selectedChain || g.chainId === selectedChain)
-    .filter((g) => g.holdings.length > 0 && !visibleGroups.some((vg) => vg.chainId === g.chainId));
+  const rawGroupsInScope = groups.filter((g) => !selectedChain || g.chainId === selectedChain);
+  const hiddenGroups = findHidden(
+    rawGroupsInScope.filter((g) => g.holdings.length > 0),
+    visibleGroups,
+    (g) => g.chainId,
+  );
 
   return (
     <>
@@ -212,20 +253,10 @@ export async function ChainGroupedHoldings({
         </div>
       </div>
 
-      {/* A chain's summary chip above always shows its real total (from the
-          unfiltered `groups`), but its detail panel below only renders
-          holdings that survive hideUnpriced/hideLow — a chain whose only
-          holding(s) are individually small (e.g. a single $7.88 DeFi
-          position, real and priced, just under the $10 low-value cutoff)
-          would otherwise vanish from the list below with no explanation
-          at all: the chip promises data, the panel shows nothing.
-          Reported directly as "don't see anything" for exactly this case. */}
-      {hiddenGroups.length > 0 && (
-        <p className="mb-4 text-sm text-fg-muted">
-          {hiddenGroups.map((g) => `${g.chainName} (${formatUsd(g.total)})`).join(", ")} hidden by the filters
-          above.
-        </p>
-      )}
+      <HiddenByFiltersNotice
+        items={hiddenGroups.map((g) => ({ label: g.chainName, total: g.total }))}
+        className="mb-4 text-sm text-fg-muted"
+      />
 
       {visibleGroups.length === 0 ? (
         <Panel className="text-center">
@@ -235,30 +266,22 @@ export async function ChainGroupedHoldings({
         <div className="flex flex-col gap-4">
           {visibleGroups.map((group) => {
             const { plain, protocolGroups } = groupByProtocol(group.holdings);
-            // The chain-level notice above only catches a chain that
+            // The page-level notice above only catches a chain that
             // disappears entirely. A chain that STAYS visible (this one
             // has other, larger holdings) can still silently drop one
-            // specific DeFi product whose only holding(s) were
-            // individually below the low-value cutoff — e.g. a $7.88
-            // Lulo position sitting right next to a $3,000+ one in the
-            // same "Solana DeFi" chain. Comparing this chain's protocol
-            // grouping before and after the per-holding filter catches
-            // that case too.
+            // specific DeFi product, or one plain token, whose only
+            // holding(s) were individually filtered out (below the
+            // low-value cutoff, or unpriced) — e.g. a $7.88 Lulo position
+            // sitting right next to a $3,000+ one in the same "Solana
+            // DeFi" chain, or an illiquid token with no reliable price
+            // sitting next to a priced one in "Solana". Comparing this
+            // chain's raw holdings against what actually rendered, at
+            // both granularities, catches those too.
             const rawGroup = groups.find((g) => g.chainId === group.chainId);
             const rawProtocolGroups = rawGroup ? groupByProtocol(rawGroup.holdings).protocolGroups : [];
-            const visibleProtocolNames = new Set(protocolGroups.map((pg) => pg.protocol));
-            const hiddenProtocolGroups = rawProtocolGroups.filter((pg) => !visibleProtocolNames.has(pg.protocol));
-            // Same idea, one level further down: a plain (non-DeFi) token
-            // can individually disappear from an otherwise-visible chain
-            // too — a real holding with a real on-chain balance but no
-            // reliable price (too illiquid to trust a quote, by design —
-            // see jupiter.ts's own liquidity floor) is "unpriced", and
-            // "Hide unpriced" drops it from the table with nothing to show
-            // for it, same silent-vanish shape as the protocol-group case.
-            const visiblePlainIds = new Set(plain.map((h) => h.id));
-            const hiddenPlain = (rawGroup?.holdings.filter((h) => !h.protocol) ?? []).filter(
-              (h) => !visiblePlainIds.has(h.id),
-            );
+            const hiddenProtocolGroups = findHidden(rawProtocolGroups, protocolGroups, (pg) => pg.protocol);
+            const rawPlain = rawGroup?.holdings.filter((h) => !h.protocol) ?? [];
+            const hiddenPlain = findHidden(rawPlain, plain, (h) => h.id);
             return (
               <details key={group.chainId} open className="group rounded-xl border border-border bg-surface">
                 <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
@@ -288,11 +311,10 @@ export async function ChainGroupedHoldings({
                       <HoldingsTable holdings={plain} walletId={walletId} />
                     </div>
                   )}
-                  {hiddenPlain.length > 0 && (
-                    <p className="border-t border-border px-5 py-2 text-xs text-fg-muted">
-                      {hiddenPlain.map((h) => formatTicker(h.ticker)).join(", ")} hidden by the filters above.
-                    </p>
-                  )}
+                  <HiddenByFiltersNotice
+                    items={hiddenPlain.map((h) => ({ label: formatTicker(h.ticker) }))}
+                    className="border-t border-border px-5 py-2 text-xs text-fg-muted"
+                  />
                   {protocolGroups.map((pg) => (
                     <details
                       key={pg.protocol}
@@ -320,12 +342,10 @@ export async function ChainGroupedHoldings({
                       </div>
                     </details>
                   ))}
-                  {hiddenProtocolGroups.length > 0 && (
-                    <p className="border-t border-border px-5 py-2 text-xs text-fg-muted">
-                      {hiddenProtocolGroups.map((pg) => `${pg.protocol} (${formatUsd(pg.total)})`).join(", ")}{" "}
-                      hidden by the filters above.
-                    </p>
-                  )}
+                  <HiddenByFiltersNotice
+                    items={hiddenProtocolGroups.map((pg) => ({ label: pg.protocol, total: pg.total }))}
+                    className="border-t border-border px-5 py-2 text-xs text-fg-muted"
+                  />
                 </div>
               </details>
             );
