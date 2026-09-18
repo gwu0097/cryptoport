@@ -31,9 +31,23 @@ export type Chain =
   | "XRP"
   | "TON";
 export type WalletMode = "manual" | "auto";
-export type HoldingSource = "manual_qty" | "manual_usd" | "auto";
+/** "auto_defi" is a second, disjoint sync-owned source (Zerion-backed EVM
+ * DeFi positions, see zerionDefi.ts) — deliberately distinct from "auto"
+ * (the regular multicall/adapter sync) so the two syncs' own delete-then-
+ * insert RPCs (sync_auto_holdings vs. sync_defi_holdings) can never clobber
+ * each other's rows. */
+export type HoldingSource = "manual_qty" | "manual_usd" | "auto" | "auto_defi";
 export type HoldingCategory = "token" | "defi";
 export type PriceSource = "coingecko" | "coinbase" | "jupiter";
+
+/** Every source a real sync writes, never hand-editable by the user —
+ * checked as an allowlist inversion ("anything not manual is sync-owned")
+ * rather than listing sync sources by name, so a future third sync-owned
+ * source doesn't need this same audit repeated at every call site. */
+const MANUAL_SOURCES: ReadonlySet<HoldingSource> = new Set(["manual_qty", "manual_usd"]);
+export function isSyncOwned(source: HoldingSource): boolean {
+  return !MANUAL_SOURCES.has(source);
+}
 
 export interface Tag {
   id: string;
@@ -88,6 +102,20 @@ export interface Wallet {
    * fail independently of a holdings sync. */
   tx_synced_at: string | null;
   tx_sync_status: string | null;
+  /** Set the moment a transaction sync begins — same role as
+   * sync_started_at above, for the tx job specifically. Existed in the DB
+   * from the start but was missing here until this same DeFi-sync pass
+   * noticed the gap. */
+  tx_sync_started_at: string | null;
+  /** A third, independent job on this same row (see holdings.source's
+   * "auto_defi" doc comment) — its own status/timestamps for the identical
+   * reason tx_sync_* has its own: a DeFi-position sync (Zerion) has its own
+   * cadence and can fail independently of both the holdings sync and the
+   * transaction sync. */
+  defi_sync_status: string | null;
+  defi_sync_started_at: string | null;
+  defi_synced_at: string | null;
+  defi_sync_duration_ms: number | null;
   created_at: string;
 }
 

@@ -686,3 +686,76 @@ create policy "coin_market_data: readable by all signed-in users"
 -- bare symbol alone.
 alter table cryptoport.holdings
   add column coingecko_id text;
+
+-- A second, disjoint sync-owned holdings.source — Zerion-backed EVM DeFi
+-- positions (adapters/zerionDefi.ts), deliberately distinct from 'auto'
+-- (the regular multicall/adapter sync) so the two syncs' own delete-then-
+-- insert functions (sync_auto_holdings below vs. sync_defi_holdings) can
+-- never clobber each other's rows — 'auto' already covers Hyperliquid's own
+-- DeFi-category holdings on the EVM side, and a naive shared source would
+-- mean each sync silently deleting the other's data on its next run.
+-- holdings.source has no CHECK constraint (see its own comment above),
+-- just this documentation update.
+-- holdings.source: 'manual_qty' | 'manual_usd' | 'auto' | 'auto_defi'
+
+-- Same "staleness is two/three independent things" pattern as
+-- tx_synced_at/tx_sync_status/tx_sync_started_at above, extended to a
+-- fourth independent job: DeFi-position sync (Zerion) has its own cadence
+-- and can fail independently of both the holdings sync and the transaction
+-- sync — see syncWalletDefi (wallets/actions.ts) and SyncDefiButton.tsx.
+alter table cryptoport.wallets
+  add column defi_sync_status text,
+  add column defi_sync_started_at timestamptz,
+  add column defi_synced_at timestamptz,
+  add column defi_sync_duration_ms integer;
+
+-- Near-duplicate of sync_auto_holdings above, scoped to source='auto_defi'
+-- and writing defi_synced_at/defi_sync_status instead of
+-- last_refresh_at/last_refresh_status — see this column's own comment on
+-- cryptoport.wallets for why this needs to be a fully separate function
+-- rather than a parameterized variant of sync_auto_holdings: the two must
+-- never share a delete predicate.
+create or replace function cryptoport.sync_defi_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto_defi';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto_defi',
+    h->>'contract',
+    coalesce(h->>'category', 'defi'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set defi_synced_at = now(), defi_sync_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+grant execute on function cryptoport.sync_defi_holdings(uuid, jsonb, text) to authenticated;
+grant execute on function cryptoport.sync_defi_holdings(uuid, jsonb, text) to service_role;

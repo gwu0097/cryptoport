@@ -1,0 +1,146 @@
+import "server-only";
+import { fetchWithRetry } from "./http";
+import { EVM_CHAINS } from "./evmChains";
+import type { AdapterHolding } from "./types";
+
+const API_BASE = "https://api.zerion.io/v1";
+
+export interface ZerionDefiResult {
+  holdings: AdapterHolding[];
+  warnings: string[];
+}
+
+function authHeader(): string {
+  const apiKey = process.env.ZERION_API_KEY;
+  if (!apiKey) throw new Error("ZERION_API_KEY is not set.");
+  // HTTP Basic: API key as username, empty password — Zerion's own
+  // documented auth scheme, not a generic Bearer token.
+  return `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`;
+}
+
+interface ZerionChain {
+  id: string; // Zerion's own internal chain id, e.g. "ethereum" — NOT
+  // assumed human-readable or matching this app's own evmChains.ts ids;
+  // only ever used as a lookup key into the map built below.
+  attributes?: { external_id?: string }; // hex chain id, e.g. "0x1"
+}
+
+/**
+ * Zerion's own internal chain ids aren't documented to match anything this
+ * app already knows (they might coincide with human-readable names like
+ * "ethereum", but that's never assumed/guessed — see this app's own
+ * "unknown beats a wrong guess" rule, the same one that governs
+ * resolveCoingeckoKey). Cross-referenced instead via the numeric EVM chain
+ * id both sides genuinely share: Zerion's /v1/chains/ exposes each chain's
+ * `external_id` as a hex chain id, matched against evmChains.ts's own
+ * numeric `chainId`. Fetched fresh per call rather than cached — this is a
+ * small, infrequently-changing metadata endpoint, not a per-wallet data
+ * pull, and "Sync DeFi" is already an explicit, infrequent user action (see
+ * SyncDefiButton.tsx), so there's no real cost to keeping this simple.
+ */
+async function fetchZerionChainIdMap(): Promise<Map<string, string>> {
+  const res = await fetchWithRetry(`${API_BASE}/chains/`, {
+    headers: { Authorization: authHeader(), Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Zerion chains lookup failed: HTTP ${res.status}`);
+  const body: { data: ZerionChain[] } = await res.json();
+
+  const byNumericId = new Map(EVM_CHAINS.map((c) => [c.chainId, c.id]));
+  const map = new Map<string, string>();
+  for (const chain of body.data ?? []) {
+    const hex = chain.attributes?.external_id;
+    if (!hex) continue;
+    const numericId = Number.parseInt(hex, 16);
+    const ourId = byNumericId.get(numericId);
+    if (ourId) map.set(chain.id, ourId);
+  }
+  return map;
+}
+
+interface ZerionPosition {
+  attributes?: {
+    value?: number | null;
+    quantity?: { float?: number | null };
+    protocol?: string | null;
+    application_metadata?: { name?: string | null; icon?: { url?: string | null } | null; url?: string | null } | null;
+    fungible_info?: { symbol?: string | null; name?: string | null; icon?: { url?: string | null } | null } | null;
+  };
+  relationships?: { chain?: { data?: { id?: string | null } } };
+}
+
+/**
+ * Every complex (non-plain-balance) DeFi position Zerion knows about for an
+ * EVM address, across every chain it indexes — lending deposits/borrows,
+ * staked assets, LP shares, vaults, already resolved and USD-valued by
+ * Zerion itself. This app's own regular EVM sync (multicallEvm.ts) only
+ * ever reads plain token/native balances plus Hyperliquid specifically;
+ * every other EVM protocol (Aave, Morpho, LP positions, ...) was untracked
+ * before this, and hand-building one adapter per protocol the way this
+ * session's Solana adapters were built would take a long time to reach
+ * comparable coverage — see the "Add EVM DeFi position sync via Zerion"
+ * plan for the full comparison against DeBank/Zapper/Covalent.
+ *
+ * Deliberately its own explicit sync (syncWalletDefi in wallets/actions.ts,
+ * triggered by SyncDefiButton), never chained into the regular "Sync
+ * holdings" click or "Sync all wallets" — Zerion's free tier is a real,
+ * shared monthly budget, and bundling this into every routine sync would
+ * burn through it fast for no benefit (DeFi positions don't change nearly
+ * as often as someone clicks "Sync").
+ *
+ * usd_override is Zerion's own resolved value, never the shared ticker
+ * table — same treatment as every other DeFi-position adapter in this app
+ * (Kamino, Meteora, Hyperliquid, ...), and for the same reason: a position
+ * has no single safe ticker-table lookup the way a plain balance does.
+ */
+export async function fetchZerionDefiPositions(address: string): Promise<ZerionDefiResult> {
+  const warnings: string[] = [];
+  const [positionsRes, chainIdMap] = await Promise.all([
+    fetchWithRetry(
+      `${API_BASE}/wallets/${address}/positions/` +
+        `?filter[positions]=only_complex` +
+        `&filter[position_types][]=deposit&filter[position_types][]=loan&filter[position_types][]=locked` +
+        `&filter[position_types][]=staked&filter[position_types][]=reward&filter[position_types][]=investment` +
+        `&currency=usd`,
+      { headers: { Authorization: authHeader(), Accept: "application/json" } },
+    ),
+    fetchZerionChainIdMap(),
+  ]);
+  if (!positionsRes.ok) throw new Error(`Zerion positions lookup failed: HTTP ${positionsRes.status}`);
+  const body: { data: ZerionPosition[] } = await positionsRes.json();
+
+  const holdings: AdapterHolding[] = [];
+  for (const position of body.data ?? []) {
+    const a = position.attributes;
+    const zerionChainId = position.relationships?.chain?.data?.id;
+    const ourChain = zerionChainId ? chainIdMap.get(zerionChainId) : undefined;
+    if (!ourChain) {
+      // Not necessarily a bug — Zerion indexes chains this app doesn't
+      // (or, for something like Hyperliquid, a chain that already has its
+      // own dedicated adapter) — dropped rather than guessed at, consistent
+      // with this app's own "unknown beats a wrong guess" rule.
+      warnings.push(`zerion: skipped a position on unrecognized chain "${zerionChainId ?? "unknown"}"`);
+      continue;
+    }
+
+    const ticker = a?.fungible_info?.symbol;
+    const usd = a?.value;
+    if (!ticker || usd == null) {
+      warnings.push(`zerion: skipped a position with no symbol/value on ${ourChain}`);
+      continue;
+    }
+
+    holdings.push({
+      ticker,
+      qty: a?.quantity?.float ?? null,
+      usd_override: usd,
+      contract: null,
+      category: "defi",
+      chain: ourChain,
+      icon_url: a?.fungible_info?.icon?.url ?? null,
+      protocol: a?.application_metadata?.name ?? a?.protocol ?? "Unknown",
+      protocol_url: a?.application_metadata?.url ?? null,
+    });
+  }
+
+  return { holdings, warnings };
+}

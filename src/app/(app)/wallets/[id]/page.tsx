@@ -15,14 +15,17 @@ import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { SyncWalletButtons } from "@/components/SyncWalletButtons";
+import { SyncDefiButton } from "@/components/SyncDefiButton";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { isEvmChainId } from "@/lib/adapters/evmChains";
 import {
   addHolding,
   deleteWallet,
   refreshPricesForWalletAction,
   syncWalletHoldings,
+  syncWalletDefi,
   updateWallet,
 } from "../actions";
 
@@ -186,7 +189,20 @@ export default async function WalletDetailPage(
                 sync={syncWalletHoldings.bind(null, wallet.id, false)}
                 fullSync={isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null}
               />
-            ) : (
+            ) : null}
+            {wallet.mode === "auto" && isEvmChainId(wallet.chain) && (
+              // Separate, explicit action — never chained into the regular
+              // Sync above or into "Sync all wallets" (see syncWalletDefi's
+              // own doc comment: Zerion's free tier is a real, shared
+              // budget this button keeps under direct user control).
+              <SyncDefiButton
+                defiSyncStatus={wallet.defi_sync_status}
+                defiSyncStartedAt={wallet.defi_sync_started_at}
+                defiSyncedAt={wallet.defi_synced_at}
+                sync={syncWalletDefi.bind(null, wallet.id)}
+              />
+            )}
+            {wallet.mode !== "auto" && (
               // A manual wallet has no Sync action at all — addHolding
               // reprices a brand-new ticker at add time, but this is still
               // the only way to freshen an already-known ticker's price

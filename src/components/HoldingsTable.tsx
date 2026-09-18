@@ -2,6 +2,7 @@
 
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
+import { isSyncOwned } from "@/lib/types";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { inputClass } from "./ui/Field";
@@ -247,7 +248,7 @@ export function HoldingsTable({
             </td>
             {walletId && (
               <td className={tdClass}>
-                {holding.source !== "auto" && (
+                {!isSyncOwned(holding.source) && (
                   <ManualHoldingActions holding={holding} walletId={walletId} />
                 )}
               </td>

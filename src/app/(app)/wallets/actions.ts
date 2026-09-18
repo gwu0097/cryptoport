@@ -9,6 +9,7 @@ import { refreshPrices, refreshTickerPrices, type HoldingTickerInfo } from "@/li
 import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
+import { fetchZerionDefiPositions } from "@/lib/adapters/zerionDefi";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
@@ -18,7 +19,7 @@ import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
-import type { WalletMode } from "@/lib/types";
+import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 
 /** The actual work — same shape as runPriceRefresh below: never throws,
@@ -514,8 +515,8 @@ async function requireEditableHolding(holdingId: string) {
     .eq("id", holdingId)
     .single();
   if (error) throw new Error(`Failed to load holding: ${error.message}`);
-  if (data.source === "auto") {
-    throw new Error("Auto holdings are refresh-owned and cannot be edited by hand.");
+  if (isSyncOwned(data.source as HoldingSource)) {
+    throw new Error("Sync-owned holdings cannot be edited by hand.");
   }
   return data.source;
 }
@@ -753,6 +754,101 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       // captureUserSnapshot above), Dashboard/Analytics need revalidating
       // too — harmless to call even on a failed sync (the snapshot write
       // just didn't happen, so there's nothing new for these to pick up).
+      revalidatePath("/dashboard");
+      revalidatePath("/analytics");
+    }
+  });
+
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+  return { started: true };
+}
+
+/**
+ * A second, genuinely independent job on the same wallet row — same
+ * after()/CAS-claim shape as syncWalletHoldings above and syncWalletTransactions
+ * (transactions/actions.ts), but its own defi_sync_status/defi_sync_started_at
+ * pair rather than reusing last_refresh_status/sync_started_at: this is a
+ * different external source (Zerion, not this wallet's own on-chain
+ * balances) on its own cadence, so it must be able to run, fail, or be
+ * mid-flight independently of a regular holdings sync.
+ *
+ * Deliberately NOT wired into syncWalletHoldings, syncAllWallets, or any
+ * other automatic trigger — see zerionDefi.ts's own doc comment for why:
+ * Zerion's free tier is a real, shared monthly budget, and this button is
+ * what keeps spending it under the user's explicit control rather than
+ * burning it on every routine sync.
+ *
+ * Writes via cryptoport.sync_defi_holdings (schema.sql) — a near-duplicate
+ * of sync_auto_holdings scoped to source='auto_defi' instead of 'auto', so
+ * this sync's delete-then-insert can never touch (or be touched by) the
+ * regular sync's own rows, including Hyperliquid's DeFi-category holdings.
+ */
+export async function syncWalletDefi(walletId: string): Promise<JobStartResult> {
+  const user = await requireUser();
+  const db = await userDb();
+  const { data: wallet, error: walletError } = await db
+    .from("wallets")
+    .select("chain, address, mode")
+    .eq("id", walletId)
+    .single();
+  if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
+  if (wallet.mode !== "auto") throw new Error("Only auto wallets can sync DeFi positions.");
+  if (!wallet.address) throw new Error("This wallet has no address set.");
+  if (!isEvmChainId(wallet.chain)) throw new Error(`DeFi sync isn't available for chain "${wallet.chain}".`);
+
+  const syncStartedAt = Date.now();
+  const staleBefore = new Date(syncStartedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await db
+    .from("wallets")
+    .update({ defi_sync_status: "syncing", defi_sync_started_at: new Date(syncStartedAt).toISOString() })
+    .eq("id", walletId)
+    .or(`defi_sync_status.neq.syncing,defi_sync_status.is.null,defi_sync_started_at.lt.${staleBefore}`)
+    .select("id");
+  if (markError) throw new Error(`Failed to start DeFi sync: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A DeFi sync is already running for this wallet." };
+  }
+
+  after(async () => {
+    const afterDb = await userDb();
+    try {
+      const { holdings, warnings } = await fetchZerionDefiPositions(wallet.address!);
+      const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
+
+      const { error: syncError } = await afterDb.rpc("sync_defi_holdings", {
+        p_wallet_id: walletId,
+        p_holdings: holdings,
+        p_status: status,
+      });
+      if (syncError) throw new Error(`Failed to save DeFi holdings: ${syncError.message}`);
+
+      await afterDb
+        .from("wallets")
+        .update({ defi_sync_duration_ms: Date.now() - syncStartedAt })
+        .eq("id", walletId);
+
+      // Reprice this wallet's own newly-synced DeFi tickers — usually a
+      // no-op (Zerion already stamps usd_override on every position), but
+      // covers the rare row where value came back null and qty didn't —
+      // same reasoning and same scoped path as syncWalletHoldings above.
+      const tickersToPrice: HoldingTickerInfo[] = holdings
+        .filter((h) => h.usd_override === null)
+        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto" }));
+      await refreshTickerPrices(tickersToPrice).catch(() => {});
+
+      scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
+    } catch (e) {
+      await afterDb
+        .from("wallets")
+        .update({
+          defi_sync_status: `error: ${(e as Error).message}`,
+          defi_sync_duration_ms: Date.now() - syncStartedAt,
+        })
+        .eq("id", walletId);
+    } finally {
+      revalidatePath(`/wallets/${walletId}`);
+      revalidatePath("/wallets");
       revalidatePath("/dashboard");
       revalidatePath("/analytics");
     }

@@ -111,11 +111,14 @@ export async function fetchWalletTransactions(
     // matching this feature's own "don't call an endpoint just to learn
     // there's nothing there" scoping — a chain fully exited (zero current
     // holdings, but real past activity) is a known, accepted gap for now.
+    // No source filter — manual holdings already have chain: null (excluded
+    // by the not-null check below), so this naturally also counts a chain
+    // where the only activity is a DeFi position (source='auto_defi', e.g.
+    // an Aave deposit on a chain with zero native balance there).
     const { data, error } = await serviceDb()
       .from("holdings")
       .select("chain")
       .eq("wallet_id", walletId)
-      .eq("source", "auto")
       .not("chain", "is", null);
     if (error) throw new Error(`Failed to load wallet chains: ${error.message}`);
 
