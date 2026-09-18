@@ -4,8 +4,7 @@ import { Trash, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
-import { isEvmChainId } from "@/lib/adapters/evmChains";
-import { pinnedWalletChain } from "@/lib/walletDisplay";
+import { pinnedWalletChain, externalPortfolioViewer } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
@@ -34,29 +33,6 @@ import {
 // duration available on the current plan; on plans below that ceiling this
 // is silently capped, so a very multi-chain wallet may still need a retry.
 export const maxDuration = 300;
-
-/** Deliberately separate from pinnedWalletChain: that function answers "can
- * this chain sign a wallet-auth challenge" (BTC can't — no scheme
- * implemented — so it returns null for BTC), which is a different question
- * from "is there a free external viewer for this address." Live-verified:
- * debank.com/profile/<address> (200, real profile — DeBank aggregates
- * across every EVM chain for one 0x address, no chain-specific path
- * needed), jup.ag/portfolio/<address> (200 for a real address, 404 for a
- * nonsense route — confirming it's a real per-address page, not just
- * always-200; the old portfolio.jup.ag/portfolio/<address> now redirects
- * away from the address entirely, so that host is stale), and
- * unisat.io/address/<address> (200, and its own header text confirms it
- * covers "Ordinals, Runes, Alkanes" for a Bitcoin address — this is a
- * client-rendered SPA so curl/WebFetch can't diff real-vs-fake addresses
- * the way DeBank/Jupiter could, but UniSat is the same product behind the
- * Open API researched for native Runes-balance support, so it's a known-
- * real service, not a guess). */
-function externalPortfolioViewer(chain: string, address: string): { url: string; label: string } | null {
-  if (isEvmChainId(chain)) return { url: `https://debank.com/profile/${address}`, label: "DeBank" };
-  if (chain === "SOL") return { url: `https://jup.ag/portfolio/${address}`, label: "Jupiter Portfolio" };
-  if (chain === "BTC") return { url: `https://unisat.io/address/${address}`, label: "UniSat" };
-  return null;
-}
 
 export default async function WalletDetailPage(
   props: PageProps<"/wallets/[id]"> & {

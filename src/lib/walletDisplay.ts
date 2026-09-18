@@ -71,3 +71,34 @@ export function walletDisplayName(user: {
   const address = user.user_metadata?.wallet_address;
   return address ? truncateAddress(address) : null;
 }
+
+/** Deliberately separate from pinnedWalletChain: that function answers "can
+ * this chain sign a wallet-auth challenge" (BTC can't — no scheme
+ * implemented — so it returns null for BTC), which is a different question
+ * from "is there a free external viewer for this address." Live-verified:
+ * debank.com/profile/<address> (200, real profile — DeBank aggregates
+ * across every EVM chain for one 0x address, no chain-specific path
+ * needed), jup.ag/portfolio/<address> (200 for a real address, 404 for a
+ * nonsense route — confirming it's a real per-address page, not just
+ * always-200; the old portfolio.jup.ag/portfolio/<address> now redirects
+ * away from the address entirely, so that host is stale), and
+ * unisat.io/address/<address> (200, and its own header text confirms it
+ * covers "Ordinals, Runes, Alkanes" for a Bitcoin address — this is a
+ * client-rendered SPA so curl/WebFetch can't diff real-vs-fake addresses
+ * the way DeBank/Jupiter could, but UniSat is the same product behind the
+ * Open API researched for native Runes-balance support, so it's a known-
+ * real service, not a guess).
+ *
+ * Shared by the wallet detail page and the public Wallet Lookup page (moved
+ * here — pure, no DB/network — once the second consumer needed the
+ * identical logic, per this codebase's own "two is the threshold to
+ * extract" rule). The caller is responsible for excluding a BTC xpub/ypub/
+ * zpub first (see both call sites) — that's a key deriving many addresses,
+ * not a spendable address itself, so UniSat's address page has no
+ * meaningful equivalent to link to for one. */
+export function externalPortfolioViewer(chain: string, address: string): { url: string; label: string } | null {
+  if (isEvmChainId(chain)) return { url: `https://debank.com/profile/${address}`, label: "DeBank" };
+  if (chain === "SOL") return { url: `https://jup.ag/portfolio/${address}`, label: "Jupiter Portfolio" };
+  if (chain === "BTC") return { url: `https://unisat.io/address/${address}`, label: "UniSat" };
+  return null;
+}

@@ -1,4 +1,7 @@
+import { ExternalLink } from "lucide-react";
 import { lookupWallet } from "@/lib/lookup";
+import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
+import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -64,11 +67,31 @@ async function LookupResults({
     );
   }
 
+  // Same guard as the wallet detail page: an xpub/ypub/zpub derives many
+  // addresses, not a spendable one itself, so UniSat's address page has no
+  // meaningful equivalent to link to for it.
+  const isBtcXpub = result.chain === "BTC" && isExtendedPublicKey(result.address);
+  const externalViewer = isBtcXpub ? null : externalPortfolioViewer(result.chain, result.address);
+
   return (
     <>
       <Panel className="mb-6">
-        <p className="text-sm text-fg-muted">
-          {result.chain} · {result.address}
+        <p className="flex flex-wrap items-center gap-1.5 text-sm text-fg-muted">
+          <span>
+            {result.chain} · {result.address}
+          </span>
+          {externalViewer && (
+            <a
+              href={externalViewer.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`View on ${externalViewer.label}`}
+              aria-label={`View on ${externalViewer.label}`}
+              className="text-fg-muted transition hover:text-fg"
+            >
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+            </a>
+          )}
         </p>
         <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
           {formatUsd(result.total)}
