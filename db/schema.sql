@@ -674,4 +674,15 @@ grant all on cryptoport.coin_market_data to service_role;
 grant select on cryptoport.coin_market_data to authenticated;
 create policy "coin_market_data: readable by all signed-in users"
   on cryptoport.coin_market_data for select to authenticated using (true);
-  add column change_30d_pct numeric;
+
+-- Lets a manual holding (chain/contract both null — see the base table's
+-- own comment) carry an explicit CoinGecko identity, picked via the same
+-- searchCoins()/pickBestMatch() infra the Watchlist uses (CoinSearchInput).
+-- resolveCoingeckoKey (priceKey.ts) checks this before any chain/contract
+-- inference — it's the strongest possible signal, since it names the exact
+-- coin instead of guessing off a bare ticker. Fixes a real bug: a manually-
+-- added "DOG" (a Bitcoin Rune) was priced off Coinbase's own unrelated
+-- "DOG" — same ticker, different asset, no way to tell them apart from a
+-- bare symbol alone.
+alter table cryptoport.holdings
+  add column coingecko_id text;

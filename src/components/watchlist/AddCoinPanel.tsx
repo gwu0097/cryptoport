@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { Loader2, AlertTriangle, X } from "lucide-react";
+import { useState, useTransition } from "react";
+import { AlertTriangle, X } from "lucide-react";
 import type { CoinSearchResult } from "@/lib/adapters/coingecko";
 import { parseTickerInput } from "@/lib/watchlistInput";
 import {
@@ -16,55 +16,13 @@ import { ToggleGroup } from "../ui/ToggleGroup";
 import { Button } from "../ui/Button";
 import { inputClass } from "../ui/Field";
 import { TokenIcon } from "../TokenIcon";
-
-const SEARCH_DEBOUNCE_MS = 350;
-const MIN_QUERY_LENGTH = 2;
-
-/** Debounced against CoinGecko's /search — this is the app's first type-
- * against-a-live-API input (see this file's own review note on
- * WalletCombobox, which is local-array-filtered and doesn't need this). A
- * monotonic request id (not AbortController — fetchWithRetry runs
- * server-side inside the Server Action, nothing here to abort) discards a
- * stale response that resolves after a newer keystroke already fired. */
-function useCoinSearch(query: string) {
-  const [results, setResults] = useState<CoinSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const requestId = useRef(0);
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    // Below the minimum length, there's nothing to fetch — the caller
-    // (SearchTab) already gates rendering the results dropdown on this
-    // same length check, so leaving stale `results`/`loading` state
-    // untouched here is harmless (never rendered) and avoids a
-    // synchronous setState directly in the effect body.
-    if (trimmed.length < MIN_QUERY_LENGTH) return;
-
-    const id = ++requestId.current;
-    const timer = setTimeout(() => {
-      setLoading(true);
-      searchCoinsAction(trimmed)
-        .then((found) => {
-          if (id === requestId.current) setResults(found);
-        })
-        .finally(() => {
-          if (id === requestId.current) setLoading(false);
-        });
-    }, SEARCH_DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  return { results, loading };
-}
+import { CoinSearchInput } from "../CoinSearchInput";
 
 function SearchTab({ watchlistId }: { watchlistId: string }) {
-  const [query, setQuery] = useState("");
-  const { results, loading } = useCoinSearch(query);
   const [pending, startTransition] = useTransition();
-  const [addedId, setAddedId] = useState<string | null>(null);
 
-  function handleAdd(coin: CoinSearchResult) {
+  function handleSelect(coin: CoinSearchResult | null) {
+    if (!coin) return;
     startTransition(async () => {
       await addWatchlistItem(watchlistId, {
         coingeckoId: coin.id,
@@ -72,56 +30,17 @@ function SearchTab({ watchlistId }: { watchlistId: string }) {
         name: coin.name,
         imageUrl: coin.imageUrl,
       });
-      setAddedId(coin.id);
-      setQuery("");
     });
   }
 
   return (
-    <div>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setAddedId(null);
-        }}
-        placeholder="Search a ticker or coin name (e.g. PEPE, Bitcoin)…"
-        className={inputClass}
-      />
-      {query.trim().length >= MIN_QUERY_LENGTH && (
-        <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-border">
-          {loading ? (
-            <div className="flex items-center gap-2 p-3 text-sm text-fg-muted">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              Searching…
-            </div>
-          ) : results.length === 0 ? (
-            <p className="p-3 text-sm text-fg-muted">No coins found.</p>
-          ) : (
-            results.map((coin) => (
-              <button
-                key={coin.id}
-                type="button"
-                disabled={pending}
-                onClick={() => handleAdd(coin)}
-                className="flex w-full items-center gap-3 border-b border-border/60 p-3 text-left text-sm last:border-b-0 hover:bg-surface-raised disabled:opacity-50"
-              >
-                <TokenIcon ticker={coin.symbol} url={coin.imageUrl} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-fg">{coin.name}</div>
-                  <div className="text-xs text-fg-muted">
-                    {coin.symbol}
-                    {coin.marketCapRank !== null && ` · #${coin.marketCapRank}`}
-                  </div>
-                </div>
-                {addedId === coin.id && <span className="shrink-0 text-xs text-positive">Added</span>}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
+    <CoinSearchInput
+      search={searchCoinsAction}
+      onSelect={handleSelect}
+      placeholder="Search a ticker or coin name (e.g. PEPE, Bitcoin)…"
+      clearOnSelect
+      disabled={pending}
+    />
   );
 }
 

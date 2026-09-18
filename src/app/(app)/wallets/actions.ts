@@ -15,7 +15,7 @@ import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
 import { NON_EVM_DISPATCH, type AdapterFetchResult } from "@/lib/adapters/nonEvmDispatch";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
-import { refreshTokenRegistry } from "@/lib/adapters/coingecko";
+import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import type { WalletMode } from "@/lib/types";
@@ -418,6 +418,19 @@ export async function updateWallet(walletId: string, formData: FormData) {
   revalidatePath("/wallets");
 }
 
+// Thin wrapper around the same searchCoins() the Watchlist's own
+// searchCoinsAction (watchlist/actions.ts) calls — duplicated as a wrapper
+// rather than imported from there, so /wallets doesn't reach into another
+// route's action module for something this small. Powers CoinSearchInput
+// on the add-holding form (AddHoldingModal), same debounced typeahead
+// pattern as Watchlist's AddCoinPanel.
+export async function searchCoinsAction(query: string): Promise<CoinSearchResult[]> {
+  await requireUser();
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  return searchCoins(trimmed);
+}
+
 // A manual wallet's holdings are entered by hand, as either a typed quantity
 // (priced on every refresh) or a fixed USD value (source='manual_usd', which
 // bypasses pricing entirely — see valuation.ts). This is the only place that
@@ -426,6 +439,14 @@ export async function addHolding(walletId: string, formData: FormData) {
   const user = await requireUser();
   const ticker = requireString(formData, "ticker").toUpperCase();
   const kind = requireOneOf(formData, "kind", HOLDING_KINDS);
+  // Set only when the coin picker (CoinSearchInput, in AddHoldingModal) was
+  // actually used — a plain typed ticker with nothing picked leaves both
+  // null, same as before this existed. See priceKey.ts's resolveCoingeckoKey
+  // for why this is the one thing that lets a manual holding resolve to a
+  // safe, collision-proof price instead of a bare-ticker Coinbase/Jupiter
+  // lookup (the DOG-vs-DOG bug this exists to fix).
+  const coingeckoId = optionalString(formData, "coingecko_id");
+  const iconUrl = optionalString(formData, "icon_url");
 
   const insert: {
     wallet_id: string;
@@ -433,6 +454,8 @@ export async function addHolding(walletId: string, formData: FormData) {
     source: "manual_usd" | "manual_qty";
     qty: string | null;
     usd_override: string | null;
+    coingecko_id: string | null;
+    icon_url: string | null;
   } =
     kind === "usd"
       ? {
@@ -441,6 +464,8 @@ export async function addHolding(walletId: string, formData: FormData) {
           source: "manual_usd",
           usd_override: requireString(formData, "usd_override"),
           qty: null,
+          coingecko_id: coingeckoId,
+          icon_url: iconUrl,
         }
       : {
           wallet_id: walletId,
@@ -448,6 +473,8 @@ export async function addHolding(walletId: string, formData: FormData) {
           source: "manual_qty",
           qty: requireString(formData, "qty"),
           usd_override: null,
+          coingecko_id: coingeckoId,
+          icon_url: iconUrl,
         };
 
   const db = await userDb();

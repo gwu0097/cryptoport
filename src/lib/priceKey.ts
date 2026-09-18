@@ -23,6 +23,11 @@ export interface PriceKeyInput {
   source: HoldingSource;
   contract: string | null;
   chain: string | null;
+  /** Explicitly picked at add time (see watchlist's identical pattern) —
+   * the strongest possible signal, since it names the exact coin rather
+   * than inferring it from a chain/contract/ticker combination. Optional
+   * so every other caller of this resolver is unaffected. */
+  coingeckoId?: string | null;
 }
 
 function platformFor(chain: string): string | null {
@@ -30,12 +35,20 @@ function platformFor(chain: string): string | null {
 }
 
 /**
- * `"<platform>:<contract>"` for anything with a contract address on a
+ * `holding.coingeckoId` itself when one was explicitly picked (see below),
+ * else `"<platform>:<contract>"` for anything with a contract address on a
  * chain this app knows CoinGecko's platform id for, `"<coin-id>"` for a
- * recognized native token, or null when neither applies — a manual
+ * recognized native token, or null when none applies — a manual
  * dollar-figure holding, a DeFi position with no priced-per-unit value, a
  * holding synced before the `chain` column existed (chain: null), or a
  * token/chain combination this app has no CoinGecko mapping for.
+ *
+ * A manual holding has no chain/contract to infer from at all, so it can
+ * only ever reach a safe key this way — see CoinSearchInput/addHolding,
+ * which let the user pick the exact coin at add time instead of the app
+ * guessing off a bare ticker (the same ticker-collision risk the Solana
+ * "KNOWN GAP" in valuation.ts documents; Coinbase's own pricing API turned
+ * out to have this exact collision for the ticker "DOG").
  *
  * The native-token fallback ONLY fires when the ticker actually matches
  * that chain's own native asset (checked against EVM_CHAINS' nativeSymbol
@@ -49,6 +62,7 @@ function platformFor(chain: string): string | null {
  */
 export function resolveCoingeckoKey(holding: PriceKeyInput): string | null {
   if (holding.source === "manual_usd") return null;
+  if (holding.coingeckoId) return holding.coingeckoId;
 
   if (holding.contract && holding.chain) {
     const platform = platformFor(holding.chain);

@@ -43,12 +43,14 @@ interface HoldingTickerInfo {
   /** Same "first non-null seen" reasoning as contract — needed to resolve
    * a CoinGecko key (contract+chain, or chain-native-symbol match). */
   chain: string | null;
-  /** Plain first-seen, no null-preference — only used to skip manual_usd
-   * tickers in the CoinGecko resolution step below. Getting this "wrong"
-   * (picking a non-manual source when a manual holding shares the ticker)
-   * only means a ticker that could have resolved via CoinGecko falls back
-   * to Coinbase instead — never a wrong number, so it doesn't need
-   * contract/chain's more careful merge logic. */
+  /** First row with a coingecko_id explicitly set (a manual holding added
+   * via the coin picker — see priceKey.ts). Strongest possible identity
+   * signal when present; see the representative-selection comment below. */
+  coingeckoId: string | null;
+  /** The elected representative row's own source (not simply the group's
+   * first-seen row — see the comment below on why that distinction now
+   * matters). Used to skip manual_usd tickers in the CoinGecko resolution
+   * step. */
   source: string;
 }
 
@@ -76,10 +78,16 @@ interface HoldingTickerInfo {
 // must not force the group away from a real contract-based resolution
 // that would otherwise work fine.
 async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
-  const { data, error } = await serviceDb().from("holdings").select("ticker, contract, chain, source");
+  const { data, error } = await serviceDb().from("holdings").select("ticker, contract, chain, source, coingecko_id");
   if (error) throw new Error(`Failed to load holding tickers: ${error.message}`);
 
-  const rows = data as { ticker: string; contract: string | null; chain: string | null; source: string }[];
+  const rows = data as {
+    ticker: string;
+    contract: string | null;
+    chain: string | null;
+    source: string;
+    coingecko_id: string | null;
+  }[];
   const byTicker = new Map<string, typeof rows>();
   for (const row of rows) {
     if (!byTicker.has(row.ticker)) byTicker.set(row.ticker, []);
@@ -88,6 +96,11 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
 
   const result: HoldingTickerInfo[] = [];
   for (const [ticker, group] of byTicker) {
+    // An explicitly picked coingecko_id (a manual holding added via the
+    // coin picker) is a stronger identity signal than anything inferred
+    // below — it names the exact coin, not just a chain/contract pattern
+    // match — so it's checked first.
+    const explicitIdRow = group.find((r) => r.coingecko_id !== null);
     const nativeMatch = group.find((r) => {
       if (r.contract !== null || r.chain === null) return false;
       const key = resolveCoingeckoKey({ ticker, source: r.source as HoldingSource, contract: null, chain: r.chain });
@@ -95,12 +108,17 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
     });
     const contractRow = group.find((r) => r.contract !== null);
     const fallbackRow = group.find((r) => r.chain !== null) ?? group[0];
-    const representative = nativeMatch ?? contractRow ?? fallbackRow;
+    const representative = explicitIdRow ?? nativeMatch ?? contractRow ?? fallbackRow;
     result.push({
       ticker,
-      contract: nativeMatch ? null : (contractRow?.contract ?? null),
+      contract: explicitIdRow || nativeMatch ? null : (contractRow?.contract ?? null),
       chain: representative.chain,
-      source: group[0].source,
+      coingeckoId: explicitIdRow?.coingecko_id ?? null,
+      // The representative's OWN source, not group[0]'s first-seen source
+      // — a manual_usd row sitting first in the group must not force an
+      // otherwise-resolvable ticker (e.g. one with a real coingecko_id or
+      // a native match) into the residual lane below.
+      source: representative.source,
     });
   }
   return result;
@@ -180,7 +198,13 @@ function splitByCoingeckoResolvability(tickers: HoldingTickerInfo[]): {
       residual.push(t);
       continue;
     }
-    const key = resolveCoingeckoKey({ ticker: t.ticker, source: t.source as HoldingSource, contract: t.contract, chain: t.chain });
+    const key = resolveCoingeckoKey({
+      ticker: t.ticker,
+      source: t.source as HoldingSource,
+      contract: t.contract,
+      chain: t.chain,
+      coingeckoId: t.coingeckoId,
+    });
     if (key) resolved.push({ ticker: t.ticker, key });
     else residual.push(t);
   }
@@ -576,6 +600,7 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
       ticker: m.ticker,
       contract: m.contract,
       chain: "solana",
+      coingeckoId: null,
       source: "auto",
     }));
     solanaMissResults = await refreshCoinbaseAndJupiter(solanaMissTickers, existingSources);

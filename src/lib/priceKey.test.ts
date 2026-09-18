@@ -86,3 +86,46 @@ test("resolveCoingeckoKey still resolves SOL itself (no contract) to the solana 
 test("resolveCoingeckoKey returns null for a non-native token with no contract on bitcoin", () => {
   assert.equal(resolveCoingeckoKey({ ticker: "ORDI", source: "auto", contract: null, chain: "bitcoin" }), null);
 });
+
+// An explicitly picked coingecko_id is the strongest possible signal —
+// used for manual holdings (chain: null), which otherwise have no way to
+// resolve to a safe key at all. See the DOG-vs-DOG Coinbase collision this
+// exists to fix.
+test("resolveCoingeckoKey returns the explicit coingeckoId when one is set, even with no chain", () => {
+  assert.equal(
+    resolveCoingeckoKey({
+      ticker: "DOG",
+      source: "manual_qty",
+      contract: null,
+      chain: null,
+      coingeckoId: "dog-go-to-the-moon-rune",
+    }),
+    "dog-go-to-the-moon-rune",
+  );
+});
+
+test("resolveCoingeckoKey prefers the explicit coingeckoId over chain/contract inference", () => {
+  assert.equal(
+    resolveCoingeckoKey({
+      ticker: "WETH",
+      source: "auto",
+      contract: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+      chain: "eth",
+      coingeckoId: "weth",
+    }),
+    "weth",
+  );
+});
+
+test("resolveCoingeckoKey still returns null for manual_usd even with a coingeckoId set", () => {
+  assert.equal(
+    resolveCoingeckoKey({
+      ticker: "DOG",
+      source: "manual_usd",
+      contract: null,
+      chain: null,
+      coingeckoId: "dog-go-to-the-moon-rune",
+    }),
+    null,
+  );
+});

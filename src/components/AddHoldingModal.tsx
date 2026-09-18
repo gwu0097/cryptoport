@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Field, inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
 import { buttonClass } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
+import { CoinSearchInput } from "./CoinSearchInput";
+import { searchCoinsAction } from "@/app/(app)/wallets/actions";
+import type { CoinSearchResult } from "@/lib/adapters/coingecko";
 
 /**
  * "+ Add holding" as a popup (see ui/Dialog.tsx) rather than two
@@ -14,6 +17,20 @@ import { Dialog } from "./ui/Dialog";
  * quantity, priced live off the shared ticker table; by a fixed USD value,
  * bypassing pricing entirely) live in the same popup rather than two
  * separate buttons, matching how they were already presented side by side.
+ *
+ * Each form's Ticker field is a CoinSearchInput (the same picker Watchlist
+ * uses) rather than a plain text input: typing still just types a ticker —
+ * nothing about that path changes — but picking a result also stashes that
+ * coin's coingecko_id/icon_url in hidden inputs, submitted alongside the
+ * ticker. addHolding stores them on the holding, which is what lets
+ * priceKey.ts resolve a manual holding to a real, collision-safe price
+ * instead of a bare-ticker Coinbase/Jupiter lookup — a manual holding has
+ * no chain to infer an identity from otherwise (fixes a real bug: a
+ * manually-added "DOG" Bitcoin Rune was priced off Coinbase's own
+ * unrelated "DOG"). Same insert gets a real icon instead of the ticker-
+ * initial fallback badge, for free. Editing the ticker text after a pick
+ * clears the stash (CoinSearchInput's own contract), so a stale identity
+ * can never be submitted next to a ticker it no longer matches.
  */
 export function AddHoldingModal({
   addHolding,
@@ -23,6 +40,8 @@ export function AddHoldingModal({
   defaultTicker?: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [qtyCoin, setQtyCoin] = useState<CoinSearchResult | null>(null);
+  const [usdCoin, setUsdCoin] = useState<CoinSearchResult | null>(null);
 
   return (
     <>
@@ -43,8 +62,17 @@ export function AddHoldingModal({
             className="flex flex-col gap-3"
           >
             <input type="hidden" name="kind" value="qty" />
+            <input type="hidden" name="coingecko_id" value={qtyCoin?.id ?? ""} />
+            <input type="hidden" name="icon_url" value={qtyCoin?.imageUrl ?? ""} />
             <Field label="Ticker">
-              <input name="ticker" type="text" required defaultValue={defaultTicker} className={inputClass} />
+              <CoinSearchInput
+                search={searchCoinsAction}
+                onSelect={setQtyCoin}
+                name="ticker"
+                defaultValue={defaultTicker}
+                placeholder="e.g. BTC, ETH, PEPE…"
+                required
+              />
             </Field>
             <Field label="Quantity">
               <input name="qty" type="text" inputMode="decimal" required className={inputClass} />
@@ -58,8 +86,16 @@ export function AddHoldingModal({
             className="flex flex-col gap-3"
           >
             <input type="hidden" name="kind" value="usd" />
+            <input type="hidden" name="coingecko_id" value={usdCoin?.id ?? ""} />
+            <input type="hidden" name="icon_url" value={usdCoin?.imageUrl ?? ""} />
             <Field label="Ticker">
-              <input name="ticker" type="text" required className={inputClass} />
+              <CoinSearchInput
+                search={searchCoinsAction}
+                onSelect={setUsdCoin}
+                name="ticker"
+                placeholder="e.g. BTC, ETH, PEPE…"
+                required
+              />
             </Field>
             <Field label="Fixed USD value">
               <input name="usd_override" type="text" inputMode="decimal" required className={inputClass} />
