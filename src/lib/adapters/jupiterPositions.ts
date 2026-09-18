@@ -4,6 +4,10 @@ import type { AdapterHolding } from "./types";
 
 const API_BASE = "https://api.jup.ag/portfolio/v1";
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+// Optional — works keyless too, same as jupiter.ts's own api.jup.ag calls;
+// JUPITER_API_KEY just unlocks a higher rate limit when set.
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
+const HEADERS: Record<string, string> = JUPITER_API_KEY ? { "x-api-key": JUPITER_API_KEY } : {};
 
 interface PositionAssetData {
   address?: string;
@@ -104,7 +108,7 @@ function humanize(label: string): string {
  * as evm.ts's chains vs. Hyperliquid split.
  */
 export async function fetchJupiterPositions(address: string): Promise<JupiterPositionsResult> {
-  const res = await fetchWithRetry(`${API_BASE}/positions/${address}`);
+  const res = await fetchWithRetry(`${API_BASE}/positions/${address}`, { headers: HEADERS });
   if (!res.ok) throw new Error(`Jupiter positions failed: HTTP ${res.status}`);
   const body: PositionsResponse = await res.json();
   const tokenInfo = body.tokenInfo?.solana;

@@ -2,7 +2,17 @@ import "server-only";
 import { fetchWithRetry } from "./http";
 import type { AdapterHolding } from "./types";
 
-const BALANCES_URL = "https://lite-api.jup.ag/ultra/v1/balances";
+// lite-api.jup.ag (this file's original host for all three endpoints below)
+// is being deprecated in favor of api.jup.ag + an API key — live-confirmed
+// (2026-09): lite-api still works today, but Jupiter's own migration docs
+// say its rate limit will be "progressively reduced" before full retirement,
+// with no fixed deadline. Migrated proactively rather than waiting for it to
+// start failing. api.jup.ag serves the identical endpoints/response shapes
+// (verified live, same data back from all three) and works keyless too —
+// JUPITER_API_KEY just unlocks a higher rate limit, same optional-with-
+// fallback pattern as HELIUS_API_KEY elsewhere in this app.
+const API_HOST = "https://api.jup.ag";
+const BALANCES_URL = `${API_HOST}/ultra/v1/balances`;
 // Not the endpoint originally specified (price/v3) — that one doesn't return
 // a symbol at all, only usdPrice/liquidity, and this project needs a human
 // ticker for display and as the prices-table key. tokens/v2/search returns
@@ -10,7 +20,7 @@ const BALANCES_URL = "https://lite-api.jup.ag/ultra/v1/balances";
 // against price/v3 for the same mints and they matched exactly (same
 // underlying feed), so this replaces price/v3 rather than adding a second
 // call.
-const TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
+const TOKEN_SEARCH_URL = `${API_HOST}/tokens/v2/search`;
 // Live-verified this session: a real, liquid, Jupiter-"verified" token
 // (ORCA) comes back with only info-severity warnings (e.g.
 // HAS_MINT_AUTHORITY — common, not disqualifying), while a copycat/spam
@@ -19,7 +29,7 @@ const TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 // alone is gameable) came back with a "critical"-severity NOT_SELLABLE
 // warning, matching the exact "Not Sellable"/JupShield panel Jupiter's own
 // swap UI shows for it. This is that same signal, at sync time.
-const SHIELD_URL = "https://lite-api.jup.ag/ultra/v1/shield";
+const SHIELD_URL = `${API_HOST}/ultra/v1/shield`;
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 const SEARCH_BATCH_SIZE = 100;
 // Live-verified via bisection (not documented anywhere): SHIELD_URL silently
@@ -59,7 +69,11 @@ export interface JupiterTokenInfo {
   stats24h?: { priceChange?: number };
 }
 
-const HEADERS = { "User-Agent": "cryptoport/1.0" };
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
+const HEADERS: Record<string, string> = {
+  "User-Agent": "cryptoport/1.0",
+  ...(JUPITER_API_KEY ? { "x-api-key": JUPITER_API_KEY } : {}),
+};
 
 async function fetchBalances(address: string): Promise<Record<string, JupiterBalance>> {
   const res = await fetchWithRetry(`${BALANCES_URL}/${address}`, { headers: HEADERS });
