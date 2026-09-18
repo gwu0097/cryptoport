@@ -10,6 +10,7 @@ import { fetchSolanaStaking } from "./solanaStaking";
 import { fetchSkrStaking } from "./skrStaking";
 import { fetchJitoMevRewards } from "./jitoMevRewards";
 import { fetchLuloPositions } from "./lulo";
+import { fetchTokenInfo } from "./jupiter";
 
 export interface SolPositionsResult {
   holdings: AdapterHolding[];
@@ -52,6 +53,36 @@ const SOURCES: { name: string; fetch: (address: string) => Promise<SolPositionsR
   },
 ];
 
+/**
+ * Every real-mint DeFi holding (Wormhole's W stake, Parcl's USDC margin,
+ * Jupiter DAO's locked JUP, Kamino's underlying deposits, ...) has a known
+ * on-chain mint but none of these adapters set icon_url — unlike
+ * fetchJupiterHoldings (plain token balances), which gets an icon for free
+ * from the same tokens/v2/search response it already uses for pricing.
+ * Backfilled here, once, for every source at once, rather than patching
+ * each adapter individually — real gap reported live: every DeFi protocol
+ * group on the wallet detail page showed a generic letter badge instead of
+ * the token's real logo, even for tickers (W, JUP, KMNO, USDC) that already
+ * render correctly in the plain-token section above. Best-effort: a lookup
+ * failure here shouldn't fail the actual holdings fetch, icons are cosmetic.
+ * Mutates in place rather than rebuilding the array — cheap, and every
+ * caller already treats these as fresh objects, not shared/cached ones.
+ * Synthetic contract-less tickers (Kamino's KAMINO-{MULTIPLY,LEVERAGE,...}
+ * leveraged positions, KAMINO-LP) have no single underlying mint to resolve
+ * and are left as-is — a static per-protocol icon is a separate, later fix.
+ */
+async function backfillDefiIcons(holdings: AdapterHolding[]): Promise<void> {
+  const mints = [...new Set(holdings.filter((h) => h.contract && !h.icon_url).map((h) => h.contract!))];
+  if (mints.length === 0) return;
+  const tokenInfo = await fetchTokenInfo(mints).catch(() => new Map());
+  for (const h of holdings) {
+    if (h.contract && !h.icon_url) {
+      const icon = tokenInfo.get(h.contract)?.icon;
+      if (icon) h.icon_url = icon;
+    }
+  }
+}
+
 export async function fetchSolDefiPositions(address: string): Promise<SolPositionsResult> {
   const results = await Promise.all(
     SOURCES.map(({ name, fetch }) =>
@@ -61,8 +92,10 @@ export async function fetchSolDefiPositions(address: string): Promise<SolPositio
       })),
     ),
   );
+  const holdings = results.flatMap((r) => r.holdings);
+  await backfillDefiIcons(holdings);
   return {
-    holdings: results.flatMap((r) => r.holdings),
+    holdings,
     warnings: results.flatMap((r) => r.warnings),
   };
 }
