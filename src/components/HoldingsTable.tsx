@@ -151,9 +151,14 @@ function ManualHoldingActions({ holding, walletId }: { holding: HoldingWithValua
 export function HoldingsTable({
   holdings,
   walletId,
+  hideProtocolTag = false,
 }: {
   holdings: HoldingWithValuation[];
   walletId?: string;
+  /** True when the caller (ChainGroupedHoldings) is already showing this
+   * holding's protocol as a section header above the whole table — the
+   * per-row "via X" tag would just repeat it on every row. */
+  hideProtocolTag?: boolean;
 }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
@@ -213,7 +218,9 @@ export function HoldingsTable({
                       label={holding.contract ? "Copy contract address" : "Copy ticker"}
                     />
                   </span>
-                  {holding.protocol && <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />}
+                  {holding.protocol && !hideProtocolTag && (
+                    <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />
+                  )}
                 </div>
               </div>
             </td>

@@ -1,14 +1,55 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
-import { getChainIconMap, type ChainGroup } from "@/lib/queries";
+import { ChevronDown, ExternalLink } from "lucide-react";
+import { getChainIconMap, type ChainGroup, type HoldingWithValuation } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
 import { Panel } from "./ui/Panel";
 import { HoldingsTable } from "./HoldingsTable";
 import { TokenIcon } from "./TokenIcon";
 import { CheckboxLink } from "./ui/CheckboxLink";
+import { StopPropagationLink } from "./StopPropagationLink";
 
 const LOW_VALUE_USD = 10;
+
+interface ProtocolGroup {
+  protocol: string;
+  url: string | null;
+  total: number;
+  holdings: HoldingWithValuation[];
+}
+
+/**
+ * Splits one chain's holdings into plain token balances and DeFi-product
+ * sub-groups (jup.ag's own "Validators"/"Solana Mobile"/"Jito" cards are
+ * exactly this idea) — reported directly that a single flat table lumping
+ * 11 near-identical native-staking rows next to one Jito row made the
+ * Jito position easy to miss entirely, even though it was confirmed
+ * present and correctly priced on every check. Protocol groups sorted by
+ * descending value, same convention getDefiGroupedByProtocol (the /defi
+ * page's own cross-wallet version of this grouping) already uses.
+ */
+function groupByProtocol(holdings: HoldingWithValuation[]): {
+  plain: HoldingWithValuation[];
+  protocolGroups: ProtocolGroup[];
+} {
+  const plain: HoldingWithValuation[] = [];
+  const byProtocol = new Map<string, ProtocolGroup>();
+  for (const holding of holdings) {
+    if (!holding.protocol) {
+      plain.push(holding);
+      continue;
+    }
+    let group = byProtocol.get(holding.protocol);
+    if (!group) {
+      group = { protocol: holding.protocol, url: holding.protocol_url, total: 0, holdings: [] };
+      byProtocol.set(holding.protocol, group);
+    }
+    group.holdings.push(holding);
+    if (holding.valuation.kind === "priced") group.total += holding.valuation.usd;
+  }
+  const protocolGroups = [...byProtocol.values()].sort((a, b) => b.total - a.total);
+  return { plain, protocolGroups };
+}
 
 function cardClass(active: boolean): string {
   const base = "rounded-lg border px-3 py-2 text-left transition";
@@ -157,27 +198,67 @@ export async function ChainGroupedHoldings({
         </Panel>
       ) : (
         <div className="flex flex-col gap-4">
-          {visibleGroups.map((group) => (
-            <details key={group.chainId} open className="group rounded-xl border border-border bg-surface">
-              <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
-                <span className="flex items-center gap-2 font-semibold text-fg">
-                  <ChevronDown
-                    className="size-4 text-fg-muted transition-transform group-open:rotate-180"
-                    aria-hidden="true"
-                  />
-                  <TokenIcon ticker={group.chainName} url={chainIcons[group.chainId] ?? null} />
-                  {group.chainName}
-                  <span className="text-sm font-normal text-fg-muted">
-                    ({group.holdings.length} holding{group.holdings.length === 1 ? "" : "s"})
+          {visibleGroups.map((group) => {
+            const { plain, protocolGroups } = groupByProtocol(group.holdings);
+            return (
+              <details key={group.chainId} open className="group rounded-xl border border-border bg-surface">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-2 font-semibold text-fg">
+                    <ChevronDown
+                      className="size-4 text-fg-muted transition-transform group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                    <TokenIcon ticker={group.chainName} url={chainIcons[group.chainId] ?? null} />
+                    {group.chainName}
+                    <span className="text-sm font-normal text-fg-muted">
+                      ({group.holdings.length} holding{group.holdings.length === 1 ? "" : "s"})
+                    </span>
                   </span>
-                </span>
-                <span className="tabular-nums text-fg">{formatUsd(group.total)}</span>
-              </summary>
-              <div className="border-t border-border">
-                <HoldingsTable holdings={group.holdings} walletId={walletId} />
-              </div>
-            </details>
-          ))}
+                  <span className="tabular-nums text-fg">{formatUsd(group.total)}</span>
+                </summary>
+                <div className="border-t border-border">
+                  {plain.length > 0 && (
+                    <div>
+                      {/* Only labeled when DeFi sub-groups also exist below
+                          — otherwise this is the overwhelmingly common
+                          case (a chain with no DeFi at all) and stays
+                          pixel-identical to before this change. */}
+                      {protocolGroups.length > 0 && (
+                        <p className="px-5 pt-3 text-xs font-medium text-fg-muted">Wallet</p>
+                      )}
+                      <HoldingsTable holdings={plain} walletId={walletId} />
+                    </div>
+                  )}
+                  {protocolGroups.map((pg) => (
+                    <details
+                      key={pg.protocol}
+                      open
+                      className="group/protocol border-t border-border first:border-t-0"
+                    >
+                      <summary className="flex cursor-pointer list-none items-center justify-between bg-surface-raised/40 px-5 py-2.5 [&::-webkit-details-marker]:hidden">
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                          <ChevronDown
+                            className="size-3.5 text-fg-muted transition-transform group-open/protocol:rotate-180"
+                            aria-hidden="true"
+                          />
+                          {pg.protocol}
+                          {pg.url && (
+                            <StopPropagationLink href={pg.url} className="text-fg-muted transition hover:text-accent">
+                              <ExternalLink className="size-3" aria-hidden="true" />
+                            </StopPropagationLink>
+                          )}
+                        </span>
+                        <span className="tabular-nums text-sm text-fg-muted">{formatUsd(pg.total)}</span>
+                      </summary>
+                      <div className="border-t border-border">
+                        <HoldingsTable holdings={pg.holdings} walletId={walletId} hideProtocolTag />
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </details>
+            );
+          })}
         </div>
       )}
     </>
