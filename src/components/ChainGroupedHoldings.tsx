@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { getChainIconMap, type ChainGroup, type HoldingWithValuation } from "@/lib/queries";
-import { formatUsd } from "@/lib/format";
+import { formatUsd, formatTicker } from "@/lib/format";
 import { Panel } from "./ui/Panel";
 import { HoldingsTable } from "./HoldingsTable";
 import { TokenIcon } from "./TokenIcon";
@@ -248,6 +248,17 @@ export async function ChainGroupedHoldings({
             const rawProtocolGroups = rawGroup ? groupByProtocol(rawGroup.holdings).protocolGroups : [];
             const visibleProtocolNames = new Set(protocolGroups.map((pg) => pg.protocol));
             const hiddenProtocolGroups = rawProtocolGroups.filter((pg) => !visibleProtocolNames.has(pg.protocol));
+            // Same idea, one level further down: a plain (non-DeFi) token
+            // can individually disappear from an otherwise-visible chain
+            // too — a real holding with a real on-chain balance but no
+            // reliable price (too illiquid to trust a quote, by design —
+            // see jupiter.ts's own liquidity floor) is "unpriced", and
+            // "Hide unpriced" drops it from the table with nothing to show
+            // for it, same silent-vanish shape as the protocol-group case.
+            const visiblePlainIds = new Set(plain.map((h) => h.id));
+            const hiddenPlain = (rawGroup?.holdings.filter((h) => !h.protocol) ?? []).filter(
+              (h) => !visiblePlainIds.has(h.id),
+            );
             return (
               <details key={group.chainId} open className="group rounded-xl border border-border bg-surface">
                 <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
@@ -276,6 +287,11 @@ export async function ChainGroupedHoldings({
                       )}
                       <HoldingsTable holdings={plain} walletId={walletId} />
                     </div>
+                  )}
+                  {hiddenPlain.length > 0 && (
+                    <p className="border-t border-border px-5 py-2 text-xs text-fg-muted">
+                      {hiddenPlain.map((h) => formatTicker(h.ticker)).join(", ")} hidden by the filters above.
+                    </p>
                   )}
                   {protocolGroups.map((pg) => (
                     <details
