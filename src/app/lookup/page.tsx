@@ -1,6 +1,5 @@
 import { ExternalLink } from "lucide-react";
 import { lookupWallet } from "@/lib/lookup";
-import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
@@ -67,11 +66,7 @@ async function LookupResults({
     );
   }
 
-  // Same guard as the wallet detail page: an xpub/ypub/zpub derives many
-  // addresses, not a spendable one itself, so UniSat's address page has no
-  // meaningful equivalent to link to for it.
-  const isBtcXpub = result.chain === "BTC" && isExtendedPublicKey(result.address);
-  const externalViewer = isBtcXpub ? null : externalPortfolioViewer(result.chain, result.address);
+  const externalViewer = externalPortfolioViewer(result.chain, result.address);
 
   return (
     <>

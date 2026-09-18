@@ -27,12 +27,6 @@ const EXTENDED_KEY_FORMATS: Record<
   zpub: { versions: { private: 0x04b2430c, public: 0x04b24746 }, scriptTypes: ["p2wpkh"] }, // BIP84
 };
 
-const EXTENDED_PUBLIC_KEY_RE = /^(xpub|ypub|zpub)[1-9A-HJ-NP-Za-km-z]{100,116}$/;
-
-export function isExtendedPublicKey(value: string): boolean {
-  return EXTENDED_PUBLIC_KEY_RE.test(value);
-}
-
 function deriveAddress(hdkey: HDKey, scriptType: ScriptType): string {
   const pubkey = hdkey.publicKey;
   if (!pubkey) throw new Error("Derived HD key has no public key.");

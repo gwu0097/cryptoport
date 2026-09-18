@@ -1,6 +1,7 @@
 import "server-only";
 import { fetchTokenImages } from "./coingecko";
-import { scanExtendedKey, isExtendedPublicKey, type ScriptType } from "./bitcoinXpub";
+import { scanExtendedKey, type ScriptType } from "./bitcoinXpub";
+import { isExtendedPublicKey } from "../walletDisplay";
 import { fetchAddressStats, satsFromStats, SATS_PER_BTC } from "./bitcoinShared";
 import type { AdapterHolding } from "./types";
 

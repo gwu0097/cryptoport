@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Trash } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, RefreshCw, Trash } from "lucide-react";
 import type { WalletWithTotal } from "@/lib/queries";
 import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
 import { formatStaleness, formatUsd, formatDuration } from "@/lib/format";
@@ -49,9 +49,23 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
   return (
     <tr className={trClass}>
       <td className={tdClass}>
-        <Link href={`/wallets/${wallet.id}`} className="text-fg hover:text-accent">
-          {wallet.name}
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <Link href={`/wallets/${wallet.id}`} className="text-fg hover:text-accent">
+            {wallet.name}
+          </Link>
+          {wallet.externalViewer && (
+            <a
+              href={wallet.externalViewer.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`View on ${wallet.externalViewer.label}`}
+              aria-label={`View ${wallet.name} on ${wallet.externalViewer.label}`}
+              className="text-fg-muted transition hover:text-fg"
+            >
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+            </a>
+          )}
+        </div>
       </td>
       <td className={tdClass}>
         <div className="flex items-center gap-1">

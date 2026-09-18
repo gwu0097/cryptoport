@@ -3,8 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Trash, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
-import { isExtendedPublicKey } from "@/lib/adapters/bitcoinXpub";
-import { pinnedWalletChain, externalPortfolioViewer } from "@/lib/walletDisplay";
+import { isExtendedPublicKey, pinnedWalletChain, externalPortfolioViewer } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
@@ -80,11 +79,7 @@ export default async function WalletDetailPage(
   const pinnedChain = pinnedWalletChain(wallet.chain);
   const alreadyLinked =
     pinnedChain && wallet.address ? await isWalletLinked(pinnedChain, wallet.address) : false;
-  // isBtcXpub excluded: an xpub/ypub/zpub is a key that derives many
-  // addresses, not a spendable address itself — UniSat's address page has
-  // no meaningful equivalent to link to for one.
-  const externalViewer =
-    wallet.address && !isBtcXpub ? externalPortfolioViewer(wallet.chain, wallet.address) : null;
+  const externalViewer = wallet.address ? externalPortfolioViewer(wallet.chain, wallet.address) : null;
 
   return (
     <>

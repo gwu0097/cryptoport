@@ -1,7 +1,7 @@
 import "server-only";
 import { fetchEvmHoldings } from "./adapters/evm";
 import { fetchBitcoinHoldings } from "./adapters/bitcoin";
-import { isExtendedPublicKey } from "./adapters/bitcoinXpub";
+import { isExtendedPublicKey } from "./walletDisplay";
 import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
 import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
 import { NON_EVM_DISPATCH, detectNonEvmChain } from "./adapters/nonEvmDispatch";

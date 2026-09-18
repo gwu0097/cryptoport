@@ -12,7 +12,7 @@ import {
 } from "./valuation";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
-import { pinnedWalletChain, type WalletChain } from "./walletDisplay.ts";
+import { pinnedWalletChain, externalPortfolioViewer, type WalletChain } from "./walletDisplay.ts";
 import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTag } from "./types";
 
 export type PriceRefreshPhaseStatus = "running" | "done" | "error";
@@ -289,6 +289,13 @@ export interface WalletWithTotal extends WalletWithTag {
    * signature scheme at all (BTC, ADA, ...) — never show a Verify
    * affordance for it. */
   pinnedChain: WalletChain | null;
+  /** Computed here the same way (walletDisplay.ts's externalPortfolioViewer,
+   * which already excludes a BTC xpub/ypub/zpub itself) so the wallets list
+   * gets the identical jup.ag/DeBank/UniSat link the wallet detail page and
+   * /lookup already have — a quick place to cross-check a wallet's actual
+   * on-chain state next to its name. Null when the chain has no free
+   * external viewer or there's no address to look up at all. */
+  externalViewer: { url: string; label: string } | null;
 }
 
 export interface WalletListResult {
@@ -329,7 +336,8 @@ export async function getWalletsWithTotals(): Promise<WalletListResult> {
       !!pinnedChain &&
       !!wallet.address &&
       linkedKeys.has(`${pinnedChain}:${pinnedChain === "ETH" ? wallet.address.toLowerCase() : wallet.address}`);
-    return { ...rest, total, unpricedCount, verified, pinnedChain };
+    const externalViewer = wallet.address ? externalPortfolioViewer(wallet.chain, wallet.address) : null;
+    return { ...rest, total, unpricedCount, verified, pinnedChain, externalViewer };
   });
 
   const allHoldings = rows.flatMap((wallet) => wallet.holdings);

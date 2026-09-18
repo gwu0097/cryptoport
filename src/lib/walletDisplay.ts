@@ -72,6 +72,19 @@ export function walletDisplayName(user: {
   return address ? truncateAddress(address) : null;
 }
 
+// SLIP-132 extended-public-key formats (xpub/ypub/zpub) — a key that
+// derives many addresses, not a spendable address itself. Pure format
+// check (no actual key derivation, which does need @scure/bip32 — see
+// bitcoinXpub.ts for that), moved here from bitcoinXpub.ts once a caller
+// that can't afford that file's heavy crypto deps (queries.ts, imported by
+// every data-heavy read page) needed it too, same reasoning as
+// pinnedWalletChain's own split out of walletAuth.ts above.
+const EXTENDED_PUBLIC_KEY_RE = /^(xpub|ypub|zpub)[1-9A-HJ-NP-Za-km-z]{100,116}$/;
+
+export function isExtendedPublicKey(value: string): boolean {
+  return EXTENDED_PUBLIC_KEY_RE.test(value);
+}
+
 /** Deliberately separate from pinnedWalletChain: that function answers "can
  * this chain sign a wallet-auth challenge" (BTC can't — no scheme
  * implemented — so it returns null for BTC), which is a different question
@@ -89,14 +102,14 @@ export function walletDisplayName(user: {
  * Open API researched for native Runes-balance support, so it's a known-
  * real service, not a guess).
  *
- * Shared by the wallet detail page and the public Wallet Lookup page (moved
- * here — pure, no DB/network — once the second consumer needed the
- * identical logic, per this codebase's own "two is the threshold to
- * extract" rule). The caller is responsible for excluding a BTC xpub/ypub/
- * zpub first (see both call sites) — that's a key deriving many addresses,
- * not a spendable address itself, so UniSat's address page has no
- * meaningful equivalent to link to for one. */
+ * Shared by the wallet detail page, the public Wallet Lookup page, and the
+ * wallets list table. A BTC xpub/ypub/zpub is excluded here directly
+ * (rather than leaving every caller to remember its own isExtendedPublicKey
+ * check first, which the first two call sites used to duplicate) — UniSat's
+ * per-address page has no meaningful equivalent for a key that derives many
+ * addresses. */
 export function externalPortfolioViewer(chain: string, address: string): { url: string; label: string } | null {
+  if (chain === "BTC" && isExtendedPublicKey(address)) return null;
   if (isEvmChainId(chain)) return { url: `https://debank.com/profile/${address}`, label: "DeBank" };
   if (chain === "SOL") return { url: `https://jup.ag/portfolio/${address}`, label: "Jupiter Portfolio" };
   if (chain === "BTC") return { url: `https://unisat.io/address/${address}`, label: "UniSat" };
