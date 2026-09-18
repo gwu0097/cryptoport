@@ -329,7 +329,16 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     if (nativePrice !== null) {
       const qty = Number(formatUnits(nativeBalance, 18));
       const usd = qty * nativePrice;
-      if (usd > TOKEN_USD_FLOOR) native = { qty, usd };
+      // TOKEN_USD_FLOOR deliberately does NOT apply here, unlike the ERC20
+      // check above — that floor exists to filter spam/copycat tokens with
+      // fake wash-traded liquidity, a risk that's structurally impossible
+      // for a chain's own native currency (there's exactly one RON per
+      // Ronin wallet, not an unbounded set of spoofable native-look-alikes).
+      // Real bug, caught live: a wallet's genuine 54 RON (~$2.89) balance
+      // was silently dropped by this floor, with no warning surfaced
+      // anywhere — a small real balance is exactly the "unknown/small
+      // still real data" case CLAUDE.md's Data Correctness rule protects.
+      native = { qty, usd };
     }
   }
 
