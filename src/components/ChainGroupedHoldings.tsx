@@ -16,6 +16,13 @@ interface ProtocolGroup {
   url: string | null;
   total: number;
   holdings: HoldingWithValuation[];
+  /** From the group's first holding — every holding within one protocol
+   * group shares the same underlying asset in practice (e.g. every
+   * "Solana Staking: X" row is SOL), so reusing its own already-fetched
+   * ticker/icon_url is enough to icon the section header, no separate
+   * per-protocol icon source needed. */
+  ticker: string;
+  icon: string | null;
 }
 
 /**
@@ -41,7 +48,14 @@ function groupByProtocol(holdings: HoldingWithValuation[]): {
     }
     let group = byProtocol.get(holding.protocol);
     if (!group) {
-      group = { protocol: holding.protocol, url: holding.protocol_url, total: 0, holdings: [] };
+      group = {
+        protocol: holding.protocol,
+        url: holding.protocol_url,
+        total: 0,
+        holdings: [],
+        ticker: holding.ticker,
+        icon: holding.icon_url,
+      };
       byProtocol.set(holding.protocol, group);
     }
     group.holdings.push(holding);
@@ -241,6 +255,7 @@ export async function ChainGroupedHoldings({
                             className="size-3.5 text-fg-muted transition-transform group-open/protocol:rotate-180"
                             aria-hidden="true"
                           />
+                          <TokenIcon ticker={pg.ticker} url={pg.icon} />
                           {pg.protocol}
                           {pg.url && (
                             <StopPropagationLink href={pg.url} className="text-fg-muted transition hover:text-accent">
