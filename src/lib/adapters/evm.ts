@@ -2,6 +2,7 @@ import "server-only";
 import type { Address } from "viem";
 import { fetchEvmChainsHoldings } from "./multicallEvm";
 import { fetchHyperliquidHoldings } from "./hyperliquid";
+import { fetchAxieStaking } from "./axieStaking";
 import type { AdapterHolding } from "./types";
 
 export interface EvmHoldingsResult {
@@ -29,17 +30,25 @@ export interface EvmHoldingsResult {
  * syncWalletHoldings).
  */
 export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResult> {
-  const [chainsResult, hyperliquidResult] = await Promise.all([
+  const [chainsResult, hyperliquidResult, axieResult] = await Promise.all([
     fetchEvmChainsHoldings(address as Address),
     fetchHyperliquidHoldings(address)
       .then((holdings) => ({ holdings, error: null as string | null }))
       .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
+    // Soft failure only, unlike Hyperliquid below — niche/narrow (most EVM
+    // wallets have no Ronin activity at all), same "one source's failure
+    // never discards another's correctly-fetched data" treatment every
+    // Solana DeFi-position source already gets (see solDefiPositions.ts).
+    fetchAxieStaking(address as Address)
+      .then((holdings) => ({ holdings, error: null as string | null }))
+      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
   ]);
 
-  const holdings = [...chainsResult.holdings, ...hyperliquidResult.holdings];
+  const holdings = [...chainsResult.holdings, ...hyperliquidResult.holdings, ...axieResult.holdings];
   const warnings = [
     ...chainsResult.failedChains.map((f) => `${f.chainId}: ${f.error}`),
     ...(hyperliquidResult.error ? [`hyperliquid: ${hyperliquidResult.error}`] : []),
+    ...(axieResult.error ? [`axie staking: ${axieResult.error}`] : []),
   ];
 
   // Nothing succeeded anywhere and something actually went wrong badly
