@@ -63,13 +63,16 @@ interface Delegation {
  * fetchValidatorName (stakewiz.ts) — see that file for the free/keyless
  * verification and best-effort-fallback reasoning.
  *
- * protocol_url deliberately points at jup.ag's own per-wallet portfolio
- * page (same URL walletDisplay.ts's externalPortfolioViewer already
- * uses), not Stakewiz's generic per-validator info page — reported
- * directly that a generic destination isn't useful here; jup.ag/portfolio
- * is a real, public, no-login page that shows this exact wallet's actual
- * staked position, the same page every screenshot in this conversation
- * has come from.
+ * protocol_url deliberately points at Marinade's own dApp
+ * (app.marinade.finance), not a read-only view — reported directly that
+ * the point is a real site to connect the wallet and actually unstake,
+ * not just look. Native stake has no single validator-run management
+ * site (unlike SKR/Jito, which each have exactly one canonical dApp), but
+ * Marinade's own docs confirm its app supports importing/managing an
+ * *existing* native delegation to any validator and "instantly unstake
+ * from any validator with no platform fees" — verified live (200) —
+ * which is the closest real equivalent to a validator-specific unstake
+ * page for a mechanism that doesn't otherwise have one.
  */
 export async function fetchSolanaStaking(address: string): Promise<AdapterHolding[]> {
   const accounts = await getProgramAccounts(
@@ -110,6 +113,6 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
     chain: "solana-defi",
     icon_url: solIcon,
     protocol: `Solana Staking: ${nameByVoter.get(voter)}`,
-    protocol_url: `https://jup.ag/portfolio/${address}`,
+    protocol_url: "https://app.marinade.finance/",
   }));
 }

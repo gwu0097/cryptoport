@@ -136,14 +136,10 @@ export async function fetchJitoMevRewards(address: string): Promise<{ holdings: 
     chain: "solana-defi",
     icon_url: solIcon,
     protocol: `Jito MEV Rewards: ${nameByVoter.get(voter)}`,
-    // jup.ag's own per-wallet portfolio page (same URL
-    // walletDisplay.ts's externalPortfolioViewer already uses), not
-    // jito.network's generic homepage — reported directly that a
-    // generic destination isn't useful; jup.ag/portfolio is a real,
-    // public, no-login page showing this exact wallet's actual
-    // claimable MEV rewards, the same page the "Jito" tile in this
-    // whole conversation's own screenshots came from.
-    protocol_url: `https://jup.ag/portfolio/${address}`,
+    // Jito's own claim page — connect the wallet there and actually
+    // harvest the MEV rewards, not just view them. User-specified
+    // directly (the point of this link is a real action site).
+    protocol_url: "https://www.jito.network/harvest/",
   }));
 
   return { holdings, warnings: [] };
