@@ -239,10 +239,18 @@ function scheduleUserSnapshot(userId: string, extraPaths: string[] = []) {
  * time limit before its own catch block ran. Returns JobStartResult
  * (lib/jobStatus.ts) instead of throwing on "already refreshing".
  */
-export async function refreshPricesAction(): Promise<JobStartResult> {
+/**
+ * The compare-and-set claim + after()-backgrounded kickoff, shared by
+ * every caller that wants to trigger a price refresh — extracted once a
+ * third caller (addHolding, below) needed the identical logic
+ * refreshPricesAction/refreshPricesForWalletAction already had copy-pasted
+ * between them, past this codebase's own "two is the threshold" rule for
+ * duplicated logic. `extraPaths` are revalidated both immediately (so a
+ * caller on e.g. a wallet detail page sees "refreshing" right away) and
+ * again once the real refresh lands.
+ */
+async function tryStartPriceRefresh(userId: string, extraPaths: string[] = []): Promise<JobStartResult> {
   const requestedAt = Date.now();
-  const user = await requireUser();
-
   const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
   const { data: claimed, error: markError } = await serviceDb()
     .from("price_refresh_state")
@@ -256,12 +264,19 @@ export async function refreshPricesAction(): Promise<JobStartResult> {
   }
 
   after(async () => {
-    await runPriceRefresh(requestedAt, user.id);
+    await runPriceRefresh(requestedAt, userId, extraPaths);
     revalidateAllPriceConsumers();
+    for (const path of extraPaths) revalidatePath(path);
   });
 
   revalidateAllPriceConsumers();
+  for (const path of extraPaths) revalidatePath(path);
   return { started: true };
+}
+
+export async function refreshPricesAction(): Promise<JobStartResult> {
+  const user = await requireUser();
+  return tryStartPriceRefresh(user.id);
 }
 
 // Same global refresh (prices are keyed by ticker, not wallet — there's no
@@ -270,35 +285,10 @@ export async function refreshPricesAction(): Promise<JobStartResult> {
 // the wallet detail page (came up directly: a freshly-synced ADA holding
 // showed unpriced with no obvious way to fix it short of navigating back
 // to the wallets list) reflects the update immediately instead of needing
-// a manual reload. Duplicates refreshPricesAction's own body (rather than
-// calling through to it) specifically so this extra revalidatePath can
-// live inside the *same* after() callback — calling through would have no
-// way to hook into "after the background work this kicked off finishes."
+// a manual reload.
 export async function refreshPricesForWalletAction(walletId: string): Promise<JobStartResult> {
-  const requestedAt = Date.now();
   const user = await requireUser();
-
-  const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
-  const { data: claimed, error: markError } = await serviceDb()
-    .from("price_refresh_state")
-    .update({ status: "refreshing", started_at: new Date(requestedAt).toISOString() })
-    .eq("id", 1)
-    .or(`status.neq.refreshing,status.is.null,started_at.lt.${staleBefore}`)
-    .select("id");
-  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
-  if (!claimed || claimed.length === 0) {
-    return { started: false, reason: "A price refresh is already running." };
-  }
-
-  after(async () => {
-    await runPriceRefresh(requestedAt, user.id, [`/wallets/${walletId}`]);
-    revalidateAllPriceConsumers();
-    revalidatePath(`/wallets/${walletId}`);
-  });
-
-  revalidateAllPriceConsumers();
-  revalidatePath(`/wallets/${walletId}`);
-  return { started: true };
+  return tryStartPriceRefresh(user.id, [`/wallets/${walletId}`]);
 }
 
 // A wallet's `chain` field itself isn't restricted to a fixed set (see
@@ -433,7 +423,7 @@ export async function updateWallet(walletId: string, formData: FormData) {
 // bypasses pricing entirely — see valuation.ts). This is the only place that
 // decides which of the two a new holding is.
 export async function addHolding(walletId: string, formData: FormData) {
-  await requireUser();
+  const user = await requireUser();
   const ticker = requireString(formData, "ticker").toUpperCase();
   const kind = requireOneOf(formData, "kind", HOLDING_KINDS);
 
@@ -466,6 +456,20 @@ export async function addHolding(walletId: string, formData: FormData) {
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");
+
+  // A freshly-added manual holding used to just sit unpriced until the
+  // user noticed and clicked "Refresh prices" themselves — reported
+  // directly. Reuses the exact same claim+after() pipeline that button
+  // uses (never a second pricing mechanism — see CLAUDE.md's "standardize
+  // across the app" rule). If a refresh is already running, this simply
+  // no-ops: the in-flight run re-derives its own ticker list from the DB
+  // at run time, and the insert above already landed, so it picks up the
+  // new ticker anyway. usd_override holdings never need pricing at all
+  // (valuation.ts bypasses the `prices` table for them entirely), so
+  // skip triggering a refresh for those — nothing for it to price.
+  if (kind !== "usd") {
+    await tryStartPriceRefresh(user.id, [`/wallets/${walletId}`]);
+  }
 }
 
 // Auto holdings are refresh-owned (source='auto'); the UI must never write to
