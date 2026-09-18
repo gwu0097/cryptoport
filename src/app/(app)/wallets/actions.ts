@@ -482,27 +482,27 @@ export async function addHolding(walletId: string, formData: FormData) {
   const { error } = await db.from("holdings").insert(insert);
   if (error) throw new Error(`Failed to add holding: ${error.message}`);
 
-  revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/wallets");
-
   // A freshly-added manual holding used to just sit unpriced until the
   // user noticed and clicked "Refresh prices" themselves — reported
-  // directly. Used to trigger the full global refresh's claim+after()
-  // pipeline for this; now uses the same wallet-scoped path
-  // syncWalletHoldings uses instead (see refreshTickerPrices' own doc
-  // comment) — one new manual ticker doesn't need a ~9s global CoinGecko/
-  // Coinbase pass any more than a synced wallet's new ticker does.
-  // usd_override holdings never need pricing at all (valuation.ts bypasses
-  // the `prices` table for them entirely), so skip triggering anything for
+  // directly. Awaited inline here, NOT pushed to after() like
+  // syncWalletHoldings' own scoped reprice: this is a plain form action
+  // with no useJob-style polling to catch a later background completion
+  // (unlike the Sync/Refresh buttons) — a reprice deferred to after()
+  // would revalidate the server cache correctly, but the browser would
+  // have no reason to ever re-fetch it, so the price would only show up
+  // once some *other* action happened to refresh the page. A single new
+  // ticker's price lookup is small/bounded (one CoinGecko/Coinbase call),
+  // not the kind of multi-second work after() exists to avoid blocking
+  // on. usd_override holdings never need pricing at all (valuation.ts
+  // bypasses the `prices` table for them entirely), so skip this for
   // those — nothing for it to price.
   if (kind !== "usd") {
     const tickerInfo: HoldingTickerInfo = { ticker, contract: null, chain: null, coingeckoId, source: "manual_qty" };
-    after(async () => {
-      await refreshTickerPrices([tickerInfo]).catch(() => {});
-      revalidatePath(`/wallets/${walletId}`);
-      revalidatePath("/wallets");
-    });
+    await refreshTickerPrices([tickerInfo]).catch(() => {});
   }
+
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
 }
 
 // Auto holdings are refresh-owned (source='auto'); the UI must never write to

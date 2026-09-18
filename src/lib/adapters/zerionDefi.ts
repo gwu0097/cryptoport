@@ -5,6 +5,20 @@ import type { AdapterHolding } from "./types";
 
 const API_BASE = "https://api.zerion.io/v1";
 
+// Every protocol this app already has its own dedicated, hand-verified
+// adapter for — Zerion must never write a row for these, even if it starts
+// indexing them, or the wallet's total silently double-counts the same
+// real position (sync_defi_holdings' source='auto_defi' delete-scope is
+// deliberately disjoint from the regular sync's source='auto', so nothing
+// would ever catch or dedupe the overlap — see the "auto_defi" doc comment
+// on holdings.source in schema.sql). Currently just Hyperliquid on the EVM
+// side (hyperliquid.ts); today this is only reachable in practice because
+// Hyperliquid's own chain isn't in EVM_CHAINS, so its positions already
+// get dropped below as an unrecognized chain — this list is what keeps
+// that safe if a HyperEVM entry (or similar) is ever added to EVM_CHAINS,
+// rather than relying on that chain-mapping gap staying incidental.
+const NATIVELY_COVERED_PROTOCOLS = new Set(["hyperliquid"]);
+
 export interface ZerionDefiResult {
   holdings: AdapterHolding[];
   warnings: string[];
@@ -129,6 +143,9 @@ export async function fetchZerionDefiPositions(address: string): Promise<ZerionD
       continue;
     }
 
+    const protocol = a?.application_metadata?.name ?? a?.protocol ?? "Unknown";
+    if (NATIVELY_COVERED_PROTOCOLS.has(protocol.toLowerCase())) continue; // owned by a native adapter, see doc comment above
+
     holdings.push({
       ticker,
       qty: a?.quantity?.float ?? null,
@@ -137,7 +154,7 @@ export async function fetchZerionDefiPositions(address: string): Promise<ZerionD
       category: "defi",
       chain: ourChain,
       icon_url: a?.fungible_info?.icon?.url ?? null,
-      protocol: a?.application_metadata?.name ?? a?.protocol ?? "Unknown",
+      protocol,
       protocol_url: a?.application_metadata?.url ?? null,
     });
   }
