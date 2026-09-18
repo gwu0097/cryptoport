@@ -22,6 +22,16 @@ const TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const SHIELD_URL = "https://lite-api.jup.ag/ultra/v1/shield";
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 const SEARCH_BATCH_SIZE = 100;
+// Live-verified via bisection (not documented anywhere): SHIELD_URL silently
+// caps its response at 30 mints per call regardless of how many were
+// requested in the query string — no error, no truncation flag, it just
+// returns fewer warning entries than asked for. A wallet with >30 SPL
+// balances sent through in one SEARCH_BATCH_SIZE-sized (100) batch had a
+// real critical-severity NOT_SELLABLE mint silently missing from the
+// response, so fetchUnsellableMints never flagged it and the unsellable
+// token was shown as a normal priced holding. Keep this smaller than
+// SEARCH_BATCH_SIZE (which tokens/v2/search does honor up to 100 for).
+const SHIELD_BATCH_SIZE = 30;
 const TOKEN_USD_FLOOR = 5;
 // Not specified by the user (only "use liquidity as the spam filter"
 // qualitatively) — chosen to clear the one confirmed pump-and-dump example
@@ -89,7 +99,7 @@ interface ShieldWarning {
 async function fetchUnsellableMints(mints: string[]): Promise<Set<string>> {
   if (mints.length === 0) return new Set();
   const unsellable = new Set<string>();
-  for (const batch of chunk(mints, SEARCH_BATCH_SIZE)) {
+  for (const batch of chunk(mints, SHIELD_BATCH_SIZE)) {
     const url = `${SHIELD_URL}?mints=${batch.join(",")}`;
     const res = await fetchWithRetry(url, { headers: HEADERS });
     if (!res.ok) throw new Error(`Jupiter shield failed: HTTP ${res.status}`);
