@@ -5,11 +5,60 @@ const RPC_URL = "https://api.mainnet-beta.solana.com";
 // Solana RPC's own hard limit on how many pubkeys getMultipleAccounts
 // accepts per call — not a tunable, a protocol constant.
 const MAX_ACCOUNTS_PER_CALL = 100;
-// Same rate-limit caution as prices.ts's COINBASE_CONCURRENCY — this app's
-// public RPC has already 429'd under an unbounded burst once (see
-// getProgramAccounts' own callers), so any batched call here stays capped
-// by construction rather than by hoping.
+// Same rate-limit caution as prices.ts's COINBASE_CONCURRENCY — bounds how
+// many chunk-fetches getMultipleAccounts itself tries to have in flight;
+// see RPC_CONCURRENCY below for the *global* gate that actually matters.
 const ACCOUNTS_CONCURRENCY = 4;
+
+// This file is now called concurrently by seven independent adapters
+// (wormholeStaking/jupiterDaoStaking/parclPositions/solanaStaking/
+// skrStaking's own getProgramAccounts calls, plus jitoMevRewards' many
+// getMultipleAccounts batches) via solDefiPositions.ts's own Promise.all
+// fan-out over every SOL DeFi source at once. Each caller was already
+// individually rate-limit-safe (fetchWithRetry's backoff, this file's own
+// ACCOUNTS_CONCURRENCY), but nothing capped the *combined* burst across
+// all of them hitting this one shared public endpoint simultaneously —
+// live-verified this causes real, intermittent 429s severe enough that
+// fetchWithRetry's built-in backoff doesn't always absorb them within its
+// own attempt budget. Every actual HTTP request this file makes — from
+// getProgramAccounts and getMultipleAccounts alike — funnels through this
+// one queue, so the true in-flight request count against
+// api.mainnet-beta.solana.com never exceeds RPC_CONCURRENCY no matter how
+// many unrelated adapters are calling in at once.
+const RPC_CONCURRENCY = 3;
+let activeRpcCalls = 0;
+const rpcQueue: (() => void)[] = [];
+
+async function withRpcSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeRpcCalls >= RPC_CONCURRENCY) {
+    await new Promise<void>((resolve) => rpcQueue.push(resolve));
+  }
+  activeRpcCalls++;
+  try {
+    return await fn();
+  } finally {
+    activeRpcCalls--;
+    rpcQueue.shift()?.();
+  }
+}
+
+/** The one place either RPC method actually sends a request — concurrency-
+ * gated (withRpcSlot) and given more retry headroom than fetchWithRetry's
+ * own default (3 attempts / 1s base): even with the gate in place, this
+ * shared endpoint still 429'd under real multi-source concurrent load
+ * during testing, so this gets 5 attempts and a slower backoff — a queued
+ * request that has to wait its turn already accepts some latency, so
+ * trading a bit more of it for reliability here is the right side of that
+ * tradeoff. */
+async function rpcFetch(body: unknown): Promise<Response> {
+  return withRpcSlot(() =>
+    fetchWithRetry(
+      RPC_URL,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      { attempts: 5, baseDelayMs: 1500 },
+    ),
+  );
+}
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -75,11 +124,7 @@ export async function getProgramAccounts(
     params: [program, { encoding: "base64", filters }],
   };
 
-  const res = await fetchWithRetry(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await rpcFetch(body);
   if (!res.ok) throw new Error(`${context} failed: HTTP ${res.status}`);
   const json: RpcResponse = await res.json();
   if (json.error) throw new Error(`${context} failed: ${json.error.message}`);
@@ -102,11 +147,7 @@ async function getMultipleAccountsChunk(pubkeys: string[], context: string): Pro
     method: "getMultipleAccounts",
     params: [pubkeys, { encoding: "base64" }],
   };
-  const res = await fetchWithRetry(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await rpcFetch(body);
   if (!res.ok) throw new Error(`${context} failed: HTTP ${res.status}`);
   const json: MultipleAccountsResponse = await res.json();
   if (json.error) throw new Error(`${context} failed: ${json.error.message}`);
