@@ -8,6 +8,8 @@ import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, inputClass } from "@/components/ui/Field";
 import { ChainModeFields } from "@/components/ChainModeFields";
 import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
+import { ConnectCoinbaseModal } from "@/components/ConnectCoinbaseModal";
+import { EXCHANGE_PROVIDERS } from "@/lib/exchangeProviders";
 import { SignInPrompt } from "@/components/SignInPrompt";
 
 // Reads the live tags list — must never be frozen into a static build
@@ -64,6 +66,23 @@ export default async function NewWalletPage() {
           </div>
 
           <ConnectWalletModal />
+
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-fg-muted">or connect an exchange</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          {/* One modal component per provider id — EXCHANGE_PROVIDERS is
+              the extensible list, this is the (currently one-entry) map
+              from provider id to its own connect UI. Adding the next
+              exchange means a new adapter + a new case here, not a rewrite
+              of this page. */}
+          <div className="flex flex-col gap-2">
+            {EXCHANGE_PROVIDERS.map((provider) =>
+              provider.id === "coinbase" ? <ConnectCoinbaseModal key={provider.id} provider={provider} /> : null,
+            )}
+          </div>
         </Panel>
       )}
     </>

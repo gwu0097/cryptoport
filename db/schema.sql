@@ -759,3 +759,85 @@ $$;
 
 grant execute on function cryptoport.sync_defi_holdings(uuid, jsonb, text) to authenticated;
 grant execute on function cryptoport.sync_defi_holdings(uuid, jsonb, text) to service_role;
+
+-- Connect an exchange account (Coinbase first, built to take more later) as
+-- a wallet with no on-chain address — see the "Connect Coinbase" plan.
+-- `provider` discriminates it from every existing on-chain wallet; null for
+-- all of them. address stays null for these rows (nothing on-chain to scan).
+alter table cryptoport.wallets
+  add column provider text,
+  add column exchange_sync_status text,
+  add column exchange_sync_started_at timestamptz,
+  add column exchange_synced_at timestamptz,
+  add column exchange_sync_duration_ms integer;
+
+-- The first per-user secret this app has ever stored (every prior
+-- "credential" was an app-wide env var, or the now-dropped app_credentials
+-- singleton — see that table's own comment above). Deliberately its own
+-- table, not columns on wallets, and deliberately NO grant to `authenticated`
+-- at all — deny-by-default, same posture as this schema's other
+-- service-role-only tables. The only legitimate reader is serviceDb() inside
+-- a Server Action that has already done its own requireUser() + ownership
+-- check (see connectCoinbase/syncCoinbaseHoldings/disconnectExchange in
+-- wallets/actions.ts) — there is no reason a client ever reads this row
+-- directly, so it isn't given the chance to. encrypted_secret is AES-256-GCM
+-- ciphertext (see cryptoSecrets.ts), never plaintext at rest.
+create table cryptoport.exchange_connections (
+  id uuid primary key default gen_random_uuid(),
+  wallet_id uuid not null unique references cryptoport.wallets(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  provider text not null,         -- 'coinbase' for now
+  key_name text not null,         -- an id, not a secret on its own
+  encrypted_secret text not null, -- the PEM private key, encrypted
+  created_at timestamptz default now()
+);
+alter table cryptoport.exchange_connections enable row level security;
+grant all on cryptoport.exchange_connections to service_role;
+
+-- A fourth disjoint holdings source (see sync_auto_holdings/sync_defi_holdings
+-- above) — never shares a delete predicate with 'auto' or 'auto_defi'.
+-- holdings.source: 'manual_qty' | 'manual_usd' | 'auto' | 'auto_defi' | 'auto_exchange'
+create or replace function cryptoport.sync_exchange_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto_exchange';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto_exchange',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set exchange_synced_at = now(), exchange_sync_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+grant execute on function cryptoport.sync_exchange_holdings(uuid, jsonb, text) to authenticated;
+grant execute on function cryptoport.sync_exchange_holdings(uuid, jsonb, text) to service_role;

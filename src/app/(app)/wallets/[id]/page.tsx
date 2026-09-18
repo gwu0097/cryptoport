@@ -16,6 +16,7 @@ import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { SyncWalletButtons } from "@/components/SyncWalletButtons";
 import { SyncDefiButton } from "@/components/SyncDefiButton";
+import { SyncCoinbaseButton } from "@/components/SyncCoinbaseButton";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -23,9 +24,11 @@ import { isEvmChainId } from "@/lib/adapters/evmChains";
 import {
   addHolding,
   deleteWallet,
+  disconnectExchange,
   refreshPricesForWalletAction,
   syncWalletHoldings,
   syncWalletDefi,
+  syncCoinbaseHoldings,
   updateWallet,
 } from "../actions";
 
@@ -175,50 +178,71 @@ export default async function WalletDetailPage(
 
         <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
           <div className="flex flex-wrap items-start justify-end gap-2">
-            {wallet.mode === "auto" ? (
-              // No separate "Refresh prices" button for an auto wallet —
-              // syncWalletHoldings now always reprices this wallet's own
-              // ticker-keyed holdings as part of every sync (see its own
-              // doc comment in wallets/actions.ts), so Sync is a strict
-              // superset of what a scoped refresh button would add here.
-              <SyncWalletButtons
-                lastRefreshStatus={wallet.last_refresh_status}
-                syncStartedAt={wallet.sync_started_at}
-                lastRefreshAt={wallet.last_refresh_at}
-                lastSyncDurationMs={wallet.last_sync_duration_ms}
-                sync={syncWalletHoldings.bind(null, wallet.id, false)}
-                fullSync={isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null}
+            {wallet.provider ? (
+              // A connected exchange has no on-chain address to scan and no
+              // separate DeFi sync — just its own independent balances job
+              // (see SyncCoinbaseButton's own doc comment) and a disconnect
+              // action instead of the regular delete/sync UI below.
+              <SyncCoinbaseButton
+                exchangeSyncStatus={wallet.exchange_sync_status}
+                exchangeSyncStartedAt={wallet.exchange_sync_started_at}
+                exchangeSyncedAt={wallet.exchange_synced_at}
+                sync={syncCoinbaseHoldings.bind(null, wallet.id)}
               />
-            ) : null}
-            {wallet.mode === "auto" && isEvmChainId(wallet.chain) && (
-              // Separate, explicit action — never chained into the regular
-              // Sync above or into "Sync all wallets" (see syncWalletDefi's
-              // own doc comment: Zerion's free tier is a real, shared
-              // budget this button keeps under direct user control).
-              <SyncDefiButton
-                defiSyncStatus={wallet.defi_sync_status}
-                defiSyncStartedAt={wallet.defi_sync_started_at}
-                defiSyncedAt={wallet.defi_synced_at}
-                sync={syncWalletDefi.bind(null, wallet.id)}
-              />
+            ) : (
+              <>
+                {wallet.mode === "auto" ? (
+                  // No separate "Refresh prices" button for an auto wallet —
+                  // syncWalletHoldings now always reprices this wallet's own
+                  // ticker-keyed holdings as part of every sync (see its own
+                  // doc comment in wallets/actions.ts), so Sync is a strict
+                  // superset of what a scoped refresh button would add here.
+                  <SyncWalletButtons
+                    lastRefreshStatus={wallet.last_refresh_status}
+                    syncStartedAt={wallet.sync_started_at}
+                    lastRefreshAt={wallet.last_refresh_at}
+                    lastSyncDurationMs={wallet.last_sync_duration_ms}
+                    sync={syncWalletHoldings.bind(null, wallet.id, false)}
+                    fullSync={
+                      isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null
+                    }
+                  />
+                ) : null}
+                {wallet.mode === "auto" && isEvmChainId(wallet.chain) && (
+                  // Separate, explicit action — never chained into the regular
+                  // Sync above or into "Sync all wallets" (see syncWalletDefi's
+                  // own doc comment: Zerion's free tier is a real, shared
+                  // budget this button keeps under direct user control).
+                  <SyncDefiButton
+                    defiSyncStatus={wallet.defi_sync_status}
+                    defiSyncStartedAt={wallet.defi_sync_started_at}
+                    defiSyncedAt={wallet.defi_synced_at}
+                    sync={syncWalletDefi.bind(null, wallet.id)}
+                  />
+                )}
+                {wallet.mode !== "auto" && (
+                  // A manual wallet has no Sync action at all — addHolding
+                  // reprices a brand-new ticker at add time, but this is still
+                  // the only way to freshen an already-known ticker's price
+                  // from this page (same reasoning as the other price-consumer
+                  // pages that keep this button).
+                  <PriceRefreshButton
+                    priceState={priceState}
+                    refresh={refreshPricesForWalletAction.bind(null, wallet.id)}
+                  />
+                )}
+              </>
             )}
-            {wallet.mode !== "auto" && (
-              // A manual wallet has no Sync action at all — addHolding
-              // reprices a brand-new ticker at add time, but this is still
-              // the only way to freshen an already-known ticker's price
-              // from this page (same reasoning as the other price-consumer
-              // pages that keep this button).
-              <PriceRefreshButton
-                priceState={priceState}
-                refresh={refreshPricesForWalletAction.bind(null, wallet.id)}
-              />
-            )}
-            <form action={deleteWallet.bind(null, wallet.id)}>
+            <form action={(wallet.provider ? disconnectExchange : deleteWallet).bind(null, wallet.id)}>
               <ConfirmDeleteButton
-                confirmMessage={`Delete "${wallet.name}"? This won't delete its holdings.`}
+                confirmMessage={
+                  wallet.provider
+                    ? `Disconnect "${wallet.name}"? This removes the stored key from CryptoPort, but Coinbase doesn't let apps revoke a key remotely — delete it from Coinbase's own portal too if you want it fully dead.`
+                    : `Delete "${wallet.name}"? This won't delete its holdings.`
+                }
               >
                 <Trash className="size-3.5" aria-hidden="true" />
-                Delete wallet
+                {wallet.provider ? "Disconnect" : "Delete wallet"}
               </ConfirmDeleteButton>
             </form>
           </div>

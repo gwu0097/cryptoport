@@ -115,7 +115,12 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
               <Trash className="size-3.5" aria-hidden="true" />
             </ConfirmDeleteButton>
           </form>
-          {wallet.mode !== "auto" ? (
+          {wallet.mode !== "auto" || wallet.provider ? (
+            // A connected exchange has its own separate sync job (see
+            // SyncCoinbaseButton on the wallet detail page) — this row's
+            // button is wired to the regular on-chain sync only, which
+            // would just fail cleanly ("no address set") for one of these,
+            // so it's hidden the same way a manual wallet's is.
             <span className={`${buttonClass("secondary", "sm")} invisible`} aria-hidden="true">
               <RefreshCw className="size-3.5" aria-hidden="true" />
             </span>

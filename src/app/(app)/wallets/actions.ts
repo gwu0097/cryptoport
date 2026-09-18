@@ -10,6 +10,8 @@ import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchZerionDefiPositions } from "@/lib/adapters/zerionDefi";
+import { fetchCoinbaseBalances } from "@/lib/adapters/coinbaseAdvancedTrade";
+import { encryptSecret, decryptSecret } from "@/lib/cryptoSecrets";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
@@ -920,6 +922,201 @@ export async function deleteWallet(walletId: string) {
     .update({ active: false })
     .eq("id", walletId);
   if (error) throw new Error(`Failed to delete wallet: ${error.message}`);
+
+  revalidatePath("/wallets");
+  redirect("/wallets");
+}
+
+export type ConnectExchangeFormState = { error?: string } | undefined;
+
+/**
+ * Connects a Coinbase account as a wallet with no on-chain address — see
+ * cryptoSecrets.ts and coinbaseAdvancedTrade.ts for the auth/encryption
+ * design (OAuth2 turned out to require Coinbase partner approval with no
+ * self-serve path, a real blocker found live; this uses a user-generated,
+ * View-permission-only API key instead).
+ *
+ * useActionState-compatible (returns {error} instead of throwing) so the
+ * connect modal can show Coinbase's own error inline — the key is tested
+ * with a real live call *before* anything is saved, so a bad key (wrong
+ * signature algorithm, wrong permission, already-deleted) never leaves a
+ * dead connection behind for the user to discover on the next sync.
+ *
+ * exchange_connections has no grant to `authenticated` at all (see its own
+ * schema.sql comment) — every read/write goes through serviceDb() here,
+ * with the ownership check done in application code (user.id passed
+ * explicitly) rather than relying on RLS, matching the security-definer
+ * RPCs' own explicit-check pattern.
+ */
+export async function connectCoinbase(
+  _prevState: ConnectExchangeFormState,
+  formData: FormData,
+): Promise<ConnectExchangeFormState> {
+  const user = await requireUser();
+  const name = requireString(formData, "name");
+  const keyName = requireString(formData, "keyName");
+  const privateKey = requireString(formData, "privateKey");
+
+  let testResult: Awaited<ReturnType<typeof fetchCoinbaseBalances>>;
+  try {
+    testResult = await fetchCoinbaseBalances(keyName, privateKey);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const db = await userDb();
+  const { data: wallet, error: walletError } = await db
+    .from("wallets")
+    .insert({ name, chain: "COINBASE", mode: "auto", provider: "coinbase", address: null })
+    .select("id")
+    .single();
+  if (walletError) return { error: `Failed to create wallet: ${walletError.message}` };
+
+  const svc = serviceDb();
+  const { error: connError } = await svc.from("exchange_connections").insert({
+    wallet_id: wallet.id,
+    user_id: user.id,
+    provider: "coinbase",
+    key_name: keyName,
+    encrypted_secret: encryptSecret(privateKey),
+  });
+  if (connError) {
+    // Roll back rather than leave an orphaned, connection-less exchange
+    // "wallet" behind — it would show up in the list but every sync would
+    // just fail with "connection not found".
+    await db.from("wallets").delete().eq("id", wallet.id);
+    return { error: `Failed to save connection: ${connError.message}` };
+  }
+
+  // Save what the test call already fetched — a real first sync for free,
+  // no need to immediately click "Sync" right after connecting.
+  await db.rpc("sync_exchange_holdings", {
+    p_wallet_id: wallet.id,
+    p_holdings: testResult.holdings,
+    p_status: testResult.warnings.length === 0 ? "ok" : `partial — ${testResult.warnings.join("; ")}`,
+  });
+
+  revalidatePath("/wallets");
+  redirect(`/wallets/${wallet.id}`);
+}
+
+/** Same CAS-claim/after() shape as syncWalletDefi, its own
+ * exchange_sync_status/exchange_sync_started_at pair (a fourth independent
+ * job on the wallet row — see holdings.source's "auto_exchange" doc
+ * comment). */
+export async function syncCoinbaseHoldings(walletId: string): Promise<JobStartResult> {
+  const user = await requireUser();
+  const db = await userDb();
+  const { data: wallet, error: walletError } = await db
+    .from("wallets")
+    .select("provider")
+    .eq("id", walletId)
+    .single();
+  if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
+  if (wallet.provider !== "coinbase") throw new Error("This wallet isn't a connected Coinbase account.");
+
+  const syncStartedAt = Date.now();
+  const staleBefore = new Date(syncStartedAt - JOB_STALE_MS).toISOString();
+  const { data: claimed, error: markError } = await db
+    .from("wallets")
+    .update({ exchange_sync_status: "syncing", exchange_sync_started_at: new Date(syncStartedAt).toISOString() })
+    .eq("id", walletId)
+    .or(`exchange_sync_status.neq.syncing,exchange_sync_status.is.null,exchange_sync_started_at.lt.${staleBefore}`)
+    .select("id");
+  if (markError) throw new Error(`Failed to start sync: ${markError.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { started: false, reason: "A sync is already running for this wallet." };
+  }
+
+  after(async () => {
+    const afterDb = await userDb();
+    try {
+      const svc = serviceDb();
+      const { data: conn, error: connError } = await svc
+        .from("exchange_connections")
+        .select("key_name, encrypted_secret")
+        .eq("wallet_id", walletId)
+        .single();
+      if (connError) throw new Error(`Failed to load connection: ${connError.message}`);
+
+      const privateKey = decryptSecret(conn.encrypted_secret);
+      const { holdings, warnings } = await fetchCoinbaseBalances(conn.key_name, privateKey);
+      const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
+
+      const { error: syncError } = await afterDb.rpc("sync_exchange_holdings", {
+        p_wallet_id: walletId,
+        p_holdings: holdings,
+        p_status: status,
+      });
+      if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
+
+      await afterDb
+        .from("wallets")
+        .update({ exchange_sync_duration_ms: Date.now() - syncStartedAt })
+        .eq("id", walletId);
+
+      // Same scoped reprice as syncWalletHoldings/syncWalletDefi — spot
+      // balances go through the shared ticker table (usd_override is
+      // always null for these, see coinbaseAdvancedTrade.ts), so a
+      // brand-new currency this sync introduced needs this to ever show a
+      // price.
+      const tickersToPrice: HoldingTickerInfo[] = holdings
+        .filter((h) => h.usd_override === null)
+        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto" }));
+      await refreshTickerPrices(tickersToPrice).catch(() => {});
+
+      scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
+    } catch (e) {
+      await afterDb
+        .from("wallets")
+        .update({
+          exchange_sync_status: `error: ${(e as Error).message}`,
+          exchange_sync_duration_ms: Date.now() - syncStartedAt,
+        })
+        .eq("id", walletId);
+    } finally {
+      revalidatePath(`/wallets/${walletId}`);
+      revalidatePath("/wallets");
+      revalidatePath("/dashboard");
+      revalidatePath("/analytics");
+    }
+  });
+
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+  return { started: true };
+}
+
+/**
+ * There's no Coinbase API to revoke a key programmatically (confirmed live
+ * — revocation is portal-only), so this can only delete cryptoport's own
+ * copy; the UI tells the user to also delete the key from Coinbase's own
+ * portal if they want it fully dead. Soft-deletes the wallet, same as
+ * deleteWallet above.
+ */
+export async function disconnectExchange(walletId: string) {
+  const user = await requireUser();
+  const db = await userDb();
+  // RLS on wallets already scopes this select to the caller's own rows —
+  // a wallet that isn't theirs simply won't be found.
+  const { data: wallet, error: walletError } = await db
+    .from("wallets")
+    .select("provider")
+    .eq("id", walletId)
+    .single();
+  if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
+  if (!wallet.provider) throw new Error("This wallet isn't a connected exchange.");
+
+  const svc = serviceDb();
+  const { error: connError } = await svc
+    .from("exchange_connections")
+    .delete()
+    .eq("wallet_id", walletId)
+    .eq("user_id", user.id);
+  if (connError) throw new Error(`Failed to remove connection: ${connError.message}`);
+
+  const { error: deactivateError } = await db.from("wallets").update({ active: false }).eq("id", walletId);
+  if (deactivateError) throw new Error(`Failed to deactivate wallet: ${deactivateError.message}`);
 
   revalidatePath("/wallets");
   redirect("/wallets");

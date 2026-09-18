@@ -31,12 +31,14 @@ export type Chain =
   | "XRP"
   | "TON";
 export type WalletMode = "manual" | "auto";
-/** "auto_defi" is a second, disjoint sync-owned source (Zerion-backed EVM
- * DeFi positions, see zerionDefi.ts) — deliberately distinct from "auto"
- * (the regular multicall/adapter sync) so the two syncs' own delete-then-
- * insert RPCs (sync_auto_holdings vs. sync_defi_holdings) can never clobber
- * each other's rows. */
-export type HoldingSource = "manual_qty" | "manual_usd" | "auto" | "auto_defi";
+/** "auto_defi" and "auto_exchange" are additional disjoint sync-owned
+ * sources — "auto_defi" for Zerion-backed EVM DeFi positions (zerionDefi.ts),
+ * "auto_exchange" for a connected exchange account's balances
+ * (coinbaseAdvancedTrade.ts) — each deliberately distinct from "auto" (the
+ * regular multicall/adapter sync) so every sync's own delete-then-insert RPC
+ * (sync_auto_holdings / sync_defi_holdings / sync_exchange_holdings) can
+ * never clobber another's rows. */
+export type HoldingSource = "manual_qty" | "manual_usd" | "auto" | "auto_defi" | "auto_exchange";
 export type HoldingCategory = "token" | "defi";
 export type PriceSource = "coingecko" | "coinbase" | "jupiter";
 
@@ -116,6 +118,19 @@ export interface Wallet {
   defi_sync_started_at: string | null;
   defi_synced_at: string | null;
   defi_sync_duration_ms: number | null;
+  /** Set only for a connected-exchange wallet (see exchange_connections in
+   * schema.sql) — null for every on-chain wallet. 'coinbase' for now, built
+   * to take a second value the day another exchange is added. Discriminates
+   * "this wallet has no on-chain address, its holdings come from an
+   * API-key-authenticated exchange sync" from the regular wallet shape. */
+  provider: string | null;
+  /** A fourth independent job on this same row (see holdings.source's
+   * "auto_exchange" doc comment) — same "own status/timestamps, own cadence"
+   * reasoning as the tx_sync_ and defi_sync_ fields above. */
+  exchange_sync_status: string | null;
+  exchange_sync_started_at: string | null;
+  exchange_synced_at: string | null;
+  exchange_sync_duration_ms: number | null;
   created_at: string;
 }
 
