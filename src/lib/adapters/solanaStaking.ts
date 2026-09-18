@@ -1,9 +1,15 @@
 import "server-only";
 import { getProgramAccounts, base58encode } from "./solanaRpc";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
+import { fetchTokenInfo } from "./jupiter";
 import type { AdapterHolding } from "./types";
 
 const STAKE_PROGRAM = "Stake11111111111111111111111111111111111111";
+// Same wrapped-SOL mint jupiterPositions.ts's resolveAsset uses to look up
+// SOL's own icon — reused here via the already-exported fetchTokenInfo
+// (originally exported for prices.ts's Jupiter-fallback path) rather than
+// hardcoding an icon URL or adding a second API call for it.
+const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 // StakeStateV2's own 4-byte enum discriminant for the "Stake" (delegated)
 // variant — computed, not hand-copied, same reasoning as every other
 // discriminator in this codebase (see wormholeStaking.ts's commit
@@ -86,8 +92,12 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
   if (delegations.length === 0) return []; // no active stake — a real $0, not an error
 
   const distinctVoters = [...new Set(delegations.map((d) => d.voter))];
-  const labels = await mapWithConcurrency(distinctVoters, 3, fetchValidatorLabel);
+  const [labels, tokenInfo] = await Promise.all([
+    mapWithConcurrency(distinctVoters, 3, fetchValidatorLabel),
+    fetchTokenInfo([WRAPPED_SOL_MINT]).catch(() => new Map()), // icon is cosmetic — never fail the holding over it
+  ]);
   const labelByVoter = new Map(distinctVoters.map((v, i) => [v, labels[i]]));
+  const solIcon = tokenInfo.get(WRAPPED_SOL_MINT)?.icon ?? null;
 
   return delegations.map(({ voter, qty }) => ({
     ticker: "SOL",
@@ -96,7 +106,7 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
     contract: null,
     category: "defi",
     chain: "solana-defi",
-    icon_url: null,
+    icon_url: solIcon,
     protocol: labelByVoter.get(voter)!,
     protocol_url: `https://stakewiz.com/validator/${voter}`,
   }));
