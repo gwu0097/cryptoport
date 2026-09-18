@@ -8,8 +8,10 @@ import { HoldingsTable } from "./HoldingsTable";
 import { TokenIcon } from "./TokenIcon";
 import { CheckboxLink } from "./ui/CheckboxLink";
 import { StopPropagationLink } from "./StopPropagationLink";
+import { CollapseExpandAllButtons } from "./CollapseExpandAllButtons";
 
 const LOW_VALUE_USD = 10;
+const GROUPS_CONTAINER_ID = "chain-grouped-holdings";
 
 interface ProtocolGroup {
   protocol: string;
@@ -239,7 +241,8 @@ export async function ChainGroupedHoldings({
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div>{actions}</div>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <CollapseExpandAllButtons containerId={GROUPS_CONTAINER_ID} />
           <CheckboxLink
             href={buildHref(baseHref, selectedChain, !hideUnpriced, hideLow)}
             checked={hideUnpriced}
@@ -263,7 +266,7 @@ export async function ChainGroupedHoldings({
           <p className="text-sm text-fg-muted">Nothing to show here.</p>
         </Panel>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div id={GROUPS_CONTAINER_ID} className="flex flex-col gap-4">
           {visibleGroups.map((group) => {
             const { plain, protocolGroups } = groupByProtocol(group.holdings);
             // The page-level notice above only catches a chain that
