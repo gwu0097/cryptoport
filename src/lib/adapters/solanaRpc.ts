@@ -1,7 +1,30 @@
 import "server-only";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
 
-const RPC_URL = "https://api.mainnet-beta.solana.com";
+// Free-but-keyless api.mainnet-beta.solana.com turned out not to be
+// reliable enough for getProgramAccounts specifically: live-verified that
+// it returns a clean, error-free empty result for a real, existing SKR
+// staking position when called from this app's production deployment,
+// while the exact same query succeeded reliably elsewhere — its request
+// pool spreads across many backend nodes, and getProgramAccounts (an
+// expensive full-account-set scan) isn't consistently indexed across all
+// of them for a smaller/newer program. Confirmed this isn't solvable by
+// picking a different free/keyless provider either: two other public
+// endpoints tested (publicnode, ankr) flatly reject getProgramAccounts
+// for anonymous callers ("Indexed requests require a personal token" /
+// "API key is not allowed to access blockchain") — this method is widely
+// treated as a premium operation across the ecosystem, not just here.
+// Helius's free tier (helius.dev, sign-up required but genuinely free —
+// 1M credits/month, getProgramAccounts costs 10 each) is the standard,
+// reliable answer. Falls back to the public endpoint when the key isn't
+// set (e.g. a fresh local clone without .env.local configured yet), same
+// graceful-degradation pattern as coingecko.ts's/etherscan.ts's own
+// optional API keys — degraded reliability locally is an acceptable
+// tradeoff a real deployment shouldn't need to accept.
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+const RPC_URL = HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : "https://api.mainnet-beta.solana.com";
 // Solana RPC's own hard limit on how many pubkeys getMultipleAccounts
 // accepts per call — not a tunable, a protocol constant.
 const MAX_ACCOUNTS_PER_CALL = 100;
