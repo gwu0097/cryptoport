@@ -62,6 +62,14 @@ interface Delegation {
  * Validator name/APY enrichment is Stakewiz, via the shared
  * fetchValidatorName (stakewiz.ts) — see that file for the free/keyless
  * verification and best-effort-fallback reasoning.
+ *
+ * protocol_url deliberately points at jup.ag's own per-wallet portfolio
+ * page (same URL walletDisplay.ts's externalPortfolioViewer already
+ * uses), not Stakewiz's generic per-validator info page — reported
+ * directly that a generic destination isn't useful here; jup.ag/portfolio
+ * is a real, public, no-login page that shows this exact wallet's actual
+ * staked position, the same page every screenshot in this conversation
+ * has come from.
  */
 export async function fetchSolanaStaking(address: string): Promise<AdapterHolding[]> {
   const accounts = await getProgramAccounts(
@@ -102,6 +110,6 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
     chain: "solana-defi",
     icon_url: solIcon,
     protocol: `Solana Staking: ${nameByVoter.get(voter)}`,
-    protocol_url: `https://stakewiz.com/validator/${voter}`,
+    protocol_url: `https://jup.ag/portfolio/${address}`,
   }));
 }

@@ -88,7 +88,15 @@ export async function fetchSkrStaking(address: string): Promise<AdapterHolding[]
       // API to resolve a Guardian's name from its pubkey if that changes.
       // Revisit this label once multiple Guardians actually exist.
       protocol: "SKR Staking: Solana Mobile",
-      protocol_url: "https://stake.solanamobile.com/",
+      // jup.ag's own per-wallet portfolio page (same URL
+      // walletDisplay.ts's externalPortfolioViewer already uses), not
+      // stake.solanamobile.com's generic homepage — reported directly
+      // that a generic destination isn't useful; jup.ag/portfolio is a
+      // real, public, no-login page showing this exact wallet's actual
+      // staked SKR, and (confirmed live) is the same page the "Solana
+      // Mobile" tile in this whole conversation's own screenshots came
+      // from.
+      protocol_url: `https://jup.ag/portfolio/${address}`,
     },
   ];
 }
