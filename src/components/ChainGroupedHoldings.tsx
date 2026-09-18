@@ -162,6 +162,12 @@ export async function ChainGroupedHoldings({
     }))
     .filter((g) => g.holdings.length > 0);
 
+  // Chains that had real holdings but ended up with none visible after the
+  // hideUnpriced/hideLow filters — see the notice this drives, below.
+  const hiddenGroups = groups
+    .filter((g) => !selectedChain || g.chainId === selectedChain)
+    .filter((g) => g.holdings.length > 0 && !visibleGroups.some((vg) => vg.chainId === g.chainId));
+
   return (
     <>
       <div className="mb-2 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
@@ -206,6 +212,21 @@ export async function ChainGroupedHoldings({
         </div>
       </div>
 
+      {/* A chain's summary chip above always shows its real total (from the
+          unfiltered `groups`), but its detail panel below only renders
+          holdings that survive hideUnpriced/hideLow — a chain whose only
+          holding(s) are individually small (e.g. a single $7.88 DeFi
+          position, real and priced, just under the $10 low-value cutoff)
+          would otherwise vanish from the list below with no explanation
+          at all: the chip promises data, the panel shows nothing.
+          Reported directly as "don't see anything" for exactly this case. */}
+      {hiddenGroups.length > 0 && (
+        <p className="mb-4 text-sm text-fg-muted">
+          {hiddenGroups.map((g) => `${g.chainName} (${formatUsd(g.total)})`).join(", ")} hidden by the filters
+          above.
+        </p>
+      )}
+
       {visibleGroups.length === 0 ? (
         <Panel className="text-center">
           <p className="text-sm text-fg-muted">Nothing to show here.</p>
@@ -214,6 +235,19 @@ export async function ChainGroupedHoldings({
         <div className="flex flex-col gap-4">
           {visibleGroups.map((group) => {
             const { plain, protocolGroups } = groupByProtocol(group.holdings);
+            // The chain-level notice above only catches a chain that
+            // disappears entirely. A chain that STAYS visible (this one
+            // has other, larger holdings) can still silently drop one
+            // specific DeFi product whose only holding(s) were
+            // individually below the low-value cutoff — e.g. a $7.88
+            // Lulo position sitting right next to a $3,000+ one in the
+            // same "Solana DeFi" chain. Comparing this chain's protocol
+            // grouping before and after the per-holding filter catches
+            // that case too.
+            const rawGroup = groups.find((g) => g.chainId === group.chainId);
+            const rawProtocolGroups = rawGroup ? groupByProtocol(rawGroup.holdings).protocolGroups : [];
+            const visibleProtocolNames = new Set(protocolGroups.map((pg) => pg.protocol));
+            const hiddenProtocolGroups = rawProtocolGroups.filter((pg) => !visibleProtocolNames.has(pg.protocol));
             return (
               <details key={group.chainId} open className="group rounded-xl border border-border bg-surface">
                 <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
@@ -270,6 +304,12 @@ export async function ChainGroupedHoldings({
                       </div>
                     </details>
                   ))}
+                  {hiddenProtocolGroups.length > 0 && (
+                    <p className="border-t border-border px-5 py-2 text-xs text-fg-muted">
+                      {hiddenProtocolGroups.map((pg) => `${pg.protocol} (${formatUsd(pg.total)})`).join(", ")}{" "}
+                      hidden by the filters above.
+                    </p>
+                  )}
                 </div>
               </details>
             );
