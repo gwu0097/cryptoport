@@ -32,7 +32,7 @@ export interface PriceRefreshResult {
   delisted?: boolean;
 }
 
-interface HoldingTickerInfo {
+export interface HoldingTickerInfo {
   ticker: string;
   /** First non-null contract seen for this ticker across all holdings — a
    * ticker could in principle come from holdings with different contracts
@@ -126,6 +126,13 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
 
 async function getExistingPriceSources(): Promise<Map<string, string | null>> {
   const { data, error } = await serviceDb().from("prices").select("ticker, source");
+  if (error) throw new Error(`Failed to load existing prices: ${error.message}`);
+  return new Map((data as { ticker: string; source: string | null }[]).map((r) => [r.ticker, r.source]));
+}
+
+async function getExistingPriceSourcesFor(tickers: string[]): Promise<Map<string, string | null>> {
+  if (tickers.length === 0) return new Map();
+  const { data, error } = await serviceDb().from("prices").select("ticker, source").in("ticker", tickers);
   if (error) throw new Error(`Failed to load existing prices: ${error.message}`);
   return new Map((data as { ticker: string; source: string | null }[]).map((r) => [r.ticker, r.source]));
 }
@@ -457,6 +464,84 @@ async function refreshCoinbaseAndJupiter(
 }
 
 /**
+ * Shared tail for both refreshPrices (the full global refresh) and
+ * refreshTickerPrices (its scoped, sync-chained sibling below): the small
+ * second-stage Solana-miss follow-up (see refreshCoinGeckoTickers' own doc
+ * comment for why this can only be known once that call returns) plus the
+ * final result merge (a ticker that succeeded via Jupiter shouldn't also be
+ * reported as a Coinbase failure). Extracted rather than duplicated once a
+ * second caller needed the identical logic — same "two is the threshold"
+ * rule as this codebase's other extractions.
+ */
+async function mergeCoingeckoAndResidualResults(
+  coingecko: { results: PriceRefreshResult[]; solanaMisses: { ticker: string; contract: string }[] },
+  coinbaseAndJupiter: { coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] },
+  existingSources: Map<string, string | null>,
+): Promise<PriceRefreshResult[]> {
+  const { coinbaseResults, jupiterResults } = coinbaseAndJupiter;
+
+  let solanaMissResults: { coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] } = {
+    coinbaseResults: [],
+    jupiterResults: [],
+  };
+  if (coingecko.solanaMisses.length > 0) {
+    const solanaMissTickers: HoldingTickerInfo[] = coingecko.solanaMisses.map((m) => ({
+      ticker: m.ticker,
+      contract: m.contract,
+      chain: "solana",
+      coingeckoId: null,
+      source: "auto",
+    }));
+    solanaMissResults = await refreshCoinbaseAndJupiter(solanaMissTickers, existingSources);
+  }
+
+  const allJupiterResults = [...jupiterResults, ...solanaMissResults.jupiterResults];
+  const jupiterSucceeded = new Set(allJupiterResults.filter((r) => r.ok).map((r) => r.ticker));
+
+  return [
+    ...coingecko.results,
+    ...[...coinbaseResults, ...solanaMissResults.coinbaseResults].filter(
+      (r) => r.ok || !jupiterSucceeded.has(r.ticker),
+    ),
+    ...allJupiterResults,
+  ];
+}
+
+/**
+ * Prices a specific, caller-supplied set of tickers instead of every
+ * distinct ticker any holding anywhere uses — e.g. one wallet's own
+ * holdings right after a sync. `refreshPrices` below is the right default
+ * for the manual "Refresh prices" button (prices are shared, so scoping
+ * that one doesn't isolate anything — see refreshPricesForWalletAction's
+ * own doc comment in wallets/actions.ts), but the wrong size to chain into
+ * every sync: a 10-token wallet doesn't need a ~9s global CoinGecko/
+ * Coinbase pass, and syncAllWallets firing N of those in parallel would be
+ * real, avoidable load. Reuses the exact same CoinGecko/Coinbase/Jupiter
+ * lanes and source-precedence rules as refreshPrices (never a second,
+ * parallel pricing implementation) — just without its EVM lane (the sync
+ * that calls this already stamped fresh usd_override on its own EVM
+ * holdings, see multicallEvm.ts) and without touching price_refresh_state
+ * at all: no CAS claim (this isn't "the" refresh — many of these can run
+ * concurrently across different wallets/users with no contention), no
+ * phase tracking, and deliberately no bump to its global `refreshed_at` —
+ * a scoped fill making the global "Last priced" caption claim everything
+ * is fresh when only a few tickers were touched would be exactly the
+ * misleading-staleness-number the Data Correctness rule forbids.
+ */
+export async function refreshTickerPrices(tickers: HoldingTickerInfo[]): Promise<PriceRefreshResult[]> {
+  if (tickers.length === 0) return [];
+  const existingSources = await getExistingPriceSourcesFor([...new Set(tickers.map((t) => t.ticker))]);
+  const { resolved, residual } = splitByCoingeckoResolvability(tickers);
+
+  const [coingecko, coinbaseAndJupiter] = await Promise.all([
+    refreshCoinGeckoTickers(resolved),
+    refreshCoinbaseAndJupiter(residual, existingSources),
+  ]);
+
+  return mergeCoingeckoAndResidualResults(coingecko, coinbaseAndJupiter, existingSources);
+}
+
+/**
  * Refreshes every price this app tracks, from three sources with three
  * different jobs — not three competitors picked for speed, each fills a
  * gap the others structurally can't:
@@ -584,41 +669,14 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
     refreshCoinbaseAndJupiter(residual, existingSources),
     tracked("evm", refreshEvmHoldingPrices()),
   ]);
-  const { coinbaseResults, jupiterResults } = coinbaseAndJupiter;
-
-  // Small, second-stage follow-up for Solana contracts CoinGecko didn't
-  // have a price for — see refreshCoinGeckoTickers' own doc comment for
-  // why this can't be known until after that call returns, and refreshPrices'
-  // own doc comment for why that's an acceptable, small sequential tail
-  // rather than something worth restructuring further.
-  let solanaMissResults: { coinbaseResults: PriceRefreshResult[]; jupiterResults: PriceRefreshResult[] } = {
-    coinbaseResults: [],
-    jupiterResults: [],
-  };
-  if (coingecko.solanaMisses.length > 0) {
-    const solanaMissTickers: HoldingTickerInfo[] = coingecko.solanaMisses.map((m) => ({
-      ticker: m.ticker,
-      contract: m.contract,
-      chain: "solana",
-      coingeckoId: null,
-      source: "auto",
-    }));
-    solanaMissResults = await refreshCoinbaseAndJupiter(solanaMissTickers, existingSources);
-  }
+  // Small, second-stage Solana-miss follow-up plus the final result merge —
+  // see mergeCoingeckoAndResidualResults' own doc comment. The phase only
+  // gets its one "done" write below, once this (both steps) is actually
+  // finished — see the comment above on why "coinbase" isn't wrapped in
+  // tracked() the same way.
+  const merged = await mergeCoingeckoAndResidualResults(coingecko, coinbaseAndJupiter, existingSources);
   phases.coinbase = { status: "done", ms: Date.now() - t0 };
   await persistPhases(phases);
 
-  // A ticker that succeeded via Jupiter shouldn't also be reported as a
-  // Coinbase failure in the combined results.
-  const allJupiterResults = [...jupiterResults, ...solanaMissResults.jupiterResults];
-  const jupiterSucceeded = new Set(allJupiterResults.filter((r) => r.ok).map((r) => r.ticker));
-
-  return [
-    ...coingecko.results,
-    ...[...coinbaseResults, ...solanaMissResults.coinbaseResults].filter(
-      (r) => r.ok || !jupiterSucceeded.has(r.ticker),
-    ),
-    ...allJupiterResults,
-    ...evmResults,
-  ];
+  return [...merged, ...evmResults];
 }

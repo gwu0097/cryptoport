@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
-import { refreshPrices } from "@/lib/prices";
+import { refreshPrices, refreshTickerPrices, type HoldingTickerInfo } from "@/lib/prices";
 import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
@@ -436,7 +436,7 @@ export async function searchCoinsAction(query: string): Promise<CoinSearchResult
 // bypasses pricing entirely — see valuation.ts). This is the only place that
 // decides which of the two a new holding is.
 export async function addHolding(walletId: string, formData: FormData) {
-  const user = await requireUser();
+  await requireUser();
   const ticker = requireString(formData, "ticker").toUpperCase();
   const kind = requireOneOf(formData, "kind", HOLDING_KINDS);
   // Set only when the coin picker (CoinSearchInput, in AddHoldingModal) was
@@ -486,16 +486,21 @@ export async function addHolding(walletId: string, formData: FormData) {
 
   // A freshly-added manual holding used to just sit unpriced until the
   // user noticed and clicked "Refresh prices" themselves — reported
-  // directly. Reuses the exact same claim+after() pipeline that button
-  // uses (never a second pricing mechanism — see CLAUDE.md's "standardize
-  // across the app" rule). If a refresh is already running, this simply
-  // no-ops: the in-flight run re-derives its own ticker list from the DB
-  // at run time, and the insert above already landed, so it picks up the
-  // new ticker anyway. usd_override holdings never need pricing at all
-  // (valuation.ts bypasses the `prices` table for them entirely), so
-  // skip triggering a refresh for those — nothing for it to price.
+  // directly. Used to trigger the full global refresh's claim+after()
+  // pipeline for this; now uses the same wallet-scoped path
+  // syncWalletHoldings uses instead (see refreshTickerPrices' own doc
+  // comment) — one new manual ticker doesn't need a ~9s global CoinGecko/
+  // Coinbase pass any more than a synced wallet's new ticker does.
+  // usd_override holdings never need pricing at all (valuation.ts bypasses
+  // the `prices` table for them entirely), so skip triggering anything for
+  // those — nothing for it to price.
   if (kind !== "usd") {
-    await tryStartPriceRefresh(user.id, [`/wallets/${walletId}`]);
+    const tickerInfo: HoldingTickerInfo = { ticker, contract: null, chain: null, coingeckoId, source: "manual_qty" };
+    after(async () => {
+      await refreshTickerPrices([tickerInfo]).catch(() => {});
+      revalidatePath(`/wallets/${walletId}`);
+      revalidatePath("/wallets");
+    });
   }
 }
 
@@ -697,6 +702,31 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       if (wallet.chain === "BTC") updates.btc_script_type = detectedScriptType;
       if (wallet.chain === "ADA") updates.cardano_stake_address = cardanoStakeAddress;
       await afterDb.from("wallets").update(updates).eq("id", walletId);
+
+      // Reprice this wallet's own ticker-keyed holdings (plain Solana/BTC/
+      // ADA/Cosmos balances, manual qty rows — anything without its own
+      // usd_override; EVM holdings already got a fresh usd_override from
+      // this same sync, see multicallEvm.ts, so they're filtered out here)
+      // right after a sync, not just on the next manual "Refresh prices"
+      // click elsewhere in the app — a freshly-synced wallet's brand-new
+      // ticker used to just sit unpriced (same class of report that
+      // motivated refreshPricesForWalletAction below). Deliberately NOT
+      // the full global refreshPrices() — see refreshTickerPrices' own doc
+      // comment for why a wallet-scoped pass is the right size here, and
+      // why syncAllWallets firing N of these in parallel (one per wallet)
+      // is safe: each is its own small, independent CoinGecko batch call,
+      // no shared claim/lock to contend over. Awaited inline here (not a
+      // further-nested after()) since it's a small, bounded batch — unlike
+      // scheduleUserSnapshot below, there's no multi-second regression risk
+      // to guard against, and running it before that snapshot capture lets
+      // today's snapshot reflect this wallet's freshly-priced new tickers
+      // instead of a stale/unpriced value for them. Best-effort — a
+      // pricing failure here is real but minor (same tickers just stay
+      // unpriced one sync longer), never worth failing the sync over.
+      const tickersToPrice: HoldingTickerInfo[] = holdings
+        .filter((h) => h.usd_override === null)
+        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto" }));
+      await refreshTickerPrices(tickersToPrice).catch(() => {});
 
       // Nested after(), registered only now that holdings are actually
       // saved — not called unconditionally alongside the outer after()
