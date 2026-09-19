@@ -22,6 +22,9 @@ export type Sort = { key: SortKey; dir: SortDirection };
 
 const STORAGE_KEY = "cryptoport:defiSort";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
+const HIDE_UNPRICED_KEY = "cryptoport:defiHideUnpriced";
+const HIDE_LOW_KEY = "cryptoport:defiHideLow";
+const LOW_VALUE_USD = 10;
 
 function sortValue(group: DefiProtocolGroup, key: SortKey): number | string {
   switch (key) {
@@ -89,6 +92,8 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [hideUnpriced, setHideUnpriced] = usePersistedState(HIDE_UNPRICED_KEY, false);
+  const [hideLow, setHideLow] = usePersistedState(HIDE_LOW_KEY, false);
 
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -103,6 +108,20 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
     });
   }
 
+  // Only the expanded per-wallet position lists are filtered — the
+  // Protocol/Wallets/Value columns keep showing their real, unfiltered
+  // totals (same choice ChainGroupedHoldings makes: the filter controls
+  // which rows are visible, never what a total silently adds up to). A
+  // wallet whose every position gets filtered out drops from the expanded
+  // view entirely rather than showing an empty position table under it.
+  function visiblePositions(positions: DefiProtocolGroup["wallets"][number]["positions"]) {
+    return positions.filter((p) => {
+      if (p.valuation.kind === "unpriced") return !hideUnpriced;
+      if (hideLow && p.valuation.usd < LOW_VALUE_USD) return false;
+      return true;
+    });
+  }
+
   const sorted = [...groups].sort((a, b) => {
     const av = sortValue(a, sortKey);
     const bv = sortValue(b, sortKey);
@@ -112,6 +131,27 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="flex flex-wrap items-center gap-4 p-4 pb-3">
+        <label className="flex items-center gap-2 text-sm text-fg-muted">
+          <input
+            type="checkbox"
+            checked={hideUnpriced}
+            onChange={(e) => setHideUnpriced(e.target.checked)}
+            className="size-4 rounded border-border accent-accent"
+          />
+          Hide unpriced
+        </label>
+        <label className="flex items-center gap-2 text-sm text-fg-muted">
+          <input
+            type="checkbox"
+            checked={hideLow}
+            onChange={(e) => setHideLow(e.target.checked)}
+            className="size-4 rounded border-border accent-accent"
+          />
+          Hide low value (&lt; ${LOW_VALUE_USD})
+        </label>
+      </div>
+
       <div className="overflow-x-auto">
         <table className={tableClass}>
           <thead>
@@ -168,7 +208,10 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                     <tr>
                       <td colSpan={4} className="bg-surface-raised/40 p-0">
                         <div className="flex flex-col divide-y divide-border">
-                          {group.wallets.map((w) => (
+                          {group.wallets.map((w) => {
+                            const positions = visiblePositions(w.positions);
+                            if (positions.length === 0) return null;
+                            return (
                             <div key={w.walletId} className="px-5 py-3">
                               <div className="mb-2 flex items-center justify-between">
                                 <Link
@@ -191,7 +234,7 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {w.positions.map((position) => (
+                                    {positions.map((position) => (
                                       <tr key={position.id} className={trClass}>
                                         <td className={tdClass}>
                                           <div className="flex items-center gap-2">
@@ -228,7 +271,8 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                                 </table>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </td>
                     </tr>
