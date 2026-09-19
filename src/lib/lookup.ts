@@ -59,6 +59,7 @@ function toHolding(h: AdapterHolding, index: number): Holding {
     position_entry_price: h.position_entry_price ?? null,
     position_liquidation_price: h.position_liquidation_price ?? null,
     position_pnl_usd: h.position_pnl_usd ?? null,
+    position_pnl_percent: h.position_pnl_percent ?? null,
     updated_at: new Date().toISOString(),
   };
 }

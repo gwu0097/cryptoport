@@ -186,13 +186,17 @@ export interface Holding {
   protocol_section: string | null;
   /** Leveraged-position detail — see AdapterHolding's own doc comment for
    * why these are named fields rather than a generic blob, and why
-   * usd_override is margin committed, not PnL or notional. Null for every
-   * holding except an open perp/futures position. */
+   * usd_override is margin committed, not PnL or notional, for a leveraged
+   * position. Null for every holding except an open perp/futures position. */
   position_side: "long" | "short" | null;
   position_leverage: number | string | null;
   position_entry_price: number | string | null;
   position_liquidation_price: number | string | null;
+  /** Informational PnL — set (independent of position_side) for any
+   * position with its own gain/loss, leveraged or not (Hyperliquid perps
+   * *and* Polymarket predictions). See AdapterHolding's own doc comment. */
   position_pnl_usd: number | string | null;
+  position_pnl_percent: number | string | null;
   updated_at: string;
 }
 

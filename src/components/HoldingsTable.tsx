@@ -3,7 +3,7 @@
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { isSyncOwned } from "@/lib/types";
-import { formatUsd, formatUsdSigned, formatQty, formatTicker } from "@/lib/format";
+import { formatUsd, formatUsdSigned, formatPercent, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
@@ -69,12 +69,18 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
 // instead as its own colored stat — "how much capital is deployed" and "how
 // much have I made or lost" are different questions, both worth seeing.
 function PositionTag({ holding }: { holding: HoldingWithValuation }) {
-  if (!holding.position_side) return null;
+  // Not gated on position_side alone — a Polymarket prediction has its own
+  // PnL with no leverage/side concept at all (see hyperliquid.ts and
+  // polymarket.ts's own doc comments on position_pnl_usd).
+  if (!holding.position_side && holding.position_pnl_usd == null) return null;
   const leverage = numeric(holding.position_leverage);
   const entry = numeric(holding.position_entry_price);
   const liq = numeric(holding.position_liquidation_price);
   const pnl = numeric(holding.position_pnl_usd);
-  const label = `${holding.position_side === "long" ? "Long" : "Short"}${Number.isFinite(leverage) ? ` ${leverage}x` : ""}`;
+  const pnlPercent = numeric(holding.position_pnl_percent);
+  const label = holding.position_side
+    ? `${holding.position_side === "long" ? "Long" : "Short"}${Number.isFinite(leverage) ? ` ${leverage}x` : ""}`
+    : null;
   const details = [
     Number.isFinite(entry) ? `entry ${formatUsd(entry)}` : null,
     Number.isFinite(liq) ? `liq. ${formatUsd(liq)}` : null,
@@ -83,10 +89,11 @@ function PositionTag({ holding }: { holding: HoldingWithValuation }) {
     .join(" · ");
   return (
     <span className="mt-1 flex items-center gap-1.5 text-xs" title={details || undefined}>
-      <span className="text-fg-muted">{label}</span>
+      {label && <span className="text-fg-muted">{label}</span>}
       {Number.isFinite(pnl) && (
         <span className={pnl > 0 ? "text-positive" : pnl < 0 ? "text-negative" : "text-fg-muted"}>
           PnL {formatUsdSigned(pnl)}
+          {Number.isFinite(pnlPercent) && <> ({formatPercent(pnlPercent)})</>}
         </span>
       )}
     </span>

@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import type { DefiProtocolGroup } from "@/lib/queries";
-import { formatUsd, formatUsdSigned, formatQty, formatTicker } from "@/lib/format";
+import { formatUsd, formatUsdSigned, formatPercent, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { TokenIcon } from "./TokenIcon";
 import { usePersistedState } from "./usePersistedState";
@@ -45,18 +45,24 @@ function PositionTag({
   entryPrice,
   liquidationPrice,
   pnl,
+  pnlPercent,
 }: {
-  side: "long" | "short";
+  // Optional — a Polymarket prediction has its own PnL with no leverage/
+  // side concept at all (see hyperliquid.ts and polymarket.ts's own doc
+  // comments on position_pnl_usd).
+  side: "long" | "short" | null;
   leverage: unknown;
   entryPrice: unknown;
   liquidationPrice: unknown;
   pnl: unknown;
+  pnlPercent: unknown;
 }) {
   const lev = numeric(leverage);
   const entry = numeric(entryPrice);
   const liq = numeric(liquidationPrice);
   const pnlNum = numeric(pnl);
-  const label = `${side === "long" ? "Long" : "Short"}${Number.isFinite(lev) ? ` ${lev}x` : ""}`;
+  const pnlPercentNum = numeric(pnlPercent);
+  const label = side ? `${side === "long" ? "Long" : "Short"}${Number.isFinite(lev) ? ` ${lev}x` : ""}` : null;
   const details = [
     Number.isFinite(entry) ? `entry ${formatUsd(entry)}` : null,
     Number.isFinite(liq) ? `liq. ${formatUsd(liq)}` : null,
@@ -65,10 +71,11 @@ function PositionTag({
     .join(" · ");
   return (
     <span className="flex items-center gap-1.5 text-xs" title={details || undefined}>
-      <span className="text-fg-muted">{label}</span>
+      {label && <span className="text-fg-muted">{label}</span>}
       {Number.isFinite(pnlNum) && (
         <span className={pnlNum > 0 ? "text-positive" : pnlNum < 0 ? "text-negative" : "text-fg-muted"}>
           PnL {formatUsdSigned(pnlNum)}
+          {Number.isFinite(pnlPercentNum) && <> ({formatPercent(pnlPercentNum)})</>}
         </span>
       )}
     </span>
@@ -312,13 +319,14 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                                                   <TokenIcon ticker={position.ticker} url={position.icon_url} />
                                                   {position.display_label ?? formatTicker(position.ticker)}
                                                 </div>
-                                                {position.position_side && (
+                                                {(position.position_side || position.position_pnl_usd != null) && (
                                                   <PositionTag
                                                     side={position.position_side}
                                                     leverage={position.position_leverage}
                                                     entryPrice={position.position_entry_price}
                                                     liquidationPrice={position.position_liquidation_price}
                                                     pnl={position.position_pnl_usd}
+                                                    pnlPercent={position.position_pnl_percent}
                                                   />
                                                 )}
                                               </div>

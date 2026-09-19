@@ -34,6 +34,8 @@ interface PolymarketProfile {
 interface PolymarketPosition {
   size: number;
   currentValue: number;
+  cashPnl: number;
+  percentPnl: number; // already a percentage (e.g. 83.6119, not 0.836119)
   title: string;
   outcome: string;
   icon: string | null;
@@ -127,6 +129,13 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
       protocol_url: `https://polymarket.com/event/${p.eventSlug}`,
       protocol_section: "Prediction",
       display_label: `${p.title} — ${p.outcome}`,
+      // Not a leveraged position (position_side stays unset) — cashPnl/
+      // percentPnl are still real, signed money on their own, same
+      // "informational, not summed into the total" treatment as a perp's
+      // PnL (usd_override above is already the position's real current
+      // value, not margin, so nothing else needs to account for this).
+      position_pnl_usd: Number.isFinite(p.cashPnl) ? p.cashPnl : null,
+      position_pnl_percent: Number.isFinite(p.percentPnl) ? p.percentPnl : null,
     });
   }
 

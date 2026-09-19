@@ -16,6 +16,11 @@ interface HyperliquidPosition {
   unrealizedPnl: string;
   marginUsed: string;
   leverage: { type: string; value: number };
+  // A fraction, not a percentage (live-verified: a real -0.0134 PnL on a
+  // 4.97 margin position reported returnOnEquity -0.0026789, matching
+  // -0.0134/4.967826 almost exactly) — ×100 at the call site below to match
+  // Polymarket's percentPnl, which is already in percentage-point form.
+  returnOnEquity: string;
 }
 
 interface ClearinghouseState {
@@ -173,6 +178,8 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
     // liquidation risk worth seeing.
     const pnl = Number.isFinite(Number(position.unrealizedPnl)) ? Number(position.unrealizedPnl) : 0;
     const liqPx = position.liquidationPx !== null ? Number(position.liquidationPx) : null;
+    const roe = Number(position.returnOnEquity);
+    const pnlPercent = Number.isFinite(roe) ? roe * 100 : null;
 
     holdings.push({
       ticker: `${position.coin}-PERP`,
@@ -190,6 +197,7 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       position_entry_price: Number.isFinite(Number(position.entryPx)) ? Number(position.entryPx) : null,
       position_liquidation_price: liqPx !== null && Number.isFinite(liqPx) ? liqPx : null,
       position_pnl_usd: pnl,
+      position_pnl_percent: pnlPercent,
     });
   }
 

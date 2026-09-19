@@ -54,18 +54,32 @@ export interface AdapterHolding {
    * named fields now rather than only when a second adapter needs them
    * because a leveraged-position gap was already flagged once before, for
    * Coinbase's CFM perp futures (see coinbaseAdvancedTrade.ts's own
-   * warning) — this shape is meant to cover that too when it's built. */
+   * warning) — this shape is meant to cover that too when it's built. Null
+   * for a non-leveraged position with its own PnL (a Polymarket prediction
+   * — see position_pnl_usd/position_pnl_percent below, which aren't
+   * leverage-specific and stand alone there). */
   position_side?: "long" | "short" | null;
   position_leverage?: number | null;
   position_entry_price?: number | null;
   position_liquidation_price?: number | null;
   /** Informational only, NOT what prices the position (see valueHolding's
-   * usd_override handling — usd_override is margin committed, matching how
-   * DeBank/Hyperliquid's own UI value an open position: "how much capital
-   * is deployed" rather than "how much have I made or lost"). Shown as a
-   * separate colored stat alongside the position, never summed into any
-   * total — margin already accounts for that capital once. */
+   * usd_override handling — usd_override is margin committed for a
+   * leveraged position, matching how DeBank/Hyperliquid's own UI value one:
+   * "how much capital is deployed" rather than "how much have I made or
+   * lost"; for a non-leveraged position — Polymarket — usd_override is
+   * already the position's real current value, and PnL is just the
+   * separate "how has it moved since entry" stat). Shown as a colored stat
+   * alongside the position, never summed into any total. Independent of
+   * position_side — set without it for Polymarket, which has no leverage
+   * concept at all. */
   position_pnl_usd?: number | null;
+  /** Same "informational, not summed" role as position_pnl_usd, but the
+   * percentage move — Hyperliquid's own `returnOnEquity` (a fraction,
+   * multiplied by 100 here) and Polymarket's own `percentPnl` (already a
+   * percentage) both come from their source APIs directly rather than
+   * being derived here, since "percent of what" differs by position type
+   * (return on margin vs. return on cost basis). */
+  position_pnl_percent?: number | null;
 }
 
 /** What a transaction adapter hands back for one on-chain event, before
