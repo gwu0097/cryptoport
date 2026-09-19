@@ -15,6 +15,8 @@ import { JobButton } from "./jobs/JobButton";
 import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { usePersistedState } from "./usePersistedState";
+import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
+import { filterWalletsByTags } from "@/lib/walletTagFilter";
 import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
 /** The per-row sync icon-button — its own component (not inlined in the
@@ -145,7 +147,6 @@ type Sort = { key: SortKey; dir: "asc" | "desc" };
 const SORT_KEYS: readonly SortKey[] = ["name", "chain", "mode", "value", "refreshed", "duration"];
 const STORAGE_KEY = "cryptoport:walletsSort";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
-const TAG_FILTER_STORAGE_KEY = "cryptoport:walletsTagFilter";
 
 // Guards against a sort persisted from before the Tag column stopped being
 // sortable (see the Tag column's own history — it's now a filter, not a
@@ -216,7 +217,9 @@ function Header({
 export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]; tagNames: string[] }) {
   const [rawSort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = isValidSort(rawSort) ? rawSort : DEFAULT_SORT;
-  const [tagFilter, setTagFilter] = usePersistedState<string[]>(TAG_FILTER_STORAGE_KEY, []);
+  // Shared with SyncAllWalletsButton (see WalletsFilterProvider's own doc
+  // comment) — "Sync all" only syncs whatever's currently filtered here.
+  const { tagFilter, setTagFilter } = useWalletsFilter();
 
   function toggleSort(key: SortKey) {
     const dir = key === sortKey ? (sortDir === "desc" ? "asc" : "desc") : "desc";
@@ -227,13 +230,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
     setTagFilter(tagFilter.includes(name) ? tagFilter.filter((t) => t !== name) : [...tagFilter, name]);
   }
 
-  // AND semantics — a wallet needs every selected tag, not just one of them
-  // (user-confirmed: "personal" + "soft wallet" should narrow to wallets
-  // carrying both, not widen to either).
-  const filtered =
-    tagFilter.length === 0
-      ? wallets
-      : wallets.filter((w) => tagFilter.every((name) => w.tags.some((t) => t.name === name)));
+  const filtered = filterWalletsByTags(wallets, tagFilter);
 
   const sorted = [...filtered].sort((a, b) => {
     const av = sortValue(a, sortKey);

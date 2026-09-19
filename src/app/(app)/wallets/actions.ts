@@ -905,14 +905,23 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
 // would skip a wallet forever once its status said "syncing," even if
 // that run had gone stale (its after() killed by the platform's time
 // limit) — the CAS claim correctly re-attempts it instead.
-export async function syncAllWallets(): Promise<JobStartResult> {
+// walletIds — the currently tag-filtered subset from the Wallets list, not
+// always literally every wallet (see SyncAllWalletsButton's own doc
+// comment: many long-term-holding wallets don't need re-syncing on every
+// click, so the button only ever asks for whatever's currently filtered —
+// the full active list when no filter is selected). Still re-scoped to
+// mode="auto" here regardless of what's passed in, matching the pre-
+// filtering behavior — an id for a connected exchange wallet (a different
+// sync path entirely) or an inactive one is silently excluded, not an error.
+export async function syncAllWallets(walletIds: string[]): Promise<JobStartResult> {
   await requireUser();
   const db = await userDb();
   const { data: wallets, error } = await db
     .from("wallets")
     .select("id")
     .eq("mode", "auto")
-    .eq("active", true);
+    .eq("active", true)
+    .in("id", walletIds);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
   if (wallets.length === 0) return { started: false, reason: "No auto-mode wallets to sync." };
 

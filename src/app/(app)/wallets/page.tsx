@@ -10,6 +10,7 @@ import { buttonClass } from "@/components/ui/Button";
 import { WalletsTable } from "@/components/WalletsTable";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
+import { WalletsFilterProvider } from "@/components/wallets/WalletsFilterProvider";
 import { refreshPricesAction, refreshTokenRegistryAction, syncAllWallets } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
@@ -34,7 +35,12 @@ export default async function WalletsPage() {
   const tagNames = tags.map((t) => t.name);
 
   return (
-    <>
+    // Wraps both the header (SyncAllWalletsButton) and the table below it
+    // — the two need to share the same tag-filter state (see
+    // WalletsFilterProvider's own doc comment on why a Context, not a
+    // restructure, is the right fix for two client components this far
+    // apart in a Server Component page).
+    <WalletsFilterProvider>
       <PageHeader
         title="Wallets"
         actions={
@@ -82,6 +88,6 @@ export default async function WalletsPage() {
           <WalletsTable wallets={wallets} tagNames={tagNames} />
         </Panel>
       )}
-    </>
+    </WalletsFilterProvider>
   );
 }
