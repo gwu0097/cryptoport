@@ -356,6 +356,156 @@ export async function resolveTickerIcons(tickers: string[]): Promise<Map<string,
   return icons;
 }
 
+// Trend Finder's category calls need much more spacing than fetchWithRetry's
+// defaults — live-verified this session that /coins/{id} 429s at 3s spacing
+// and needed ~5-6s to clear reliably on CoinGecko's anonymous tier.
+const CATEGORY_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
+
+/**
+ * A coin's raw CoinGecko category names (e.g. "Rollup", "Layer 2 (L2)",
+ * "Arbitrum Ecosystem", ...) — every heavy sub-resource disabled since only
+ * `categories` is needed. This is the most rate-limited call Trend Finder
+ * makes (see CATEGORY_FETCH_OPTS), which is why its result is cached in
+ * cryptoport.coin_categories rather than fetched fresh every render — see
+ * trendPeers.ts.
+ */
+export async function fetchCoinCategories(coingeckoId: string): Promise<string[]> {
+  const url = `${API_BASE}/coins/${coingeckoId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`;
+  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/${coingeckoId} failed: HTTP ${res.status}`);
+  const body: { categories?: (string | null)[] } = await res.json();
+  return (body.categories ?? []).filter((c): c is string => typeof c === "string" && c.length > 0);
+}
+
+export interface CategoryStat {
+  id: string;
+  name: string;
+  marketCap: number | null;
+  marketCapChange24h: number | null;
+}
+
+/**
+ * Every CoinGecko category and its total market cap/24h change — one call,
+ * ~765 rows. This is the specificity score Trend Finder ranks a coin's own
+ * categories by (see trendFinder.ts's own doc comment for why: the giant
+ * junk categories lose automatically by being enormous). Deliberately never
+ * cached — market_cap_change_24h is live financial data, and rendering a
+ * stale "is this sector rotating?" figure is exactly the plausible-looking
+ * wrong number the Data Correctness rule exists to prevent. It also doubles
+ * as the name -> id map fetchCategoryMembers needs, which avoids a second
+ * cache with its own, possibly-diverging TTL.
+ */
+export async function fetchCategoryStats(): Promise<CategoryStat[]> {
+  const url = `${API_BASE}/coins/categories`;
+  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/categories failed: HTTP ${res.status}`);
+  const body: { id: string; name: string; market_cap?: number | null; market_cap_change_24h?: number | null }[] =
+    await res.json();
+  return body.map((c) => ({
+    id: c.id,
+    name: c.name,
+    marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
+    marketCapChange24h: typeof c.market_cap_change_24h === "number" ? c.market_cap_change_24h : null,
+  }));
+}
+
+export interface CategoryMember {
+  id: string;
+  symbol: string;
+  imageUrl: string | null;
+  price: number | null;
+  change1h: number | null;
+  change24h: number | null;
+  change7d: number | null;
+  marketCap: number | null;
+}
+
+/** Every coin in one CoinGecko category, with 1h/24h/7d change and market
+ * cap — always fetched live (see fetchCategoryStats' own doc comment; the
+ * same reasoning applies here, more so). Category membership is typically
+ * well under MARKETS_BATCH_SIZE, so this is one call, not chunked. */
+export async function fetchCategoryMembers(categoryId: string): Promise<CategoryMember[]> {
+  const url = `${API_BASE}/coins/markets?vs_currency=usd&category=${categoryId}&order=market_cap_desc&per_page=250&price_change_percentage=1h,24h,7d`;
+  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/markets(category=${categoryId}) failed: HTTP ${res.status}`);
+  const body: {
+    id: string;
+    symbol: string;
+    image?: string;
+    current_price?: number;
+    price_change_percentage_1h_in_currency?: number;
+    price_change_percentage_24h_in_currency?: number;
+    price_change_percentage_7d_in_currency?: number;
+    market_cap?: number;
+  }[] = await res.json();
+  return body.map((c) => ({
+    id: c.id,
+    symbol: c.symbol.toUpperCase(),
+    imageUrl: c.image ?? null,
+    price: typeof c.current_price === "number" ? c.current_price : null,
+    change1h: typeof c.price_change_percentage_1h_in_currency === "number" ? c.price_change_percentage_1h_in_currency : null,
+    change24h:
+      typeof c.price_change_percentage_24h_in_currency === "number" ? c.price_change_percentage_24h_in_currency : null,
+    change7d: typeof c.price_change_percentage_7d_in_currency === "number" ? c.price_change_percentage_7d_in_currency : null,
+    marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
+  }));
+}
+
+export interface SeedInfo {
+  id: string;
+  symbol: string;
+  name: string;
+  imageUrl: string | null;
+  marketCapRank: number | null;
+  price: number | null;
+  change1h: number | null;
+  change24h: number | null;
+  change7d: number | null;
+  marketCap: number | null;
+}
+
+/** A Trend Finder seed's own display info (name/symbol/image/rank) plus its
+ * live price/1h/24h/7d change and market cap — one call, always live (same
+ * "never cache price-bearing data" reasoning as fetchCategoryStats/
+ * fetchCategoryMembers). Deliberately a small overlap with
+ * fetchCategoryMembers' own mapping rather than sharing a helper for it —
+ * this is the only caller that also needs name/marketCapRank, not worth
+ * threading an extra flag through the shared path for. Null when CoinGecko
+ * has no market row for this id (a real possibility for a very illiquid
+ * coin picked via /search). */
+export async function fetchSeedInfo(coingeckoId: string): Promise<SeedInfo | null> {
+  const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${coingeckoId}&price_change_percentage=1h,24h,7d`;
+  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/markets(ids=${coingeckoId}) failed: HTTP ${res.status}`);
+  const body: {
+    id: string;
+    symbol: string;
+    name: string;
+    image?: string;
+    market_cap_rank?: number | null;
+    current_price?: number;
+    price_change_percentage_1h_in_currency?: number;
+    price_change_percentage_24h_in_currency?: number;
+    price_change_percentage_7d_in_currency?: number;
+    market_cap?: number;
+  }[] = await res.json();
+  const c = body[0];
+  if (!c) return null;
+  return {
+    id: c.id,
+    symbol: c.symbol.toUpperCase(),
+    name: c.name,
+    imageUrl: c.image ?? null,
+    marketCapRank: typeof c.market_cap_rank === "number" ? c.market_cap_rank : null,
+    price: typeof c.current_price === "number" ? c.current_price : null,
+    change1h: typeof c.price_change_percentage_1h_in_currency === "number" ? c.price_change_percentage_1h_in_currency : null,
+    change24h:
+      typeof c.price_change_percentage_24h_in_currency === "number" ? c.price_change_percentage_24h_in_currency : null,
+    change7d: typeof c.price_change_percentage_7d_in_currency === "number" ? c.price_change_percentage_7d_in_currency : null,
+    marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
+  };
+}
+
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
   const url = `${API_BASE}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
   const res = await fetchWithRetry(url, { headers: headers() });

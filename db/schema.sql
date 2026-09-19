@@ -1347,3 +1347,23 @@ begin
   where id = p_wallet_id;
 end;
 $$;
+
+-- Trend Finder: one row per coin, its raw CoinGecko category names. Cached
+-- because /coins/{id} is the most rate-limited call in the flow (429s at 3s
+-- spacing, verified live) and category membership changes on the order of
+-- months. Global/shared reference data, not per-user — same shape as
+-- token_registry/chain_icons (RLS enabled, no policy, service_role only),
+-- not the user_id+owner-policy pattern. Lazy-populated on read (fetch on
+-- miss, upsert), same precedent as resolveTickerIcons in coingecko.ts, but
+-- with a 7-day TTL (unlike that one) since a stale category list silently
+-- changes which peers get shown, not just a cosmetic icon. Category market
+-- caps/24h changes are deliberately NOT cached alongside this — those are
+-- live financial data (Data Correctness rule) and are fetched fresh on
+-- every render via /coins/categories instead.
+create table cryptoport.coin_categories (
+  coingecko_id text primary key,
+  categories   jsonb not null,
+  updated_at   timestamptz default now()
+);
+alter table cryptoport.coin_categories enable row level security;
+grant all on cryptoport.coin_categories to service_role;

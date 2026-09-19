@@ -11,6 +11,7 @@ import {
   ArrowLeftRight,
   Settings,
   Star,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { CollapsibleNavItem } from "./RecentWalletsNav";
@@ -30,6 +31,7 @@ export const NAV_ITEMS: NavItemData[] = [
   { href: "/wallets", label: "Wallets", icon: Wallet },
   { href: "/assets", label: "Assets", icon: Coins },
   { href: "/watchlist", label: "Watchlist", icon: Star },
+  { href: "/trend-finder", label: "Trend Finder", icon: TrendingUp },
   { href: "/analytics", label: "Analytics", icon: ChartLine },
   { href: "/defi", label: "DeFi", icon: Layers },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
