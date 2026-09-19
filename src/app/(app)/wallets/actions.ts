@@ -10,7 +10,7 @@ import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchZerionDefiPositions } from "@/lib/adapters/zerionDefi";
-import { fetchCoinbaseBalances } from "@/lib/adapters/coinbaseAdvancedTrade";
+import { EXCHANGE_ADAPTERS } from "@/lib/exchangeAdapters";
 import { encryptSecret, decryptSecret } from "@/lib/cryptoSecrets";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
@@ -946,17 +946,25 @@ export async function deleteWallet(walletId: string) {
 export type ConnectExchangeFormState = { error?: string } | undefined;
 
 /**
- * Connects a Coinbase account as a wallet with no on-chain address — see
- * cryptoSecrets.ts and coinbaseAdvancedTrade.ts for the auth/encryption
- * design (OAuth2 turned out to require Coinbase partner approval with no
- * self-serve path, a real blocker found live; this uses a user-generated,
- * View-permission-only API key instead).
+ * Connects an exchange account as a wallet with no on-chain address — see
+ * cryptoSecrets.ts and exchangeAdapters.ts for the auth/encryption design.
+ * OAuth2 turned out to require partner approval with no self-serve path
+ * for both Coinbase (confirmed) and Kraken (unconfirmed either way, reads
+ * the same); Gemini's OAuth sandbox is self-serve but production access
+ * still isn't. Every provider here uses a user-generated, view-only API
+ * key instead — the one path confirmed self-serve for all three.
+ *
+ * `providerId` is the *first*, pre-bound arg (see ConnectExchangeModal:
+ * `connectExchange.bind(null, provider.id)`) — this is what makes this one
+ * function work for every provider in EXCHANGE_ADAPTERS rather than one
+ * hand-written copy per exchange (originally connectCoinbase; extracted
+ * once Kraken and Gemini became the second and third near-duplicate).
  *
  * useActionState-compatible (returns {error} instead of throwing) so the
- * connect modal can show Coinbase's own error inline — the key is tested
- * with a real live call *before* anything is saved, so a bad key (wrong
- * signature algorithm, wrong permission, already-deleted) never leaves a
- * dead connection behind for the user to discover on the next sync.
+ * connect modal can show the exchange's own error inline — the key is
+ * tested with a real live call *before* anything is saved, so a bad key
+ * (wrong algorithm, wrong permission, already-deleted) never leaves a dead
+ * connection behind for the user to discover on the next sync.
  *
  * exchange_connections has no grant to `authenticated` at all (see its own
  * schema.sql comment) — every read/write goes through serviceDb() here,
@@ -964,18 +972,22 @@ export type ConnectExchangeFormState = { error?: string } | undefined;
  * explicitly) rather than relying on RLS, matching the security-definer
  * RPCs' own explicit-check pattern.
  */
-export async function connectCoinbase(
+export async function connectExchange(
+  providerId: string,
   _prevState: ConnectExchangeFormState,
   formData: FormData,
 ): Promise<ConnectExchangeFormState> {
+  const fetchBalances = EXCHANGE_ADAPTERS[providerId];
+  if (!fetchBalances) return { error: `Unknown exchange "${providerId}".` };
+
   const user = await requireUser();
   const name = requireString(formData, "name");
   const keyName = requireString(formData, "keyName");
   const privateKey = requireString(formData, "privateKey");
 
-  let testResult: Awaited<ReturnType<typeof fetchCoinbaseBalances>>;
+  let testResult: Awaited<ReturnType<typeof fetchBalances>>;
   try {
-    testResult = await fetchCoinbaseBalances(keyName, privateKey);
+    testResult = await fetchBalances(keyName, privateKey);
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -983,7 +995,7 @@ export async function connectCoinbase(
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
     .from("wallets")
-    .insert({ name, chain: "COINBASE", mode: "auto", provider: "coinbase", address: null })
+    .insert({ name, chain: providerId.toUpperCase(), mode: "auto", provider: providerId, address: null })
     .select("id")
     .single();
   if (walletError) return { error: `Failed to create wallet: ${walletError.message}` };
@@ -992,7 +1004,7 @@ export async function connectCoinbase(
   const { error: connError } = await svc.from("exchange_connections").insert({
     wallet_id: wallet.id,
     user_id: user.id,
-    provider: "coinbase",
+    provider: providerId,
     key_name: keyName,
     encrypted_secret: encryptSecret(privateKey),
   });
@@ -1019,8 +1031,10 @@ export async function connectCoinbase(
 /** Same CAS-claim/after() shape as syncWalletDefi, its own
  * exchange_sync_status/exchange_sync_started_at pair (a fourth independent
  * job on the wallet row — see holdings.source's "auto_exchange" doc
- * comment). */
-export async function syncCoinbaseHoldings(walletId: string): Promise<JobStartResult> {
+ * comment). Works for every provider in EXCHANGE_ADAPTERS — dispatches on
+ * the wallet's own `provider` column, same reasoning as connectExchange's
+ * own doc comment (originally syncCoinbaseHoldings). */
+export async function syncExchangeHoldings(walletId: string): Promise<JobStartResult> {
   const user = await requireUser();
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
@@ -1029,7 +1043,8 @@ export async function syncCoinbaseHoldings(walletId: string): Promise<JobStartRe
     .eq("id", walletId)
     .single();
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
-  if (wallet.provider !== "coinbase") throw new Error("This wallet isn't a connected Coinbase account.");
+  const fetchBalances = wallet.provider ? EXCHANGE_ADAPTERS[wallet.provider] : undefined;
+  if (!fetchBalances) throw new Error("This wallet isn't a connected exchange.");
 
   const syncStartedAt = Date.now();
   const staleBefore = new Date(syncStartedAt - JOB_STALE_MS).toISOString();
@@ -1056,7 +1071,7 @@ export async function syncCoinbaseHoldings(walletId: string): Promise<JobStartRe
       if (connError) throw new Error(`Failed to load connection: ${connError.message}`);
 
       const privateKey = decryptSecret(conn.encrypted_secret);
-      const { holdings, warnings } = await fetchCoinbaseBalances(conn.key_name, privateKey);
+      const { holdings, warnings } = await fetchBalances(conn.key_name, privateKey);
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
 
       const { error: syncError } = await afterDb.rpc("sync_exchange_holdings", {

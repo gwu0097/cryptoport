@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useActionState } from "react";
-import { connectCoinbase, type ConnectExchangeFormState } from "@/app/(app)/wallets/actions";
+import { connectExchange, type ConnectExchangeFormState } from "@/app/(app)/wallets/actions";
 import type { ExchangeProvider } from "@/lib/exchangeProviders";
 import { Field, inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
@@ -9,18 +9,21 @@ import { Dialog } from "./ui/Dialog";
 import { buttonClass } from "./ui/Button";
 
 /**
- * The key is tested with a real live Coinbase call before anything is
- * saved (see connectCoinbase's own doc comment) — useActionState, not a
+ * The key is tested with a real live call to the exchange before anything
+ * is saved (see connectExchange's own doc comment) — useActionState, not a
  * plain form action, specifically so a bad key's real error shows inline
  * in this dialog instead of crashing to Next's error boundary. Unlike
  * EditWalletModal, this deliberately does NOT close-on-submit: a failed
  * connect needs the dialog to stay open with the error visible; a
- * successful one navigates away via connectCoinbase's own redirect(),
+ * successful one navigates away via connectExchange's own redirect(),
  * which unmounts this anyway.
  */
-export function ConnectCoinbaseModal({ provider }: { provider: ExchangeProvider }) {
+export function ConnectExchangeModal({ provider }: { provider: ExchangeProvider }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [state, action] = useActionState<ConnectExchangeFormState, FormData>(connectCoinbase, undefined);
+  const [state, action] = useActionState<ConnectExchangeFormState, FormData>(
+    connectExchange.bind(null, provider.id),
+    undefined,
+  );
 
   return (
     <>
@@ -58,14 +61,11 @@ export function ConnectCoinbaseModal({ provider }: { provider: ExchangeProvider 
             <input name="name" type="text" required defaultValue={provider.name} className={inputClass} />
           </Field>
 
-          <Field label="Key name" hint="organizations/.../apiKeys/...">
+          <Field label={provider.keyLabel} hint={provider.keyHint}>
             <input name="keyName" type="text" required className={inputClass} />
           </Field>
 
-          <Field
-            label="Private key"
-            hint="Paste it exactly as Coinbase shows it — a PEM block (with BEGIN/END lines) or a plain base64 string, both work."
-          >
+          <Field label={provider.secretLabel} hint={provider.secretHint}>
             <textarea
               name="privateKey"
               required
@@ -77,7 +77,7 @@ export function ConnectCoinbaseModal({ provider }: { provider: ExchangeProvider 
 
           <p className="text-xs text-fg-muted">
             Stored encrypted, only ever used server-side to read balances — never trading/withdrawal capable if you
-            picked View-only permission above.
+            picked view-only permission above.
           </p>
 
           <SubmitButton pendingLabel="Connecting…" className="self-start">

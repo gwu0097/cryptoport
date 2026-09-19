@@ -147,6 +147,10 @@ const STATIC_CHAIN_ICONS: Record<string, string> = {
   // Coinbase above. CoinGecko does track Polymarket's own governance/points
   // token, whose logo doubles as the brand mark here.
   polymarket: "https://coin-images.coingecko.com/coins/images/70290/large/poly.png",
+  // Same "CEX, not a chain, so no asset_platform" reasoning as Coinbase —
+  // CoinGecko also tracks Kraken/Gemini as exchanges with their own logos.
+  kraken: "https://coin-images.coingecko.com/markets/images/29/small/kraken.jpg?1706864265",
+  gemini: "https://coin-images.coingecko.com/markets/images/50/small/gemini.png?1706864273",
 };
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —

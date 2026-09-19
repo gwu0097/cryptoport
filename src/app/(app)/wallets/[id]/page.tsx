@@ -16,7 +16,7 @@ import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { SyncWalletButtons } from "@/components/SyncWalletButtons";
 import { SyncDefiButton } from "@/components/SyncDefiButton";
-import { SyncCoinbaseButton } from "@/components/SyncCoinbaseButton";
+import { SyncExchangeButton } from "@/components/SyncExchangeButton";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -28,7 +28,7 @@ import {
   refreshPricesForWalletAction,
   syncWalletHoldings,
   syncWalletDefi,
-  syncCoinbaseHoldings,
+  syncExchangeHoldings,
   updateWallet,
 } from "../actions";
 
@@ -187,13 +187,13 @@ export default async function WalletDetailPage(
             {wallet.provider ? (
               // A connected exchange has no on-chain address to scan and no
               // separate DeFi sync — just its own independent balances job
-              // (see SyncCoinbaseButton's own doc comment) and a disconnect
+              // (see SyncExchangeButton's own doc comment) and a disconnect
               // action instead of the regular delete/sync UI below.
-              <SyncCoinbaseButton
+              <SyncExchangeButton
                 exchangeSyncStatus={wallet.exchange_sync_status}
                 exchangeSyncStartedAt={wallet.exchange_sync_started_at}
                 exchangeSyncedAt={wallet.exchange_synced_at}
-                sync={syncCoinbaseHoldings.bind(null, wallet.id)}
+                sync={syncExchangeHoldings.bind(null, wallet.id)}
               />
             ) : (
               <>

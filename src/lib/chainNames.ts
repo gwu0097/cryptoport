@@ -20,6 +20,10 @@ export const CHAIN_NAMES: Record<string, string> = {
   // (adapter-native lowercase slug + the wallet's own uppercase chain field).
   coinbase: "Coinbase",
   COINBASE: "Coinbase",
+  kraken: "Kraken",
+  KRAKEN: "Kraken",
+  gemini: "Gemini",
+  GEMINI: "Gemini",
 };
 
 export function chainDisplayName(chainId: string): string {

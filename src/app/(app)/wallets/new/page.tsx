@@ -9,7 +9,7 @@ import { Field, inputClass } from "@/components/ui/Field";
 import { ChainModeAddressFields } from "@/components/ChainModeAddressFields";
 import { TagPicker } from "@/components/TagPicker";
 import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
-import { ConnectCoinbaseModal } from "@/components/ConnectCoinbaseModal";
+import { ConnectExchangeModal } from "@/components/ConnectExchangeModal";
 import { EXCHANGE_PROVIDERS } from "@/lib/exchangeProviders";
 import { SignInPrompt } from "@/components/SignInPrompt";
 
@@ -62,15 +62,14 @@ export default async function NewWalletPage() {
             <div className="h-px flex-1 bg-border" />
           </div>
 
-          {/* One modal component per provider id — EXCHANGE_PROVIDERS is
-              the extensible list, this is the (currently one-entry) map
-              from provider id to its own connect UI. Adding the next
-              exchange means a new adapter + a new case here, not a rewrite
-              of this page. */}
+          {/* EXCHANGE_PROVIDERS is the extensible list; ConnectExchangeModal
+              is fully generic (dispatches to EXCHANGE_ADAPTERS by provider
+              id) — adding the next exchange means a new adapter file + one
+              registry line, not a rewrite of this page. */}
           <div className="flex flex-col gap-2">
-            {EXCHANGE_PROVIDERS.map((provider) =>
-              provider.id === "coinbase" ? <ConnectCoinbaseModal key={provider.id} provider={provider} /> : null,
-            )}
+            {EXCHANGE_PROVIDERS.map((provider) => (
+              <ConnectExchangeModal key={provider.id} provider={provider} />
+            ))}
           </div>
         </Panel>
       )}

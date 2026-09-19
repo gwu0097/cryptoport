@@ -11,7 +11,7 @@ import { JobButton } from "./jobs/JobButton";
  * exchange's own independent job (exchange_sync_status/started_at), shown
  * instead of (not alongside) SyncWalletButtons for a provider-set wallet,
  * since there's no on-chain address to scan. */
-export function SyncCoinbaseButton({
+export function SyncExchangeButton({
   exchangeSyncStatus,
   exchangeSyncStartedAt,
   exchangeSyncedAt,
