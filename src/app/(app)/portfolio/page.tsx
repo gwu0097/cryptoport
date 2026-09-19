@@ -20,9 +20,9 @@ export const maxDuration = 300;
 export default async function PortfolioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string }>;
+  searchParams: Promise<{ chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string }>;
 }) {
-  const { chain: selectedChain, hideUnpriced, hideLow } = await searchParams;
+  const { chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow } = await searchParams;
   const [{ groups, grand }, priceState, user, { wallets }] = await Promise.all([
     getAssetsGroupedByChain(),
     getPriceRefreshState(),
@@ -67,6 +67,7 @@ export default async function PortfolioPage({
           groups={groups}
           grandTotal={grand.total}
           selectedChain={selectedChain}
+          selectedProtocol={selectedProtocol}
           hideUnpriced={hideUnpriced !== "0"}
           hideLow={hideLow !== "0"}
           baseHref="/portfolio"

@@ -41,11 +41,17 @@ export const maxDuration = 300;
 
 export default async function WalletDetailPage(
   props: PageProps<"/wallets/[id]"> & {
-    searchParams: Promise<{ chain?: string; hideUnpriced?: string; hideLow?: string; autosync?: string }>;
+    searchParams: Promise<{
+      chain?: string;
+      protocol?: string;
+      hideUnpriced?: string;
+      hideLow?: string;
+      autosync?: string;
+    }>;
   },
 ) {
   const { id } = await props.params;
-  const { chain: selectedChain, hideUnpriced, hideLow, autosync } = await props.searchParams;
+  const { chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow, autosync } = await props.searchParams;
 
   // The one page that stays gated — unlike the list pages, there's no
   // meaningful "sign in to see this" empty state for one specific wallet
@@ -274,6 +280,7 @@ export default async function WalletDetailPage(
             groups={chainGroups}
             grandTotal={total}
             selectedChain={selectedChain}
+            selectedProtocol={selectedProtocol}
             hideUnpriced={hideUnpriced !== "0"}
             hideLow={hideLow !== "0"}
             baseHref={`/wallets/${wallet.id}`}

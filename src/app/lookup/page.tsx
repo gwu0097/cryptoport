@@ -15,9 +15,15 @@ export const metadata = { title: "Wallet lookup · CryptoPort" };
 export default async function LookupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ address?: string; chain?: string; hideUnpriced?: string; hideLow?: string }>;
+  searchParams: Promise<{
+    address?: string;
+    chain?: string;
+    protocol?: string;
+    hideUnpriced?: string;
+    hideLow?: string;
+  }>;
 }) {
-  const { address, chain: selectedChain, hideUnpriced, hideLow } = await searchParams;
+  const { address, chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow } = await searchParams;
 
   return (
     <>
@@ -36,6 +42,7 @@ export default async function LookupPage({
         <LookupResults
           address={address}
           selectedChain={selectedChain}
+          selectedProtocol={selectedProtocol}
           hideUnpriced={hideUnpriced !== "0"}
           hideLow={hideLow !== "0"}
         />
@@ -47,11 +54,13 @@ export default async function LookupPage({
 async function LookupResults({
   address,
   selectedChain,
+  selectedProtocol,
   hideUnpriced,
   hideLow,
 }: {
   address: string;
   selectedChain?: string;
+  selectedProtocol?: string;
   hideUnpriced: boolean;
   hideLow: boolean;
 }) {
@@ -103,6 +112,7 @@ async function LookupResults({
         groups={result.chainGroups}
         grandTotal={result.total}
         selectedChain={selectedChain}
+        selectedProtocol={selectedProtocol}
         hideUnpriced={hideUnpriced}
         hideLow={hideLow}
         baseHref={`/lookup?address=${encodeURIComponent(address)}`}
