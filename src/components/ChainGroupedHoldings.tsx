@@ -10,9 +10,23 @@ import { TokenIcon } from "./TokenIcon";
 import { CheckboxLink } from "./ui/CheckboxLink";
 import { StopPropagationLink } from "./StopPropagationLink";
 import { CollapseExpandAllButtons } from "./CollapseExpandAllButtons";
+import { MoreFilterPicker } from "./MoreFilterPicker";
 
 const LOW_VALUE_USD = 10;
 const GROUPS_CONTAINER_ID = "chain-grouped-holdings";
+
+// Deliberately not DeBank's own "show every chain/protocol, however tiny"
+// layout — reported directly as taking up too much space. Capped to 2 rows
+// each, sized for the widest (desktop, `md:`) column count each grid uses
+// below — a narrower viewport just wraps into more visual rows, same
+// trade-off every other responsive grid in this app already accepts rather
+// than chasing pixel-exact row counts at every breakpoint. The very last
+// slot in each row becomes a "N more…" picker once there's overflow, never
+// a growing wall of near-zero cards.
+const CHAIN_DESKTOP_COLS = 5;
+const CHAIN_ROWS = 2;
+const PROTOCOL_DESKTOP_COLS = 6;
+const PROTOCOL_ROWS = 2;
 
 interface ProtocolGroup {
   protocol: string;
@@ -239,6 +253,22 @@ export async function ChainGroupedHoldings({
   const chainIcons = await getChainIconMap();
   const protocolSummaries = summarizeProtocols(groups);
 
+  const sortedChains = [...groups].sort((a, b) => b.total - a.total);
+  // -1 slot reserved for the "All chains" card, always shown.
+  const chainCardSlots = CHAIN_DESKTOP_COLS * CHAIN_ROWS - 1;
+  const chainNeedsPicker = sortedChains.length > chainCardSlots;
+  const visibleChains = chainNeedsPicker ? sortedChains.slice(0, chainCardSlots - 1) : sortedChains;
+  const overflowChains = chainNeedsPicker ? sortedChains.slice(chainCardSlots - 1) : [];
+  const activeOverflowChain = overflowChains.find((g) => g.chainId === selectedChain);
+
+  const protocolCardSlots = PROTOCOL_DESKTOP_COLS * PROTOCOL_ROWS;
+  const protocolNeedsPicker = protocolSummaries.length > protocolCardSlots;
+  const visibleProtocols = protocolNeedsPicker
+    ? protocolSummaries.slice(0, protocolCardSlots - 1)
+    : protocolSummaries;
+  const overflowProtocols = protocolNeedsPicker ? protocolSummaries.slice(protocolCardSlots - 1) : [];
+  const activeOverflowProtocol = overflowProtocols.find((pg) => pg.protocol === selectedProtocol);
+
   const visibleGroups = groups
     .filter((g) => !selectedChain || g.chainId === selectedChain)
     .map((g) => ({
@@ -271,7 +301,7 @@ export async function ChainGroupedHoldings({
           <p className="text-sm font-medium text-fg">All chains</p>
           <p className="tabular-nums text-xs text-fg-muted">{formatUsd(grandTotal)} · 100%</p>
         </Link>
-        {groups.map((g) => (
+        {visibleChains.map((g) => (
           <Link
             key={g.chainId}
             href={buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow)}
@@ -287,6 +317,26 @@ export async function ChainGroupedHoldings({
             </p>
           </Link>
         ))}
+        {chainNeedsPicker && (
+          <MoreFilterPicker
+            label={`${overflowChains.length} more chains…`}
+            options={overflowChains.map((g) => ({
+              key: g.chainId,
+              label: g.chainName,
+              href: buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow),
+              icon: chainIcons[g.chainId] ?? null,
+            }))}
+            active={
+              activeOverflowChain
+                ? {
+                    key: activeOverflowChain.chainId,
+                    label: activeOverflowChain.chainName,
+                    icon: chainIcons[activeOverflowChain.chainId] ?? null,
+                  }
+                : undefined
+            }
+          />
+        )}
       </div>
 
       {/* Second navigation row, same idea as the chain cards above but
@@ -304,7 +354,7 @@ export async function ChainGroupedHoldings({
         <>
           <p className="mb-1.5 text-xs font-medium text-fg-muted">DeFi protocols</p>
           <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-            {protocolSummaries.map((pg) => (
+            {visibleProtocols.map((pg) => (
               <Link
                 key={pg.protocol}
                 href={buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow)}
@@ -320,6 +370,23 @@ export async function ChainGroupedHoldings({
                 </p>
               </Link>
             ))}
+            {protocolNeedsPicker && (
+              <MoreFilterPicker
+                compact
+                label={`${overflowProtocols.length} more…`}
+                options={overflowProtocols.map((pg) => ({
+                  key: pg.protocol,
+                  label: pg.protocol,
+                  href: buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow),
+                  icon: pg.icon,
+                }))}
+                active={
+                  activeOverflowProtocol
+                    ? { key: activeOverflowProtocol.protocol, label: activeOverflowProtocol.protocol, icon: activeOverflowProtocol.icon }
+                    : undefined
+                }
+              />
+            )}
           </div>
         </>
       )}
