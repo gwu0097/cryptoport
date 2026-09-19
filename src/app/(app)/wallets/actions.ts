@@ -88,7 +88,11 @@ export async function refreshTokenRegistryAction(): Promise<JobStartResult> {
     revalidatePath("/wallets");
   });
 
-  revalidatePath("/wallets");
+  // No kickoff-time revalidatePath here (there used to be one) — see
+  // JobPoller.tsx's own doc comment: the client cache now gets purged once,
+  // reliably, when the poller confirms this job actually finished, not the
+  // instant it starts (before anything has changed). useJob's own busy
+  // state is already fully client-driven and never depended on this.
   return { started: true };
 }
 
@@ -272,8 +276,7 @@ async function tryStartPriceRefresh(userId: string, extraPaths: string[] = []): 
     for (const path of extraPaths) revalidatePath(path);
   });
 
-  revalidateAllPriceConsumers();
-  for (const path of extraPaths) revalidatePath(path);
+  // No kickoff-time revalidation — see JobPoller.tsx's own doc comment.
   return { started: true };
 }
 
@@ -777,8 +780,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
     }
   });
 
-  revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/wallets");
+  // No kickoff-time revalidation — see JobPoller.tsx's own doc comment.
   return { started: true };
 }
 
@@ -872,8 +874,7 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
     }
   });
 
-  revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/wallets");
+  // No kickoff-time revalidation — see JobPoller.tsx's own doc comment.
   return { started: true };
 }
 
@@ -1113,8 +1114,7 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
     }
   });
 
-  revalidatePath(`/wallets/${walletId}`);
-  revalidatePath("/wallets");
+  // No kickoff-time revalidation — see JobPoller.tsx's own doc comment.
   return { started: true };
 }
 
