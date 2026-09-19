@@ -6,6 +6,7 @@ import { TokenIcon } from "@/components/TokenIcon";
 import { TrendSeedPicker } from "@/components/TrendSeedPicker";
 import { TrendPeerTable } from "@/components/TrendPeerTable";
 import { TrendRecentSearches } from "@/components/TrendRecentSearches";
+import { TrendLastSearchRedirect } from "@/components/TrendLastSearchRedirect";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { findTrendPeers, type TrendTier } from "@/lib/trendPeers";
@@ -85,14 +86,21 @@ export default async function TrendFinderPage({
       ) : ticker ? (
         <TrendResultsFromTicker ticker={ticker} mcapFloor={mcapFloor} />
       ) : (
-        <Panel className="text-center">
-          <p className="mb-4 text-sm text-fg-muted">
-            Search for a token to find peers in the same sector that haven&rsquo;t moved as much yet.
-          </p>
-          <div className="mx-auto max-w-sm text-left">
-            <TrendSeedPicker />
-          </div>
-        </Panel>
+        <>
+          {/* Only mounted here (never on a real result) — redirects to the
+              most recently searched token if one exists, so this bare
+              empty state is only ever actually seen on a genuinely first
+              visit with no history yet. */}
+          <TrendLastSearchRedirect />
+          <Panel className="text-center">
+            <p className="mb-4 text-sm text-fg-muted">
+              Search for a token to find peers in the same sector that haven&rsquo;t moved as much yet.
+            </p>
+            <div className="mx-auto max-w-sm text-left">
+              <TrendSeedPicker />
+            </div>
+          </Panel>
+        </>
       )}
     </>
   );
