@@ -1,98 +1,244 @@
+"use client";
+
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import type { DefiProtocolGroup } from "@/lib/queries";
 import { formatUsd, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { TokenIcon } from "./TokenIcon";
+import { usePersistedState } from "./usePersistedState";
+import type { DefiSortKey, SortDirection } from "@/lib/sortKeys";
+
+// DefiSortKey lives in lib/sortKeys.ts, not here — a plain runtime constant
+// declared in a "use client" file becomes an opaque client-reference stub
+// when a Server Component imports it directly (see that file's own
+// comment for the real bug this avoided on assets/page.tsx/watchlist/
+// page.tsx). No Server Component currently needs DEFI_SORT_KEYS, but the
+// split keeps this file consistent with AssetsTable/WatchlistTable's own
+// pattern rather than being the one exception.
+export type SortKey = DefiSortKey;
+export type Sort = { key: SortKey; dir: SortDirection };
+
+const STORAGE_KEY = "cryptoport:defiSort";
+const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
+
+function sortValue(group: DefiProtocolGroup, key: SortKey): number | string {
+  switch (key) {
+    case "protocol":
+      return group.protocol.toLowerCase();
+    case "wallets":
+      return group.wallets.length;
+    case "value":
+      return group.total;
+  }
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDirection }) {
+  if (!active) return <ChevronsUpDown className="size-3 text-fg-muted/50" aria-hidden="true" />;
+  return dir === "desc" ? (
+    <ArrowDown className="size-3" aria-hidden="true" />
+  ) : (
+    <ArrowUp className="size-3" aria-hidden="true" />
+  );
+}
+
+function Header({
+  label,
+  sortKeyValue,
+  sortKey,
+  sortDir,
+  onSort,
+  className = "",
+}: {
+  label: string;
+  sortKeyValue: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDirection;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  return (
+    <th className={`${thClass} ${className}`}>
+      <button type="button" onClick={() => onSort(sortKeyValue)} className="flex items-center gap-1 hover:text-fg">
+        {label}
+        <SortIcon active={sortKey === sortKeyValue} dir={sortDir} />
+      </button>
+    </th>
+  );
+}
 
 /**
- * Protocol -> wallet -> asset, three levels deep (see
- * getDefiGroupedByProtocol) — the outer <details> is one per protocol
- * (e.g. "Jupiter Earn"), each containing a small sub-heading per
- * contributing wallet so a position spanning several wallets in the same
- * protocol still reads as one section instead of duplicating the protocol
- * header per wallet. No client-side sort/search (unlike AssetsTable) —
- * not worth the complexity while position counts are this small; revisit
- * if that changes.
+ * One flat, sortable table — one row per protocol, merged across every
+ * wallet holding a position in it (see getDefiGroupedByProtocol) — replacing
+ * the old always-open `<details>` stack, which had no sort at all and read
+ * nothing like WalletsTable/AssetsTable (reported as "stale," "nothing like
+ * the other tabs"). Sortable by Wallets (count) specifically so a protocol
+ * spread across many wallets is easy to spot and jump into — the ask that
+ * prompted this rewrite ("sort by wallets so it's easier to navigate") —
+ * mirrors the identical sortable "Wallets" column AssetsTable already has
+ * for tickers, same idea one page over.
+ *
+ * Clicking a row expands it in place (AssetsTable's pattern, not a
+ * navigate-away) to reveal the per-wallet breakdown — wallet name (linking
+ * to that wallet's own page), its subtotal, and its individual positions —
+ * so merging protocols across wallets doesn't lose the "which wallet is
+ * this actually in" context needed to act on it.
  */
 export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const { key: sortKey, dir: sortDir } = sort;
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleSort(key: SortKey) {
+    setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }
+
+  function toggleExpand(protocol: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(protocol)) next.delete(protocol);
+      else next.add(protocol);
+      return next;
+    });
+  }
+
+  const sorted = [...groups].sort((a, b) => {
+    const av = sortValue(a, sortKey);
+    const bv = sortValue(b, sortKey);
+    const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+    return sortDir === "desc" ? -cmp : cmp;
+  });
+
   return (
-    <div className="flex flex-col gap-4">
-      {groups.map((group) => (
-        <details key={group.protocol} open className="group rounded-xl border border-border bg-surface">
-          <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
-            <span className="flex items-center gap-2 font-semibold text-fg">
-              <ChevronDown
-                className="size-4 text-fg-muted transition-transform group-open:rotate-180"
-                aria-hidden="true"
+    <div className="overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="overflow-x-auto">
+        <table className={tableClass}>
+          <thead>
+            <tr className={theadRowClass}>
+              <th className={thClass}></th>
+              <Header label="Protocol" sortKeyValue="protocol" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Header
+                label="Wallets"
+                sortKeyValue="wallets"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className={hideOnMobileClass}
               />
-              {group.protocol}
-              <span className="text-sm font-normal text-fg-muted">
-                ({group.wallets.length} wallet{group.wallets.length === 1 ? "" : "s"})
-              </span>
-            </span>
-            <span className="tabular-nums text-fg">{formatUsd(group.total)}</span>
-          </summary>
-          <div className="flex flex-col divide-y divide-border border-t border-border">
-            {group.wallets.map((w) => (
-              <div key={w.walletId} className="px-5 py-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <Link href={`/wallets/${w.walletId}`} className="text-sm font-medium text-fg hover:text-accent">
-                    {w.walletName}
-                  </Link>
-                  <span className="tabular-nums text-sm text-fg-muted">{formatUsd(w.total)}</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className={tableClass}>
-                    <thead>
-                      <tr className={theadRowClass}>
-                        <th className={thClass}>Asset</th>
-                        <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
-                        <th className={thClass}>Value</th>
-                        <th className={thClass}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {w.positions.map((position) => (
-                        <tr key={position.id} className={trClass}>
-                          <td className={tdClass}>
-                            <div className="flex items-center gap-2">
-                              <TokenIcon ticker={position.ticker} url={position.icon_url} />
-                              {formatTicker(position.ticker)}
+              <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((group) => {
+              const isOpen = expanded.has(group.protocol);
+              // First position's own icon stands in for the protocol's —
+              // same trick ChainGroupedHoldings' ProtocolGroup uses (its own
+              // doc comment: every holding within one protocol group shares
+              // the same underlying asset in practice), no separate
+              // per-protocol icon source exists.
+              const repHolding = group.wallets[0]?.positions[0];
+              return (
+                <Fragment key={group.protocol}>
+                  <tr
+                    className={`${trClass} cursor-pointer`}
+                    onClick={() => toggleExpand(group.protocol)}
+                    aria-expanded={isOpen}
+                  >
+                    <td className={tdClass}>
+                      {isOpen ? (
+                        <ChevronDown className="size-4 text-fg-muted" aria-hidden="true" />
+                      ) : (
+                        <ChevronRight className="size-4 text-fg-muted" aria-hidden="true" />
+                      )}
+                    </td>
+                    <td className={tdClass}>
+                      <div className="flex items-center gap-2">
+                        {repHolding && <TokenIcon ticker={repHolding.ticker} url={repHolding.icon_url} />}
+                        <span className="font-medium text-fg">{group.protocol}</span>
+                      </div>
+                    </td>
+                    <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>{group.wallets.length}</td>
+                    <td className={`${tdClass} tabular-nums`}>
+                      {formatUsd(group.total)}
+                      {group.unpricedCount > 0 && <span className="ml-1.5 text-xs text-warning">*</span>}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={4} className="bg-surface-raised/40 p-0">
+                        <div className="flex flex-col divide-y divide-border">
+                          {group.wallets.map((w) => (
+                            <div key={w.walletId} className="px-5 py-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <Link
+                                  href={`/wallets/${w.walletId}`}
+                                  className="text-sm font-medium text-fg hover:text-accent"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {w.walletName}
+                                </Link>
+                                <span className="tabular-nums text-sm text-fg-muted">{formatUsd(w.total)}</span>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className={tableClass}>
+                                  <thead>
+                                    <tr className={theadRowClass}>
+                                      <th className={thClass}>Asset</th>
+                                      <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
+                                      <th className={thClass}>Value</th>
+                                      <th className={thClass}></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {w.positions.map((position) => (
+                                      <tr key={position.id} className={trClass}>
+                                        <td className={tdClass}>
+                                          <div className="flex items-center gap-2">
+                                            <TokenIcon ticker={position.ticker} url={position.icon_url} />
+                                            {formatTicker(position.ticker)}
+                                          </div>
+                                        </td>
+                                        <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+                                          {formatQty(position.qty)}
+                                        </td>
+                                        <td className={`${tdClass} tabular-nums`}>
+                                          {position.valuation.kind === "priced" ? (
+                                            formatUsd(position.valuation.usd)
+                                          ) : (
+                                            <span className="text-warning">unpriced</span>
+                                          )}
+                                        </td>
+                                        <td className={tdClass}>
+                                          {position.protocol_url && (
+                                            <a
+                                              href={position.protocol_url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center gap-0.5 text-xs text-fg-muted hover:text-accent"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              View <ExternalLink className="size-2.5" aria-hidden="true" />
+                                            </a>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
-                          </td>
-                          <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
-                            {formatQty(position.qty)}
-                          </td>
-                          <td className={`${tdClass} tabular-nums`}>
-                            {position.valuation.kind === "priced" ? (
-                              formatUsd(position.valuation.usd)
-                            ) : (
-                              <span className="text-warning">unpriced</span>
-                            )}
-                          </td>
-                          <td className={tdClass}>
-                            {position.protocol_url && (
-                              <a
-                                href={position.protocol_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-0.5 text-xs text-fg-muted hover:text-accent"
-                              >
-                                View <ExternalLink className="size-2.5" aria-hidden="true" />
-                              </a>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
-      ))}
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

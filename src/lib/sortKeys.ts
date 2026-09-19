@@ -40,6 +40,9 @@ export const ASSET_SORT_KEYS: readonly AssetSortKey[] = [
   "value",
 ];
 
+export type DefiSortKey = "protocol" | "wallets" | "value";
+export const DEFI_SORT_KEYS: readonly DefiSortKey[] = ["protocol", "wallets", "value"];
+
 export type WatchlistSortKey = "ticker" | "price" | "change1h" | "change24h" | "change7d" | "change30d" | "marketCap";
 export const WATCHLIST_SORT_KEYS: readonly WatchlistSortKey[] = [
   "ticker",
