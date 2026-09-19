@@ -196,6 +196,22 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                       <div className="flex items-center gap-2">
                         {repHolding && <TokenIcon ticker={repHolding.ticker} url={repHolding.icon_url} />}
                         <span className="font-medium text-fg">{group.protocol}</span>
+                        {/* Every position within one protocol group shares the
+                            same protocol_url in practice (same adapter, same
+                            product) — same "first holding stands in for the
+                            group" reasoning already used for the icon above. */}
+                        {repHolding?.protocol_url && (
+                          <a
+                            href={repHolding.protocol_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={`Open ${group.protocol}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-fg-muted hover:text-accent"
+                          >
+                            <ExternalLink className="size-3.5" aria-hidden="true" />
+                          </a>
+                        )}
                       </div>
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>{group.wallets.length}</td>
