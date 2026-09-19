@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { getChainIconMap, type ChainGroup, type HoldingWithValuation } from "@/lib/queries";
 import { formatUsd, formatTicker } from "@/lib/format";
+import { groupBySection } from "@/lib/holdingSections";
 import { Panel } from "./ui/Panel";
 import { HoldingsTable } from "./HoldingsTable";
 import { TokenIcon } from "./TokenIcon";
@@ -341,7 +342,18 @@ export async function ChainGroupedHoldings({
                         <span className="tabular-nums text-sm text-fg-muted">{formatUsd(pg.total)}</span>
                       </summary>
                       <div className="border-t border-border">
-                        <HoldingsTable holdings={pg.holdings} walletId={walletId} hideProtocolTag />
+                        {/* One flat table unless this protocol actually uses
+                            sections (only Hyperliquid does today) — every
+                            other protocol's single, null-keyed group renders
+                            pixel-identical to before this existed. */}
+                        {groupBySection(pg.holdings).map(({ section, holdings }, i) => (
+                          <div key={section ?? "_"} className={i > 0 ? "border-t border-border" : undefined}>
+                            {section && (
+                              <p className="px-5 pt-3 text-xs font-medium text-fg-muted">{section}</p>
+                            )}
+                            <HoldingsTable holdings={holdings} walletId={walletId} hideProtocolTag />
+                          </div>
+                        ))}
                       </div>
                     </details>
                   ))}

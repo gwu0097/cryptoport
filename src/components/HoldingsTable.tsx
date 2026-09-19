@@ -61,17 +61,19 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
   return <span className="text-xs text-fg-muted">via {protocol}</span>;
 }
 
-// Leveraged-position detail (side, leverage, entry/liquidation price) — only
-// ever set on a holding an adapter tagged with position_side (currently
-// hyperliquid.ts's open perp positions), so a plain token/spot row renders
-// nothing extra here. Side isn't color-coded (a long position can still be
-// losing money) — the Value cell's own color, from position_pnl_usd, is
-// what actually signals gain/loss; this badge is purely descriptive.
+// Leveraged-position detail — only ever set on a holding an adapter tagged
+// with position_side (currently hyperliquid.ts's open perp positions), so a
+// plain token/spot row renders nothing extra here. The Value column itself
+// is margin committed (see hyperliquid.ts's own doc comment for why —
+// matches DeBank/Hyperliquid's own UI), not signed, so PnL is shown here
+// instead as its own colored stat — "how much capital is deployed" and "how
+// much have I made or lost" are different questions, both worth seeing.
 function PositionTag({ holding }: { holding: HoldingWithValuation }) {
   if (!holding.position_side) return null;
   const leverage = numeric(holding.position_leverage);
   const entry = numeric(holding.position_entry_price);
   const liq = numeric(holding.position_liquidation_price);
+  const pnl = numeric(holding.position_pnl_usd);
   const label = `${holding.position_side === "long" ? "Long" : "Short"}${Number.isFinite(leverage) ? ` ${leverage}x` : ""}`;
   const details = [
     Number.isFinite(entry) ? `entry ${formatUsd(entry)}` : null,
@@ -80,8 +82,13 @@ function PositionTag({ holding }: { holding: HoldingWithValuation }) {
     .filter(Boolean)
     .join(" · ");
   return (
-    <span className="mt-1 text-xs text-fg-muted" title={details || undefined}>
-      {label}
+    <span className="mt-1 flex items-center gap-1.5 text-xs" title={details || undefined}>
+      <span className="text-fg-muted">{label}</span>
+      {Number.isFinite(pnl) && (
+        <span className={pnl > 0 ? "text-positive" : pnl < 0 ? "text-negative" : "text-fg-muted"}>
+          PnL {formatUsdSigned(pnl)}
+        </span>
+      )}
     </span>
   );
 }
@@ -238,7 +245,7 @@ export function HoldingsTable({
                 <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
                 <div className="flex flex-col">
                   <span className="inline-flex items-center gap-1.5">
-                    {formatTicker(holding.ticker)}
+                    {holding.display_label ?? formatTicker(holding.ticker)}
                     <CopyButton
                       value={holding.contract ?? holding.ticker}
                       label={holding.contract ? "Copy contract address" : "Copy ticker"}
@@ -262,24 +269,7 @@ export function HoldingsTable({
             </td>
             <td className={`${tdClass} tabular-nums`}>
               {holding.valuation.kind === "priced" ? (
-                // An open position's value is its unrealized PnL (see
-                // hyperliquid.ts's own doc comment) — signed, so it gets the
-                // same positive/negative coloring as a 24h change elsewhere
-                // in the app, not the neutral color a plain balance's value
-                // always has.
-                <span
-                  className={
-                    holding.position_side
-                      ? holding.valuation.usd > 0
-                        ? "text-positive"
-                        : holding.valuation.usd < 0
-                          ? "text-negative"
-                          : undefined
-                      : undefined
-                  }
-                >
-                  {holding.position_side ? formatUsdSigned(holding.valuation.usd) : formatUsd(holding.valuation.usd)}
-                </span>
+                formatUsd(holding.valuation.usd)
               ) : (
                 <span className="text-warning">unpriced</span>
               )}

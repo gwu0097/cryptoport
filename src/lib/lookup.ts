@@ -52,6 +52,8 @@ function toHolding(h: AdapterHolding, index: number): Holding {
     icon_url: h.icon_url,
     protocol: h.protocol ?? null,
     protocol_url: h.protocol_url ?? null,
+    display_label: h.display_label ?? null,
+    protocol_section: h.protocol_section ?? null,
     position_side: h.position_side ?? null,
     position_leverage: h.position_leverage ?? null,
     position_entry_price: h.position_entry_price ?? null,

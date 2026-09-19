@@ -31,6 +31,22 @@ export interface AdapterHolding {
    * producing 'defi' category holdings (currently jupiterPositions.ts). */
   protocol?: string | null;
   protocol_url?: string | null;
+  /** Overrides the ticker text shown in the UI (e.g. "Perps Withdrawable",
+   * "Hyperliquidity Provider (HLP)") without changing `ticker` itself —
+   * `ticker` stays the real asset symbol (still "USDC") so ticker-keyed
+   * grouping/pricing (the Assets page, prices.ts) is unaffected; several
+   * distinct balances can legitimately share one ticker while needing
+   * different on-screen labels (Hyperliquid's cross-margin "Available" vs
+   * "Withdrawable" USDC, or a vault's own name, are both still just USDC).
+   * Optional — every holding without a reason to override just omits it. */
+  display_label?: string | null;
+  /** Sub-groups a protocol's own holdings for display (e.g. Hyperliquid's
+   * "Deposit"/"Perpetuals"/"Yield"/"Rewards", matching how DeBank breaks
+   * the same account down) — purely a rendering hint, never used for
+   * grouping/totals math. Optional: every protocol without sub-groups
+   * (Jupiter Earn, Kamino, ...) omits it and renders as one flat list,
+   * same as before this field existed. */
+  protocol_section?: string | null;
   /** Leveraged-position detail — genuinely optional like `protocol` above:
    * only an open perp/futures position has any of these, a plain token or
    * spot DeFi holding correctly omits them all. Currently only
@@ -43,14 +59,12 @@ export interface AdapterHolding {
   position_leverage?: number | null;
   position_entry_price?: number | null;
   position_liquidation_price?: number | null;
-  /** What actually prices the position — see valueHolding's usd_override
-   * handling. NOT positionValue (leveraged notional, which would overstate
-   * net worth by the leverage multiple) and NOT marginUsed alone (already
-   * implicitly counted inside a spot USDC balance's `hold` amount for
-   * Hyperliquid specifically — see fetchHyperliquidHoldings' own doc
-   * comment on why margin and spot aren't additive). Unrealized PnL is the
-   * one number that's additive with everything else without double- or
-   * under-counting. */
+  /** Informational only, NOT what prices the position (see valueHolding's
+   * usd_override handling — usd_override is margin committed, matching how
+   * DeBank/Hyperliquid's own UI value an open position: "how much capital
+   * is deployed" rather than "how much have I made or lost"). Shown as a
+   * separate colored stat alongside the position, never summed into any
+   * total — margin already accounts for that capital once. */
   position_pnl_usd?: number | null;
 }
 

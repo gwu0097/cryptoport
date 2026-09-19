@@ -178,10 +178,16 @@ export interface Holding {
    * holding except a DeFi position an adapter tagged with one. */
   protocol: string | null;
   protocol_url: string | null;
+  /** See AdapterHolding.display_label / .protocol_section — display-only,
+   * never affects grouping/pricing (which stay keyed on `ticker`/`protocol`
+   * as always). Null for every holding except one an adapter explicitly
+   * labeled/sub-grouped (currently only hyperliquid.ts). */
+  display_label: string | null;
+  protocol_section: string | null;
   /** Leveraged-position detail — see AdapterHolding's own doc comment for
    * why these are named fields rather than a generic blob, and why
-   * usd_override is PnL, not notional or margin. Null for every holding
-   * except an open perp/futures position. */
+   * usd_override is margin committed, not PnL or notional. Null for every
+   * holding except an open perp/futures position. */
   position_side: "long" | "short" | null;
   position_leverage: number | string | null;
   position_entry_price: number | string | null;

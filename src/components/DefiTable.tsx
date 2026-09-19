@@ -8,6 +8,7 @@ import { formatUsd, formatUsdSigned, formatQty, formatTicker } from "@/lib/forma
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { TokenIcon } from "./TokenIcon";
 import { usePersistedState } from "./usePersistedState";
+import { groupBySection } from "@/lib/holdingSections";
 import type { DefiSortKey, SortDirection } from "@/lib/sortKeys";
 
 // DefiSortKey lives in lib/sortKeys.ts, not here — a plain runtime constant
@@ -35,23 +36,26 @@ function numeric(value: unknown): number {
 // shared, same reasoning as this file's ProtocolTag-equivalent inline
 // markup: the surrounding row shape differs enough (no sort/edit column
 // here) that a shared component would need its own prop-plumbing for a
-// handful of lines. Side isn't color-coded (a long position can still be
-// losing) — the Value cell's own color, from position_pnl_usd, signals
-// gain/loss.
+// handful of lines. The Value column is margin committed (see
+// hyperliquid.ts's own doc comment), not signed, so PnL is shown here
+// instead as its own colored stat.
 function PositionTag({
   side,
   leverage,
   entryPrice,
   liquidationPrice,
+  pnl,
 }: {
   side: "long" | "short";
   leverage: unknown;
   entryPrice: unknown;
   liquidationPrice: unknown;
+  pnl: unknown;
 }) {
   const lev = numeric(leverage);
   const entry = numeric(entryPrice);
   const liq = numeric(liquidationPrice);
+  const pnlNum = numeric(pnl);
   const label = `${side === "long" ? "Long" : "Short"}${Number.isFinite(lev) ? ` ${lev}x` : ""}`;
   const details = [
     Number.isFinite(entry) ? `entry ${formatUsd(entry)}` : null,
@@ -60,8 +64,13 @@ function PositionTag({
     .filter(Boolean)
     .join(" · ");
   return (
-    <span className="ml-1.5 text-xs text-fg-muted" title={details || undefined}>
-      {label}
+    <span className="flex items-center gap-1.5 text-xs" title={details || undefined}>
+      <span className="text-fg-muted">{label}</span>
+      {Number.isFinite(pnlNum) && (
+        <span className={pnlNum > 0 ? "text-positive" : pnlNum < 0 ? "text-negative" : "text-fg-muted"}>
+          PnL {formatUsdSigned(pnlNum)}
+        </span>
+      )}
     </span>
   );
 }
@@ -279,75 +288,71 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                                 </Link>
                                 <span className="tabular-nums text-sm text-fg-muted">{formatUsd(w.total)}</span>
                               </div>
-                              <div className="overflow-x-auto">
-                                <table className={tableClass}>
-                                  <thead>
-                                    <tr className={theadRowClass}>
-                                      <th className={thClass}>Asset</th>
-                                      <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
-                                      <th className={thClass}>Value</th>
-                                      <th className={thClass}></th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {positions.map((position) => (
-                                      <tr key={position.id} className={trClass}>
-                                        <td className={tdClass}>
-                                          <div className="flex items-center gap-2">
-                                            <TokenIcon ticker={position.ticker} url={position.icon_url} />
-                                            {formatTicker(position.ticker)}
-                                            {position.position_side && (
-                                              <PositionTag
-                                                side={position.position_side}
-                                                leverage={position.position_leverage}
-                                                entryPrice={position.position_entry_price}
-                                                liquidationPrice={position.position_liquidation_price}
-                                              />
-                                            )}
-                                          </div>
-                                        </td>
-                                        <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
-                                          {formatQty(position.qty)}
-                                        </td>
-                                        <td className={`${tdClass} tabular-nums`}>
-                                          {position.valuation.kind === "priced" ? (
-                                            <span
-                                              className={
-                                                position.position_side
-                                                  ? position.valuation.usd > 0
-                                                    ? "text-positive"
-                                                    : position.valuation.usd < 0
-                                                      ? "text-negative"
-                                                      : undefined
-                                                  : undefined
-                                              }
-                                            >
-                                              {position.position_side
-                                                ? formatUsdSigned(position.valuation.usd)
-                                                : formatUsd(position.valuation.usd)}
-                                            </span>
-                                          ) : (
-                                            <span className="text-warning">unpriced</span>
-                                          )}
-                                        </td>
-                                        <td className={tdClass}>
-                                          {position.protocol_url && (
-                                            <a
-                                              href={position.protocol_url}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="inline-flex items-center gap-0.5 text-xs text-fg-muted hover:text-accent"
-                                              onClick={(e) => e.stopPropagation()}
-                                            >
-                                              View <ExternalLink className="size-2.5" aria-hidden="true" />
-                                            </a>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
+                              {groupBySection(positions).map(({ section, holdings: sectionPositions }, i) => (
+                                <div key={section ?? "_"} className={i > 0 ? "mt-3" : undefined}>
+                                  {section && (
+                                    <p className="pb-1 text-xs font-medium text-fg-muted">{section}</p>
+                                  )}
+                                  <div className="overflow-x-auto">
+                                    <table className={tableClass}>
+                                      <thead>
+                                        <tr className={theadRowClass}>
+                                          <th className={thClass}>Asset</th>
+                                          <th className={`${thClass} ${hideOnMobileClass}`}>Qty</th>
+                                          <th className={thClass}>Value</th>
+                                          <th className={thClass}></th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {sectionPositions.map((position) => (
+                                          <tr key={position.id} className={trClass}>
+                                            <td className={tdClass}>
+                                              <div className="flex flex-col gap-0.5">
+                                                <div className="flex items-center gap-2">
+                                                  <TokenIcon ticker={position.ticker} url={position.icon_url} />
+                                                  {position.display_label ?? formatTicker(position.ticker)}
+                                                </div>
+                                                {position.position_side && (
+                                                  <PositionTag
+                                                    side={position.position_side}
+                                                    leverage={position.position_leverage}
+                                                    entryPrice={position.position_entry_price}
+                                                    liquidationPrice={position.position_liquidation_price}
+                                                    pnl={position.position_pnl_usd}
+                                                  />
+                                                )}
+                                              </div>
+                                            </td>
+                                            <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+                                              {formatQty(position.qty)}
+                                            </td>
+                                            <td className={`${tdClass} tabular-nums`}>
+                                              {position.valuation.kind === "priced" ? (
+                                                formatUsd(position.valuation.usd)
+                                              ) : (
+                                                <span className="text-warning">unpriced</span>
+                                              )}
+                                            </td>
+                                            <td className={tdClass}>
+                                              {position.protocol_url && (
+                                                <a
+                                                  href={position.protocol_url}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="inline-flex items-center gap-0.5 text-xs text-fg-muted hover:text-accent"
+                                                  onClick={(e) => e.stopPropagation()}
+                                                >
+                                                  View <ExternalLink className="size-2.5" aria-hidden="true" />
+                                                </a>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                             );
                           })}
