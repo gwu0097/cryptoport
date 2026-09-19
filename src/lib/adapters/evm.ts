@@ -3,6 +3,7 @@ import type { Address } from "viem";
 import { fetchEvmChainsHoldings } from "./multicallEvm";
 import { fetchHyperliquidHoldings } from "./hyperliquid";
 import { fetchAxieStaking } from "./axieStaking";
+import { fetchPolymarketHoldings } from "./polymarket";
 import type { AdapterHolding } from "./types";
 
 export interface EvmHoldingsResult {
@@ -30,7 +31,7 @@ export interface EvmHoldingsResult {
  * syncWalletHoldings).
  */
 export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResult> {
-  const [chainsResult, hyperliquidResult, axieResult] = await Promise.all([
+  const [chainsResult, hyperliquidResult, axieResult, polymarketResult] = await Promise.all([
     fetchEvmChainsHoldings(address as Address),
     fetchHyperliquidHoldings(address)
       .then((holdings) => ({ holdings, error: null as string | null }))
@@ -42,13 +43,24 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     fetchAxieStaking(address as Address)
       .then((holdings) => ({ holdings, error: null as string | null }))
       .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
+    // Soft failure too — same reasoning as Axie above, most EVM wallets
+    // have never touched Polymarket at all.
+    fetchPolymarketHoldings(address)
+      .then((holdings) => ({ holdings, error: null as string | null }))
+      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
   ]);
 
-  const holdings = [...chainsResult.holdings, ...hyperliquidResult.holdings, ...axieResult.holdings];
+  const holdings = [
+    ...chainsResult.holdings,
+    ...hyperliquidResult.holdings,
+    ...axieResult.holdings,
+    ...polymarketResult.holdings,
+  ];
   const warnings = [
     ...chainsResult.failedChains.map((f) => `${f.chainId}: ${f.error}`),
     ...(hyperliquidResult.error ? [`hyperliquid: ${hyperliquidResult.error}`] : []),
     ...(axieResult.error ? [`axie staking: ${axieResult.error}`] : []),
+    ...(polymarketResult.error ? [`polymarket: ${polymarketResult.error}`] : []),
   ];
 
   // Nothing succeeded anywhere and something actually went wrong badly

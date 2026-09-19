@@ -13,6 +13,7 @@ export const CHAIN_NAMES: Record<string, string> = {
   ...Object.fromEntries(NON_EVM_CHAINS.flatMap((c) => [[c.id, c.displayName] as const, [c.slug, c.displayName] as const])),
   ETH: "Ethereum",
   hyperliquid: "Hyperliquid",
+  polymarket: "Polymarket",
   "solana-defi": "Solana DeFi",
   // Exchange "chain" — not a real chain, but holdings/wallets use the same
   // chain-grouping machinery, so it needs an entry in both vocabularies

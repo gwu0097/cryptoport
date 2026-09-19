@@ -142,6 +142,11 @@ export async function isWalletLinked(chain: "ETH" | "SOL", address: string): Pro
 // itself tracks Coinbase as an exchange (id "gdax") with this exact image.
 const STATIC_CHAIN_ICONS: Record<string, string> = {
   coinbase: "https://coin-images.coingecko.com/markets/images/23/small/Coinbase_Coin_Primary.png?1706864258",
+  // Polymarket is an app on Polygon, not its own CoinGecko asset_platform —
+  // same "no chain-icon sync mechanism could ever cover it" reasoning as
+  // Coinbase above. CoinGecko does track Polymarket's own governance/points
+  // token, whose logo doubles as the brand mark here.
+  polymarket: "https://coin-images.coingecko.com/coins/images/70290/large/poly.png",
 };
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —
