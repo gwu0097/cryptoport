@@ -53,3 +53,6 @@ export const WATCHLIST_SORT_KEYS: readonly WatchlistSortKey[] = [
   "change30d",
   "marketCap",
 ];
+
+export type PeerSortKey = "ticker" | "price" | "change1h" | "change24h" | "change7d" | "marketCap";
+export const PEER_SORT_KEYS: readonly PeerSortKey[] = ["ticker", "price", "change1h", "change24h", "change7d", "marketCap"];

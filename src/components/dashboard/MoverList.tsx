@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, TrendingUp } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { Panel } from "../ui/Panel";
@@ -20,6 +20,13 @@ export interface MoverItem {
   iconUrl: string | null;
   price: number | null;
   change24h: number | null;
+  /** A real CoinGecko id, when the caller already has one — Watchlist rows
+   * do (WatchlistRow.coingeckoId), Holdings rows don't (AssetGroup is
+   * ticker-grouped across chains/contracts with no stored id — see Trend
+   * Finder's own ?ticker= fallback path for how that gets resolved
+   * instead). Drives whether the "Find Trend" link below uses the
+   * unambiguous ?id= or the best-effort ?ticker=. */
+  coingeckoId?: string;
 }
 
 /** Same green/red/muted convention as AssetsTable.tsx's ChangeCell,
@@ -73,6 +80,18 @@ export function MoverList({ title, items, href }: { title: string; items: MoverI
                   {item.price !== null ? formatUsd(item.price) : "—"}
                 </span>
                 <ChangeText value={item.change24h} />
+                <Link
+                  href={
+                    item.coingeckoId
+                      ? `/trend-finder?id=${encodeURIComponent(item.coingeckoId)}`
+                      : `/trend-finder?ticker=${encodeURIComponent(item.ticker)}`
+                  }
+                  aria-label={`Find sector peers for ${item.ticker}`}
+                  title="Find sector peers"
+                  className="text-fg-muted transition hover:text-accent"
+                >
+                  <TrendingUp className="size-3.5" aria-hidden="true" />
+                </Link>
               </div>
             </li>
           ))}

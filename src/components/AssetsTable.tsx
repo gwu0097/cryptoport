@@ -2,12 +2,13 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
+import { ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatQty, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
+import { SortableHeader as Header } from "./ui/SortableHeader";
 import { usePersistedState } from "./usePersistedState";
 import type { AssetSortKey, SortDirection } from "@/lib/sortKeys";
 
@@ -87,40 +88,6 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
     );
   }
   return <div className="mt-1 text-xs text-fg-muted">{protocol}</div>;
-}
-
-function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
-  if (!active) return <ChevronsUpDown className="size-3 text-fg-muted/50" aria-hidden="true" />;
-  return dir === "desc" ? (
-    <ArrowDown className="size-3" aria-hidden="true" />
-  ) : (
-    <ArrowUp className="size-3" aria-hidden="true" />
-  );
-}
-
-function Header({
-  label,
-  sortKeyValue,
-  sortKey,
-  sortDir,
-  onSort,
-  className = "",
-}: {
-  label: string;
-  sortKeyValue: SortKey;
-  sortKey: SortKey;
-  sortDir: "asc" | "desc";
-  onSort: (key: SortKey) => void;
-  className?: string;
-}) {
-  return (
-    <th className={`${thClass} ${className}`}>
-      <button type="button" onClick={() => onSort(sortKeyValue)} className="flex items-center gap-1 hover:text-fg">
-        {label}
-        <SortIcon active={sortKey === sortKeyValue} dir={sortDir} />
-      </button>
-    </th>
-  );
 }
 
 /**

@@ -59,7 +59,17 @@ export default async function DashboardPage() {
     holdingsMoversEligible.map((g) => ({ key: g.tickerKey, ticker: g.ticker, iconUrl: g.iconUrl, price: g.price, change24h: g.change24h })),
   );
   const { gainers: watchlistGainers, losers: watchlistLosers } = topMovers(
-    watchlistItems.map((w) => ({ key: w.coingeckoId, ticker: w.ticker, iconUrl: w.imageUrl, price: w.price, change24h: w.change24h })),
+    watchlistItems.map((w) => ({
+      key: w.coingeckoId,
+      ticker: w.ticker,
+      iconUrl: w.imageUrl,
+      price: w.price,
+      change24h: w.change24h,
+      // Watchlist rows already carry a real CoinGecko id — unlike Holdings
+      // rows below, so their "Find Trend" link can go straight to the
+      // unambiguous ?id= path (see MoverItem's own doc comment).
+      coingeckoId: w.coingeckoId,
+    })),
   );
 
   const change = blendedChange(groups);

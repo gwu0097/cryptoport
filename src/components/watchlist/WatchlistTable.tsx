@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { ArrowUp, ArrowDown, ChevronsUpDown, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import type { WatchlistRow } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { inputClass } from "../ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "../ui/table";
+import { SortableHeader as Header } from "../ui/SortableHeader";
 import { usePersistedState } from "../usePersistedState";
 import { removeWatchlistItem } from "@/app/(app)/watchlist/actions";
 import type { WatchlistSortKey, SortDirection } from "@/lib/sortKeys";
@@ -48,40 +49,6 @@ function ChangeCell({ value }: { value: number | null }) {
   const className =
     value === null ? "text-fg-muted" : value > 0 ? "text-positive" : value < 0 ? "text-negative" : "text-fg-muted";
   return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
-}
-
-function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
-  if (!active) return <ChevronsUpDown className="size-3 text-fg-muted/50" aria-hidden="true" />;
-  return dir === "desc" ? (
-    <ArrowDown className="size-3" aria-hidden="true" />
-  ) : (
-    <ArrowUp className="size-3" aria-hidden="true" />
-  );
-}
-
-function Header({
-  label,
-  sortKeyValue,
-  sortKey,
-  sortDir,
-  onSort,
-  className = "",
-}: {
-  label: string;
-  sortKeyValue: SortKey;
-  sortKey: SortKey;
-  sortDir: "asc" | "desc";
-  onSort: (key: SortKey) => void;
-  className?: string;
-}) {
-  return (
-    <th className={`${thClass} ${className}`}>
-      <button type="button" onClick={() => onSort(sortKeyValue)} className="flex items-center gap-1 hover:text-fg">
-        {label}
-        <SortIcon active={sortKey === sortKeyValue} dir={sortDir} />
-      </button>
-    </th>
-  );
 }
 
 /** Structural sibling of AssetsTable — same search/sort/persisted-column-

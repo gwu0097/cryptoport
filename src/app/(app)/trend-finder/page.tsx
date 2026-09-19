@@ -3,9 +3,11 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TokenIcon } from "@/components/TokenIcon";
 import { TrendSeedPicker } from "@/components/TrendSeedPicker";
+import { TrendPeerTable } from "@/components/TrendPeerTable";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { findTrendPeers, type TrendTier } from "@/lib/trendPeers";
+import { searchCoins } from "@/lib/adapters/coingecko";
+import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
 // A cold cache can chain ~5 sequential CoinGecko calls with backoff (see
@@ -56,9 +58,9 @@ function McapFloorPicker({ id, mcapFloor }: { id: string; mcapFloor: number }) {
 export default async function TrendFinderPage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: string; mcap?: string }>;
+  searchParams: Promise<{ id?: string; ticker?: string; mcap?: string }>;
 }) {
-  const { id, mcap } = await searchParams;
+  const { id, ticker, mcap } = await searchParams;
   const mcapFloor = mcap !== undefined && !Number.isNaN(Number(mcap)) ? Number(mcap) : DEFAULT_MCAP_FLOOR;
 
   return (
@@ -68,7 +70,11 @@ export default async function TrendFinderPage({
         subtitle="Pick a token that already moved — see sector peers that haven't yet."
       />
 
-      {!id ? (
+      {id ? (
+        <TrendResults id={id} mcapFloor={mcapFloor} />
+      ) : ticker ? (
+        <TrendResultsFromTicker ticker={ticker} mcapFloor={mcapFloor} />
+      ) : (
         <Panel className="text-center">
           <p className="mb-4 text-sm text-fg-muted">
             Search for a token to find peers in the same sector that haven&rsquo;t moved as much yet.
@@ -77,14 +83,54 @@ export default async function TrendFinderPage({
             <TrendSeedPicker />
           </div>
         </Panel>
-      ) : (
-        <TrendResults id={id} mcapFloor={mcapFloor} />
       )}
     </>
   );
 }
 
-async function TrendResults({ id, mcapFloor }: { id: string; mcapFloor: number }) {
+/**
+ * The Dashboard's Holdings mover rows have no stored CoinGecko id (an
+ * AssetGroup is ticker-grouped across chains/contracts, and native tickers
+ * like BTC/ETH/SOL aren't in token_registry at all — see the plan's own
+ * note on why this is real work, not a one-liner), so their "Find Trend"
+ * link carries a bare ?ticker= instead of ?id=. Resolved best-effort with
+ * the same searchCoins()+pickBestMatch() this app already trusts for
+ * Watchlist's bulk-add (exact-symbol match first, lowest market-cap rank
+ * as the tiebreak) — deliberately NOT the default path (the on-page
+ * picker and Watchlist mover links always carry a real id), and the
+ * result panel says plainly that it matched from a ticker so a symbol
+ * collision is visible, never silent. See CLAUDE.md's Data Correctness
+ * section on the real spoofed-ticker incident this app has already had.
+ */
+async function TrendResultsFromTicker({ ticker, mcapFloor }: { ticker: string; mcapFloor: number }) {
+  const candidates = await searchCoins(ticker);
+  const match = pickBestMatch(ticker, candidates);
+
+  if (!match) {
+    return (
+      <Panel className="text-center">
+        <p className="mb-4 text-sm text-fg-muted">
+          No CoinGecko match for ticker &ldquo;{ticker}&rdquo; — try searching directly instead.
+        </p>
+        <div className="mx-auto max-w-sm text-left">
+          <TrendSeedPicker />
+        </div>
+      </Panel>
+    );
+  }
+
+  return <TrendResults id={match.id} mcapFloor={mcapFloor} matchedFromTicker={ticker} />;
+}
+
+async function TrendResults({
+  id,
+  mcapFloor,
+  matchedFromTicker,
+}: {
+  id: string;
+  mcapFloor: number;
+  matchedFromTicker?: string;
+}) {
   const result = await findTrendPeers({ coingeckoId: id, mcapFloor });
 
   if (result.status === "no-seed-data") {
@@ -113,6 +159,9 @@ async function TrendResults({ id, mcapFloor }: { id: string; mcapFloor: number }
                 {seed.marketCapRank !== null ? `Rank #${seed.marketCapRank}` : "Unranked"} ·{" "}
                 {seed.price !== null ? formatUsd(seed.price) : "—"} · 24h <ChangeCell value={seed.change24h} />
               </p>
+              {matchedFromTicker && (
+                <p className="mt-0.5 text-xs text-warning">Matched from ticker &ldquo;{matchedFromTicker}&rdquo;</p>
+              )}
             </div>
           </div>
           <div className="mx-auto w-full max-w-sm sm:mx-0 sm:w-auto">
@@ -166,45 +215,7 @@ function TierPanel({ tier, index, mcapFloor }: { tier: TrendTier; index: number;
           floor above.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className={tableClass}>
-            <thead>
-              <tr className={theadRowClass}>
-                <th className={thClass}>Asset</th>
-                <th className={thClass}>Price</th>
-                <th className={`${thClass} ${hideOnMobileClass}`}>1h</th>
-                <th className={thClass}>24h</th>
-                <th className={`${thClass} ${hideOnMobileClass}`}>7d</th>
-                <th className={`${thClass} ${hideOnMobileClass}`}>Market cap</th>
-              </tr>
-            </thead>
-            <tbody>
-              {peers.map((peer) => (
-                <tr key={peer.id} className={trClass}>
-                  <td className={tdClass}>
-                    <div className="flex items-center gap-2">
-                      <TokenIcon ticker={peer.symbol} url={peer.imageUrl} />
-                      <span className="font-medium text-fg">{peer.symbol}</span>
-                    </div>
-                  </td>
-                  <td className={`${tdClass} tabular-nums`}>{peer.price !== null ? formatUsd(peer.price) : "—"}</td>
-                  <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    <ChangeCell value={peer.change1h} />
-                  </td>
-                  <td className={tdClass}>
-                    <ChangeCell value={peer.change24h} />
-                  </td>
-                  <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    <ChangeCell value={peer.change7d} />
-                  </td>
-                  <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
-                    {formatCompactUsd(peer.marketCap)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TrendPeerTable peers={peers} />
       )}
     </Panel>
   );
