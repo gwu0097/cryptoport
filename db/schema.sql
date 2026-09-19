@@ -856,3 +856,28 @@ create table cryptoport.ticker_icons (
 
 alter table cryptoport.ticker_icons enable row level security;
 grant all on cryptoport.ticker_icons to service_role;
+
+-- A wallet's single nullable tag_id FK (above) couldn't express tags that
+-- span independent dimensions at once (e.g. 'personal' + 'soft wallet') —
+-- replaced with a many-to-many join table, same "own user_id + owner-only
+-- policy" convention every per-user table in this file uses, rather than a
+-- subquery against wallets.user_id. Existing single tags are carried over
+-- before tag_id is dropped — no wallet loses its tag in the migration.
+create table cryptoport.wallet_tags (
+  wallet_id  uuid not null references cryptoport.wallets(id) on delete cascade,
+  tag_id     uuid not null references cryptoport.tags(id) on delete cascade,
+  user_id    uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  created_at timestamptz default now(),
+  primary key (wallet_id, tag_id)
+);
+alter table cryptoport.wallet_tags enable row level security;
+create policy "wallet_tags: owner only" on cryptoport.wallet_tags
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+grant all on cryptoport.wallet_tags to service_role;
+grant select, insert, update, delete on cryptoport.wallet_tags to authenticated;
+
+insert into cryptoport.wallet_tags (wallet_id, tag_id, user_id)
+select id, tag_id, user_id from cryptoport.wallets where tag_id is not null
+on conflict do nothing;
+
+alter table cryptoport.wallets drop column tag_id;

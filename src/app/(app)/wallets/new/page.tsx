@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, inputClass } from "@/components/ui/Field";
-import { ChainModeFields } from "@/components/ChainModeFields";
+import { ChainModeAddressFields } from "@/components/ChainModeAddressFields";
+import { TagPicker } from "@/components/TagPicker";
 import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
 import { ConnectCoinbaseModal } from "@/components/ConnectCoinbaseModal";
 import { EXCHANGE_PROVIDERS } from "@/lib/exchangeProviders";
@@ -38,22 +39,10 @@ export default async function NewWalletPage() {
               <input name="name" type="text" required className={inputClass} />
             </Field>
 
-            <ChainModeFields />
+            <ChainModeAddressFields />
 
-            <Field label="Tag" hint="Optional — type an existing tag to reuse it, or a new name to create one.">
-              <input name="tag" type="text" list="tags-datalist" className={inputClass} />
-              <datalist id="tags-datalist">
-                {tags.map((t) => (
-                  <option key={t.id} value={t.name} />
-                ))}
-              </datalist>
-            </Field>
-
-            <Field
-              label="Address"
-              hint="Optional for manual. For auto BTC: an xpub/ypub/zpub scans the whole HD wallet account, not just one address — use that instead of a single receive address unless you're sure that one address is where funds actually sit."
-            >
-              <input name="address" type="text" className={inputClass} />
+            <Field label="Tags" hint="Optional — pick existing tags or type a new name to create one.">
+              <TagPicker allTags={tags.map((t) => t.name)} />
             </Field>
 
             <SubmitButton className="self-start">Create wallet</SubmitButton>

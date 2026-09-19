@@ -1,11 +1,11 @@
 // Plain config data, deliberately NOT server-only — mirrors evmChains.ts's
 // own reasoning (see that file's header): no secrets, no I/O, safe for a
-// client component (ChainModeFields.tsx) to import directly. This is the
+// client component (ChainModeAddressFields.tsx) to import directly. This is the
 // single source of truth for "which non-EVM chains does this app have an
 // adapter for, and what's each one's display name / grouping slug" —
 // replacing what used to be the same ~15-chain list hand-copied across
 // chainNames.ts's CHAIN_NAMES, chainNames.ts's defaultChainId,
-// wallets/actions.ts's AUTO_CAPABLE_CHAINS, and ChainModeFields.tsx's
+// wallets/actions.ts's AUTO_CAPABLE_CHAINS, and ChainModeAddressFields.tsx's
 // NON_EVM_AUTO_CAPABLE_CHAINS. That duplication had already silently
 // drifted once: defaultChainId had no explicit case for NEO or TON and
 // only worked by coincidence (their uppercase ticker happens to lowercase

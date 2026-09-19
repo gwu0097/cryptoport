@@ -76,10 +76,6 @@ export interface Wallet {
    * the UI and again server-side). Always stored uppercase. */
   chain: string;
   mode: WalletMode;
-  /** User-defined, free-text categorization — replaced the old fixed
-   * personal/biz "account" enum (see resolveTagId in wallets/actions.ts:
-   * typing a new name creates the tag, an existing name reuses it). */
-  tag_id: string | null;
   notes: string | null;
   active: boolean;
   last_refresh_at: string | null;
@@ -134,10 +130,14 @@ export interface Wallet {
   created_at: string;
 }
 
-/** A wallet row as actually queried — always comes back with its tag
- * embedded (see queries.ts), never just the bare tag_id. */
-export interface WalletWithTag extends Wallet {
-  tag: Tag | null;
+/** A wallet row as actually queried — always comes back with its tags
+ * embedded (see queries.ts), never a bare id list. User-defined, free-text
+ * categorization, many-to-many via cryptoport.wallet_tags (replaced the old
+ * fixed personal/biz "account" enum, then a single nullable tag_id, before
+ * settling on many-to-many — see resolveTagIds in wallets/actions.ts:
+ * typing a new name creates the tag, an existing name reuses it). */
+export interface WalletWithTags extends Wallet {
+  tags: Tag[];
 }
 
 export interface Transaction {

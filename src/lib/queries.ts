@@ -13,7 +13,7 @@ import {
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
 import { pinnedWalletChain, externalPortfolioViewer, type WalletChain } from "./walletDisplay.ts";
-import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTag } from "./types";
+import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTags } from "./types";
 
 export type PriceRefreshPhaseStatus = "running" | "done" | "error";
 export interface PriceRefreshPhase {
@@ -82,12 +82,12 @@ export const getTokenRegistryState = cache(async (): Promise<TokenRegistryState>
   };
 });
 
-/** Every tag *this user* has ever created — populates the datalist for the
- * free-text "tag" input on the wallet add/edit forms (see resolveTagId in
- * wallets/actions.ts, which creates one the first time its name is used).
- * No explicit user filter here — RLS on cryptoport.tags already scopes
- * this to auth.uid(), see db/schema.sql. Cached per-request via React's
- * cache() — same reasoning as getPriceMap's doc comment. */
+/** Every tag *this user* has ever created — populates TagPicker's dropdown
+ * on the wallet add/edit forms and the wallets list's tag filter (see
+ * resolveTagIds in wallets/actions.ts, which creates a tag the first time
+ * its name is used). No explicit user filter here — RLS on cryptoport.tags
+ * already scopes this to auth.uid(), see db/schema.sql. Cached per-request
+ * via React's cache() — same reasoning as getPriceMap's doc comment. */
 export const getTags = cache(async (): Promise<Tag[]> => {
   // Every page is viewable without a session (see (app)/layout.tsx) — but
   // anon has zero grants anywhere in the cryptoport schema (db/schema.sql),
@@ -283,7 +283,7 @@ function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "ticker"
   return parseNumeric(prices[holding.ticker]);
 }
 
-export interface WalletWithTotal extends WalletWithTag {
+export interface WalletWithTotal extends WalletWithTags {
   total: number;
   unpricedCount: number;
   /** Whether this wallet's (chain, address) has been verified (see
@@ -320,7 +320,7 @@ export async function getWalletsWithTotals(): Promise<WalletListResult> {
   const [{ data: wallets, error: walletsError }, prices, linkedWallets] = await Promise.all([
     db
       .from("wallets")
-      .select("*, holdings(*), tag:tags(id,name)")
+      .select("*, holdings(*), tags(id,name)")
       .eq("active", true)
       .order("created_at", { ascending: true }),
     getPriceMap(),
@@ -328,7 +328,7 @@ export async function getWalletsWithTotals(): Promise<WalletListResult> {
   ]);
   if (walletsError) throw new Error(`Failed to load wallets: ${walletsError.message}`);
 
-  type WalletRow = WalletWithTag & { holdings: Holding[] };
+  type WalletRow = WalletWithTags & { holdings: Holding[] };
   const rows = wallets as WalletRow[];
 
   // ETH is stored lowercased in linked_wallets (see normalizeAddress) but a
@@ -440,7 +440,7 @@ export function valuateHoldings(
 }
 
 export interface WalletDetailResult extends ValuatedHoldings {
-  wallet: WalletWithTag;
+  wallet: WalletWithTags;
 }
 
 export async function getWalletDetail(id: string): Promise<WalletDetailResult | null> {
@@ -450,13 +450,13 @@ export async function getWalletDetail(id: string): Promise<WalletDetailResult | 
   if (!(await getUser())) return null;
   const db = await userDb();
   const [{ data: wallet, error: walletError }, prices] = await Promise.all([
-    db.from("wallets").select("*, holdings(*), tag:tags(id,name)").eq("id", id).maybeSingle(),
+    db.from("wallets").select("*, holdings(*), tags(id,name)").eq("id", id).maybeSingle(),
     getPriceMap(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (!wallet) return null;
 
-  const { holdings, ...rest } = wallet as WalletWithTag & { holdings: Holding[] };
+  const { holdings, ...rest } = wallet as WalletWithTags & { holdings: Holding[] };
   return { wallet: rest, ...valuateHoldings(holdings, defaultChainId(rest.chain), prices) };
 }
 

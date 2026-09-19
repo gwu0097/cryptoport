@@ -5,8 +5,9 @@ import { Pencil } from "lucide-react";
 import { Field, inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
 import { Dialog } from "./ui/Dialog";
-import { ChainModeFields } from "./ChainModeFields";
-import type { WalletWithTag } from "@/lib/types";
+import { ChainModeAddressFields } from "./ChainModeAddressFields";
+import { TagPicker } from "./TagPicker";
+import type { WalletWithTags } from "@/lib/types";
 
 /**
  * Edit-wallet form as a popup instead of always-visible page content —
@@ -23,12 +24,11 @@ export function EditWalletModal({
   tagNames,
   updateWallet,
 }: {
-  wallet: WalletWithTag;
+  wallet: WalletWithTags;
   tagNames: string[];
   updateWallet: (formData: FormData) => void | Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const datalistId = `tags-${wallet.id}`;
 
   return (
     <>
@@ -51,28 +51,14 @@ export function EditWalletModal({
             <input name="name" type="text" required defaultValue={wallet.name} className={inputClass} />
           </Field>
 
-          <ChainModeFields defaultChain={wallet.chain} defaultMode={wallet.mode} />
+          <ChainModeAddressFields
+            defaultChain={wallet.chain}
+            defaultMode={wallet.mode}
+            defaultAddress={wallet.address ?? ""}
+          />
 
-          <Field label="Tag" hint="Optional — type an existing tag to reuse it, or a new name to create one.">
-            <input
-              name="tag"
-              type="text"
-              list={datalistId}
-              defaultValue={wallet.tag?.name ?? ""}
-              className={inputClass}
-            />
-            <datalist id={datalistId}>
-              {tagNames.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </Field>
-
-          <Field
-            label="Address"
-            hint="For auto BTC: an xpub/ypub/zpub scans the whole HD wallet account, not just one address."
-          >
-            <input name="address" type="text" defaultValue={wallet.address ?? ""} className={inputClass} />
+          <Field label="Tags" hint="Optional — pick existing tags or type a new name to create one.">
+            <TagPicker allTags={tagNames} defaultSelected={wallet.tags.map((t) => t.name)} />
           </Field>
 
           <SubmitButton className="self-start">Save changes</SubmitButton>

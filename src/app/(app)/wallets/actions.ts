@@ -297,12 +297,12 @@ export async function refreshPricesForWalletAction(walletId: string): Promise<Jo
 // A wallet's `chain` field itself isn't restricted to a fixed set (see
 // Wallet.chain in types.ts) — auto mode is, checked both here
 // (isAutoCapableChain, used by createWallet/updateWallet and again
-// defensively in syncWalletHoldings) and client-side in ChainModeFields
+// defensively in syncWalletHoldings) and client-side in ChainModeAddressFields
 // (which disables the "auto" option for anything else, so this server
 // check is belt-and-suspenders rather than the only guard). Non-EVM chains
 // come from nonEvmChains.ts's single list (see that file's header — this
 // used to be its own hand-copied array, kept in sync by hand with
-// ChainModeFields's copy). EVM chains aren't in that list — any of the 32
+// ChainModeAddressFields's copy). EVM chains aren't in that list — any of the 32
 // chains in evmChains.ts is auto-capable, checked dynamically via
 // isEvmChainId, since a wallet's EVM-format address is scanned across
 // every configured EVM chain regardless of which one it's labeled with
@@ -340,15 +340,16 @@ function requireOneOf<T extends string>(
   return value as T;
 }
 
-// Replaces the old fixed personal/biz "account" select with a free-text tag
-// — typing a name that already exists reuses that tag, typing a new one
-// creates it on the spot (no separate "manage tags" page). Upsert on the
-// unique `name` column rather than select-then-insert: atomic, so two
-// wallets saved with the same brand-new tag name at once can't race into
-// duplicate tag rows.
-async function resolveTagId(formData: FormData): Promise<string | null> {
-  const name = optionalString(formData, "tag");
-  if (!name) return null;
+// TagPicker submits each selected tag as a repeated "tags" field — typing a
+// name that already exists reuses that tag, typing a new one creates it on
+// the spot (no separate "manage tags" page). One batched upsert on the
+// unique (user_id, name) constraint rather than one call per tag or a
+// select-then-insert: atomic, so two wallets saved with the same brand-new
+// tag name at once can't race into duplicate tag rows, and a wallet with
+// several new tags doesn't take a round trip per tag.
+async function resolveTagIds(formData: FormData): Promise<string[]> {
+  const names = [...new Set(formData.getAll("tags").map((v) => String(v).trim()).filter((v) => v !== ""))];
+  if (names.length === 0) return [];
 
   // onConflict targets (user_id, name) — tag names are unique per user, not
   // globally (see db/schema.sql), so two different people can both have a
@@ -357,16 +358,36 @@ async function resolveTagId(formData: FormData): Promise<string | null> {
   const db = await userDb();
   const { data, error } = await db
     .from("tags")
-    .upsert({ name }, { onConflict: "user_id,name" })
-    .select("id")
-    .single();
-  if (error) throw new Error(`Failed to resolve tag: ${error.message}`);
-  return data.id;
+    .upsert(
+      names.map((name) => ({ name })),
+      { onConflict: "user_id,name" },
+    )
+    .select("id");
+  if (error) throw new Error(`Failed to resolve tags: ${error.message}`);
+  return data.map((row) => row.id);
+}
+
+// Replaces a wallet's full tag set with the given ids — delete-then-insert,
+// same shape the sync RPCs already use for their own disjoint-source
+// rewrites (see holdings.source's doc comment), simpler than diffing
+// against whatever it had before. Scoped to this one wallet's rows only,
+// same as every other per-wallet write in this file — RLS on wallet_tags
+// (owner-only, see db/schema.sql) also backs this up server-side.
+async function replaceWalletTags(walletId: string, tagIds: string[]): Promise<void> {
+  const db = await userDb();
+  const { error: deleteError } = await db.from("wallet_tags").delete().eq("wallet_id", walletId);
+  if (deleteError) throw new Error(`Failed to clear wallet tags: ${deleteError.message}`);
+  if (tagIds.length === 0) return;
+
+  const { error: insertError } = await db
+    .from("wallet_tags")
+    .insert(tagIds.map((tag_id) => ({ wallet_id: walletId, tag_id })));
+  if (insertError) throw new Error(`Failed to save wallet tags: ${insertError.message}`);
 }
 
 // Chain is free text now (RON, NEAR, whatever — manual tracking works for
 // anything), but auto mode only actually works for a chain isAutoCapableChain
-// recognizes — enforced here too, not just by ChainModeFields disabling
+// recognizes — enforced here too, not just by ChainModeAddressFields disabling
 // the option client-side, since a direct form POST could otherwise bypass
 // that.
 function requireChainAndMode(formData: FormData): { chain: string; mode: WalletMode } {
@@ -386,18 +407,15 @@ export async function createWallet(formData: FormData) {
   const name = requireString(formData, "name");
   const { chain, mode } = requireChainAndMode(formData);
   const address = optionalString(formData, "address");
-  const tag_id = await resolveTagId(formData);
+  const tagIds = await resolveTagIds(formData);
 
   // user_id isn't set explicitly — the column defaults to auth.uid() (see
   // db/schema.sql), so this insert only ever creates a row owned by
   // whoever's session userDb() is bound to.
   const db = await userDb();
-  const { data, error } = await db
-    .from("wallets")
-    .insert({ name, chain, mode, tag_id, address })
-    .select("id")
-    .single();
+  const { data, error } = await db.from("wallets").insert({ name, chain, mode, address }).select("id").single();
   if (error) throw new Error(`Failed to create wallet: ${error.message}`);
+  await replaceWalletTags(data.id, tagIds);
 
   revalidatePath("/wallets");
   redirect(`/wallets/${data.id}`);
@@ -408,14 +426,12 @@ export async function updateWallet(walletId: string, formData: FormData) {
   const name = requireString(formData, "name");
   const { chain, mode } = requireChainAndMode(formData);
   const address = optionalString(formData, "address");
-  const tag_id = await resolveTagId(formData);
+  const tagIds = await resolveTagIds(formData);
 
   const db = await userDb();
-  const { error } = await db
-    .from("wallets")
-    .update({ name, chain, mode, tag_id, address })
-    .eq("id", walletId);
+  const { error } = await db.from("wallets").update({ name, chain, mode, address }).eq("id", walletId);
   if (error) throw new Error(`Failed to update wallet: ${error.message}`);
+  await replaceWalletTags(walletId, tagIds);
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");

@@ -88,8 +88,14 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
         </div>
       </td>
       <td className={`${tdClass} ${hideOnMobileClass}`}>
-        {wallet.tag ? (
-          <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">{wallet.tag.name}</span>
+        {wallet.tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {wallet.tags.map((t) => (
+              <span key={t.id} className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                {t.name}
+              </span>
+            ))}
+          </div>
         ) : (
           <span className="text-fg-muted">—</span>
         )}
@@ -133,11 +139,28 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
   );
 }
 
-type SortKey = "name" | "chain" | "tag" | "mode" | "value" | "refreshed" | "duration";
+type SortKey = "name" | "chain" | "mode" | "value" | "refreshed" | "duration";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
+const SORT_KEYS: readonly SortKey[] = ["name", "chain", "mode", "value", "refreshed", "duration"];
 const STORAGE_KEY = "cryptoport:walletsSort";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
+const TAG_FILTER_STORAGE_KEY = "cryptoport:walletsTagFilter";
+
+// Guards against a sort persisted from before the Tag column stopped being
+// sortable (see the Tag column's own history — it's now a filter, not a
+// sort key) — a stored `{key:"tag"}` from an earlier session would
+// otherwise fall through sortValue's switch below with no matching case.
+function isValidSort(value: unknown): value is Sort {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "key" in value &&
+    "dir" in value &&
+    SORT_KEYS.includes((value as Sort).key) &&
+    ((value as Sort).dir === "asc" || (value as Sort).dir === "desc")
+  );
+}
 
 function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
   switch (key) {
@@ -145,8 +168,6 @@ function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
       return wallet.name.toLowerCase();
     case "chain":
       return wallet.chain;
-    case "tag":
-      return wallet.tag?.name.toLowerCase() ?? "";
     case "mode":
       return wallet.mode;
     case "value":
@@ -193,15 +214,28 @@ function Header({
 }
 
 export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]; tagNames: string[] }) {
-  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
-  const { key: sortKey, dir: sortDir } = sort;
+  const [rawSort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const { key: sortKey, dir: sortDir } = isValidSort(rawSort) ? rawSort : DEFAULT_SORT;
+  const [tagFilter, setTagFilter] = usePersistedState<string[]>(TAG_FILTER_STORAGE_KEY, []);
 
   function toggleSort(key: SortKey) {
     const dir = key === sortKey ? (sortDir === "desc" ? "asc" : "desc") : "desc";
     setSort({ key, dir });
   }
 
-  const sorted = [...wallets].sort((a, b) => {
+  function toggleTagFilter(name: string) {
+    setTagFilter(tagFilter.includes(name) ? tagFilter.filter((t) => t !== name) : [...tagFilter, name]);
+  }
+
+  // AND semantics — a wallet needs every selected tag, not just one of them
+  // (user-confirmed: "personal" + "soft wallet" should narrow to wallets
+  // carrying both, not widen to either).
+  const filtered =
+    tagFilter.length === 0
+      ? wallets
+      : wallets.filter((w) => tagFilter.every((name) => w.tags.some((t) => t.name === name)));
+
+  const sorted = [...filtered].sort((a, b) => {
     const av = sortValue(a, sortKey);
     const bv = sortValue(b, sortKey);
     const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
@@ -216,6 +250,50 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
 
   return (
     <>
+      {/* Filter, not sort — a wallet's tags span independent dimensions
+          (ownership: personal/business; storage: hard/soft wallet), which a
+          single "sort by tag" column couldn't express at all. AND semantics:
+          selecting more tags narrows the result (see the `filtered` calc
+          above). */}
+      {tagNames.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border p-4">
+          <span className="text-xs text-fg-muted">Filter by tag:</span>
+          {tagNames.map((name) => {
+            const active = tagFilter.includes(name);
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => toggleTagFilter(name)}
+                aria-pressed={active}
+                className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                  active
+                    ? "border-accent bg-accent text-accent-fg"
+                    : "border-border bg-surface-raised text-fg-muted hover:text-fg"
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
+          {tagFilter.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTagFilter([])}
+              className="text-xs text-fg-muted underline hover:text-fg"
+            >
+              Clear
+            </button>
+          )}
+          {tagFilter.length > 0 && (
+            <span className="w-full text-xs text-fg-muted">
+              Showing {sorted.length} of {wallets.length} wallet{wallets.length === 1 ? "" : "s"} ·{" "}
+              {formatUsd(filtered.reduce((sum, w) => sum + w.total, 0))}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* overflow-x-auto, not the Panel's own overflow-hidden — the Panel
           wrapping this table clips to keep its rounded corners, which on a
           narrow viewport with 8 columns silently clipped the right-hand
@@ -227,14 +305,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
         <tr className={theadRowClass}>
           <Header label="Name" sortKeyValue="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header label="Chain" sortKeyValue="chain" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <Header
-            label="Tag"
-            sortKeyValue="tag"
-            sortKey={sortKey}
-            sortDir={sortDir}
-            onSort={toggleSort}
-            className={hideOnMobileClass}
-          />
+          <th className={`${thClass} ${hideOnMobileClass}`}>Tag</th>
           <Header
             label="Mode"
             sortKeyValue="mode"
@@ -264,13 +335,15 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
         </tr>
       </thead>
       <tbody>
-        {sorted.map((wallet) => (
-          <WalletRow
-            key={wallet.id}
-            wallet={wallet}
-            tagNames={tagNames}
-          />
-        ))}
+        {sorted.length === 0 ? (
+          <tr>
+            <td colSpan={8} className={`${tdClass} text-center text-fg-muted`}>
+              No wallets match the selected tags.
+            </td>
+          </tr>
+        ) : (
+          sorted.map((wallet) => <WalletRow key={wallet.id} wallet={wallet} tagNames={tagNames} />)
+        )}
       </tbody>
       </table>
       </div>

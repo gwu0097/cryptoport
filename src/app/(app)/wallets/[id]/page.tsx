@@ -143,10 +143,10 @@ export default async function WalletDetailPage(
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
             <span>{wallet.chain}</span>
-            {wallet.tag && (
+            {wallet.tags.length > 0 && (
               <>
                 <span>·</span>
-                <span>{wallet.tag.name}</span>
+                <span>{wallet.tags.map((t) => t.name).join(", ")}</span>
               </>
             )}
             <span>·</span>

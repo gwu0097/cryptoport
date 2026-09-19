@@ -1,5 +1,5 @@
 // No "server-only" guard here (unlike the other adapters) — this file is
-// also imported by ChainModeFields.tsx (a client component) so the "is
+// also imported by ChainModeAddressFields.tsx (a client component) so the "is
 // this a valid EVM chain label" check can recognize every configured
 // chain, not just a hand-copied subset. Nothing in here is sensitive (RPC
 // URLs and CoinGecko platform ids are all public), so shipping it to the

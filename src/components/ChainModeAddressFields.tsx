@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import { Field, inputClass, selectClass } from "./ui/Field";
+import { InfoTooltip } from "./ui/InfoTooltip";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 
@@ -22,39 +23,68 @@ import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 // suggested here.
 const DATALIST_CHAINS = ["ETH", ...NON_EVM_CHAINS.map((c) => c.id)];
 
+// Generated from the same list rather than a hand-written sentence — the
+// old copy (a static string in this file) had already drifted once from
+// the real NON_EVM_CHAINS list before that file existed to prevent it.
+const AUTO_CHAINS_HINT = `Auto-sync exists for ${NON_EVM_CHAINS.map((c) => c.id).join(", ")}, and any EVM chain (ETH, RON, SEI, ARB, ...). Any other chain still works for manual tracking.`;
+
 function isAutoCapableChain(chain: string): boolean {
   const upper = chain.trim().toUpperCase();
   return findNonEvmChain(upper) !== undefined || isEvmChainId(upper);
 }
+
+// Only BTC needs its own callout today — auto mode for every other chain
+// just scans a plain address, nothing to explain. Keyed by the same
+// uppercase id NON_EVM_CHAINS/wallets.chain use.
+const CHAIN_ADDRESS_HINTS: Record<string, string> = {
+  BTC: "An xpub/ypub/zpub scans the whole HD wallet account, not just one address — use that instead of a single receive address unless you're sure that one address is where funds actually sit.",
+};
 
 /**
  * Chain is free text with autocomplete (same pattern as the Tag field) —
  * any chain works for manual tracking, not just the ones this app has an
  * adapter for. Mode reacts to it: the "auto" option disables itself (and
  * the field snaps back to "manual" if it was selected) the moment the
- * typed chain isn't one this app can actually auto-sync. Both fields still
- * submit as plain form fields (name="chain"/"mode") — this only replaces
- * the static markup with something that reacts to itself, the surrounding
- * form/server action is unchanged.
+ * typed chain isn't one this app can actually auto-sync. Address lives
+ * here too (not in the parent form) specifically so its hint can react to
+ * the same chain state — chain only exists as state inside this component,
+ * and the parent pages are Server Components that can't hold it. All three
+ * still submit as plain form fields (name="chain"/"mode"/"address") — this
+ * only replaces the static markup with something that reacts to itself,
+ * the surrounding form/server action is unchanged.
+ *
+ * Every hint here is deliberately conditional: a blank/unrecognized chain
+ * shows no mode warning until the user has actually typed something, and
+ * the long "which chains auto-sync" explanation lives in a hover tooltip
+ * rather than sitting under the field permanently — showing guidance only
+ * when it's relevant, not by default.
  */
-export function ChainModeFields({
+export function ChainModeAddressFields({
   defaultChain = "",
   defaultMode = "",
+  defaultAddress = "",
 }: {
   defaultChain?: string;
   defaultMode?: string;
+  defaultAddress?: string;
 }) {
   const [chain, setChain] = useState(defaultChain);
   const [mode, setMode] = useState(defaultMode);
   const datalistId = useId();
 
-  const isAutoCapable = isAutoCapableChain(chain);
+  const trimmedChain = chain.trim();
+  const isAutoCapable = isAutoCapableChain(trimmedChain);
+  const addressHint = CHAIN_ADDRESS_HINTS[trimmedChain.toUpperCase()];
 
   return (
     <>
       <Field
-        label="Chain"
-        hint="Any chain works for manual tracking — auto-sync exists for BTC, SOL, ADA, ATOM, INJ, NEAR, SUI, FIL, BCH, DOT, TAO, NEO, XRP, TON, APT, ICP, and any EVM chain (ETH, RON, SEI, ARB, ...)."
+        label={
+          <span className="inline-flex items-center gap-1.5">
+            Chain
+            <InfoTooltip>{AUTO_CHAINS_HINT}</InfoTooltip>
+          </span>
+        }
       >
         <input
           name="chain"
@@ -80,7 +110,11 @@ export function ChainModeFields({
 
       <Field
         label="Mode"
-        hint={!isAutoCapable ? "Auto mode isn't available for this chain — manual entry only." : undefined}
+        hint={
+          trimmedChain !== "" && !isAutoCapable
+            ? "Auto mode isn't available for this chain — manual entry only."
+            : undefined
+        }
       >
         <select
           name="mode"
@@ -97,6 +131,13 @@ export function ChainModeFields({
             auto — adapter fetches holdings
           </option>
         </select>
+      </Field>
+
+      <Field
+        label="Address"
+        hint={addressHint ? `Optional for manual. ${addressHint}` : "Optional for manual tracking."}
+      >
+        <input name="address" type="text" defaultValue={defaultAddress} className={inputClass} />
       </Field>
     </>
   );
