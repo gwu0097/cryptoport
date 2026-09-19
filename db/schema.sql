@@ -881,3 +881,156 @@ select id, tag_id, user_id from cryptoport.wallets where tag_id is not null
 on conflict do nothing;
 
 alter table cryptoport.wallets drop column tag_id;
+
+-- Leveraged-position detail — see AdapterHolding.position_* in
+-- adapters/types.ts for why these are named columns (not a generic blob)
+-- and why usd_override is stamped from PnL, not notional or margin. Null
+-- for every holding except an open perp/futures position (currently only
+-- hyperliquid.ts; shaped to also cover Coinbase's CFM perp futures, already
+-- flagged once before as a known gap, without a second migration).
+alter table cryptoport.holdings
+  add column position_side text,
+  add column position_leverage numeric,
+  add column position_entry_price numeric,
+  add column position_liquidation_price numeric,
+  add column position_pnl_usd numeric;
+
+-- Re-defined (not a new function) to also pass through the position_*
+-- columns above — every sync RPC insert list needs the same five columns
+-- added, so all three are redefined here together rather than as three
+-- separate migrations.
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+create or replace function cryptoport.sync_defi_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto_defi';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto_defi',
+    h->>'contract',
+    coalesce(h->>'category', 'defi'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set defi_synced_at = now(), defi_sync_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+create or replace function cryptoport.sync_exchange_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto_exchange';
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd)
+  select
+    p_wallet_id, h->>'ticker', (h->>'qty')::numeric, (h->>'usd_override')::numeric,
+    'auto_exchange', h->>'contract', coalesce(h->>'category', 'token'), h->>'chain',
+    h->>'icon_url', h->>'protocol', h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set exchange_synced_at = now(), exchange_sync_status = p_status
+  where id = p_wallet_id;
+end;
+$$;

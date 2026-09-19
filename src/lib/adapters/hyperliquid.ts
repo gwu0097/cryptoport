@@ -7,12 +7,19 @@ const BASE_URL = "https://api.hyperliquid.xyz/info";
 // these three can be taken at exactly $1. Everything else on the spot
 // account needs a real price or must be left unpriced — never guessed.
 const STABLECOINS = new Set(["USDC", "USDT0", "USDE"]);
-// Below this, don't bother creating a synthetic "perps" row at all.
-const PERPS_DUST_FLOOR = 0.01;
+
+interface HyperliquidPosition {
+  coin: string;
+  szi: string;
+  entryPx: string;
+  liquidationPx: string | null;
+  unrealizedPnl: string;
+  leverage: { type: string; value: number };
+}
 
 interface ClearinghouseState {
   marginSummary: { accountValue: string };
-  assetPositions: unknown[];
+  assetPositions: { type: string; position: HyperliquidPosition }[];
 }
 
 interface SpotBalance {
@@ -39,15 +46,17 @@ async function postInfo<T>(body: Record<string, unknown>): Promise<T> {
  * Hyperliquid's perps `accountValue` and spot USDC are not additive: perps
  * margin is USDC pulled from the spot balance and held there (verified —
  * for a real wallet, spot USDC's `hold` field was bit-for-bit identical to
- * `marginSummary.accountValue`). Naively summing spot total + accountValue
- * double-counts that held USDC. The correct total is:
- *
- *   spot total (all coins, which already includes the held USDC)
- *   + (accountValue - the USDC hold amount)   // PnL/value not sourced from spot
- *
- * The second term is 0 when there are no open positions (accountValue ==
- * hold, as verified) and can be positive (unrealized profit) or negative
- * (unrealized loss) otherwise — it is NOT clamped to zero.
+ * `marginSummary.accountValue` when flat). A position's `marginUsed` is
+ * already implicitly counted via that same spot USDC hold — so a position's
+ * own usd_override is its unrealized PnL alone, never marginUsed or the
+ * leveraged notional (`positionValue`), either of which would double-count
+ * against spot USDC or overstate net worth by the leverage multiple. This
+ * is the same math the old single "HL-PERPS" catch-all row used
+ * (accountValue - usdcHold, which is 0 with no open positions and only
+ * nonzero by exactly the sum of open positions' unrealized PnL) — now
+ * broken out per position instead of collapsed into one row, so each open
+ * position (side, leverage, entry/liquidation price) is actually visible
+ * rather than folded into a single opaque number.
  */
 export async function fetchHyperliquidHoldings(address: string): Promise<AdapterHolding[]> {
   const [perps, spot] = await Promise.all([
@@ -56,8 +65,6 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
   ]);
 
   const holdings: AdapterHolding[] = [];
-  const usdcBalance = spot.balances.find((b) => b.coin === "USDC");
-  const usdcHold = usdcBalance ? Number(usdcBalance.hold) : 0;
 
   for (const balance of spot.balances) {
     const total = Number(balance.total);
@@ -76,19 +83,31 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
     });
   }
 
-  const accountValue = Number(perps.marginSummary.accountValue);
-  const perpsExtra = accountValue - usdcHold;
-  if (Number.isFinite(perpsExtra) && Math.abs(perpsExtra) > PERPS_DUST_FLOOR) {
+  for (const { position } of perps.assetPositions) {
+    const size = Number(position.szi);
+    if (!Number.isFinite(size) || size === 0) continue;
+    // Every open position is shown regardless of PnL size — the point is
+    // visibility into what's open, not just ones currently moving; a
+    // freshly-opened or perfectly flat position still has real leverage/
+    // liquidation risk worth seeing.
+    const pnl = Number.isFinite(Number(position.unrealizedPnl)) ? Number(position.unrealizedPnl) : 0;
+
+    const liqPx = position.liquidationPx !== null ? Number(position.liquidationPx) : null;
     holdings.push({
-      ticker: "HL-PERPS",
-      qty: null,
-      usd_override: perpsExtra,
+      ticker: `${position.coin}-PERP`,
+      qty: Math.abs(size),
+      usd_override: pnl,
       contract: null,
       category: "defi",
       chain: "hyperliquid",
       icon_url: null,
       protocol: "Hyperliquid",
       protocol_url: null,
+      position_side: size > 0 ? "long" : "short",
+      position_leverage: Number.isFinite(position.leverage?.value) ? position.leverage.value : null,
+      position_entry_price: Number.isFinite(Number(position.entryPx)) ? Number(position.entryPx) : null,
+      position_liquidation_price: liqPx !== null && Number.isFinite(liqPx) ? liqPx : null,
+      position_pnl_usd: pnl,
     });
   }
 

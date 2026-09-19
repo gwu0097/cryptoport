@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import type { DefiProtocolGroup } from "@/lib/queries";
-import { formatUsd, formatQty, formatTicker } from "@/lib/format";
+import { formatUsd, formatUsdSigned, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { TokenIcon } from "./TokenIcon";
 import { usePersistedState } from "./usePersistedState";
@@ -25,6 +25,46 @@ const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
 const HIDE_UNPRICED_KEY = "cryptoport:defiHideUnpriced";
 const HIDE_LOW_KEY = "cryptoport:defiHideLow";
 const LOW_VALUE_USD = 10;
+
+function numeric(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+// Same badge as HoldingsTable's own PositionTag — duplicated rather than
+// shared, same reasoning as this file's ProtocolTag-equivalent inline
+// markup: the surrounding row shape differs enough (no sort/edit column
+// here) that a shared component would need its own prop-plumbing for a
+// handful of lines. Side isn't color-coded (a long position can still be
+// losing) — the Value cell's own color, from position_pnl_usd, signals
+// gain/loss.
+function PositionTag({
+  side,
+  leverage,
+  entryPrice,
+  liquidationPrice,
+}: {
+  side: "long" | "short";
+  leverage: unknown;
+  entryPrice: unknown;
+  liquidationPrice: unknown;
+}) {
+  const lev = numeric(leverage);
+  const entry = numeric(entryPrice);
+  const liq = numeric(liquidationPrice);
+  const label = `${side === "long" ? "Long" : "Short"}${Number.isFinite(lev) ? ` ${lev}x` : ""}`;
+  const details = [
+    Number.isFinite(entry) ? `entry ${formatUsd(entry)}` : null,
+    Number.isFinite(liq) ? `liq. ${formatUsd(liq)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className="ml-1.5 text-xs text-fg-muted" title={details || undefined}>
+      {label}
+    </span>
+  );
+}
 
 function sortValue(group: DefiProtocolGroup, key: SortKey): number | string {
   switch (key) {
@@ -256,6 +296,14 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                                           <div className="flex items-center gap-2">
                                             <TokenIcon ticker={position.ticker} url={position.icon_url} />
                                             {formatTicker(position.ticker)}
+                                            {position.position_side && (
+                                              <PositionTag
+                                                side={position.position_side}
+                                                leverage={position.position_leverage}
+                                                entryPrice={position.position_entry_price}
+                                                liquidationPrice={position.position_liquidation_price}
+                                              />
+                                            )}
                                           </div>
                                         </td>
                                         <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
@@ -263,7 +311,21 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                                         </td>
                                         <td className={`${tdClass} tabular-nums`}>
                                           {position.valuation.kind === "priced" ? (
-                                            formatUsd(position.valuation.usd)
+                                            <span
+                                              className={
+                                                position.position_side
+                                                  ? position.valuation.usd > 0
+                                                    ? "text-positive"
+                                                    : position.valuation.usd < 0
+                                                      ? "text-negative"
+                                                      : undefined
+                                                  : undefined
+                                              }
+                                            >
+                                              {position.position_side
+                                                ? formatUsdSigned(position.valuation.usd)
+                                                : formatUsd(position.valuation.usd)}
+                                            </span>
                                           ) : (
                                             <span className="text-warning">unpriced</span>
                                           )}

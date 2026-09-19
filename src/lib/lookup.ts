@@ -52,6 +52,11 @@ function toHolding(h: AdapterHolding, index: number): Holding {
     icon_url: h.icon_url,
     protocol: h.protocol ?? null,
     protocol_url: h.protocol_url ?? null,
+    position_side: h.position_side ?? null,
+    position_leverage: h.position_leverage ?? null,
+    position_entry_price: h.position_entry_price ?? null,
+    position_liquidation_price: h.position_liquidation_price ?? null,
+    position_pnl_usd: h.position_pnl_usd ?? null,
     updated_at: new Date().toISOString(),
   };
 }

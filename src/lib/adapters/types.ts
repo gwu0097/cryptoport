@@ -31,6 +31,27 @@ export interface AdapterHolding {
    * producing 'defi' category holdings (currently jupiterPositions.ts). */
   protocol?: string | null;
   protocol_url?: string | null;
+  /** Leveraged-position detail — genuinely optional like `protocol` above:
+   * only an open perp/futures position has any of these, a plain token or
+   * spot DeFi holding correctly omits them all. Currently only
+   * hyperliquid.ts sets these (see fetchHyperliquidHoldings); added as
+   * named fields now rather than only when a second adapter needs them
+   * because a leveraged-position gap was already flagged once before, for
+   * Coinbase's CFM perp futures (see coinbaseAdvancedTrade.ts's own
+   * warning) — this shape is meant to cover that too when it's built. */
+  position_side?: "long" | "short" | null;
+  position_leverage?: number | null;
+  position_entry_price?: number | null;
+  position_liquidation_price?: number | null;
+  /** What actually prices the position — see valueHolding's usd_override
+   * handling. NOT positionValue (leveraged notional, which would overstate
+   * net worth by the leverage multiple) and NOT marginUsed alone (already
+   * implicitly counted inside a spot USDC balance's `hold` amount for
+   * Hyperliquid specifically — see fetchHyperliquidHoldings' own doc
+   * comment on why margin and spot aren't additive). Unrealized PnL is the
+   * one number that's additive with everything else without double- or
+   * under-counting. */
+  position_pnl_usd?: number | null;
 }
 
 /** What a transaction adapter hands back for one on-chain event, before

@@ -178,6 +178,15 @@ export interface Holding {
    * holding except a DeFi position an adapter tagged with one. */
   protocol: string | null;
   protocol_url: string | null;
+  /** Leveraged-position detail — see AdapterHolding's own doc comment for
+   * why these are named fields rather than a generic blob, and why
+   * usd_override is PnL, not notional or margin. Null for every holding
+   * except an open perp/futures position. */
+  position_side: "long" | "short" | null;
+  position_leverage: number | string | null;
+  position_entry_price: number | string | null;
+  position_liquidation_price: number | string | null;
+  position_pnl_usd: number | string | null;
   updated_at: string;
 }
 

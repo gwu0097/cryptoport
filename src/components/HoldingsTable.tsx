@@ -3,7 +3,7 @@
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingWithValuation } from "@/lib/queries";
 import { isSyncOwned } from "@/lib/types";
-import { formatUsd, formatQty, formatTicker } from "@/lib/format";
+import { formatUsd, formatUsdSigned, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
@@ -59,6 +59,31 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
     );
   }
   return <span className="text-xs text-fg-muted">via {protocol}</span>;
+}
+
+// Leveraged-position detail (side, leverage, entry/liquidation price) — only
+// ever set on a holding an adapter tagged with position_side (currently
+// hyperliquid.ts's open perp positions), so a plain token/spot row renders
+// nothing extra here. Side isn't color-coded (a long position can still be
+// losing money) — the Value cell's own color, from position_pnl_usd, is
+// what actually signals gain/loss; this badge is purely descriptive.
+function PositionTag({ holding }: { holding: HoldingWithValuation }) {
+  if (!holding.position_side) return null;
+  const leverage = numeric(holding.position_leverage);
+  const entry = numeric(holding.position_entry_price);
+  const liq = numeric(holding.position_liquidation_price);
+  const label = `${holding.position_side === "long" ? "Long" : "Short"}${Number.isFinite(leverage) ? ` ${leverage}x` : ""}`;
+  const details = [
+    Number.isFinite(entry) ? `entry ${formatUsd(entry)}` : null,
+    Number.isFinite(liq) ? `liq. ${formatUsd(liq)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className="mt-1 text-xs text-fg-muted" title={details || undefined}>
+      {label}
+    </span>
+  );
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
@@ -222,6 +247,7 @@ export function HoldingsTable({
                   {holding.protocol && !hideProtocolTag && (
                     <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />
                   )}
+                  <PositionTag holding={holding} />
                 </div>
               </div>
             </td>
@@ -236,7 +262,24 @@ export function HoldingsTable({
             </td>
             <td className={`${tdClass} tabular-nums`}>
               {holding.valuation.kind === "priced" ? (
-                formatUsd(holding.valuation.usd)
+                // An open position's value is its unrealized PnL (see
+                // hyperliquid.ts's own doc comment) — signed, so it gets the
+                // same positive/negative coloring as a 24h change elsewhere
+                // in the app, not the neutral color a plain balance's value
+                // always has.
+                <span
+                  className={
+                    holding.position_side
+                      ? holding.valuation.usd > 0
+                        ? "text-positive"
+                        : holding.valuation.usd < 0
+                          ? "text-negative"
+                          : undefined
+                      : undefined
+                  }
+                >
+                  {holding.position_side ? formatUsdSigned(holding.valuation.usd) : formatUsd(holding.valuation.usd)}
+                </span>
               ) : (
                 <span className="text-warning">unpriced</span>
               )}
