@@ -1,5 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
+import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
 const BASE_URL = "https://api.hyperliquid.xyz/info";
@@ -235,6 +236,18 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
       protocol_section: "Rewards",
       display_label: "Referral Rewards",
     });
+  }
+
+  // Icons filled in as a final pass rather than per-loop above — a perp
+  // position's own ticker ("LINK-PERP") isn't a real symbol CoinGecko
+  // knows, so the lookup key has to be the underlying coin, distinct from
+  // the ticker actually stored/displayed. Best-effort, same as everywhere
+  // else icons are resolved in this app: a failure here never drops real
+  // balance data, holdings just render with their letter-avatar fallback.
+  const iconTicker = (h: AdapterHolding) => (h.ticker.endsWith("-PERP") ? h.ticker.slice(0, -5) : h.ticker);
+  const icons = await resolveTickerIcons(holdings.map(iconTicker)).catch(() => new Map<string, string>());
+  for (const holding of holdings) {
+    holding.icon_url = icons.get(iconTicker(holding).toUpperCase()) ?? null;
   }
 
   return holdings;

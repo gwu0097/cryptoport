@@ -1,6 +1,7 @@
 import "server-only";
 import { createPublicClient, http, formatUnits, encodeFunctionData, decodeFunctionResult, type Address } from "viem";
 import { fetchWithRetry } from "./http";
+import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
@@ -95,6 +96,10 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
   }) as bigint) : BigInt(0);
   const pusdBalance = Number(formatUnits(balanceRaw, PUSD_DECIMALS));
   if (Number.isFinite(pusdBalance) && pusdBalance > 0) {
+    // CoinGecko tracks "Polymarket USD" under this exact symbol (live-
+    // verified) — same cached ticker-icon lookup coinbaseAdvancedTrade.ts/
+    // hyperliquid.ts already use, not a special case.
+    const pusdIcon = await resolveTickerIcons(["PUSD"]).catch(() => new Map<string, string>());
     holdings.push({
       ticker: "PUSD",
       qty: pusdBalance,
@@ -102,7 +107,7 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
       contract: PUSD_CONTRACT,
       category: "defi",
       chain: "polymarket",
-      icon_url: null,
+      icon_url: pusdIcon.get("PUSD") ?? null,
       protocol: "Polymarket",
       protocol_url: null,
       protocol_section: "Deposit",
