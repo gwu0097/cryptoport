@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, ChevronDown, ExternalLink, Search } from "lucide-react";
+import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatQty, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
@@ -68,6 +68,29 @@ function ChangeCell({ value }: { value: number | null }) {
   return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
 }
 
+/** group.coingeckoId is only ever a real, resolved id (see
+ * getAssetsGroupedByTicker's own doc comment — never a guess), so a known
+ * id links straight to that coin's own page; an unresolved one (native
+ * asset CoinGecko doesn't recognize, or a token this app has no
+ * token_registry entry for) falls back to CoinGecko's own search — still
+ * useful, never a wrong coin's page. */
+function coingeckoUrl(coingeckoId: string | null, ticker: string): string {
+  return coingeckoId
+    ? `https://www.coingecko.com/en/coins/${coingeckoId}`
+    : `https://www.coingecko.com/en/search?query=${encodeURIComponent(ticker)}`;
+}
+
+/** Same fallback shape as the Dashboard's MoverList "Find Trend" link — a
+ * known id seeds Trend Finder unambiguously (?id=), an unresolved one
+ * falls back to Trend Finder's own best-effort ticker resolution (?ticker=,
+ * which shows a "matched from ticker" caption rather than guessing
+ * silently). */
+function trendFinderUrl(coingeckoId: string | null, ticker: string): string {
+  return coingeckoId
+    ? `/trend-finder?id=${encodeURIComponent(coingeckoId)}`
+    : `/trend-finder?ticker=${encodeURIComponent(ticker)}`;
+}
+
 // Same DeFi-position breakdown as HoldingsTable's ProtocolTag (which protocol,
 // linked out when Jupiter's own data has a deep link) — duplicated rather than
 // shared since the two tables' surrounding markup differs enough that a shared
@@ -125,7 +148,8 @@ export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; ini
   }, []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showExtraChanges, setShowExtraChanges] = usePersistedState(SHOW_EXTRA_CHANGES_KEY, true);
-  const columnCount = 8 + (showExtraChanges ? 3 : 0);
+  // 9 base columns now that the trailing CoinGecko/Trend Finder links column exists.
+  const columnCount = 9 + (showExtraChanges ? 3 : 0);
 
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -258,6 +282,7 @@ export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; ini
                 className={hideOnMobileClass}
               />
               <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <th className={thClass}></th>
             </tr>
           </thead>
           <tbody>
@@ -319,6 +344,31 @@ export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; ini
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>{group.holdings.length}</td>
                     <td className={`${tdClass} tabular-nums`}>{formatUsd(group.total)}</td>
+                    {/* stopPropagation — the whole row toggles the expanded
+                        breakdown on click; without this, clicking a link
+                        here would also fire that. */}
+                    <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={coingeckoUrl(group.coingeckoId, group.ticker)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="View on CoinGecko"
+                          aria-label={`View ${group.ticker} on CoinGecko`}
+                          className="text-fg-muted transition hover:text-accent"
+                        >
+                          <ExternalLink className="size-3.5" aria-hidden="true" />
+                        </a>
+                        <Link
+                          href={trendFinderUrl(group.coingeckoId, group.ticker)}
+                          title="Find sector peers"
+                          aria-label={`Find sector peers for ${group.ticker}`}
+                          className="text-fg-muted transition hover:text-accent"
+                        >
+                          <TrendingUp className="size-3.5" aria-hidden="true" />
+                        </Link>
+                      </div>
+                    </td>
                   </tr>
                   {isOpen && (
                     <tr>

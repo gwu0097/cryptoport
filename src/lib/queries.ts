@@ -13,6 +13,7 @@ import {
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
 import { pinnedWalletChain, externalPortfolioViewer, type WalletChain } from "./walletDisplay.ts";
+import { resolveCoingeckoKey } from "./priceKey";
 import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTags } from "./types";
 
 export type PriceRefreshPhaseStatus = "running" | "done" | "error";
@@ -206,6 +207,13 @@ export interface PriceStats {
   change7d: number | null;
   change30d: number | null;
   marketCap: number | null;
+  /** CoinGecko coin id (e.g. "usd-coin"), when known — only ever populated
+   * by getContractStatsMap (token_registry.coingecko_id, a real id cached
+   * from CoinGecko's own coins/list, never guessed from a ticker). Always
+   * null from getPriceStatsMap — the ticker-keyed `prices` table has no
+   * such column. Feeds AssetGroup.coingeckoId (see getAssetsGroupedByTicker)
+   * for an unambiguous CoinGecko link/Trend Finder seed per asset row. */
+  coingeckoId: string | null;
 }
 export type PriceStatsMap = Record<string, PriceStats>;
 
@@ -229,6 +237,7 @@ export const getPriceStatsMap = cache(async (): Promise<PriceStatsMap> => {
       change24h: parseNumeric(row.change_24h_pct),
       change1h: parseNumeric(row.change_1h_pct),
       change7d: parseNumeric(row.change_7d_pct),
+      coingeckoId: null,
       change30d: parseNumeric(row.change_30d_pct),
       marketCap: parseNumeric(row.market_cap),
     };
@@ -256,7 +265,7 @@ export const getContractStatsMap = cache(async (): Promise<PriceStatsMap> => {
   // useful here.
   const { data, error } = await serviceDb()
     .from("token_registry")
-    .select("contract, change_24h_pct, change_1h_pct, change_7d_pct, change_30d_pct, market_cap")
+    .select("contract, change_24h_pct, change_1h_pct, change_7d_pct, change_30d_pct, market_cap, coingecko_id")
     .not("change_24h_pct", "is", null);
   if (error) throw new Error(`Failed to load token registry stats: ${error.message}`);
 
@@ -268,6 +277,7 @@ export const getContractStatsMap = cache(async (): Promise<PriceStatsMap> => {
     change_7d_pct: number | string | null;
     change_30d_pct: number | string | null;
     market_cap: number | string | null;
+    coingecko_id: string | null;
   }[]) {
     stats[row.contract.toLowerCase()] = {
       change24h: parseNumeric(row.change_24h_pct),
@@ -275,6 +285,7 @@ export const getContractStatsMap = cache(async (): Promise<PriceStatsMap> => {
       change7d: parseNumeric(row.change_7d_pct),
       change30d: parseNumeric(row.change_30d_pct),
       marketCap: parseNumeric(row.market_cap),
+      coingeckoId: row.coingecko_id,
     };
   }
   return stats;
@@ -567,6 +578,16 @@ export interface AssetGroup {
    * reference only), null when CoinGecko has no market cap for this asset
    * or it couldn't be resolved to a CoinGecko id. */
   marketCap: number | null;
+  /** CoinGecko coin id, when resolvable — contract-based holdings get it
+   * straight from token_registry (getContractStatsMap), native holdings
+   * (BTC, ETH, SOL, ...) via priceKey.ts's resolveCoingeckoKey, which only
+   * ever returns a real id for a holding whose ticker actually matches its
+   * chain's own native asset (never guessed off a bare ticker — see that
+   * file's own doc comment on the exact bug this guards against). Null
+   * when neither source resolves one (an unlisted/unrecognized token) —
+   * callers (AssetsTable's CoinGecko/Trend Finder links) fall back to a
+   * ticker-based search/lookup rather than showing nothing. */
+  coingeckoId: string | null;
   holdings: AssetHoldingEntry[];
 }
 
@@ -627,6 +648,7 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
           change7d: null,
           change30d: null,
           marketCap: null,
+          coingeckoId: null,
           holdings: [],
         };
         byTicker.set(key, group);
@@ -670,6 +692,18 @@ export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> 
       if (group.change7d === null && change7d != null) group.change7d = change7d;
       if (group.change30d === null && change30d != null) group.change30d = change30d;
       if (group.marketCap === null && marketCap != null) group.marketCap = marketCap;
+      // Contract-based id first (a real token_registry.coingecko_id, never
+      // guessed); native fallback only when this holding has no contract
+      // at all — resolveCoingeckoKey's own contract branch would otherwise
+      // return a "platform:contract" composite key (built for the
+      // price-history API, not a CoinGecko coin page/Trend Finder seed),
+      // which is why that branch is deliberately never reached here.
+      const coingeckoId =
+        contractRowStats?.coingeckoId ??
+        (holding.contract
+          ? null
+          : resolveCoingeckoKey({ ticker: holding.ticker, source: holding.source, contract: null, chain: holding.chain }));
+      if (group.coingeckoId === null && coingeckoId) group.coingeckoId = coingeckoId;
       const qty = parseNumeric(holding.qty);
       if (qty !== null) group.totalQty = (group.totalQty ?? 0) + qty;
       if (valuation.kind === "priced") group.total += valuation.usd;

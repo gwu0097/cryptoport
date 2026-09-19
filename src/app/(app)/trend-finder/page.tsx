@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TokenIcon } from "@/components/TokenIcon";
@@ -152,8 +153,18 @@ async function TrendResults({
           <div className="flex items-center gap-3">
             <TokenIcon ticker={seed.symbol} url={seed.imageUrl} />
             <div>
-              <p className="text-lg font-semibold text-fg">
+              <p className="flex items-center gap-1.5 text-lg font-semibold text-fg">
                 {seed.name} <span className="text-fg-muted">({seed.symbol})</span>
+                <a
+                  href={`https://www.coingecko.com/en/coins/${seed.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View on CoinGecko"
+                  aria-label={`View ${seed.symbol} on CoinGecko`}
+                  className="text-fg-muted transition hover:text-accent"
+                >
+                  <ExternalLink className="size-4" aria-hidden="true" />
+                </a>
               </p>
               <p className="text-xs text-fg-muted">
                 {seed.marketCapRank !== null ? `Rank #${seed.marketCapRank}` : "Unranked"} ·{" "}

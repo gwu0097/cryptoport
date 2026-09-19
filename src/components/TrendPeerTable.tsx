@@ -1,9 +1,10 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import type { PeerRow } from "@/lib/trendFinder";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
-import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { SortableHeader } from "./ui/SortableHeader";
 import { usePersistedState } from "./usePersistedState";
 import type { PeerSortKey, SortDirection } from "@/lib/sortKeys";
@@ -96,6 +97,7 @@ export function TrendPeerTable({ peers }: { peers: PeerRow[] }) {
               onSort={toggleSort}
               className={hideOnMobileClass}
             />
+            <th className={thClass}></th>
           </tr>
         </thead>
         <tbody>
@@ -119,6 +121,18 @@ export function TrendPeerTable({ peers }: { peers: PeerRow[] }) {
               </td>
               <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
                 {formatCompactUsd(peer.marketCap)}
+              </td>
+              <td className={tdClass}>
+                <a
+                  href={`https://www.coingecko.com/en/coins/${peer.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View on CoinGecko"
+                  aria-label={`View ${peer.symbol} on CoinGecko`}
+                  className="text-fg-muted transition hover:text-accent"
+                >
+                  <ExternalLink className="size-3.5" aria-hidden="true" />
+                </a>
               </td>
             </tr>
           ))}

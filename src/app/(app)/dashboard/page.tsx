@@ -56,7 +56,18 @@ export default async function DashboardPage() {
   // position size to filter on, every watched coin counts equally.
   const holdingsMoversEligible = groups.filter((g) => g.total >= LOW_VALUE_USD);
   const { gainers: holdingsGainers, losers: holdingsLosers } = topMovers(
-    holdingsMoversEligible.map((g) => ({ key: g.tickerKey, ticker: g.ticker, iconUrl: g.iconUrl, price: g.price, change24h: g.change24h })),
+    holdingsMoversEligible.map((g) => ({
+      key: g.tickerKey,
+      ticker: g.ticker,
+      iconUrl: g.iconUrl,
+      price: g.price,
+      change24h: g.change24h,
+      // Now resolved server-side (see AssetGroup.coingeckoId) instead of
+      // always falling back to MoverList's own best-effort ?ticker=
+      // resolution — undefined (not null) when unresolved, matching
+      // MoverItem's own optional-field convention.
+      coingeckoId: g.coingeckoId ?? undefined,
+    })),
   );
   const { gainers: watchlistGainers, losers: watchlistLosers } = topMovers(
     watchlistItems.map((w) => ({
