@@ -318,6 +318,13 @@ export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; ini
                     </td>
                     <td className={`${tdClass} tabular-nums`}>
                       {group.price !== null ? formatUsd(group.price) : "—"}
+                      {/* 24h has its own dedicated column at sm+ (hideOnMobileClass
+                          below) — this is mobile-only (sm:hidden), tucked next to
+                          price instead of adding a 5th always-visible column that'd
+                          risk overflowing a phone width. */}
+                      <span className="ml-1.5 text-xs sm:hidden">
+                        <ChangeCell value={group.change24h} />
+                      </span>
                     </td>
                     {showExtraChanges && (
                       <td className={`${tdClass} ${hideOnMobileClass}`}>
