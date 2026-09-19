@@ -1,17 +1,17 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TokenIcon } from "./TokenIcon";
 
 /**
- * A plain `<select>` needs an onChange handler to navigate — same
- * "no way to make a native select itself a link" reasoning as
- * TransactionsWalletFilter, generalized to take pre-built hrefs (each
- * option's own buildHref result, same as the visible cards use) instead of
- * reconstructing a URL from parts, so this works for both the chain row and
- * the protocol row without knowing either one's own query-param shape.
- * Styled to sit inline as the last card in a 2-row grid (see
- * ChainGroupedHoldings), not as a standalone form control.
+ * A native `<select>` can't render an icon per option (no markup allowed
+ * inside `<option>`) — tried that first, looked exactly as bad as that
+ * limitation implies. Custom button + popover list instead, same
+ * open-state/outside-click pattern as TagPicker.tsx, so each row can carry
+ * its own TokenIcon like the visible cards do. Styled to sit inline as the
+ * last card in a 2-row grid (see ChainGroupedHoldings), not as a
+ * standalone form control.
  */
 export function MoreFilterPicker({
   label,
@@ -20,49 +20,81 @@ export function MoreFilterPicker({
   compact = false,
 }: {
   label: string;
-  options: { key: string; label: string; href: string; icon: string | null }[];
+  /** `value` is already-formatted ("$1,234 · 3%") — same string the
+   * visible cards show under their own name, so a row in this list reads
+   * identically to one that happened to fit outside it. */
+  options: { key: string; label: string; href: string; icon: string | null; value: string }[];
   /** The option currently selected, if the active filter is one of the
    * overflowed ones — so the picker shows what's actually selected instead
    * of always reverting to its own placeholder. */
-  active?: { key: string; label: string; icon: string | null };
+  active?: { key: string; label: string; icon: string | null; value: string };
   /** Matches the protocol row's own smaller card styling (see
    * ChainGroupedHoldings' cardClass) — the chain row stays the original
    * size. */
   compact?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
   return (
-    <label
-      className={`flex cursor-pointer flex-col justify-center gap-0.5 rounded-lg border border-border bg-surface text-left transition hover:border-accent/50 hover:bg-surface-raised ${compact ? "px-2 py-1.5" : "px-3 py-2"}`}
-    >
-      <span className={`flex items-center gap-1.5 truncate font-medium text-fg ${compact ? "text-xs" : "text-sm"}`}>
-        {active ? (
-          <>
-            <TokenIcon ticker={active.label} url={active.icon} size={compact ? "sm" : "md"} />
-            <span className="truncate">{active.label}</span>
-          </>
-        ) : (
-          label
-        )}
-      </span>
-      <select
-        aria-label={label}
-        value=""
-        onChange={(e) => {
-          if (e.target.value) router.push(e.target.value);
-        }}
-        className="w-full cursor-pointer appearance-none border-0 bg-transparent p-0 text-[11px] text-fg-muted focus:outline-none"
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex w-full flex-col justify-center gap-0.5 rounded-lg border text-left transition ${
+          compact ? "px-2 py-1.5" : "px-3 py-2"
+        } ${
+          open
+            ? "border-accent bg-surface-raised"
+            : "border-border bg-surface hover:border-accent/50 hover:bg-surface-raised"
+        }`}
       >
-        <option value="" disabled>
-          {active ? "Change…" : `${options.length} more…`}
-        </option>
-        {options.map((o) => (
-          <option key={o.key} value={o.href}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        <span className={`flex items-center gap-1.5 truncate font-medium text-fg ${compact ? "text-xs" : "text-sm"}`}>
+          {active ? (
+            <>
+              <TokenIcon ticker={active.label} url={active.icon} size={compact ? "sm" : "md"} />
+              <span className="truncate">{active.label}</span>
+            </>
+          ) : (
+            label
+          )}
+        </span>
+        <span className="tabular-nums text-[11px] text-fg-muted">
+          {active ? active.value : `${options.length} more…`}
+        </span>
+      </button>
+
+      {open && (
+        <ul className="absolute z-10 mt-1 max-h-64 w-64 overflow-auto rounded-lg border border-border bg-surface-raised py-1 shadow-lg">
+          {options.map((o) => (
+            <li key={o.key}>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  router.push(o.href);
+                }}
+                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-fg hover:bg-border"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <TokenIcon ticker={o.label} url={o.icon} size="sm" />
+                  <span className="truncate">{o.label}</span>
+                </span>
+                <span className="shrink-0 tabular-nums text-xs text-fg-muted">{o.value}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

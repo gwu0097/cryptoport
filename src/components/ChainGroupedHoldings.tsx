@@ -166,6 +166,13 @@ function cardClass(active: boolean, compact = false): string {
     : `${base} border-border bg-surface hover:border-accent/50 hover:bg-surface-raised`;
 }
 
+// The exact "$X · Y%" string every card (chain, protocol, and now each row
+// inside the overflow picker) shows under its own name — one place so a
+// picker row reads identically to a card that happened to fit outside it.
+function cardValue(total: number, grandTotal: number): string {
+  return grandTotal > 0 ? `${formatUsd(total)} · ${((total / grandTotal) * 100).toFixed(0)}%` : formatUsd(total);
+}
+
 // baseHref may itself already carry a query string (the lookup page bakes
 // `address` into it, since that has to survive every filter/chain click) —
 // parsed out and merged rather than assumed empty. chain/protocol are
@@ -311,10 +318,7 @@ export async function ChainGroupedHoldings({
               <TokenIcon ticker={g.chainName} url={chainIcons[g.chainId] ?? null} />
               {g.chainName}
             </p>
-            <p className="tabular-nums text-xs text-fg-muted">
-              {formatUsd(g.total)}
-              {grandTotal > 0 && <> · {((g.total / grandTotal) * 100).toFixed(0)}%</>}
-            </p>
+            <p className="tabular-nums text-xs text-fg-muted">{cardValue(g.total, grandTotal)}</p>
           </Link>
         ))}
         {chainNeedsPicker && (
@@ -325,6 +329,7 @@ export async function ChainGroupedHoldings({
               label: g.chainName,
               href: buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow),
               icon: chainIcons[g.chainId] ?? null,
+              value: cardValue(g.total, grandTotal),
             }))}
             active={
               activeOverflowChain
@@ -332,6 +337,7 @@ export async function ChainGroupedHoldings({
                     key: activeOverflowChain.chainId,
                     label: activeOverflowChain.chainName,
                     icon: chainIcons[activeOverflowChain.chainId] ?? null,
+                    value: cardValue(activeOverflowChain.total, grandTotal),
                   }
                 : undefined
             }
@@ -364,10 +370,7 @@ export async function ChainGroupedHoldings({
                   <TokenIcon ticker={pg.ticker} url={pg.icon} size="sm" />
                   <span className="truncate">{pg.protocol}</span>
                 </p>
-                <p className="tabular-nums text-[11px] text-fg-muted">
-                  {formatUsd(pg.total)}
-                  {grandTotal > 0 && <> · {((pg.total / grandTotal) * 100).toFixed(0)}%</>}
-                </p>
+                <p className="tabular-nums text-[11px] text-fg-muted">{cardValue(pg.total, grandTotal)}</p>
               </Link>
             ))}
             {protocolNeedsPicker && (
@@ -379,10 +382,16 @@ export async function ChainGroupedHoldings({
                   label: pg.protocol,
                   href: buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow),
                   icon: pg.icon,
+                  value: cardValue(pg.total, grandTotal),
                 }))}
                 active={
                   activeOverflowProtocol
-                    ? { key: activeOverflowProtocol.protocol, label: activeOverflowProtocol.protocol, icon: activeOverflowProtocol.icon }
+                    ? {
+                        key: activeOverflowProtocol.protocol,
+                        label: activeOverflowProtocol.protocol,
+                        icon: activeOverflowProtocol.icon,
+                        value: cardValue(activeOverflowProtocol.total, grandTotal),
+                      }
                     : undefined
                 }
               />
