@@ -9,7 +9,10 @@
 // on isn't necessarily one you keep opening the detail page for, and
 // conflating them would make either list less useful as a shortcut.
 
-const MAX_RECENT = 4;
+// Default cap, overridable per call (see recordRecentWallet's `maxRecent`
+// param) — Trend Finder's "recent searches" wants 5, every existing
+// namespace (Wallets, Analytics, Transactions) keeps the original 4.
+const DEFAULT_MAX_RECENT = 4;
 
 export interface RecentWallet {
   id: string;
@@ -39,17 +42,18 @@ export const RECENT_WALLETS_CHANGED_EVENT = "cryptoport:recent-wallets-changed";
 
 /** Moves `wallet` to the front of `namespace`'s list (deduped by id, so
  * revisiting one already in the list re-ranks it rather than adding a
- * duplicate) and caps it at MAX_RECENT.
+ * duplicate) and caps it at `maxRecent` (DEFAULT_MAX_RECENT unless a
+ * caller — Trend Finder's recent-searches strip — asks for more).
  *
  * Also dispatches a window event so CollapsibleNavItem can pick up the
  * change immediately: the `storage` event only fires in *other* tabs, not
  * the one that made the write, so without this the sidebar's "Recent"
  * list for a namespace whose recorder never changes `pathname` (Analytics
  * — see RecentWalletsNav.tsx) wouldn't update until the next navigation. */
-export function recordRecentWallet(namespace: string, wallet: RecentWallet): void {
+export function recordRecentWallet(namespace: string, wallet: RecentWallet, maxRecent: number = DEFAULT_MAX_RECENT): void {
   try {
     const rest = readRecentWallets(namespace).filter((w) => w.id !== wallet.id);
-    const next = [wallet, ...rest].slice(0, MAX_RECENT);
+    const next = [wallet, ...rest].slice(0, maxRecent);
     localStorage.setItem(storageKey(namespace), JSON.stringify(next));
     window.dispatchEvent(new Event(RECENT_WALLETS_CHANGED_EVENT));
   } catch {

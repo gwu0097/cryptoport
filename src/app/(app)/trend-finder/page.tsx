@@ -5,6 +5,8 @@ import { Panel } from "@/components/ui/Panel";
 import { TokenIcon } from "@/components/TokenIcon";
 import { TrendSeedPicker } from "@/components/TrendSeedPicker";
 import { TrendPeerTable } from "@/components/TrendPeerTable";
+import { TrendRecentSearches } from "@/components/TrendRecentSearches";
+import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { findTrendPeers, type TrendTier } from "@/lib/trendPeers";
 import { searchCoins } from "@/lib/adapters/coingecko";
@@ -70,6 +72,13 @@ export default async function TrendFinderPage({
         title="Trend finder"
         subtitle="Pick a token that already moved — see sector peers that haven't yet."
       />
+
+      {/* Always rendered, not just in the empty state — the nav link back
+          to this page always lands on the bare route (same convention as
+          Wallets/Analytics/Transactions' own top nav item), so this is
+          what makes "switch tabs, come back" actually recoverable rather
+          than starting over from a blank picker every time. */}
+      <TrendRecentSearches />
 
       {id ? (
         <TrendResults id={id} mcapFloor={mcapFloor} />
@@ -148,6 +157,11 @@ async function TrendResults({
 
   return (
     <>
+      {/* Recorded once a seed actually resolves — including the ticker-
+          fallback path (matchedFromTicker), so a recent chip always
+          carries the real, unambiguous id, never a bare ticker string
+          that would need re-resolving on the next click. */}
+      <RecordRecentWallet id={seed.id} name={seed.symbol} namespace="trendFinderSearches" maxRecent={5} />
       <Panel className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
