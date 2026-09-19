@@ -165,20 +165,34 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
    list" action). Extend this pattern for new slow-changing external data.
    Never apply it to live prices/balances without the same staleness-
    caption discipline everywhere else in this app (`formatStaleness`).
-3. **`next.config.ts` sets `experimental.staleTimes.dynamic = 60`** — the
+3. **`next.config.ts` sets `experimental.staleTimes.dynamic = 1800`** — the
    client Router Cache's window for reusing a `force-dynamic` page's
    already-rendered result on a repeat visit (every page in `(app)/` is
    `force-dynamic`). This defaulted to 0s as of Next 15+ (a training-data
    trap — earlier versions defaulted to 30s), which meant every single
    navigation back to a page re-ran every query from scratch even a few
    seconds later; reported as "clicking Portfolio takes 7 seconds even
-   though I was just there." Safe for this app's per-user financial data
-   specifically because `revalidatePath` (called by every mutating Server
-   Action already) currently invalidates the client cache for *every*
-   previously-visited page, not just the path passed in — a real
-   balance/holdings change is never masked by this window. If a future
-   Next version narrows `revalidatePath` to only invalidate its own path
-   (their own docs call the current all-pages behavior "temporary"),
+   though I was just there." First bumped to 60s under the assumption that
+   `revalidatePath` (called by every mutating Server Action) reliably
+   purges the client cache on any real change — investigated properly
+   later and found *half* true: a plain, immediate action's own
+   synchronous `revalidatePath` call does purge the cache (still every
+   previously-visited page at once, not just the path passed in — Next's
+   own docs still call this "temporary"), but a background job's
+   completion-time `revalidatePath` call living inside `after()` could
+   never reach the browser at all — Next attaches the client-cache-purge
+   signal to the *response* of the Server Action that calls it, and
+   `after()` runs strictly after that response has already been sent. A
+   finished sync was silently failing to invalidate any tab that wasn't
+   the one actively polling it; the 60s ceiling was a bound on how long
+   that could last, not a fix for it. Fixed properly (see
+   `components/jobs/JobPoller.tsx`/`jobActions.ts`: the poller detects a
+   real busy→done transition and calls a live, reachable
+   `notifyJobsComplete()` instead of relying on `after()`), which is what
+   made raising this number to 1800 (30 min) actually safe — every real
+   data change now purges the cache on its own regardless of this
+   window's length, so it's no longer covering for a gap. If a future
+   Next version narrows `revalidatePath` to only invalidate its own path,
    re-check this before trusting it again.
 
 ## Loading feedback — every click should either be fast or say why it isn't
