@@ -142,8 +142,11 @@ function HiddenByFiltersNotice({
   );
 }
 
-function cardClass(active: boolean): string {
-  const base = "rounded-lg border px-3 py-2 text-left transition";
+// compact: the protocol row's own cards — smaller padding than the chain
+// row's, part of reading as visibly secondary/quieter (see that row's own
+// doc comment).
+function cardClass(active: boolean, compact = false): string {
+  const base = `rounded-lg border text-left transition ${compact ? "px-2 py-1.5" : "px-3 py-2"}`;
   return active
     ? `${base} border-accent bg-surface-raised`
     : `${base} border-border bg-surface hover:border-accent/50 hover:bg-surface-raised`;
@@ -288,30 +291,37 @@ export async function ChainGroupedHoldings({
 
       {/* Second navigation row, same idea as the chain cards above but
           cutting across chains by protocol instead — DeBank's own
-          portfolio view pairs these two rows the same way. Mutually
-          exclusive with the chain selection (see buildHref's own doc
-          comment): picking a protocol here clears any chain filter, and
-          vice versa. Omitted entirely when nothing in scope has a protocol
-          at all (a wallet/lookup with only plain token balances). */}
+          portfolio view pairs these two rows the same way. Deliberately
+          smaller/quieter than the chain row (its own label, a smaller
+          TokenIcon, tighter padding) — reported directly that an identical
+          look made a DeFi protocol read as if it were another L2, not a
+          different kind of thing. Mutually exclusive with the chain
+          selection (see buildHref's own doc comment): picking a protocol
+          here clears any chain filter, and vice versa. Omitted entirely
+          when nothing in scope has a protocol at all (a wallet/lookup with
+          only plain token balances). */}
       {protocolSummaries.length > 0 && (
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-          {protocolSummaries.map((pg) => (
-            <Link
-              key={pg.protocol}
-              href={buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow)}
-              className={cardClass(selectedProtocol === pg.protocol)}
-            >
-              <p className="flex items-center gap-1.5 truncate text-sm font-medium text-fg">
-                <TokenIcon ticker={pg.ticker} url={pg.icon} />
-                {pg.protocol}
-              </p>
-              <p className="tabular-nums text-xs text-fg-muted">
-                {formatUsd(pg.total)}
-                {grandTotal > 0 && <> · {((pg.total / grandTotal) * 100).toFixed(0)}%</>}
-              </p>
-            </Link>
-          ))}
-        </div>
+        <>
+          <p className="mb-1.5 text-xs font-medium text-fg-muted">DeFi protocols</p>
+          <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+            {protocolSummaries.map((pg) => (
+              <Link
+                key={pg.protocol}
+                href={buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow)}
+                className={cardClass(selectedProtocol === pg.protocol, true)}
+              >
+                <p className="flex items-center gap-1.5 truncate text-xs font-medium text-fg">
+                  <TokenIcon ticker={pg.ticker} url={pg.icon} size="sm" />
+                  <span className="truncate">{pg.protocol}</span>
+                </p>
+                <p className="tabular-nums text-[11px] text-fg-muted">
+                  {formatUsd(pg.total)}
+                  {grandTotal > 0 && <> · {((pg.total / grandTotal) * 100).toFixed(0)}%</>}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
