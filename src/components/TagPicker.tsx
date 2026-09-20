@@ -75,6 +75,17 @@ export function TagPicker({
             <button
               type="button"
               aria-label={`Remove ${t}`}
+              // Both pointerdown (immediate, reliable on touch — see the
+              // dropdown options below for why) and click (keyboard
+              // activation via Tab+Enter/Space dispatches click, never
+              // pointerdown, so this stays reachable without a pointer at
+              // all) — removeTag is idempotent, so a normal mouse click
+              // firing both handlers is harmless, not a double-remove.
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                removeTag(t);
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 removeTag(t);
@@ -116,6 +127,23 @@ export function TagPicker({
             <li key={t}>
               <button
                 type="button"
+                // Both pointerdown and click — real bug, reported
+                // directly: selecting a tag "didn't stick" on a mobile
+                // browser. The text input above still had focus while
+                // this button was tapped; on touch devices that first tap
+                // can just blur the input (dismissing the keyboard) and
+                // never actually fire a click on the button at all — a
+                // well-known mobile Safari/Chrome quirk, not specific to
+                // this component. preventDefault on pointerdown stops
+                // that default blur-shift behavior so the tap registers
+                // immediately and reliably; click stays as the fallback
+                // for keyboard activation (Tab+Enter/Space dispatches
+                // click, never pointerdown). addTag is idempotent, so a
+                // normal mouse click firing both is harmless.
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  addTag(t);
+                }}
                 onClick={() => addTag(t)}
                 className="block w-full px-3 py-1.5 text-left text-sm text-fg hover:bg-border"
               >
@@ -127,6 +155,10 @@ export function TagPicker({
             <li>
               <button
                 type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  addTag(trimmedQuery);
+                }}
                 onClick={() => addTag(trimmedQuery)}
                 className="block w-full px-3 py-1.5 text-left text-sm text-accent hover:bg-border"
               >
