@@ -9,6 +9,14 @@
 // real CoinGecko asset_platforms entry, keyed by that platform's own id.
 export const NON_EVM_PLATFORM_IDS: Record<string, string> = {
   solana: "solana",
+  // "solana-defi" is a real, distinct chain_id value some Solana DeFi-
+  // position holdings carry (see adapters/nonEvmDispatch.ts) — same
+  // CoinGecko platform as plain "solana", just a different label this
+  // app's own sync gives that holding. Without this alias, a DeFi position
+  // with a real, resolvable contract (e.g. KMNO, SKR — live-found this
+  // session) fell all the way to the slow residual pricing lane for no
+  // reason other than the label mismatch.
+  "solana-defi": "solana",
   hyperliquid: "hyperliquid",
   cardano: "cardano",
 };

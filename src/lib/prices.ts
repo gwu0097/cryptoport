@@ -1,13 +1,14 @@
 import "server-only";
-import { serviceDb } from "./supabase";
-import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase";
-import { fetchTokenInfo } from "./adapters/jupiter";
-import { refreshEvmHoldingPrices } from "./adapters/multicallEvm";
-import { fetchTokenPrices, fetchMarketStatsByIds } from "./adapters/coingecko";
-import { EVM_CHAINS } from "./adapters/evmChains";
-import { resolveCoingeckoKey } from "./priceKey";
-import { mapWithConcurrency } from "./adapters/http";
-import type { HoldingSource } from "./types";
+import { serviceDb } from "./supabase.ts";
+import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase.ts";
+import { fetchTokenInfo } from "./adapters/jupiter.ts";
+import { refreshEvmHoldingPrices } from "./adapters/multicallEvm.ts";
+import { fetchTokenPrices, fetchMarketStatsByIds } from "./adapters/coingecko.ts";
+import { EVM_CHAINS } from "./adapters/evmChains.ts";
+import { resolveCoingeckoKey } from "./priceKey.ts";
+import { mapWithConcurrency } from "./adapters/http.ts";
+import { getExchangeAssetRegistry } from "./exchangeAssetRegistry.ts";
+import type { HoldingSource } from "./types.ts";
 
 // Coinbase's Exchange API host (used for the delisting check + 24h stats,
 // see coinbase.ts) throttles hard under an unbounded burst — verified live
@@ -32,27 +33,22 @@ export interface PriceRefreshResult {
   delisted?: boolean;
 }
 
-export interface HoldingTickerInfo {
-  ticker: string;
-  /** First non-null contract seen for this ticker across all holdings — a
-   * ticker could in principle come from holdings with different contracts
-   * (e.g. two different mints someone happened to label the same symbol);
-   * this only matters for the Jupiter-fallback lookup below, not for
-   * anything security- or money-sensitive, so "first seen" is fine. */
-  contract: string | null;
-  /** Same "first non-null seen" reasoning as contract — needed to resolve
-   * a CoinGecko key (contract+chain, or chain-native-symbol match). */
-  chain: string | null;
-  /** First row with a coingecko_id explicitly set (a manual holding added
-   * via the coin picker — see priceKey.ts). Strongest possible identity
-   * signal when present; see the representative-selection comment below. */
-  coingeckoId: string | null;
-  /** The elected representative row's own source (not simply the group's
-   * first-seen row — see the comment below on why that distinction now
-   * matters). Used to skip manual_usd tickers in the CoinGecko resolution
-   * step. */
-  source: string;
-}
+// HoldingTickerInfo/tickerNeedsPricing/ResolvedTicker/
+// splitByCoingeckoResolvability all live in priceResolution.ts now — pure
+// logic, no DB/network, directly unit-testable separate from this file's
+// own heavy import graph (Supabase, Coinbase, Jupiter, EVM adapters), which
+// pulls in things (next/headers, via supabase.ts) that can't even load
+// under a plain `node --test` process. Re-exported here so existing
+// importers of `HoldingTickerInfo` from "@/lib/prices" (wallets/actions.ts)
+// are unaffected.
+export type { HoldingTickerInfo, ResolvedTicker } from "./priceResolution.ts";
+export { tickerNeedsPricing, splitByCoingeckoResolvability } from "./priceResolution.ts";
+import {
+  tickerNeedsPricing,
+  splitByCoingeckoResolvability,
+  type HoldingTickerInfo,
+  type ResolvedTicker,
+} from "./priceResolution.ts";
 
 // Prices are driven by holdings, not by adapters: every distinct ticker any
 // holding uses needs a price, including BTC, which no adapter ever touches.
@@ -78,7 +74,9 @@ export interface HoldingTickerInfo {
 // must not force the group away from a real contract-based resolution
 // that would otherwise work fine.
 async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
-  const { data, error } = await serviceDb().from("holdings").select("ticker, contract, chain, source, coingecko_id");
+  const { data, error } = await serviceDb()
+    .from("holdings")
+    .select("ticker, contract, chain, source, coingecko_id, usd_override");
   if (error) throw new Error(`Failed to load holding tickers: ${error.message}`);
 
   const rows = data as {
@@ -87,6 +85,7 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
     chain: string | null;
     source: string;
     coingecko_id: string | null;
+    usd_override: string | number | null;
   }[];
   const byTicker = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -96,6 +95,12 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
 
   const result: HoldingTickerInfo[] = [];
   for (const [ticker, group] of byTicker) {
+    // Real, common case this actually skips: a DeFi position already
+    // priced directly by its own protocol math at sync time (Zerion et
+    // al.) — live-verified this session: 9 of 14 non-exchange residual
+    // tickers were exactly this.
+    if (!tickerNeedsPricing(group)) continue;
+
     // An explicitly picked coingecko_id (a manual holding added via the
     // coin picker) is a stronger identity signal than anything inferred
     // below — it names the exact coin, not just a chain/contract pattern
@@ -178,44 +183,6 @@ async function upsertPrice(
   if (extra?.change30d !== undefined) row.change_30d_pct = extra.change30d;
   const { error } = await serviceDb().from("prices").upsert(row);
   if (error) throw new Error(error.message);
-}
-
-interface ResolvedTicker {
-  ticker: string;
-  key: string; // "<platform>:<contract>" or a bare coingecko id
-}
-
-/**
- * Splits every distinct holding ticker into: resolvable via CoinGecko
- * (a real, collision-safe key — see priceKey.ts's resolveCoingeckoKey)
- * vs. residual (no safe key — old/manual holdings with no chain hint to
- * disambiguate by). Pure, synchronous, no network call — which is what
- * lets the CoinGecko pass and the Coinbase/Jupiter residual pass below
- * start in true parallel rather than one waiting to learn what the other
- * needs to attempt.
- */
-function splitByCoingeckoResolvability(tickers: HoldingTickerInfo[]): {
-  resolved: ResolvedTicker[];
-  residual: HoldingTickerInfo[];
-} {
-  const resolved: ResolvedTicker[] = [];
-  const residual: HoldingTickerInfo[] = [];
-  for (const t of tickers) {
-    if (t.source === "manual_usd") {
-      residual.push(t);
-      continue;
-    }
-    const key = resolveCoingeckoKey({
-      ticker: t.ticker,
-      source: t.source as HoldingSource,
-      contract: t.contract,
-      chain: t.chain,
-      coingeckoId: t.coingeckoId,
-    });
-    if (key) resolved.push({ ticker: t.ticker, key });
-    else residual.push(t);
-  }
-  return { resolved, residual };
 }
 
 /**
@@ -530,8 +497,11 @@ async function mergeCoingeckoAndResidualResults(
  */
 export async function refreshTickerPrices(tickers: HoldingTickerInfo[]): Promise<PriceRefreshResult[]> {
   if (tickers.length === 0) return [];
-  const existingSources = await getExistingPriceSourcesFor([...new Set(tickers.map((t) => t.ticker))]);
-  const { resolved, residual } = splitByCoingeckoResolvability(tickers);
+  const [existingSources, exchangeRegistry] = await Promise.all([
+    getExistingPriceSourcesFor([...new Set(tickers.map((t) => t.ticker))]),
+    getExchangeAssetRegistry(),
+  ]);
+  const { resolved, residual } = splitByCoingeckoResolvability(tickers, exchangeRegistry);
 
   const [coingecko, coinbaseAndJupiter] = await Promise.all([
     refreshCoinGeckoTickers(resolved),
@@ -598,9 +568,12 @@ type PhaseState = { status: "running" | "done" | "error"; ms: number | null };
  * which is itself downstream of all of the above.
  */
 export async function refreshPrices(startedAt: number = Date.now()): Promise<PriceRefreshResult[]> {
-  const holdingTickers = await getDistinctHoldingTickers();
-  const existingSources = await getExistingPriceSources();
-  const { resolved, residual } = splitByCoingeckoResolvability(holdingTickers);
+  const [holdingTickers, existingSources, exchangeRegistry] = await Promise.all([
+    getDistinctHoldingTickers(),
+    getExistingPriceSources(),
+    getExchangeAssetRegistry(),
+  ]);
+  const { resolved, residual } = splitByCoingeckoResolvability(holdingTickers, exchangeRegistry);
 
   // Writes are queued (chained onto `writeQueue`), not fired independently
   // — three lanes finishing close together means three persistPhases calls

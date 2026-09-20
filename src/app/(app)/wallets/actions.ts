@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { refreshPrices, refreshTickerPrices, type HoldingTickerInfo } from "@/lib/prices";
+import { ensureExchangeAssetRegistry } from "@/lib/exchangeAssetRegistry";
 import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
@@ -1096,14 +1097,23 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
         .update({ exchange_sync_duration_ms: Date.now() - syncStartedAt })
         .eq("id", walletId);
 
+      // Populated on sync if we don't already have it (24h TTL) — see
+      // exchangeAssetRegistry.ts's own doc comment. Awaited before the
+      // reprice below so a brand-new exchange connection's very first sync
+      // gets the coverage benefit immediately, not one sync cycle later.
+      await ensureExchangeAssetRegistry();
+
       // Same scoped reprice as syncWalletHoldings/syncWalletDefi — spot
       // balances go through the shared ticker table (usd_override is
       // always null for these, see coinbaseAdvancedTrade.ts), so a
       // brand-new currency this sync introduced needs this to ever show a
-      // price.
+      // price. source is "auto_exchange" here (not "auto"), matching
+      // holdings.source for these rows — that's what lets
+      // splitByCoingeckoResolvability's own auto_exchange-only branch
+      // actually apply to them.
       const tickersToPrice: HoldingTickerInfo[] = holdings
         .filter((h) => h.usd_override === null)
-        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto" }));
+        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto_exchange" }));
       await refreshTickerPrices(tickersToPrice).catch(() => {});
 
       scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);

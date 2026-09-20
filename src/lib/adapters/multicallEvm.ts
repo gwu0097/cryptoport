@@ -502,6 +502,31 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
     byChain.get(row.chain)!.push(row);
   }
 
+  // Fetched once per distinct native CoinGecko id, not once per chain — 12
+  // of this app's 32 EVM_CHAINS share "ethereum" as their own native asset
+  // (Base, Arbitrum, Optimism, Linea, Scroll, Blast, zkSync, Manta, Mode,
+  // Unichain, Soneium, plus Ethereum itself), so a portfolio holding native
+  // gas balances on several of them used to fetch the exact same price that
+  // many separate times — pure duplicate CoinGecko round-trips, unlike the
+  // per-chain contract pricing below (which genuinely needs one call per
+  // chain — CoinGecko's contract-pricing endpoint only ever accepts one
+  // platform per call). Only fetched for ids this refresh actually needs
+  // (a chain with no native-balance row among today's holdings doesn't get
+  // one), not all 32 unconditionally.
+  const neededNativeIds = new Set<string>();
+  for (const [chainId, chainRows] of byChain) {
+    if (chainRows.some((r) => r.contract === null)) {
+      const chain = EVM_CHAINS.find((c) => c.id === chainId);
+      if (chain) neededNativeIds.add(chain.nativeCoingeckoId);
+    }
+  }
+  const nativePriceById = new Map<string, number | null>();
+  await Promise.all(
+    [...neededNativeIds].map(async (id) => {
+      nativePriceById.set(id, await fetchNativePrice(id).catch(() => null));
+    }),
+  );
+
   // Each chain's block below is fully self-contained (its own CoinGecko
   // calls, its own holdings/token_registry writes, its own slice of
   // `results`) — nothing for one chain to wait on from another, so this
@@ -634,28 +659,26 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
       }
 
       if (nativeRows.length > 0) {
-        try {
-          const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId);
-          for (const row of nativeRows) {
-            if (nativePrice === null) {
-              results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this native asset." });
-              continue;
-            }
-            const qty = Number(row.qty);
-            if (!Number.isFinite(qty)) {
-              results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
-              continue;
-            }
-            upserts.push({
-              id: row.id,
-              wallet_id: row.wallet_id,
-              ticker: row.ticker,
-              source: "auto",
-              usd_override: qty * nativePrice,
-            });
+        // Pre-fetched once per distinct id above, not per chain — see this
+        // function's own doc comment there.
+        const nativePrice = nativePriceById.get(chain.nativeCoingeckoId) ?? null;
+        for (const row of nativeRows) {
+          if (nativePrice === null) {
+            results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this native asset." });
+            continue;
           }
-        } catch (e) {
-          for (const row of nativeRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
+          const qty = Number(row.qty);
+          if (!Number.isFinite(qty)) {
+            results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
+            continue;
+          }
+          upserts.push({
+            id: row.id,
+            wallet_id: row.wallet_id,
+            ticker: row.ticker,
+            source: "auto",
+            usd_override: qty * nativePrice,
+          });
         }
       }
 
