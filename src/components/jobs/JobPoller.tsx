@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { deriveJobStatus } from "@/lib/jobStatus";
+import type { PriceRefreshPhases } from "@/lib/queries";
 import { notifyJobsComplete } from "./jobActions";
 
 interface JobPollerContextValue {
@@ -31,7 +32,12 @@ interface WalletJobRow {
 
 interface JobStatusResponse {
   wallets: WalletJobRow[];
-  priceRefresh: JobStatusRow | null;
+  // phases: per-lane (CoinGecko/Coinbase-Jupiter/EVM) running/done/error +
+  // elapsed ms, written progressively as each lane actually finishes (see
+  // prices.ts's refreshPrices) — what lets this provider notify as soon as
+  // the fast CoinGecko lane lands, instead of waiting for the whole row's
+  // `status` to flip once the slower Coinbase/Jupiter lane is also done.
+  priceRefresh: (JobStatusRow & { phases: PriceRefreshPhases | null }) | null;
   tokenRegistry: JobStatusRow | null;
 }
 
@@ -95,6 +101,12 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   // null = no poll has landed yet. Otherwise: was *any* job running as of
   // the last poll this provider actually saw.
   const lastAnyRunningRef = useRef<boolean | null>(null);
+  // Per-lane status as of the last poll (price_refresh_state.phases) —
+  // separate from lastAnyRunningRef's single aggregate boolean, since a
+  // price refresh's 3 lanes finish at genuinely different times and each
+  // one landing should refresh the page on its own, not just once every
+  // lane is done. Keyed by phase name ("coingecko", "coinbase", "evm").
+  const lastPhaseStatusRef = useRef<Record<string, string | undefined>>({});
   const [minPollMs, setMinPollMs] = useState<number | null>(null);
   // Increments on every poll (and every visibility-driven refresh) so
   // useNow() can re-read Date.now() in step with real server data landing,
@@ -152,9 +164,35 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       const localBusy = [...jobsRef.current.values()].some((j) => j.busy);
       const treatAsWasRunning = wasRunning ?? localBusy;
 
+      // Same "was running" edge case as above, applied per-lane: a lane
+      // this provider has never observed before (prevStatus undefined) —
+      // e.g. it finished between the click and this provider's first
+      // poll — still counts as "just finished" when the job as a whole
+      // was already known/assumed running, so a fast CoinGecko lane can't
+      // silently miss its own completion notification.
+      let anyPhaseJustFinished = false;
+      const phases = data.priceRefresh?.phases;
+      if (phases) {
+        for (const [name, phase] of Object.entries(phases)) {
+          const prevStatus = lastPhaseStatusRef.current[name];
+          const wasRunningPrev = prevStatus === "running" || (prevStatus === undefined && treatAsWasRunning);
+          if (wasRunningPrev && phase.status !== "running") anyPhaseJustFinished = true;
+          lastPhaseStatusRef.current[name] = phase.status;
+        }
+      }
+
       lastAnyRunningRef.current = anyRunningNow;
       setTick((t) => t + 1);
 
+      // Two independent triggers, not mutually exclusive: a lane finishing
+      // mid-refresh notifies immediately (this is the whole point — prices
+      // that are already correct in the DB shouldn't sit unrendered for
+      // however long the slowest remaining lane takes), and the job as a
+      // whole finishing notifies again as the final, definitely-complete
+      // signal. Calling notifyJobsComplete() more than once in the same
+      // tick (both can fire together, e.g. the last lane finishing) is
+      // harmless — it's just a revalidatePath call.
+      if (anyPhaseJustFinished) await notifyJobsComplete();
       if (treatAsWasRunning && !anyRunningNow) await notifyJobsComplete();
     }
 
