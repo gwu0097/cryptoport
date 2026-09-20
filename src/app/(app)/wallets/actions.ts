@@ -917,11 +917,20 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
 export async function syncAllWallets(walletIds: string[]): Promise<JobStartResult> {
   await requireUser();
   const db = await userDb();
+  // `.is("provider", null)` — real bug, caught live: a connected exchange
+  // (Coinbase, Kraken, Gemini) also has mode "auto" but no address at all
+  // (it authenticates via exchange_connections instead — see
+  // coinbaseAdvancedTrade.ts's own doc comment), which made syncWalletHoldings
+  // throw "This wallet has no address set." for every connected exchange,
+  // every single "Sync all" click — exchanges have their own separate sync
+  // (syncExchangeHoldings), same exclusion WalletsTable's own per-row sync
+  // button already applies (`wallet.mode !== "auto" || wallet.provider`).
   const { data: wallets, error } = await db
     .from("wallets")
     .select("id")
     .eq("mode", "auto")
     .eq("active", true)
+    .is("provider", null)
     .in("id", walletIds);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
   if (wallets.length === 0) return { started: false, reason: "No auto-mode wallets to sync." };
@@ -932,7 +941,24 @@ export async function syncAllWallets(walletIds: string[]): Promise<JobStartResul
   // lands. Reporting {started: true} anyway would leave "Sync all" stuck
   // busy forever: useJob's baseline never clears because the row it's
   // watching never actually changes.
-  const results = await Promise.all(wallets.map((wallet) => syncWalletHoldings(wallet.id, false)));
+  //
+  // Each call gets its own try/catch — real bug, caught live: one wallet
+  // with no address set (syncWalletHoldings validates and throws
+  // synchronously, before any of the real async work) rejected the whole
+  // Promise.all, crashing "Sync all" for every other wallet too, even
+  // though the other 46 would have synced fine. A wallet that can't be
+  // synced at all just doesn't count as started, same as one that's
+  // already mid-sync from something else — never lets one bad wallet take
+  // the rest down with it.
+  const results = await Promise.all(
+    wallets.map(async (wallet): Promise<JobStartResult> => {
+      try {
+        return await syncWalletHoldings(wallet.id, false);
+      } catch (e) {
+        return { started: false, reason: (e as Error).message };
+      }
+    }),
+  );
   const claimedCount = results.filter((r) => r.started).length;
   if (claimedCount === 0) return { started: false, reason: "All wallets are already syncing." };
   return { started: true };
