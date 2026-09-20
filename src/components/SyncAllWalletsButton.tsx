@@ -11,8 +11,11 @@ import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
 interface SyncAllWallet {
   id: string;
   tags: { name: string }[];
+  provider: string | null;
   last_refresh_status: string | null;
   sync_started_at: string | null;
+  exchange_sync_status: string | null;
+  exchange_sync_started_at: string | null;
 }
 
 /**
@@ -41,15 +44,26 @@ export function SyncAllWalletsButton({
   const { tagFilter } = useWalletsFilter();
   const filtered = filterWalletsByTags(wallets, tagFilter);
 
-  const walletsKey = filtered.map((w) => `${w.last_refresh_status ?? ""}:${w.sync_started_at ?? ""}`).join(",");
+  // A connected exchange (provider set) reports its own sync via
+  // exchange_sync_status/exchange_sync_started_at, not last_refresh_status/
+  // sync_started_at — different columns entirely, matching the same split
+  // syncAllWallets itself now dispatches on (syncExchangeHoldings vs
+  // syncWalletHoldings). Reading the wrong pair for an exchange wallet
+  // would leave this button reporting "not busy" while its exchange sync
+  // is still genuinely running in the background.
+  const walletsKey = filtered
+    .map((w) => (w.provider ? `${w.exchange_sync_status ?? ""}:${w.exchange_sync_started_at ?? ""}` : `${w.last_refresh_status ?? ""}:${w.sync_started_at ?? ""}`))
+    .join(",");
   const now = useNow([walletsKey]) ?? 0;
   let running = false;
   let latestStartedAt: string | null = null;
   for (const w of filtered) {
-    const s = deriveJobStatus({ status: w.last_refresh_status, started_at: w.sync_started_at }, now);
+    const status = w.provider ? w.exchange_sync_status : w.last_refresh_status;
+    const startedAt = w.provider ? w.exchange_sync_started_at : w.sync_started_at;
+    const s = deriveJobStatus({ status, started_at: startedAt }, now);
     if (s.running) running = true;
-    if (w.sync_started_at && (!latestStartedAt || w.sync_started_at > latestStartedAt)) {
-      latestStartedAt = w.sync_started_at;
+    if (startedAt && (!latestStartedAt || startedAt > latestStartedAt)) {
+      latestStartedAt = startedAt;
     }
   }
 
