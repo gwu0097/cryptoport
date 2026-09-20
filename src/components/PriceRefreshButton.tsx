@@ -9,9 +9,19 @@ import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { JobButton } from "./jobs/JobButton";
 
+// "coinbase" (the internal phase key — unchanged, still matches
+// price_refresh_state.phases/JobPoller's own phase tracking) relabeled from
+// "Coinbase/Jupiter" to "Fallback": most exchange-balance tickers now
+// resolve through exchange_asset_registry into the CoinGecko phase instead
+// (see prices.ts), so this lane is no longer "the Coinbase pricing pass" —
+// it's whatever's left after every other source already priced. Coinbase's
+// API is still the real last-resort here for genuinely unresolvable
+// tickers (with Jupiter as its own secondary fallback), just for a much
+// smaller set than before — "Fallback" describes the role honestly without
+// implying Coinbase is gone entirely.
 const PHASE_LABELS: Record<string, string> = {
   coingecko: "CoinGecko",
-  coinbase: "Coinbase/Jupiter",
+  coinbase: "Fallback",
   evm: "EVM holdings",
 };
 
