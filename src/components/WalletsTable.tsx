@@ -17,15 +17,23 @@ import { useJobStatus } from "./jobs/useJobStatus";
 import { usePersistedState } from "./usePersistedState";
 import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
 import { filterWalletsByTags } from "@/lib/walletTagFilter";
-import { deleteWallet, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
+import { deleteWallet, syncExchangeHoldings, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
 /** The per-row sync icon-button — its own component (not inlined in the
- * map below) because it needs its own useJob() call, one per wallet. */
-function WalletSyncButton({ walletId, walletName, status }: { walletId: string; walletName: string; status: ReturnType<typeof deriveJobStatus> }) {
-  const { busy, submit } = useJob({
-    status,
-    start: (): Promise<JobStartResult> => syncWalletHoldings(walletId, false),
-  });
+ * map below) because it needs its own useJob() call, one per wallet. `start`
+ * is passed in (rather than hardcoded to syncWalletHoldings) so the same
+ * icon-only button/layout can drive a connected exchange's own sync job too
+ * — see WalletRow's `start` prop below. */
+function WalletSyncButton({
+  walletName,
+  status,
+  start,
+}: {
+  walletName: string;
+  status: ReturnType<typeof deriveJobStatus>;
+  start: () => Promise<JobStartResult>;
+}) {
+  const { busy, submit } = useJob({ status, start });
   return (
     <JobButton
       busy={busy}
@@ -46,7 +54,17 @@ function WalletSyncButton({ walletId, walletName, status }: { walletId: string; 
  * the parent, which the rules of hooks disallow. Giving each row its own
  * component instance makes that one call-per-row stable and legal. */
 function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: string[] }) {
-  const jobStatus = useJobStatus({ status: wallet.last_refresh_status, started_at: wallet.sync_started_at });
+  // A connected exchange reports its own sync via exchange_sync_status/
+  // exchange_sync_started_at (a separate job from on-chain scanning — see
+  // syncExchangeHoldings) — reading the on-chain pair for one of these
+  // always showed "never refreshed" and hid the sync button entirely, since
+  // those columns never change for an exchange wallet. Same split already
+  // applied to SyncAllWalletsButton and syncAllWallets itself.
+  const jobStatus = useJobStatus(
+    wallet.provider
+      ? { status: wallet.exchange_sync_status, started_at: wallet.exchange_sync_started_at }
+      : { status: wallet.last_refresh_status, started_at: wallet.sync_started_at },
+  );
 
   return (
     <tr className={trClass}>
@@ -107,10 +125,14 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
       </td>
       <td className={`${tdClass} tabular-nums`}>{wallet.total > 0 ? formatUsd(wallet.total) : "—"}</td>
       <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
-        {jobStatus.running ? <span className="text-fg">Syncing…</span> : formatStaleness(wallet.last_refresh_at)}
+        {jobStatus.running ? (
+          <span className="text-fg">Syncing…</span>
+        ) : (
+          formatStaleness(wallet.provider ? wallet.exchange_synced_at : wallet.last_refresh_at)
+        )}
       </td>
       <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
-        {formatDuration(wallet.last_sync_duration_ms)}
+        {formatDuration(wallet.provider ? wallet.exchange_sync_duration_ms : wallet.last_sync_duration_ms)}
       </td>
       <td className={tdClass}>
         <div className="flex items-center gap-2">
@@ -123,17 +145,18 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
               <Trash className="size-3.5" aria-hidden="true" />
             </ConfirmDeleteButton>
           </form>
-          {wallet.mode !== "auto" || wallet.provider ? (
-            // A connected exchange has its own separate sync job (see
-            // SyncCoinbaseButton on the wallet detail page) — this row's
-            // button is wired to the regular on-chain sync only, which
-            // would just fail cleanly ("no address set") for one of these,
-            // so it's hidden the same way a manual wallet's is.
+          {wallet.mode !== "auto" ? (
+            // A manual wallet has no sync concept at all — placeholder
+            // keeps row height consistent with rows that do show a button.
             <span className={`${buttonClass("secondary", "sm")} invisible`} aria-hidden="true">
               <RefreshCw className="size-3.5" aria-hidden="true" />
             </span>
           ) : (
-            <WalletSyncButton walletId={wallet.id} walletName={wallet.name} status={jobStatus} />
+            <WalletSyncButton
+              walletName={wallet.name}
+              status={jobStatus}
+              start={wallet.provider ? () => syncExchangeHoldings(wallet.id) : () => syncWalletHoldings(wallet.id, false)}
+            />
           )}
         </div>
       </td>
@@ -174,9 +197,9 @@ function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
     case "value":
       return wallet.total;
     case "refreshed":
-      return wallet.last_refresh_at ?? "";
+      return (wallet.provider ? wallet.exchange_synced_at : wallet.last_refresh_at) ?? "";
     case "duration":
-      return wallet.last_sync_duration_ms ?? -1;
+      return (wallet.provider ? wallet.exchange_sync_duration_ms : wallet.last_sync_duration_ms) ?? -1;
   }
 }
 
