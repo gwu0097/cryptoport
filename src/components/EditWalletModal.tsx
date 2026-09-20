@@ -51,11 +51,25 @@ export function EditWalletModal({
             <input name="name" type="text" required defaultValue={wallet.name} className={inputClass} />
           </Field>
 
-          <ChainModeAddressFields
-            defaultChain={wallet.chain}
-            defaultMode={wallet.mode}
-            defaultAddress={wallet.address ?? ""}
-          />
+          {/* A connected exchange (Coinbase/Kraken/Gemini) has no real
+              chain/mode/address to edit — `chain` is just a display label
+              ("COINBASE"), not a real chain this app's sync adapters
+              recognize, and `address` doesn't apply at all (it
+              authenticates via exchange_connections instead). Rendering
+              these fields for one anyway used to submit "COINBASE" as the
+              chain on save, which updateWallet's own validation correctly
+              rejects as an unsupported auto-mode chain — a real crash,
+              reported directly, editing a Coinbase wallet's tags. Omitting
+              the fields (rather than just hiding them) means the form
+              never submits chain/mode at all for these, which is also
+              what tells updateWallet not to touch them. */}
+          {!wallet.provider && (
+            <ChainModeAddressFields
+              defaultChain={wallet.chain}
+              defaultMode={wallet.mode}
+              defaultAddress={wallet.address ?? ""}
+            />
+          )}
 
           <Field label="Tags" hint="Optional — pick existing tags or type a new name to create one.">
             <TagPicker allTags={tagNames} defaultSelected={wallet.tags.map((t) => t.name)} />

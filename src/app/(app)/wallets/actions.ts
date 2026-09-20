@@ -428,12 +428,26 @@ export async function createWallet(formData: FormData) {
 export async function updateWallet(walletId: string, formData: FormData) {
   await requireUser();
   const name = requireString(formData, "name");
-  const { chain, mode } = requireChainAndMode(formData);
-  const address = optionalString(formData, "address");
   const tagIds = await resolveTagIds(formData);
 
+  // EditWalletModal doesn't render chain/mode/address at all for a
+  // connected exchange (see its own doc comment — "COINBASE" isn't a real
+  // chain, requireChainAndMode correctly rejects it as an unsupported
+  // auto-mode chain, which used to crash editing one of these). The
+  // form's own absence of a "chain" field is what signals that case here,
+  // rather than a second DB read to re-derive it — an exchange
+  // connection's chain/mode/address are never user-editable, so there's
+  // nothing to validate or update for those wallets at all.
+  const update: { name: string; chain?: string; mode?: WalletMode; address?: string | null } = { name };
+  if (formData.has("chain")) {
+    const { chain, mode } = requireChainAndMode(formData);
+    update.chain = chain;
+    update.mode = mode;
+    update.address = optionalString(formData, "address");
+  }
+
   const db = await userDb();
-  const { error } = await db.from("wallets").update({ name, chain, mode, address }).eq("id", walletId);
+  const { error } = await db.from("wallets").update(update).eq("id", walletId);
   if (error) throw new Error(`Failed to update wallet: ${error.message}`);
   await replaceWalletTags(walletId, tagIds);
 
