@@ -356,60 +356,13 @@ export async function resolveTickerIcons(tickers: string[]): Promise<Map<string,
   return icons;
 }
 
-// Trend Finder's category calls need much more spacing than fetchWithRetry's
-// defaults — live-verified this session that /coins/{id} 429s at 3s spacing
-// and needed ~5-6s to clear reliably on CoinGecko's anonymous tier.
-const CATEGORY_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
+// Trend Finder's /coins/markets calls (top-by-market-cap, single-id lookup)
+// need much more spacing than fetchWithRetry's defaults — live-verified
+// this session that this endpoint family 429s at default spacing and
+// needed ~5-6s to clear reliably on CoinGecko's anonymous tier.
+const MARKETS_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
 
-/**
- * A coin's raw CoinGecko category names (e.g. "Rollup", "Layer 2 (L2)",
- * "Arbitrum Ecosystem", ...) — every heavy sub-resource disabled since only
- * `categories` is needed. This is the most rate-limited call Trend Finder
- * makes (see CATEGORY_FETCH_OPTS), which is why its result is cached in
- * cryptoport.coin_categories rather than fetched fresh every render — see
- * trendPeers.ts.
- */
-export async function fetchCoinCategories(coingeckoId: string): Promise<string[]> {
-  const url = `${API_BASE}/coins/${coingeckoId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`;
-  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
-  if (!res.ok) throw new Error(`CoinGecko coins/${coingeckoId} failed: HTTP ${res.status}`);
-  const body: { categories?: (string | null)[] } = await res.json();
-  return (body.categories ?? []).filter((c): c is string => typeof c === "string" && c.length > 0);
-}
-
-export interface CategoryStat {
-  id: string;
-  name: string;
-  marketCap: number | null;
-  marketCapChange24h: number | null;
-}
-
-/**
- * Every CoinGecko category and its total market cap/24h change — one call,
- * ~765 rows. This is the specificity score Trend Finder ranks a coin's own
- * categories by (see trendFinder.ts's own doc comment for why: the giant
- * junk categories lose automatically by being enormous). Deliberately never
- * cached — market_cap_change_24h is live financial data, and rendering a
- * stale "is this sector rotating?" figure is exactly the plausible-looking
- * wrong number the Data Correctness rule exists to prevent. It also doubles
- * as the name -> id map fetchCategoryMembers needs, which avoids a second
- * cache with its own, possibly-diverging TTL.
- */
-export async function fetchCategoryStats(): Promise<CategoryStat[]> {
-  const url = `${API_BASE}/coins/categories`;
-  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
-  if (!res.ok) throw new Error(`CoinGecko coins/categories failed: HTTP ${res.status}`);
-  const body: { id: string; name: string; market_cap?: number | null; market_cap_change_24h?: number | null }[] =
-    await res.json();
-  return body.map((c) => ({
-    id: c.id,
-    name: c.name,
-    marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
-    marketCapChange24h: typeof c.market_cap_change_24h === "number" ? c.market_cap_change_24h : null,
-  }));
-}
-
-export interface CategoryMember {
+export interface MarketDataRow {
   id: string;
   symbol: string;
   imageUrl: string | null;
@@ -420,25 +373,22 @@ export interface CategoryMember {
   marketCap: number | null;
 }
 
-/** Every coin in one CoinGecko category, with 1h/24h/7d change and market
- * cap — always fetched live (see fetchCategoryStats' own doc comment; the
- * same reasoning applies here, more so). Category membership is typically
- * well under MARKETS_BATCH_SIZE, so this is one call, not chunked. */
-export async function fetchCategoryMembers(categoryId: string): Promise<CategoryMember[]> {
-  const url = `${API_BASE}/coins/markets?vs_currency=usd&category=${categoryId}&order=market_cap_desc&per_page=250&price_change_percentage=1h,24h,7d`;
-  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
-  if (!res.ok) throw new Error(`CoinGecko coins/markets(category=${categoryId}) failed: HTTP ${res.status}`);
-  const body: {
-    id: string;
-    symbol: string;
-    image?: string;
-    current_price?: number;
-    price_change_percentage_1h_in_currency?: number;
-    price_change_percentage_24h_in_currency?: number;
-    price_change_percentage_7d_in_currency?: number;
-    market_cap?: number;
-  }[] = await res.json();
-  return body.map((c) => ({
+interface MarketsResponseRow {
+  id: string;
+  symbol: string;
+  image?: string;
+  current_price?: number;
+  price_change_percentage_1h_in_currency?: number;
+  price_change_percentage_24h_in_currency?: number;
+  price_change_percentage_7d_in_currency?: number;
+  market_cap?: number;
+}
+
+/** Shared response shape for every /coins/markets call in this file
+ * (top-by-market-cap, single-id lookup) — same fields, same nullability
+ * rules, just different query params per caller. */
+function parseMarketsRow(c: MarketsResponseRow): MarketDataRow {
+  return {
     id: c.id,
     symbol: c.symbol.toUpperCase(),
     imageUrl: c.image ?? null,
@@ -448,7 +398,33 @@ export async function fetchCategoryMembers(categoryId: string): Promise<Category
       typeof c.price_change_percentage_24h_in_currency === "number" ? c.price_change_percentage_24h_in_currency : null,
     change7d: typeof c.price_change_percentage_7d_in_currency === "number" ? c.price_change_percentage_7d_in_currency : null,
     marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
-  }));
+  };
+}
+
+async function fetchMarketsPage(extraQuery: string, page = 1, perPage = 250): Promise<MarketDataRow[]> {
+  const suffix = extraQuery ? `&${extraQuery}` : "";
+  const url = `${API_BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=${page}&price_change_percentage=1h,24h,7d${suffix}`;
+  const res = await fetchWithRetry(url, { headers: headers() }, MARKETS_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/markets(${extraQuery || "top"}) failed: HTTP ${res.status}`);
+  const body: MarketsResponseRow[] = await res.json();
+  return body.map(parseMarketsRow);
+}
+
+/** Top `limit` coins by market cap, globally — feeds
+ * correlationUniverse.ts's candidate pool and trendPeers.ts's live display
+ * data (see those files' own doc comments: Trend Finder's peer universe is
+ * market-cap-scoped, not CoinGecko-category-scoped — see trendFinder.ts's
+ * doc comment for why). Pages in chunks of 250 (CoinGecko's own per_page
+ * ceiling) rather than one oversized request. */
+export async function fetchTopCoinsByMarketCap(limit: number): Promise<MarketDataRow[]> {
+  const results: MarketDataRow[] = [];
+  for (let page = 1; results.length < limit; page++) {
+    const perPage = Math.min(250, limit - results.length);
+    const rows = await fetchMarketsPage("", page, perPage);
+    results.push(...rows);
+    if (rows.length < perPage) break; // CoinGecko ran out of coins before `limit`
+  }
+  return results;
 }
 
 export interface SeedInfo {
@@ -465,17 +441,16 @@ export interface SeedInfo {
 }
 
 /** A Trend Finder seed's own display info (name/symbol/image/rank) plus its
- * live price/1h/24h/7d change and market cap — one call, always live (same
- * "never cache price-bearing data" reasoning as fetchCategoryStats/
- * fetchCategoryMembers). Deliberately a small overlap with
- * fetchCategoryMembers' own mapping rather than sharing a helper for it —
- * this is the only caller that also needs name/marketCapRank, not worth
- * threading an extra flag through the shared path for. Null when CoinGecko
- * has no market row for this id (a real possibility for a very illiquid
- * coin picked via /search). */
+ * live price/1h/24h/7d change and market cap — one call, always live
+ * (price-bearing data is never cached — see the Data Correctness rule).
+ * Deliberately a small overlap with parseMarketsRow's own mapping rather
+ * than sharing a helper for it — this is the only caller that also needs
+ * name/marketCapRank, not worth threading an extra flag through the shared
+ * path for. Null when CoinGecko has no market row for this id (a real
+ * possibility for a very illiquid coin picked via /search). */
 export async function fetchSeedInfo(coingeckoId: string): Promise<SeedInfo | null> {
   const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${coingeckoId}&price_change_percentage=1h,24h,7d`;
-  const res = await fetchWithRetry(url, { headers: headers() }, CATEGORY_FETCH_OPTS);
+  const res = await fetchWithRetry(url, { headers: headers() }, MARKETS_FETCH_OPTS);
   if (!res.ok) throw new Error(`CoinGecko coins/markets(ids=${coingeckoId}) failed: HTTP ${res.status}`);
   const body: {
     id: string;
@@ -567,20 +542,14 @@ function marketChartUrl(key: string, days: number): string {
   return `${API_BASE}/coins/${platform}/contract/${contract}/market_chart?vs_currency=usd&days=${days}`;
 }
 
-/**
- * Daily USD close for the last `days` days, for one priceKey.ts key — both
- * the coin-id endpoint (native tokens) and the contract-address endpoint
- * (everything with a `contract`); see marketChartUrl above for which key
- * shape routes to which, and priceKey.ts for how a holding produces a key.
- * CoinGecko returns hourly-or-finer points for days<=90 and daily points
- * beyond that (both free/keyless, verified live); this collapses either
- * into one point per UTC calendar day (the latest price observed that
- * day — its closing price), since `prices` arrives sorted ascending by
- * timestamp, so it lines up with the once-a-day snapshot tables' shape.
- * A 404 means CoinGecko doesn't have this asset at all — not a fetch
- * failure, just zero coverage for it (see priceHistory.ts's caller).
- */
-export async function fetchDailyHistory(key: string, days: number): Promise<DailyPricePoint[]> {
+/** Shared fetch+bucket core for both fetchDailyHistory and
+ * fetchHourlyHistory — same URL builder, same retry/404 handling, same
+ * "collapse to the latest price observed in each bucket" rule; the two
+ * callers differ only in how coarse a bucket is (10-char ISO prefix = UTC
+ * calendar day, 13-char = UTC hour). A 404 means CoinGecko doesn't have
+ * this asset at all — not a fetch failure, just zero coverage for it (see
+ * priceHistory.ts's caller). */
+async function fetchBucketedHistory(key: string, days: number, isoPrefixLen: number): Promise<[string, number][]> {
   const url = marketChartUrl(key, days);
   const res = await fetchWithRetry(url, { headers: headers() });
   if (!res.ok) {
@@ -589,11 +558,44 @@ export async function fetchDailyHistory(key: string, days: number): Promise<Dail
   }
   const body: { prices?: [number, number][] } = await res.json();
 
-  const byDate = new Map<string, number>();
+  const byBucket = new Map<string, number>();
   for (const [timestampMs, usd] of body.prices ?? []) {
-    byDate.set(new Date(timestampMs).toISOString().slice(0, 10), usd);
+    byBucket.set(new Date(timestampMs).toISOString().slice(0, isoPrefixLen), usd);
   }
-  return [...byDate.entries()]
-    .map(([date, usd]) => ({ date, usd }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  return [...byBucket.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+/**
+ * Daily USD close for the last `days` days, for one priceKey.ts key — both
+ * the coin-id endpoint (native tokens) and the contract-address endpoint
+ * (everything with a `contract`); see marketChartUrl above for which key
+ * shape routes to which, and priceKey.ts for how a holding produces a key.
+ * `prices` arrives sorted ascending by timestamp, so this lines up with the
+ * once-a-day snapshot tables' shape.
+ */
+export async function fetchDailyHistory(key: string, days: number): Promise<DailyPricePoint[]> {
+  const buckets = await fetchBucketedHistory(key, days, 10);
+  return buckets.map(([date, usd]) => ({ date, usd }));
+}
+
+export interface HourlyPricePoint {
+  /** UTC hour, "YYYY-MM-DDTHH" — one point per hour, the latest price
+   * CoinGecko reported within that hour. */
+  hour: string;
+  usd: number;
+}
+
+/**
+ * Hourly USD close for the last `days` days (CoinGecko only returns
+ * hourly-or-finer granularity for days<=90 — beyond that it silently drops
+ * to daily, so callers needing hourly resolution must stay under that
+ * ceiling). Built for correlation.ts: daily-bucketed 90d returns give only
+ * ~90 return observations (a 95% CI of ±0.21 on a Pearson estimate — too
+ * noisy to separate a real peer from noise, live-verified this session),
+ * while hourly gives ~2160 (±0.04) — the difference between a usable and
+ * an unusable signal, not a cosmetic one.
+ */
+export async function fetchHourlyHistory(key: string, days: number): Promise<HourlyPricePoint[]> {
+  const buckets = await fetchBucketedHistory(key, days, 13);
+  return buckets.map(([hour, usd]) => ({ hour, usd }));
 }

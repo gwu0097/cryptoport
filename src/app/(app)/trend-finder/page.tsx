@@ -9,15 +9,16 @@ import { TrendRecentSearches } from "@/components/TrendRecentSearches";
 import { TrendLastSearchRedirect } from "@/components/TrendLastSearchRedirect";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
-import { findTrendPeers, type TrendTier } from "@/lib/trendPeers";
+import { findTrendPeers } from "@/lib/trendPeers";
 import { searchCoins, type SeedInfo } from "@/lib/adapters/coingecko";
-import type { PeerRow } from "@/lib/trendFinder";
+import type { CorrelatedPeer } from "@/lib/trendFinder";
 import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
-// A cold cache can chain ~5 sequential CoinGecko calls with backoff (see
-// trendPeers.ts/coingecko.ts's CATEGORY_FETCH_OPTS) — same order of
-// magnitude as lookup/page.tsx's own maxDuration for the same reason.
+// A cold cache (no coin_correlations hit yet for this seed) computes
+// correlation against the full ~250-coin universe plus one live
+// fetchTopCoinsByMarketCap call for display data — same order of magnitude
+// as lookup/page.tsx's own maxDuration for a comparable reason.
 export const maxDuration = 300;
 export const metadata = { title: "Trend finder · CryptoPort" };
 
@@ -72,7 +73,7 @@ export default async function TrendFinderPage({
     <>
       <PageHeader
         title="Trend finder"
-        subtitle="Pick a token that already moved — see sector peers that haven't yet."
+        subtitle="Pick a token that already moved — see correlated peers that haven't yet."
       />
 
       {/* Always rendered, not just in the empty state — the nav link back
@@ -95,7 +96,7 @@ export default async function TrendFinderPage({
           <TrendLastSearchRedirect />
           <Panel className="text-center">
             <p className="mb-4 text-sm text-fg-muted">
-              Search for a token to find peers in the same sector that haven&rsquo;t moved as much yet.
+              Search for a token to find peers that historically move with it and haven&rsquo;t moved as much yet.
             </p>
             <div className="mx-auto max-w-sm text-left">
               <TrendSeedPicker />
@@ -207,22 +208,27 @@ async function TrendResults({
         </div>
       </Panel>
 
-      {result.status === "no-categories" ? (
+      {result.status === "no-peers" ? (
         <Panel className="text-center">
           <p className="text-sm text-fg-muted">
-            No usable sector category found for {seed.symbol} — CoinGecko&rsquo;s categories for this token are all
-            either unranked or too broad to use for peer matching.
+            No peers found for {seed.symbol} — nothing in the current universe has historically moved with it closely
+            enough{mcapFloor > 0 ? ` above ${formatCompactUsd(mcapFloor)}` : ""} to call a real peer. Try a lower
+            market cap floor, or this token&rsquo;s move may genuinely be idiosyncratic to it.
           </p>
         </Panel>
       ) : (
         <>
-          {result.tiers.map((tier, i) => (
-            <TierPanel key={tier.category.id} tier={tier} index={i} mcapFloor={mcapFloor} seed={seed} />
-          ))}
+          <Panel
+            title="Correlated peers"
+            description="90d hourly returns, with broad market moves (BTC/ETH) factored out"
+          >
+            <TrendPeerTable peers={peerRowsWithSeed(seed, result.peers)} seedId={seed.id} />
+          </Panel>
           <p className="mt-2 text-xs text-fg-muted">
-            Peers come from {seed.symbol}&rsquo;s narrowest sector categories on CoinGecko — a cross-sector sympathy
-            move (a token in a different sector that tends to move alongside {seed.symbol} without sharing a
-            category) isn&rsquo;t detected here. Market data is live as of this page load.
+            Peers are ranked by how closely their price has historically tracked {seed.symbol}&rsquo;s, once broad
+            market moves are factored out — a token can be a real peer without sharing a CoinGecko category, and a
+            shared category is no longer what determines this list. Market data is live as of this page load;
+            correlation is recomputed at most once a day.
           </p>
         </>
       )}
@@ -230,18 +236,21 @@ async function TrendResults({
   );
 }
 
-/** The seed's own info (already fetched for the summary panel above) as a
- * PeerRow, so it can sit right in the ranked table instead of only ever
- * being shown separately — the direct ask: seeing e.g. AVAX itself
- * ranked alongside NEAR/HYPE/SUI tells you something the summary panel
- * alone doesn't (is the seed the biggest mover in its own sector, or the
- * laggard everyone else already left behind?). Null when the seed itself
- * has no market cap (rare) — never fabricated, just omitted, same as any
- * other missing-data case in this app. Shown regardless of the market-cap
- * floor — that filters peers, not the token you actually searched for. */
-function seedAsPeerRow(seed: SeedInfo): PeerRow | null {
-  if (seed.marketCap === null) return null;
-  return {
+/** The seed's own info (already fetched for the summary panel above),
+ * prepended to the ranked table as its own row — the direct ask: seeing
+ * e.g. AVAX itself ranked alongside its peers tells you something the
+ * summary panel alone doesn't (is the seed the biggest mover among its own
+ * peers, or the laggard everyone else already left behind?). Correlation
+ * is fixed at 1 (a token is, trivially, perfectly correlated with itself)
+ * rather than computed — it's never passed back through rankPeers, so this
+ * never risks being dropped by the correlation/overlap thresholds. Omitted
+ * when the seed itself has no market cap (rare) — never fabricated, just
+ * left out, same as any other missing-data case in this app. Shown
+ * regardless of the market-cap floor — that filters peers, not the token
+ * you actually searched for. */
+function peerRowsWithSeed(seed: SeedInfo, peers: CorrelatedPeer[]): CorrelatedPeer[] {
+  if (seed.marketCap === null) return peers;
+  const seedRow: CorrelatedPeer = {
     id: seed.id,
     symbol: seed.symbol,
     imageUrl: seed.imageUrl,
@@ -250,41 +259,8 @@ function seedAsPeerRow(seed: SeedInfo): PeerRow | null {
     change24h: seed.change24h,
     change7d: seed.change7d,
     marketCap: seed.marketCap,
+    correlation: 1,
+    overlapHours: 0,
   };
-}
-
-function TierPanel({
-  tier,
-  index,
-  mcapFloor,
-  seed,
-}: {
-  tier: TrendTier;
-  index: number;
-  mcapFloor: number;
-  seed: SeedInfo;
-}) {
-  const { category, peers } = tier;
-  const seedRow = seedAsPeerRow(seed);
-  const rows = seedRow ? [seedRow, ...peers] : peers;
-  return (
-    <Panel
-      className="mb-4"
-      title={`Tier ${index + 1} · ${category.name}`}
-      description={
-        <>
-          {formatCompactUsd(category.marketCap)} category market cap · 24h{" "}
-          <ChangeCell value={category.marketCapChange24h} />
-        </>
-      }
-    >
-      {rows.length > 0 && <TrendPeerTable peers={rows} seedId={seed.id} />}
-      {peers.length === 0 && (
-        <p className="mt-2 text-sm text-fg-muted">
-          No peers above {mcapFloor > 0 ? formatCompactUsd(mcapFloor) : "$0"} in this tier — try a lower market cap
-          floor above.
-        </p>
-      )}
-    </Panel>
-  );
+  return [seedRow, ...peers];
 }

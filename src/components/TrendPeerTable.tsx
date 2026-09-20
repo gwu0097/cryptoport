@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
-import type { PeerRow } from "@/lib/trendFinder";
+import type { CorrelatedPeer } from "@/lib/trendFinder";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
@@ -12,14 +12,16 @@ import type { PeerSortKey, SortDirection } from "@/lib/sortKeys";
 type Sort = { key: PeerSortKey; dir: SortDirection };
 
 const STORAGE_KEY = "cryptoport:trendPeerSort";
-// Ascending 24h (laggards first) is the whole point of Trend Finder — see
-// trendFinder.ts's rankPeers, which already returns rows in this order.
+// Ascending 24h (laggards first) is the whole point of Trend Finder —
+// trendPeers.ts already did the "is this actually a real peer" filtering
+// via correlation strength before this table ever sees a row, so the
+// default *display* order stays laggards-first within that curated set.
 // This is just the *initial* sort; usePersistedState below still lets a
 // visitor's last choice win on repeat visits, same as every other
 // sortable table in this app.
 const DEFAULT_SORT: Sort = { key: "change24h", dir: "asc" };
 
-function sortValue(peer: PeerRow, key: PeerSortKey): number | string {
+function sortValue(peer: CorrelatedPeer, key: PeerSortKey): number | string {
   switch (key) {
     case "ticker":
       return peer.symbol.toLowerCase();
@@ -33,6 +35,8 @@ function sortValue(peer: PeerRow, key: PeerSortKey): number | string {
       return peer.change7d ?? -Infinity;
     case "marketCap":
       return peer.marketCap;
+    case "correlation":
+      return peer.correlation;
   }
 }
 
@@ -42,22 +46,22 @@ function ChangeCell({ value }: { value: number | null }) {
   return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
 }
 
-/** The sortable peer table for one Trend Finder tier — same sort-toggle
- * shell as AssetsTable/WatchlistTable (now sharing SortableHeader, see
- * that file's own doc comment), just without search or a remove action
- * since these rows aren't owned by the viewer. One instance per tier
- * (TierPanel in trend-finder/page.tsx renders one per category shown),
- * each with its own independent sort state — not a global table spanning
- * every tier, since "Tier 1" vs "Tier 2" is a meaningful grouping to keep
- * visually separate, not just two chunks of one bigger list.
+/** The sortable peer table for Trend Finder's single ranked peer list —
+ * same sort-toggle shell as AssetsTable/WatchlistTable (now sharing
+ * SortableHeader, see that file's own doc comment), just without search or
+ * a remove action since these rows aren't owned by the viewer. One
+ * instance per search result (there's no more per-category tiering — see
+ * trendFinder.ts's doc comment for why category-based grouping was
+ * replaced with a flat, correlation-ranked list).
  *
- * `seedId` — when `peers` includes the seed's own row (TierPanel always
- * prepends it now, per the direct ask: "whatever token is searched for,
- * add that token into the table too"), this marks which row it is so it
- * doesn't read as an unexplained duplicate sitting among real peers — the
- * whole point of including it is seeing exactly where it ranks against its
- * own sector, not hiding which row that is. */
-export function TrendPeerTable({ peers, seedId }: { peers: PeerRow[]; seedId?: string }) {
+ * `seedId` — when `peers` includes the seed's own row (trend-finder/
+ * page.tsx's peerRowsWithSeed always prepends it, per the direct ask:
+ * "whatever token is searched for, add that token into the table too"),
+ * this marks which row it is so it doesn't read as an unexplained
+ * duplicate sitting among real peers — the whole point of including it is
+ * seeing exactly where it ranks against its own peers, not hiding which
+ * row that is. */
+export function TrendPeerTable({ peers, seedId }: { peers: CorrelatedPeer[]; seedId?: string }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
 
@@ -104,6 +108,7 @@ export function TrendPeerTable({ peers, seedId }: { peers: PeerRow[]; seedId?: s
               onSort={toggleSort}
               className={hideOnMobileClass}
             />
+            <SortableHeader label="Corr" sortKeyValue="correlation" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <th className={thClass}></th>
           </tr>
         </thead>
@@ -136,6 +141,7 @@ export function TrendPeerTable({ peers, seedId }: { peers: PeerRow[]; seedId?: s
               <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
                 {formatCompactUsd(peer.marketCap)}
               </td>
+              <td className={`${tdClass} tabular-nums text-fg-muted`}>{peer.correlation.toFixed(2)}</td>
               <td className={tdClass}>
                 <a
                   href={`https://www.coingecko.com/en/coins/${peer.id}`}

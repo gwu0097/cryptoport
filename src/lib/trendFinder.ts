@@ -1,59 +1,22 @@
 // Pure ranking logic for the Trend Finder feature — no DB, no network, so
 // this is directly unit-testable with `node --test`, separate from the
-// CoinGecko-fetching orchestration in trendPeers.ts.
+// correlation math (correlation.ts) and the CoinGecko/DB-fetching
+// orchestration in trendPeers.ts.
 //
-// The core idea, live-verified against the real CoinGecko API: raw category
-// *names* are unusable for "find similar tokens" — ARB's "Smart Contract
-// Platform" category also contains BTC/DOGE/XRP. Ranking a coin's own
-// categories ascending by each category's total market cap fixes this
-// without a large hand-maintained allowlist — the giant junk categories
-// (Smart Contract Platform at $2.4T, Proof of Work at $1.7T) lose simply by
-// being enormous. A small denylist below still catches categories that are
-// narrow in market-cap terms but not a real "sector" (e.g. "Arbitrum
-// Ecosystem" means deployed-on, not peer-of).
+// v2: replaces category-membership-based peer ranking (a coin's narrowest
+// CoinGecko category) with price-correlation-based ranking. Reported
+// directly, with a screenshot: AVAX's "narrowest" category was still
+// "Proof of Stake" — $566B, containing ETH/BNB/TRX and a junk exchange
+// token alongside real peers. No denylist or tier change fixes that; it's
+// a structural ceiling of CoinGecko's category data for major coins. See
+// correlation.ts's own doc comment for the live-verified numbers behind
+// the new method (factor-adjusted hourly-return correlation).
 
-/** Categories cap-ranking alone won't push to the bottom — narrow by market
- * cap, but not a real sector/narrative grouping. Derived from real category
- * lists observed on ARB, AAVE, DOGE, LINK, TAO this session; expect to
- * extend this as more seeds get tried (see the plan's spot-check step). */
-const CATEGORY_DENYLIST =
-  /ecosystem|portfolio|\bindex\b|launchpool|airdrop|\btge\b|\balpha\b|megadrop|\bido\b|bridged|made in|governance|alleged sec|fan token/i;
-
-export interface CategoryCap {
-  /** CoinGecko's category id, e.g. "layer-2" — what /coins/markets?category=
-   * needs. */
-  id: string;
-  /** CoinGecko's category name, e.g. "Layer 2 (L2)" — what a coin's own
-   * /coins/{id} categories list returns, and the join key between the two. */
-  name: string;
-  /** Null/0 means CoinGecko has no market-cap figure for this category
-   * (every "X Ecosystem" category observed live) — treated as unknown, never
-   * as "narrowest," per this app's missing-≠-0 rule. */
-  marketCap: number | null;
-  marketCapChange24h: number | null;
-}
-
-export interface RankedCategory extends CategoryCap {
-  marketCap: number;
-}
-
-/**
- * A coin's own category names, joined against the full category→market-cap
- * map, filtered to only the categories with a known positive cap and not on
- * the denylist, sorted ascending (narrowest sector first — the whole point).
- */
-export function rankCategories(categoryNames: string[], capsByName: Map<string, CategoryCap>): RankedCategory[] {
-  const ranked: RankedCategory[] = [];
-  for (const name of categoryNames) {
-    const cap = capsByName.get(name);
-    if (!cap || !cap.marketCap || cap.marketCap <= 0) continue;
-    if (CATEGORY_DENYLIST.test(name)) continue;
-    ranked.push({ ...cap, marketCap: cap.marketCap });
-  }
-  return ranked.sort((a, b) => a.marketCap - b.marketCap);
-}
-
-export interface CategoryMember {
+/** A universe member with a computed correlation, before the market-cap
+ * floor is applied — marketCap stays nullable here (CoinGecko occasionally
+ * has no market-cap figure for a coin) since rankPeers is what turns "no
+ * cap known" into "excluded," not the shape itself. */
+export interface CorrelatedCandidate {
   id: string;
   symbol: string;
   imageUrl: string | null;
@@ -62,27 +25,62 @@ export interface CategoryMember {
   change24h: number | null;
   change7d: number | null;
   marketCap: number | null;
+  /** Pearson correlation of hourly log-returns vs. the seed, with BTC's and
+   * ETH's own returns regressed out of both sides first (see
+   * correlation.ts). Always present — anything without a computable
+   * correlation never becomes a candidate (see trendPeers.ts). */
+  correlation: number;
+  /** How many aligned hourly observations the correlation above was
+   * computed from — gates MIN_OVERLAP_HOURS below. */
+  overlapHours: number;
 }
 
-export interface PeerRow extends CategoryMember {
+/** rankPeers' own output shape — same candidate fields, with marketCap
+ * narrowed to non-null (same "PeerRow extends CategoryMember { marketCap:
+ * number }" pattern the old category-based version used): anything that
+ * survives rankPeers' market-cap-floor filter has a known market cap by
+ * construction, so every downstream display/sort consumer (TrendPeerTable,
+ * trend-finder/page.tsx) can rely on that without a null check. */
+export interface CorrelatedPeer extends CorrelatedCandidate {
   marketCap: number;
 }
 
+/** ~3.5 standard errors from zero at n≈2159 hourly observations (95% CI
+ * ±0.042 — see correlation.ts's own doc comment for the derivation). Sits
+ * in the measured gap between junk (0.06-0.07: a random exchange token, a
+ * low-relevance L1) and real peers (0.25-0.41) from this session's live
+ * AVAX test — not an arbitrary round number. */
+export const MIN_CORRELATION = 0.15;
+
+/** ~2 weeks of hourly data. Below this, a correlation estimate is too
+ * noisy to be a real answer, not just a less precise one — see
+ * correlation.ts's own doc comment on why daily-90d's ~90 observations
+ * (±0.21 CI) wasn't usable at all. A seed or candidate with a shorter
+ * cached/fetched history (a newly listed coin) simply can't be scored yet. */
+export const MIN_OVERLAP_HOURS = 336;
+
+const MAX_PEERS = 20;
+
 /**
- * Drops the seed itself, applies the market-cap floor, and sorts ascending
- * by 24h change — laggards (haven't moved yet) first, already-moved peers
- * still shown (never hidden — the user's own stated preference: "it can be
- * listed of course but i don't want to chase something that already
- * moved"). Members with unknown 24h change sort last, not treated as flat.
+ * Drops the seed itself, requires both a minimum overlap and a minimum
+ * correlation to even be considered a peer (below MIN_CORRELATION isn't "a
+ * weak peer" — it's not a peer; this app's data-correctness rule is a
+ * missing/unreliable value is never shown as a plausible-looking one),
+ * applies the existing market-cap floor control, then sorts by correlation
+ * strength descending and caps at MAX_PEERS. Unlike the old category tiers,
+ * there is no "keep walking until we find enough" fallback — a seed with no
+ * peers clearing the bar genuinely has none in the current universe, and
+ * trendPeers.ts reports that honestly rather than padding the list.
  */
-export function rankPeers(members: CategoryMember[], opts: { seedId: string; mcapFloor: number }): PeerRow[] {
-  return members
-    .filter((m) => m.id !== opts.seedId)
-    .filter((m): m is CategoryMember & { marketCap: number } => m.marketCap !== null && m.marketCap >= opts.mcapFloor)
-    .sort((a, b) => {
-      if (a.change24h === null && b.change24h === null) return 0;
-      if (a.change24h === null) return 1;
-      if (b.change24h === null) return -1;
-      return a.change24h - b.change24h;
-    });
+export function rankPeers(
+  candidates: CorrelatedCandidate[],
+  opts: { seedId: string; mcapFloor: number },
+): CorrelatedPeer[] {
+  return candidates
+    .filter((c) => c.id !== opts.seedId)
+    .filter((c) => c.overlapHours >= MIN_OVERLAP_HOURS)
+    .filter((c) => c.correlation >= MIN_CORRELATION)
+    .filter((c): c is CorrelatedPeer => c.marketCap !== null && c.marketCap >= opts.mcapFloor)
+    .sort((a, b) => b.correlation - a.correlation)
+    .slice(0, MAX_PEERS);
 }
