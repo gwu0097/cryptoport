@@ -10,7 +10,8 @@ import { TrendLastSearchRedirect } from "@/components/TrendLastSearchRedirect";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { findTrendPeers, type TrendTier } from "@/lib/trendPeers";
-import { searchCoins } from "@/lib/adapters/coingecko";
+import { searchCoins, type SeedInfo } from "@/lib/adapters/coingecko";
+import type { PeerRow } from "@/lib/trendFinder";
 import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
@@ -216,7 +217,7 @@ async function TrendResults({
       ) : (
         <>
           {result.tiers.map((tier, i) => (
-            <TierPanel key={tier.category.id} tier={tier} index={i} mcapFloor={mcapFloor} />
+            <TierPanel key={tier.category.id} tier={tier} index={i} mcapFloor={mcapFloor} seed={seed} />
           ))}
           <p className="mt-2 text-xs text-fg-muted">
             Peers come from {seed.symbol}&rsquo;s narrowest sector categories on CoinGecko — a cross-sector sympathy
@@ -229,8 +230,43 @@ async function TrendResults({
   );
 }
 
-function TierPanel({ tier, index, mcapFloor }: { tier: TrendTier; index: number; mcapFloor: number }) {
+/** The seed's own info (already fetched for the summary panel above) as a
+ * PeerRow, so it can sit right in the ranked table instead of only ever
+ * being shown separately — the direct ask: seeing e.g. AVAX itself
+ * ranked alongside NEAR/HYPE/SUI tells you something the summary panel
+ * alone doesn't (is the seed the biggest mover in its own sector, or the
+ * laggard everyone else already left behind?). Null when the seed itself
+ * has no market cap (rare) — never fabricated, just omitted, same as any
+ * other missing-data case in this app. Shown regardless of the market-cap
+ * floor — that filters peers, not the token you actually searched for. */
+function seedAsPeerRow(seed: SeedInfo): PeerRow | null {
+  if (seed.marketCap === null) return null;
+  return {
+    id: seed.id,
+    symbol: seed.symbol,
+    imageUrl: seed.imageUrl,
+    price: seed.price,
+    change1h: seed.change1h,
+    change24h: seed.change24h,
+    change7d: seed.change7d,
+    marketCap: seed.marketCap,
+  };
+}
+
+function TierPanel({
+  tier,
+  index,
+  mcapFloor,
+  seed,
+}: {
+  tier: TrendTier;
+  index: number;
+  mcapFloor: number;
+  seed: SeedInfo;
+}) {
   const { category, peers } = tier;
+  const seedRow = seedAsPeerRow(seed);
+  const rows = seedRow ? [seedRow, ...peers] : peers;
   return (
     <Panel
       className="mb-4"
@@ -242,13 +278,12 @@ function TierPanel({ tier, index, mcapFloor }: { tier: TrendTier; index: number;
         </>
       }
     >
-      {peers.length === 0 ? (
-        <p className="text-sm text-fg-muted">
+      {rows.length > 0 && <TrendPeerTable peers={rows} seedId={seed.id} />}
+      {peers.length === 0 && (
+        <p className="mt-2 text-sm text-fg-muted">
           No peers above {mcapFloor > 0 ? formatCompactUsd(mcapFloor) : "$0"} in this tier — try a lower market cap
           floor above.
         </p>
-      ) : (
-        <TrendPeerTable peers={peers} />
       )}
     </Panel>
   );

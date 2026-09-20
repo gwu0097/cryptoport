@@ -49,8 +49,15 @@ function ChangeCell({ value }: { value: number | null }) {
  * (TierPanel in trend-finder/page.tsx renders one per category shown),
  * each with its own independent sort state — not a global table spanning
  * every tier, since "Tier 1" vs "Tier 2" is a meaningful grouping to keep
- * visually separate, not just two chunks of one bigger list. */
-export function TrendPeerTable({ peers }: { peers: PeerRow[] }) {
+ * visually separate, not just two chunks of one bigger list.
+ *
+ * `seedId` — when `peers` includes the seed's own row (TierPanel always
+ * prepends it now, per the direct ask: "whatever token is searched for,
+ * add that token into the table too"), this marks which row it is so it
+ * doesn't read as an unexplained duplicate sitting among real peers — the
+ * whole point of including it is seeing exactly where it ranks against its
+ * own sector, not hiding which row that is. */
+export function TrendPeerTable({ peers, seedId }: { peers: PeerRow[]; seedId?: string }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
 
@@ -101,12 +108,19 @@ export function TrendPeerTable({ peers }: { peers: PeerRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {sorted.map((peer) => (
-            <tr key={peer.id} className={trClass}>
+          {sorted.map((peer) => {
+            const isSeed = peer.id === seedId;
+            return (
+            <tr key={peer.id} className={`${trClass} ${isSeed ? "bg-accent/10" : ""}`}>
               <td className={tdClass}>
                 <div className="flex items-center gap-2">
                   <TokenIcon ticker={peer.symbol} url={peer.imageUrl} />
                   <span className="font-medium text-fg">{peer.symbol}</span>
+                  {isSeed && (
+                    <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                      Seed
+                    </span>
+                  )}
                 </div>
               </td>
               <td className={`${tdClass} tabular-nums`}>{peer.price !== null ? formatUsd(peer.price) : "—"}</td>
@@ -135,7 +149,8 @@ export function TrendPeerTable({ peers }: { peers: PeerRow[] }) {
                 </a>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

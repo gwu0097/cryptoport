@@ -5,12 +5,12 @@ import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { TokenRegistryRefreshButton } from "@/components/TokenRegistryRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { buttonClass } from "@/components/ui/Button";
 import { WalletsTable } from "@/components/WalletsTable";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
 import { WalletsFilterProvider } from "@/components/wallets/WalletsFilterProvider";
+import { WalletsTotalValue } from "@/components/wallets/WalletsTotalValue";
 import { refreshPricesAction, refreshTokenRegistryAction, syncAllWallets } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
@@ -58,14 +58,7 @@ export default async function WalletsPage() {
       />
 
       {user ? (
-        <TotalValuePanel total={grand.total}>
-          {grand.unpricedCount > 0 && (
-            <p className="mt-2 text-sm text-warning">
-              {grand.unpricedCount} holding{grand.unpricedCount === 1 ? "" : "s"} unpriced and
-              excluded from the total
-            </p>
-          )}
-        </TotalValuePanel>
+        <WalletsTotalValue wallets={wallets} grandTotal={grand.total} grandUnpricedCount={grand.unpricedCount} />
       ) : (
         <GuestBanner message="Sign up or connect a wallet to see your own wallets here." />
       )}
