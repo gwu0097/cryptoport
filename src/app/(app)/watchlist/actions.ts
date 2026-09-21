@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { after } from "next/server";
 import { userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
@@ -119,43 +118,39 @@ async function insertItems(watchlistId: string, coins: AddableCoin[]): Promise<v
   if (error) throw new Error(`Failed to add to watchlist: ${error.message}`);
 }
 
-/** Returns almost immediately (one insert); the just-added coin(s)' real
- * market data is fetched inside after() rather than awaited here — see
- * CLAUDE.md's "every click as fast as possible" rule and
- * wallets/actions.ts's refreshPricesForWalletAction for the same shape.
- * Without this, a newly added coin would show "—" until the next full
- * price refresh, which could be a while. */
+/** Awaits the new coin's real market data directly rather than doing it
+ * inside after() — reported directly, with a screenshot: a freshly-added
+ * coin (VIRTUAL) kept showing "—" across every column indefinitely, not
+ * just until the next refresh. Root cause was CLAUDE.md's own documented
+ * after()/revalidatePath gap (see the Caching section): the response this
+ * action's own click was waiting on had already gone out by the time
+ * after() ran refreshCoinsById + revalidatePath, so that revalidation
+ * could purge the *server's* cache but could never reach *this* browser
+ * tab — the watchlist page stayed on its pre-fetch render (no price yet)
+ * until an unrelated full navigation happened to refetch it. after() is
+ * for multi-second work that would otherwise freeze the whole app's
+ * navigation queue (chain scans, wallet syncs); a single /coins/markets
+ * call for up to MAX_BULK_TICKERS ids (one batch — see coingecko.ts's
+ * MARKETS_BATCH_SIZE=250) is fast enough to just await like any other
+ * quick mutation, and doing so is what lets the one real revalidatePath
+ * call (after the write, not before) actually show the fetched price on
+ * first render instead of racing it. */
 export async function addWatchlistItem(watchlistId: string, coin: AddableCoin) {
   await requireUser();
   await insertItems(watchlistId, [coin]);
-
-  after(async () => {
-    try {
-      await refreshCoinsById([coin.coingeckoId]);
-      revalidatePath("/watchlist");
-    } catch {
-      // Best-effort — the item is already saved; it just shows "—" until
-      // the next successful refresh instead of a fabricated number.
-    }
+  await refreshCoinsById([coin.coingeckoId]).catch(() => {
+    // Best-effort — the item is already saved; it just shows "—" until
+    // the next successful refresh instead of a fabricated number.
   });
-
   revalidatePath("/watchlist");
 }
 
 export async function addWatchlistItems(watchlistId: string, coins: AddableCoin[]) {
   await requireUser();
   await insertItems(watchlistId, coins);
-
-  const ids = coins.map((c) => c.coingeckoId);
-  after(async () => {
-    try {
-      await refreshCoinsById(ids);
-      revalidatePath("/watchlist");
-    } catch {
-      // Best-effort — see addWatchlistItem's own comment.
-    }
+  await refreshCoinsById(coins.map((c) => c.coingeckoId)).catch(() => {
+    // Best-effort — see addWatchlistItem's own comment.
   });
-
   revalidatePath("/watchlist");
 }
 
