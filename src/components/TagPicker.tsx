@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { inputClass } from "./ui/Field";
 
@@ -31,14 +32,55 @@ export function TagPicker({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLUListElement>(null);
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     function onPointerDown(e: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      // The dropdown now renders through a portal (see the effect below),
+      // so it's no longer a DOM descendant of containerRef — checking only
+      // containerRef here would treat every click on a dropdown option as
+      // an "outside" click and close the list right after each selection.
+      if (containerRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
+
+  // EditWalletModal renders this inside Dialog's own `overflow-y-auto`
+  // scroll container (see Dialog.tsx's doc comment — that scroll cap is
+  // load-bearing for a different real bug, not something to remove here).
+  // A plain `absolute` dropdown is clipped by that ancestor whenever it
+  // pokes past the dialog's current box — reported directly, with a
+  // screenshot showing the tag list cut off mid-item at the dialog's
+  // rounded corner instead of fully visible or scrollable-to. Rendering it
+  // through a portal into document.body, positioned in viewport
+  // coordinates from the input's own bounding rect, escapes every
+  // ancestor's overflow clipping (the same reason Radix/Popper-style
+  // libraries portal their popovers) rather than papering over this one
+  // report by just making the dialog taller, which wouldn't help a wallet
+  // with more tags or a shorter viewport next time.
+  useLayoutEffect(() => {
+    if (!open) return;
+    function updateRect() {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setDropdownRect({ top: r.bottom, left: r.left, width: r.width });
+    }
+    updateRect();
+    // capture:true so this also fires for scrolling inside Dialog's own
+    // scroll container, not just window-level scrolling.
+    window.addEventListener("scroll", updateRect, true);
+    window.addEventListener("resize", updateRect);
+    return () => {
+      window.removeEventListener("scroll", updateRect, true);
+      window.removeEventListener("resize", updateRect);
+    };
+  }, [open]);
 
   function addTag(tagName: string) {
     const trimmed = tagName.trim();
@@ -121,53 +163,60 @@ export function TagPicker({
         />
       </div>
 
-      {showDropdown && (
-        <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-border bg-surface-raised py-1 shadow-lg">
-          {filtered.map((t) => (
-            <li key={t}>
-              <button
-                type="button"
-                // Both pointerdown and click — real bug, reported
-                // directly: selecting a tag "didn't stick" on a mobile
-                // browser. The text input above still had focus while
-                // this button was tapped; on touch devices that first tap
-                // can just blur the input (dismissing the keyboard) and
-                // never actually fire a click on the button at all — a
-                // well-known mobile Safari/Chrome quirk, not specific to
-                // this component. preventDefault on pointerdown stops
-                // that default blur-shift behavior so the tap registers
-                // immediately and reliably; click stays as the fallback
-                // for keyboard activation (Tab+Enter/Space dispatches
-                // click, never pointerdown). addTag is idempotent, so a
-                // normal mouse click firing both is harmless.
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  addTag(t);
-                }}
-                onClick={() => addTag(t)}
-                className="block w-full px-3 py-1.5 text-left text-sm text-fg hover:bg-border"
-              >
-                {t}
-              </button>
-            </li>
-          ))}
-          {trimmedQuery !== "" && !exactMatch && (
-            <li>
-              <button
-                type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  addTag(trimmedQuery);
-                }}
-                onClick={() => addTag(trimmedQuery)}
-                className="block w-full px-3 py-1.5 text-left text-sm text-accent hover:bg-border"
-              >
-                Create &ldquo;{trimmedQuery}&rdquo;
-              </button>
-            </li>
-          )}
-        </ul>
-      )}
+      {showDropdown &&
+        dropdownRect &&
+        createPortal(
+          <ul
+            ref={dropdownRef}
+            style={{ top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }}
+            className="fixed z-50 mt-1 max-h-48 overflow-auto rounded-lg border border-border bg-surface-raised py-1 shadow-lg"
+          >
+            {filtered.map((t) => (
+              <li key={t}>
+                <button
+                  type="button"
+                  // Both pointerdown and click — real bug, reported
+                  // directly: selecting a tag "didn't stick" on a mobile
+                  // browser. The text input above still had focus while
+                  // this button was tapped; on touch devices that first tap
+                  // can just blur the input (dismissing the keyboard) and
+                  // never actually fire a click on the button at all — a
+                  // well-known mobile Safari/Chrome quirk, not specific to
+                  // this component. preventDefault on pointerdown stops
+                  // that default blur-shift behavior so the tap registers
+                  // immediately and reliably; click stays as the fallback
+                  // for keyboard activation (Tab+Enter/Space dispatches
+                  // click, never pointerdown). addTag is idempotent, so a
+                  // normal mouse click firing both is harmless.
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    addTag(t);
+                  }}
+                  onClick={() => addTag(t)}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-fg hover:bg-border"
+                >
+                  {t}
+                </button>
+              </li>
+            ))}
+            {trimmedQuery !== "" && !exactMatch && (
+              <li>
+                <button
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    addTag(trimmedQuery);
+                  }}
+                  onClick={() => addTag(trimmedQuery)}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-accent hover:bg-border"
+                >
+                  Create &ldquo;{trimmedQuery}&rdquo;
+                </button>
+              </li>
+            )}
+          </ul>,
+          document.body,
+        )}
 
       {selected.map((t) => (
         <input key={t} type="hidden" name={name} value={t} />
