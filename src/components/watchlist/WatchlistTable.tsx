@@ -6,6 +6,7 @@ import type { WatchlistRow } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { TradingViewCompareChart } from "../TradingViewCompareChart";
+import { TokenAnalysisPanel } from "./TokenAnalysisPanel";
 import { inputClass } from "../ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "../ui/table";
 import { SortableHeader as Header } from "../ui/SortableHeader";
@@ -270,6 +271,7 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
                               BTC, so a BTC row in the watchlist just shows
                               its own single line instead of BTC-vs-BTC. */}
                           <TradingViewCompareChart baseTicker={row.ticker} compareTicker="BTC" />
+                          <TokenAnalysisPanel coingeckoId={row.coingeckoId} ticker={row.ticker} name={row.name} />
                         </td>
                       </tr>
                     )}

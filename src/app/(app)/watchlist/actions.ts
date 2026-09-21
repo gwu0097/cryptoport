@@ -2,12 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshCoinsById } from "@/lib/coinMarketData";
 import { mapWithConcurrency } from "@/lib/adapters/http";
 import { pickBestMatch, MAX_BULK_TICKERS } from "@/lib/watchlistInput";
+import { getTokenAnalysis, claimTokenAnalysis, runTokenAnalysis, type TokenAnalysisRow } from "@/lib/tokenAnalysis";
+import type { JobStartResult } from "@/lib/jobStatus";
 
 // FormData-based, matching wallets/actions.ts's createWallet/updateWallet
 // convention — these are submitted from a real <form>, unlike
@@ -193,4 +196,39 @@ export async function resolveTickersAction(rawTickers: string[]): Promise<Ticker
     const results = await searchCoins(ticker);
     return { ticker, match: pickBestMatch(ticker, results) };
   });
+}
+
+/** Read-only — the client's own polling loop calls this directly (see
+ * TokenAnalysisPanel.tsx) to pick up a refresh's real completion, since
+ * this table isn't part of the shared JobPollerProvider's fixed resource
+ * set (wallets + price refresh + token registry) — a token's analysis is
+ * an unbounded, per-row resource that provider was never built to track.
+ * Gated behind requireUser() the same as every other watchlist action,
+ * even though it's a read, since the underlying table has no direct RLS
+ * client access (serviceDb() bypasses RLS — this check is the real gate). */
+export async function getTokenAnalysisAction(coingeckoId: string): Promise<TokenAnalysisRow | null> {
+  await requireUser();
+  return getTokenAnalysis(coingeckoId);
+}
+
+/**
+ * On-demand only — never run automatically, per the direct ask ("I'll
+ * decide when I want it run"). Same CAS-claim/after() shape as
+ * syncWalletHoldings/syncWalletDefi (wallets/actions.ts): claim returns
+ * almost immediately, the real ~20-30s Perplexity call happens in after()
+ * so this doesn't freeze the app's shared navigation queue the way an
+ * awaited slow Server Action would (see CLAUDE.md's Loading Feedback
+ * section — backfillHistoryAction hit exactly this bug once, this follows
+ * the fix from day one instead of needing the same fix twice).
+ */
+export async function refreshTokenAnalysis(coingeckoId: string, ticker: string, name: string): Promise<JobStartResult> {
+  await requireUser();
+  const claimed = await claimTokenAnalysis(coingeckoId);
+  if (!claimed) return { started: false, reason: "An analysis is already running for this token." };
+
+  after(async () => {
+    await runTokenAnalysis(coingeckoId, ticker, name);
+  });
+
+  return { started: true };
 }
