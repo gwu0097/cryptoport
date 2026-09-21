@@ -24,6 +24,8 @@ export const CHAIN_NAMES: Record<string, string> = {
   KRAKEN: "Kraken",
   gemini: "Gemini",
   GEMINI: "Gemini",
+  mexc: "MEXC",
+  MEXC: "MEXC",
 };
 
 export function chainDisplayName(chainId: string): string {

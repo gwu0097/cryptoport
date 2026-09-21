@@ -64,4 +64,19 @@ export const EXCHANGE_PROVIDERS: ExchangeProvider[] = [
     secretLabel: "API Secret",
     secretHint: "Shown only once, when you create the key — copy it immediately.",
   },
+  {
+    id: "mexc",
+    name: "MEXC",
+    portalUrl: "https://www.mexc.com/user/openapi",
+    steps: [
+      "Go to Account → API Management on MEXC → Create API.",
+      "Permissions: check \"Spot Account Read\" only — no trading or withdrawal access needed.",
+      "Skip the IP allowlist step unless you have a static IP to add — MEXC allows this, but the key then expires after 90 days and needs regenerating here.",
+      "Copy the API key and Secret Key below — the secret is shown only once.",
+    ],
+    keyLabel: "API Key",
+    keyHint: "The public key shown on your API key's settings page.",
+    secretLabel: "Secret Key",
+    secretHint: "Shown only once, when you create the key — copy it immediately.",
+  },
 ];

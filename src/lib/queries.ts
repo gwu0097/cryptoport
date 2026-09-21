@@ -149,9 +149,15 @@ const STATIC_CHAIN_ICONS: Record<string, string> = {
   // token, whose logo doubles as the brand mark here.
   polymarket: "https://coin-images.coingecko.com/coins/images/70290/large/poly.png",
   // Same "CEX, not a chain, so no asset_platform" reasoning as Coinbase —
-  // CoinGecko also tracks Kraken/Gemini as exchanges with their own logos.
+  // CoinGecko also tracks Kraken/Gemini/MEXC as exchanges with their own
+  // logos. CoinGecko's own exchange id for MEXC is "mxc" (a legacy
+  // rebrand artifact, live-verified via /exchanges/list — MEXC used to be
+  // named MXC), not "mexc"; this app's own chain id stays "mexc" to match
+  // wallets.provider/exchange_connections.provider, only the CoinGecko
+  // lookup itself needed the older id.
   kraken: "https://coin-images.coingecko.com/markets/images/29/small/kraken.jpg?1706864265",
   gemini: "https://coin-images.coingecko.com/markets/images/50/small/gemini.png?1706864273",
+  mexc: "https://coin-images.coingecko.com/markets/images/409/small/164286be-32a5-4b58-978c-d072eea00eb9.jpeg?1775619316",
 };
 
 /** chain id (evmChains.ts id, or 'solana' | 'hyperliquid') -> logo URL —

@@ -2,6 +2,7 @@ import "server-only";
 import { fetchCoinbaseBalances } from "./adapters/coinbaseAdvancedTrade";
 import { fetchKrakenBalances } from "./adapters/kraken";
 import { fetchGeminiBalances } from "./adapters/gemini";
+import { fetchMexcBalances } from "./adapters/mexc";
 import type { AdapterHolding } from "./adapters/types";
 
 export interface ExchangeFetchResult {
@@ -25,4 +26,5 @@ export const EXCHANGE_ADAPTERS: Record<string, ExchangeFetcher> = {
   coinbase: fetchCoinbaseBalances,
   kraken: fetchKrakenBalances,
   gemini: fetchGeminiBalances,
+  mexc: fetchMexcBalances,
 };
