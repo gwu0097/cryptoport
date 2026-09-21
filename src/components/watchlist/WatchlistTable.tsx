@@ -7,6 +7,7 @@ import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { TradingViewCompareChart } from "../TradingViewCompareChart";
 import { TokenAnalysisPanel } from "./TokenAnalysisPanel";
+import { ToggleGroup } from "../ui/ToggleGroup";
 import { inputClass } from "../ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "../ui/table";
 import { SortableHeader as Header } from "../ui/SortableHeader";
@@ -75,6 +76,12 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Per-row, not one shared value — switching tabs on one row shouldn't
+  // affect any other row's own expanded view. Reported directly: chart +
+  // AI analysis stacked in one expand meant real scrolling, worse on
+  // mobile once the AI panel's own 2-column sections collapse to one —
+  // only one view renders at a time now instead of both always stacked.
+  const [expandedTab, setExpandedTab] = useState<Map<string, "chart" | "ai">>(new Map());
 
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -261,20 +268,42 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
                         </button>
                       </td>
                     </tr>
-                    {isExpanded && (
-                      <tr className="border-b border-border bg-surface-raised/50">
-                        <td colSpan={showExtraChanges ? 8 : 5} className="p-3">
-                          {/* vs. BTC, same "always show the market baseline"
-                              choice as Trend Finder's own peer-chart expand —
-                              TradingViewCompareChart already skips adding a
-                              second BTC line when compareTicker itself is
-                              BTC, so a BTC row in the watchlist just shows
-                              its own single line instead of BTC-vs-BTC. */}
-                          <TradingViewCompareChart baseTicker={row.ticker} compareTicker="BTC" />
-                          <TokenAnalysisPanel coingeckoId={row.coingeckoId} ticker={row.ticker} name={row.name} />
-                        </td>
-                      </tr>
-                    )}
+                    {isExpanded &&
+                      (() => {
+                        const activeTab = expandedTab.get(row.id) ?? "chart";
+                        return (
+                          <tr className="border-b border-border bg-surface-raised/50">
+                            <td colSpan={showExtraChanges ? 8 : 5} className="p-3">
+                              <div className="mb-3">
+                                <ToggleGroup
+                                  options={[
+                                    { key: "chart" as const, label: "Chart" },
+                                    { key: "ai" as const, label: "AI analysis" },
+                                  ]}
+                                  value={activeTab}
+                                  onChange={(tab) => setExpandedTab((prev) => new Map(prev).set(row.id, tab))}
+                                />
+                              </div>
+                              {activeTab === "chart" ? (
+                                // vs. BTC, same "always show the market baseline"
+                                // choice as Trend Finder's own peer-chart expand —
+                                // TradingViewCompareChart already skips adding a
+                                // second BTC line when compareTicker itself is
+                                // BTC, so a BTC row in the watchlist just shows
+                                // its own single line instead of BTC-vs-BTC.
+                                <TradingViewCompareChart baseTicker={row.ticker} compareTicker="BTC" />
+                              ) : (
+                                // Only mounted once this tab is actually
+                                // selected — its own mount-time fetch
+                                // (a cheap read, not a Perplexity call) still
+                                // shouldn't happen for a row someone only
+                                // ever looks at the chart for.
+                                <TokenAnalysisPanel coingeckoId={row.coingeckoId} ticker={row.ticker} name={row.name} />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                   </Fragment>
                 );
               })}

@@ -137,14 +137,14 @@ export function TokenAnalysisPanel({
 
   if (!loaded) {
     return (
-      <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+      <div className="rounded-lg border border-border bg-surface p-4">
         <p className="text-sm text-fg-muted">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+    <div className="rounded-lg border border-border bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-1.5 text-sm font-semibold text-fg">
           <Sparkles className="size-4 text-accent" aria-hidden="true" />
