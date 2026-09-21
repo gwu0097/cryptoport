@@ -68,6 +68,16 @@ function ChangeCell({ value }: { value: number | null }) {
   return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
 }
 
+/** An unsigned share of the portfolio total — deliberately not
+ * formatPercent (that adds a "+" for positive deltas, which reads wrong
+ * for a plain proportion like this). "—" when there's no priced total to
+ * divide by, same missing-≠-0 rule as every other figure in this app —
+ * not "0.0%", which would look like the asset is genuinely worthless. */
+function formatShare(value: number, total: number): string {
+  if (total <= 0) return "—";
+  return `${((value / total) * 100).toFixed(1)}%`;
+}
+
 /** group.coingeckoId is only ever a real, resolved id (see
  * getAssetsGroupedByTicker's own doc comment — never a guess), so a known
  * id links straight to that coin's own page; an unresolved one (native
@@ -134,7 +144,7 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
  * it via setSort also persists it, same as a manual header click would, so
  * the next organic visit remembers this as the new "last sort" too.
  */
-export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; initialSort?: Sort }) {
+export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup[]; total: number; initialSort?: Sort }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, initialSort ?? DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
@@ -343,7 +353,10 @@ export function AssetsTable({ groups, initialSort }: { groups: AssetGroup[]; ini
                       {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>{group.holdings.length}</td>
-                    <td className={`${tdClass} tabular-nums`}>{formatUsd(group.total)}</td>
+                    <td className={`${tdClass} tabular-nums`}>
+                      {formatUsd(group.total)}{" "}
+                      <span className="text-xs text-fg-muted">({formatShare(group.total, total)})</span>
+                    </td>
                     {/* stopPropagation — the whole row toggles the expanded
                         breakdown on click; without this, clicking a link
                         here would also fire that. */}

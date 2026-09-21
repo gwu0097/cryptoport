@@ -134,7 +134,7 @@ export default async function AssetsPage({
               <p className="text-sm text-fg-muted">Nothing to show here.</p>
             </Panel>
           ) : (
-            <AssetsTable groups={visibleGroups} initialSort={initialSort} />
+            <AssetsTable groups={visibleGroups} total={grand.total} initialSort={initialSort} />
           )}
         </>
       )}
