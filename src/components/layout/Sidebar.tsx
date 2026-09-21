@@ -10,7 +10,15 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
 
   return (
-    <nav className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface p-3 md:flex">
+    // sticky top-14 (TopBar's own h-14) + h-[calc(100vh-3.5rem)] pins this
+    // under the already-sticky TopBar instead of scrolling away with page
+    // content — reported directly: on a long table (Assets), the sidebar
+    // (Settings included) scrolled off with everything else, since nothing
+    // here previously stopped it from following normal document flow.
+    // overflow-y-auto is a defensive cap, not something seen live yet —
+    // this nav is short today, but the same reasoning as Dialog.tsx's own
+    // height cap applies if it ever grows past a short viewport.
+    <nav className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface p-3 md:flex">
       <div className="flex flex-1 flex-col gap-1">
         <NavItemsList pathname={pathname} />
       </div>
