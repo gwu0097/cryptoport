@@ -5,6 +5,7 @@ import { rankPeers, matchCategoryName, type PeerRow, type CategoryNameStat } fro
 function peer(overrides: Partial<PeerRow> & { id: string }): PeerRow {
   return {
     symbol: overrides.id.toUpperCase(),
+    name: overrides.id,
     imageUrl: null,
     price: 1,
     change1h: null,

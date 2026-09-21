@@ -18,6 +18,7 @@
 export interface PeerRow {
   id: string;
   symbol: string;
+  name: string;
   imageUrl: string | null;
   price: number | null;
   change1h: number | null;

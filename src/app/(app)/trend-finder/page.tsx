@@ -13,6 +13,8 @@ import { findTrendPeers } from "@/lib/trendPeers";
 import { searchCoins, type SeedInfo } from "@/lib/adapters/coingecko";
 import type { PeerRow } from "@/lib/trendFinder";
 import { pickBestMatch } from "@/lib/watchlistInput";
+import { getUser } from "@/lib/auth";
+import { getWatchlists } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 // A cold cache (no trend_explanations hit yet for this seed) makes one live
@@ -165,7 +167,8 @@ async function TrendResults({
   mcapFloor: number;
   matchedFromTicker?: string;
 }) {
-  const result = await findTrendPeers({ coingeckoId: id, mcapFloor });
+  const [result, user] = await Promise.all([findTrendPeers({ coingeckoId: id, mcapFloor }), getUser()]);
+  const watchlists = user ? await getWatchlists() : null;
 
   if (result.status === "no-seed-data") {
     return (
@@ -271,7 +274,13 @@ async function TrendResults({
         description="Verified category membership — no AI involved in this list. Click the arrow on a row to overlay its chart."
       >
         {categoryPeers.length > 0 ? (
-          <TrendPeerTable peers={categoryRows} seedId={seed.id} seedSymbol={seed.symbol} confirmedIds={confirmedIds} />
+          <TrendPeerTable
+            peers={categoryRows}
+            seedId={seed.id}
+            seedSymbol={seed.symbol}
+            confirmedIds={confirmedIds}
+            watchlists={watchlists}
+          />
         ) : (
           <p className="text-sm text-fg-muted">
             {category
@@ -293,6 +302,7 @@ async function TrendResults({
             seedSymbol={seed.symbol}
             confirmedIds={confirmedIds}
             reasons={aiPeerReasons}
+            watchlists={watchlists}
           />
         ) : (
           <p className="text-sm text-fg-muted">
@@ -326,6 +336,7 @@ function peerRowsWithSeed(seed: SeedInfo, peers: PeerRow[]): PeerRow[] {
   const seedRow: PeerRow = {
     id: seed.id,
     symbol: seed.symbol,
+    name: seed.name,
     imageUrl: seed.imageUrl,
     price: seed.price,
     change1h: seed.change1h,

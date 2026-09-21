@@ -365,6 +365,7 @@ const MARKETS_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
 export interface MarketDataRow {
   id: string;
   symbol: string;
+  name: string;
   imageUrl: string | null;
   price: number | null;
   change1h: number | null;
@@ -409,6 +410,7 @@ export async function fetchCategoryStats(): Promise<CategoryStat[]> {
 interface MarketsResponseRow {
   id: string;
   symbol: string;
+  name: string;
   image?: string;
   current_price?: number;
   price_change_percentage_1h_in_currency?: number;
@@ -424,6 +426,7 @@ function parseMarketsRow(c: MarketsResponseRow): MarketDataRow {
   return {
     id: c.id,
     symbol: c.symbol.toUpperCase(),
+    name: c.name,
     imageUrl: c.image ?? null,
     price: typeof c.current_price === "number" ? c.current_price : null,
     change1h: typeof c.price_change_percentage_1h_in_currency === "number" ? c.price_change_percentage_1h_in_currency : null,

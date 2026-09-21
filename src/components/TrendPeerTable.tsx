@@ -1,15 +1,21 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, ListPlus } from "lucide-react";
 import type { PeerRow } from "@/lib/trendFinder";
+import type { WatchlistSummary } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { TradingViewCompareChart } from "./TradingViewCompareChart";
+import { WatchlistAddMenu } from "./WatchlistAddMenu";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { SortableHeader } from "./ui/SortableHeader";
 import { usePersistedState } from "./usePersistedState";
 import type { PeerSortKey, SortDirection } from "@/lib/sortKeys";
+
+function peerToCoin(peer: PeerRow) {
+  return { coingeckoId: peer.id, ticker: peer.symbol, name: peer.name, imageUrl: peer.imageUrl };
+}
 
 type Sort = { key: PeerSortKey; dir: SortDirection };
 
@@ -76,19 +82,33 @@ export function TrendPeerTable({
   seedSymbol,
   confirmedIds,
   reasons,
+  watchlists,
 }: {
   peers: PeerRow[];
   seedId?: string;
   seedSymbol: string;
   confirmedIds?: Set<string>;
   reasons?: Map<string, string>;
+  /** `null` = not signed in, `[]` = signed in with no watchlists yet — see
+   * WatchlistAddMenu's own doc comment for what each renders. */
+  watchlists: WatchlistSummary[] | null;
 }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   function toggleExpanded(id: string) {
     setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -107,12 +127,41 @@ export function TrendPeerTable({
     return sortDir === "desc" ? -cmp : cmp;
   });
 
+  const allSelected = peers.length > 0 && peers.every((p) => selected.has(p.id));
+  const selectedCoins = peers.filter((p) => selected.has(p.id)).map(peerToCoin);
+
   return (
-    <div className="overflow-x-auto">
-      <table className={tableClass}>
-        <thead>
-          <tr className={theadRowClass}>
-            <SortableHeader label="Asset" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+    <>
+      {selected.size > 0 && (
+        <div className="mb-2 flex items-center justify-end gap-2 text-sm">
+          <span className="text-fg-muted">{selected.size} selected</span>
+          <WatchlistAddMenu
+            coins={selectedCoins}
+            watchlists={watchlists}
+            onAdded={() => setSelected(new Set())}
+            trigger={
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-2.5 py-1.5 text-xs font-medium text-fg transition hover:bg-border">
+                <ListPlus className="size-3.5" aria-hidden="true" />
+                Add to watchlist
+              </span>
+            }
+          />
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className={tableClass}>
+          <thead>
+            <tr className={theadRowClass}>
+              <th className={thClass}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => setSelected(allSelected ? new Set() : new Set(peers.map((p) => p.id)))}
+                  aria-label={allSelected ? "Deselect all" : "Select all"}
+                  className="size-3.5 rounded border-border"
+                />
+              </th>
+              <SortableHeader label="Asset" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <SortableHeader label="Price" sortKeyValue="price" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <SortableHeader
               label="1h"
@@ -151,6 +200,15 @@ export function TrendPeerTable({
             return (
               <Fragment key={peer.id}>
                 <tr className={`${trClass} ${isSeed ? "bg-accent/10" : ""}`}>
+                  <td className={tdClass}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(peer.id)}
+                      onChange={() => toggleSelected(peer.id)}
+                      aria-label={`Select ${peer.symbol}`}
+                      className="size-3.5 rounded border-border"
+                    />
+                  </td>
                   <td className={tdClass}>
                     <div className="flex items-center gap-2">
                       {!isSeed ? (
@@ -198,21 +256,30 @@ export function TrendPeerTable({
                     {formatCompactUsd(peer.marketCap)}
                   </td>
                   <td className={tdClass}>
-                    <a
-                      href={`https://www.coingecko.com/en/coins/${peer.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="View on CoinGecko"
-                      aria-label={`View ${peer.symbol} on CoinGecko`}
-                      className="text-fg-muted transition hover:text-accent"
-                    >
-                      <ExternalLink className="size-3.5" aria-hidden="true" />
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <WatchlistAddMenu
+                        coins={[peerToCoin(peer)]}
+                        watchlists={watchlists}
+                        trigger={<ListPlus className="size-3.5" aria-hidden="true" />}
+                        triggerClassName="text-fg-muted transition hover:text-accent"
+                        triggerLabel={`Add ${peer.symbol} to watchlist`}
+                      />
+                      <a
+                        href={`https://www.coingecko.com/en/coins/${peer.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="View on CoinGecko"
+                        aria-label={`View ${peer.symbol} on CoinGecko`}
+                        className="text-fg-muted transition hover:text-accent"
+                      >
+                        <ExternalLink className="size-3.5" aria-hidden="true" />
+                      </a>
+                    </div>
                   </td>
                 </tr>
                 {!isSeed && isExpanded && (
                   <tr className="border-b border-border bg-surface-raised/50">
-                    <td colSpan={7} className="p-3">
+                    <td colSpan={8} className="p-3">
                       {reason && (
                         <p className="mb-3 text-xs text-fg-muted">
                           <span className="font-medium text-fg">Why {peer.symbol}:</span> {reason}
@@ -225,8 +292,9 @@ export function TrendPeerTable({
               </Fragment>
             );
           })}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
