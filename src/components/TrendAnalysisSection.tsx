@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, BookOpen } from "lucide-react";
 import { Panel } from "./ui/Panel";
 import { TokenIcon } from "./TokenIcon";
 import { TrendSeedPicker } from "./TrendSeedPicker";
@@ -189,6 +189,14 @@ export async function TrendAnalysisSection({
                   >
                     <ExternalLink className="size-4" aria-hidden="true" />
                   </a>
+                  <Link
+                    href={`/encyclopedia?id=${encodeURIComponent(seed.id)}`}
+                    title="Open in Encyclopedia"
+                    aria-label={`Open ${seed.symbol} in Encyclopedia`}
+                    className="text-fg-muted transition hover:text-accent"
+                  >
+                    <BookOpen className="size-4" aria-hidden="true" />
+                  </Link>
                 </p>
                 <p className="text-xs text-fg-muted">
                   {seed.marketCapRank !== null ? `Rank #${seed.marketCapRank}` : "Unranked"} ·{" "}

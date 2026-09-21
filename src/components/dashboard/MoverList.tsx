@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, TrendingUp } from "lucide-react";
+import { ChevronRight, TrendingUp, BookOpen } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { Panel } from "../ui/Panel";
@@ -91,6 +91,18 @@ export function MoverList({ title, items, href }: { title: string; items: MoverI
                   className="text-fg-muted transition hover:text-accent"
                 >
                   <TrendingUp className="size-3.5" aria-hidden="true" />
+                </Link>
+                <Link
+                  href={
+                    item.coingeckoId
+                      ? `/encyclopedia?id=${encodeURIComponent(item.coingeckoId)}`
+                      : `/encyclopedia?ticker=${encodeURIComponent(item.ticker)}`
+                  }
+                  aria-label={`Open ${item.ticker} in Encyclopedia`}
+                  title="Open in Encyclopedia"
+                  className="text-fg-muted transition hover:text-accent"
+                >
+                  <BookOpen className="size-3.5" aria-hidden="true" />
                 </Link>
               </div>
             </li>

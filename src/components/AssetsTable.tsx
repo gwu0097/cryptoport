@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp } from "lucide-react";
+import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp, BookOpen } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatQty, formatPercent, formatShare } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
@@ -89,6 +89,15 @@ function trendFinderUrl(coingeckoId: string | null, ticker: string): string {
   return coingeckoId
     ? `/trend-finder?id=${encodeURIComponent(coingeckoId)}`
     : `/trend-finder?ticker=${encodeURIComponent(ticker)}`;
+}
+
+/** Same known-id/ticker-fallback shape as trendFinderUrl above —
+ * Encyclopedia got the identical ?id=/?ticker= fallback for the same
+ * reason once it needed to be linkable from here. */
+function encyclopediaUrl(coingeckoId: string | null, ticker: string): string {
+  return coingeckoId
+    ? `/encyclopedia?id=${encodeURIComponent(coingeckoId)}`
+    : `/encyclopedia?ticker=${encodeURIComponent(ticker)}`;
 }
 
 // Same DeFi-position breakdown as HoldingsTable's ProtocolTag (which protocol,
@@ -369,6 +378,14 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                           className="text-fg-muted transition hover:text-accent"
                         >
                           <TrendingUp className="size-3.5" aria-hidden="true" />
+                        </Link>
+                        <Link
+                          href={encyclopediaUrl(group.coingeckoId, group.ticker)}
+                          title="Open in Encyclopedia"
+                          aria-label={`Open ${group.ticker} in Encyclopedia`}
+                          className="text-fg-muted transition hover:text-accent"
+                        >
+                          <BookOpen className="size-3.5" aria-hidden="true" />
                         </Link>
                       </div>
                     </td>

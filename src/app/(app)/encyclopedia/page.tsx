@@ -10,7 +10,8 @@ import { EncyclopediaRecentSearches } from "@/components/EncyclopediaRecentSearc
 import { EncyclopediaLastSearchRedirect } from "@/components/EncyclopediaLastSearchRedirect";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { formatUsd, formatPercent } from "@/lib/format";
-import { fetchSeedInfo } from "@/lib/adapters/coingecko";
+import { fetchSeedInfo, searchCoins } from "@/lib/adapters/coingecko";
+import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
 // The Trend Finder tab can make a fresh Perplexity Agent call (~20-30s) —
@@ -55,9 +56,9 @@ function ChangeText({ value }: { value: number | null }) {
 export default async function EncyclopediaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: string; tab?: string; mcap?: string }>;
+  searchParams: Promise<{ id?: string; ticker?: string; tab?: string; mcap?: string }>;
 }) {
-  const { id, tab: tabParam, mcap } = await searchParams;
+  const { id, ticker, tab: tabParam, mcap } = await searchParams;
   const tab: Tab = tabParam === "trend" || tabParam === "ai" ? tabParam : "chart";
   const mcapFloor = mcap !== undefined && !Number.isNaN(Number(mcap)) ? Number(mcap) : DEFAULT_MCAP_FLOOR;
 
@@ -72,6 +73,8 @@ export default async function EncyclopediaPage({
 
       {id ? (
         <EncyclopediaResults id={id} tab={tab} mcapFloor={mcapFloor} />
+      ) : ticker ? (
+        <EncyclopediaResultsFromTicker ticker={ticker} tab={tab} mcapFloor={mcapFloor} />
       ) : (
         <>
           {/* Only mounted on the bare, param-less landing state — same
@@ -93,7 +96,45 @@ export default async function EncyclopediaPage({
   );
 }
 
-async function EncyclopediaResults({ id, tab, mcapFloor }: { id: string; tab: Tab; mcapFloor: number }) {
+/** Same ?ticker= fallback as Trend Finder's own TrendResultsFromTicker —
+ * needed for exactly the same reason: several call sites linking here
+ * (AssetsTable, Dashboard's MoverList) only ever have a bare ticker, not a
+ * real CoinGecko id (an AssetGroup is ticker-grouped across chains/
+ * contracts with no stored id). Resolved via the same searchCoins()+
+ * pickBestMatch() pair, never guessed — see that function's own doc
+ * comment on the real spoofed-ticker incident this app's Data Correctness
+ * rule exists because of. */
+async function EncyclopediaResultsFromTicker({ ticker, tab, mcapFloor }: { ticker: string; tab: Tab; mcapFloor: number }) {
+  const candidates = await searchCoins(ticker);
+  const match = pickBestMatch(ticker, candidates);
+
+  if (!match) {
+    return (
+      <Panel className="text-center">
+        <p className="mb-4 text-sm text-fg-muted">
+          No CoinGecko match for ticker &ldquo;{ticker}&rdquo; — try searching directly instead.
+        </p>
+        <div className="mx-auto max-w-sm text-left">
+          <TrendSeedPicker basePath="/encyclopedia" />
+        </div>
+      </Panel>
+    );
+  }
+
+  return <EncyclopediaResults id={match.id} tab={tab} mcapFloor={mcapFloor} matchedFromTicker={ticker} />;
+}
+
+async function EncyclopediaResults({
+  id,
+  tab,
+  mcapFloor,
+  matchedFromTicker,
+}: {
+  id: string;
+  tab: Tab;
+  mcapFloor: number;
+  matchedFromTicker?: string;
+}) {
   const seed = await fetchSeedInfo(id);
   if (!seed) {
     return (
@@ -121,6 +162,9 @@ async function EncyclopediaResults({ id, tab, mcapFloor }: { id: string; tab: Ta
                 {seed.marketCapRank !== null ? `Rank #${seed.marketCapRank}` : "Unranked"} ·{" "}
                 {seed.price !== null ? formatUsd(seed.price) : "—"} · 24h <ChangeText value={seed.change24h} />
               </p>
+              {matchedFromTicker && (
+                <p className="mt-0.5 text-xs text-warning">Matched from ticker &ldquo;{matchedFromTicker}&rdquo;</p>
+              )}
             </div>
           </div>
           <div className="mx-auto w-full max-w-sm sm:mx-0 sm:w-auto">

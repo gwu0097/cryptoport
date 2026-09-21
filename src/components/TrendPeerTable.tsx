@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink, ListPlus } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, ListPlus, BookOpen } from "lucide-react";
+import Link from "next/link";
 import type { PeerRow } from "@/lib/trendFinder";
 import type { WatchlistSummary } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
@@ -274,6 +275,14 @@ export function TrendPeerTable({
                       >
                         <ExternalLink className="size-3.5" aria-hidden="true" />
                       </a>
+                      <Link
+                        href={`/encyclopedia?id=${encodeURIComponent(peer.id)}`}
+                        title="Open in Encyclopedia"
+                        aria-label={`Open ${peer.symbol} in Encyclopedia`}
+                        className="text-fg-muted transition hover:text-accent"
+                      >
+                        <BookOpen className="size-3.5" aria-hidden="true" />
+                      </Link>
                     </div>
                   </td>
                 </tr>

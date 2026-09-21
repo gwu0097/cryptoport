@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useState, useTransition } from "react";
-import { Search, X, ChevronDown, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { Search, X, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
 import type { WatchlistRow } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
@@ -257,15 +258,25 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
                         {formatCompactUsd(row.marketCap)}
                       </td>
                       <td className={tdClass}>
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(row.id)}
-                          disabled={pendingRemoval === row.id}
-                          aria-label={`Remove ${row.ticker} from watchlist`}
-                          className="rounded p-1 text-fg-muted hover:bg-negative/10 hover:text-negative disabled:opacity-50"
-                        >
-                          <X className="size-3.5" aria-hidden="true" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <Link
+                            href={`/encyclopedia?id=${encodeURIComponent(row.coingeckoId)}`}
+                            title="Open in Encyclopedia"
+                            aria-label={`Open ${row.ticker} in Encyclopedia`}
+                            className="rounded p-1 text-fg-muted transition hover:text-accent"
+                          >
+                            <BookOpen className="size-3.5" aria-hidden="true" />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(row.id)}
+                            disabled={pendingRemoval === row.id}
+                            aria-label={`Remove ${row.ticker} from watchlist`}
+                            className="rounded p-1 text-fg-muted hover:bg-negative/10 hover:text-negative disabled:opacity-50"
+                          >
+                            <X className="size-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {isExpanded &&
