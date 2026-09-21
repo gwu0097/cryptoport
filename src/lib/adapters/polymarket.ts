@@ -17,6 +17,14 @@ const POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com";
 // contract, 6 decimals, same as USDC).
 const PUSD_CONTRACT = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB" as Address;
 const PUSD_DECIMALS = 6;
+// Consumed by zerionDefi.ts's NATIVELY_COVERED_PROTOCOLS — see that
+// constant's own doc comment. Unlike Hyperliquid/SuperVerse's entries,
+// this one isn't defensive: a real, live double-count was found via the
+// database (two wallets each carrying a pUSD deposit under both `auto`
+// here and `auto_defi` from Zerion, same qty, ~$1,467 and ~$168) — Zerion
+// does actively index Polymarket deposits under this exact "Polymarket"
+// label, confirmed directly from those rows' own `protocol` column.
+export const ZERION_PROTOCOL_NAMES = ["polymarket"];
 
 const BALANCE_OF_ABI = [
   {

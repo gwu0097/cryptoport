@@ -4,6 +4,7 @@ import { EVM_CHAINS } from "./evmChains";
 import { ZERION_PROTOCOL_NAMES as HYPERLIQUID_PROTOCOL_NAMES } from "./hyperliquid";
 import { ZERION_PROTOCOL_NAMES as AXIE_PROTOCOL_NAMES } from "./axieStaking";
 import { ZERION_PROTOCOL_NAMES as SUPERVERSE_PROTOCOL_NAMES } from "./superverseStaking";
+import { ZERION_PROTOCOL_NAMES as POLYMARKET_PROTOCOL_NAMES } from "./polymarket";
 import type { AdapterHolding } from "./types";
 
 const API_BASE = "https://api.zerion.io/v1";
@@ -28,12 +29,18 @@ const API_BASE = "https://api.zerion.io/v1";
  * them separately remembering to come edit this file too. Every one of
  * these entries is a best guess at Zerion's own protocol-name string,
  * documented per-adapter for exactly how (un)verified it is — see each
- * adapter's own ZERION_PROTOCOL_NAMES comment.
+ * adapter's own ZERION_PROTOCOL_NAMES comment. Polymarket's entry is not a
+ * guess: found live via the database as a real, active double-count (two
+ * wallets each carrying the same pUSD deposit counted under both this
+ * app's own adapter and Zerion, ~$1,467 and ~$168) — Zerion does actively
+ * index Polymarket, unlike Hyperliquid/SuperVerse's purely defensive
+ * entries.
  */
 const NATIVELY_COVERED_PROTOCOLS = new Set([
   ...HYPERLIQUID_PROTOCOL_NAMES,
   ...AXIE_PROTOCOL_NAMES,
   ...SUPERVERSE_PROTOCOL_NAMES,
+  ...POLYMARKET_PROTOCOL_NAMES,
 ]);
 
 export interface ZerionDefiResult {
