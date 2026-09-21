@@ -2,6 +2,7 @@ import "server-only";
 import { EVM_CHAINS, isEvmChainId } from "./evmChains";
 import { ETHERSCAN_EXPLORERS, FREE_TIER_UNSUPPORTED, fetchEvmTransactions } from "./etherscan";
 import { BLOCKSCOUT_HOSTS, fetchBlockscoutTransactions } from "./blockscout";
+import { ALCHEMY_HOSTS, fetchAlchemyTransactions } from "./alchemy";
 import { fetchBitcoinTransactions } from "./bitcoinTx";
 import { fetchSolanaTransactions } from "./solanaTx";
 import { fetchCardanoTransactions, fetchCardanoTransactionsByAddress } from "./cardanoTx";
@@ -123,17 +124,27 @@ export async function fetchWalletTransactions(
     if (error) throw new Error(`Failed to load wallet chains: ${error.message}`);
 
     const heldChains = [...new Set((data as { chain: string }[]).map((r) => r.chain))];
-    // Two independent free sources, dispatched to whichever actually
-    // covers a given chain — Etherscan first where it's genuinely free
-    // (see FREE_TIER_UNSUPPORTED), Blockscout for the chains Etherscan has
-    // no coverage for at all or paywalls. No chain currently needs both
-    // (the two sets don't overlap), but the `!etherscanChains.includes`
-    // guard keeps it that way even if that ever changes, rather than
-    // double-fetching the same chain from two sources.
-    const etherscanChains = heldChains.filter((c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c));
-    const blockscoutChains = heldChains.filter((c) => c in BLOCKSCOUT_HOSTS && !etherscanChains.includes(c));
+    // Three independent free sources, dispatched to whichever actually
+    // covers a given chain, each chain attempted by exactly one of them
+    // (no double-fetch): Alchemy first for any chain it's known to help on
+    // (today just "base" — added after a real, live-confirmed gap where
+    // Blockscout silently failed to index a real transaction; see
+    // alchemy.ts's own doc comment), then Etherscan where it's genuinely
+    // free (see FREE_TIER_UNSUPPORTED), then Blockscout as the fallback for
+    // whatever neither of those covers.
+    const alchemyChains = heldChains.filter((c) => c in ALCHEMY_HOSTS);
+    const etherscanChains = heldChains.filter(
+      (c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c) && !alchemyChains.includes(c),
+    );
+    const blockscoutChains = heldChains.filter(
+      (c) => c in BLOCKSCOUT_HOSTS && !etherscanChains.includes(c) && !alchemyChains.includes(c),
+    );
 
-    const [etherscanResults, blockscoutResults] = await Promise.all([
+    const [alchemyResults, etherscanResults, blockscoutResults] = await Promise.all([
+      mapWithConcurrency(alchemyChains, 2, (evmChainId) => {
+        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
+        return fetchAlchemyTransactions(evmChainId, address, evmChain.nativeSymbol);
+      }),
       mapWithConcurrency(etherscanChains, 2, (evmChainId) => {
         const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
         return fetchEvmTransactions(evmChainId, address, evmChain.nativeSymbol);
@@ -144,8 +155,8 @@ export async function fetchWalletTransactions(
       }),
     ]);
     return {
-      transactions: [...etherscanResults.flat(), ...blockscoutResults.flat()],
-      attemptedChains: [...etherscanChains, ...blockscoutChains],
+      transactions: [...alchemyResults.flat(), ...etherscanResults.flat(), ...blockscoutResults.flat()],
+      attemptedChains: [...alchemyChains, ...etherscanChains, ...blockscoutChains],
     };
   }
 
