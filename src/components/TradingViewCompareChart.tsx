@@ -48,8 +48,18 @@ export function TradingViewCompareChart({
     script.type = "text/javascript";
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.async = true;
+    // autosize:true was reported (with a screenshot) to render a cramped
+    // chart even though the outer container genuinely had height:600px —
+    // confirmed live in the deployed HTML, so this wasn't a CSS mistake on
+    // this component's own side, it's a real autosize-vs-nested-container
+    // quirk. Passing an explicit width/height directly in the widget's own
+    // config (what TradingView documents for a fixed-size embed, as
+    // opposed to "fill whatever the container computes to") is the
+    // reliable fix.
     script.text = JSON.stringify({
-      autosize: true,
+      autosize: false,
+      width: "100%",
+      height,
       symbol: guessTradingViewSymbol(baseTicker),
       compareSymbols: [{ symbol: guessTradingViewSymbol(compareTicker), position: "SameScale" }],
       interval: "60",
@@ -62,7 +72,7 @@ export function TradingViewCompareChart({
       hide_legend: false,
     });
     container.appendChild(script);
-  }, [baseTicker, compareTicker]);
+  }, [baseTicker, compareTicker, height]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">

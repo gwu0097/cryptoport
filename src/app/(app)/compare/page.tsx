@@ -3,6 +3,9 @@ import { Panel } from "@/components/ui/Panel";
 import { TokenIcon } from "@/components/TokenIcon";
 import { TradingViewCompareChart } from "@/components/TradingViewCompareChart";
 import { CompareCoinPicker } from "@/components/CompareCoinPicker";
+import { CompareRecentSearches } from "@/components/CompareRecentSearches";
+import { CompareLastSearchRedirect } from "@/components/CompareLastSearchRedirect";
+import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { fetchSeedInfo, type SeedInfo } from "@/lib/adapters/coingecko";
 import { formatUsd, formatPercent } from "@/lib/format";
 
@@ -54,6 +57,23 @@ export default async function ComparePage({
   return (
     <>
       <PageHeader title="Compare" subtitle="Overlay two tokens' price action to see who actually moved first." />
+
+      {/* Always rendered, same convention as Trend Finder's own
+          TrendRecentSearches — available regardless of where the visitor
+          currently is, not just from the empty state. */}
+      <CompareRecentSearches />
+      {/* Only the truly bare route (neither side picked yet) redirects to
+          the last comparison — a single in-progress pick is a real state
+          to leave alone, not something to yank away. */}
+      {!base && !compare && <CompareLastSearchRedirect />}
+      {baseInfo && compareInfo && (
+        <RecordRecentWallet
+          id={`${baseInfo.id}:${compareInfo.id}`}
+          name={`${baseInfo.symbol} vs ${compareInfo.symbol}`}
+          namespace="compareSearches"
+          maxRecent={5}
+        />
+      )}
 
       <Panel className="mb-6">
         <div className="grid gap-6 sm:grid-cols-2">
