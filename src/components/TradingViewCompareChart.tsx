@@ -23,9 +23,13 @@ import { guessTradingViewSymbol } from "@/lib/tradingViewSymbol";
 export function TradingViewCompareChart({
   baseTicker,
   compareTicker,
+  height = 600,
 }: {
   baseTicker: string;
   compareTicker: string;
+  /** Reported directly: the old 420px default was too cramped to read
+   * price action clearly, especially with two overlaid lines' legends. */
+  height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +66,7 @@ export function TradingViewCompareChart({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <div className="tradingview-widget-container" ref={containerRef} style={{ height: 420 }} />
+      <div className="tradingview-widget-container" ref={containerRef} style={{ height }} />
       <p className="border-t border-border bg-surface-raised px-3 py-1.5 text-[11px] text-fg-muted">
         Best-guess Binance listing for each ticker — use the chart&rsquo;s own symbol search (top-left) to correct
         either side if it&rsquo;s wrong or unlisted.
