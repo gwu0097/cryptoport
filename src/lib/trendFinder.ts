@@ -1,22 +1,21 @@
-// Pure ranking logic for the Trend Finder feature — no DB, no network, so
-// this is directly unit-testable with `node --test`, separate from the
-// correlation math (correlation.ts) and the CoinGecko/DB-fetching
-// orchestration in trendPeers.ts.
+// Pure ranking/matching logic for the Trend Finder feature — no DB, no
+// network, so this is directly unit-testable with `node --test`, separate
+// from the Perplexity/CoinGecko-fetching orchestration in trendPeers.ts.
 //
-// v2: replaces category-membership-based peer ranking (a coin's narrowest
-// CoinGecko category) with price-correlation-based ranking. Reported
-// directly, with a screenshot: AVAX's "narrowest" category was still
-// "Proof of Stake" — $566B, containing ETH/BNB/TRX and a junk exchange
-// token alongside real peers. No denylist or tier change fixes that; it's
-// a structural ceiling of CoinGecko's category data for major coins. See
-// correlation.ts's own doc comment for the live-verified numbers behind
-// the new method (factor-adjusted hourly-return correlation).
+// v3: peers now come from a live, news-grounded AI explanation (see
+// adapters/perplexity.ts) plus CoinGecko's own category taxonomy, not price
+// correlation (v2) or blind CoinGecko category-narrowing (v1). Reported
+// directly: a real recent rotation (ARB moved, NEAR and AVAX followed over
+// the next few days) and a real narrative move (NEAR picking up a privacy
+// feature and moving alongside ZEC/VVV) are both narrative-driven events a
+// price-history method structurally cannot find — live-verified this
+// session that contemporaneous price correlation is real but a *lagged*
+// "hasn't caught up yet" relationship isn't present in the data at any
+// tested lag, while a live Perplexity Agent API call correctly identified
+// both a real, dated catalyst for a moving token and genuinely relevant,
+// currently-live thematic peers.
 
-/** A universe member with a computed correlation, before the market-cap
- * floor is applied — marketCap stays nullable here (CoinGecko occasionally
- * has no market-cap figure for a coin) since rankPeers is what turns "no
- * cap known" into "excluded," not the shape itself. */
-export interface CorrelatedCandidate {
+export interface PeerRow {
   id: string;
   symbol: string;
   imageUrl: string | null;
@@ -25,62 +24,85 @@ export interface CorrelatedCandidate {
   change24h: number | null;
   change7d: number | null;
   marketCap: number | null;
-  /** Pearson correlation of hourly log-returns vs. the seed, with BTC's and
-   * ETH's own returns regressed out of both sides first (see
-   * correlation.ts). Always present — anything without a computable
-   * correlation never becomes a candidate (see trendPeers.ts). */
-  correlation: number;
-  /** How many aligned hourly observations the correlation above was
-   * computed from — gates MIN_OVERLAP_HOURS below. */
-  overlapHours: number;
 }
-
-/** rankPeers' own output shape — same candidate fields, with marketCap
- * narrowed to non-null (same "PeerRow extends CategoryMember { marketCap:
- * number }" pattern the old category-based version used): anything that
- * survives rankPeers' market-cap-floor filter has a known market cap by
- * construction, so every downstream display/sort consumer (TrendPeerTable,
- * trend-finder/page.tsx) can rely on that without a null check. */
-export interface CorrelatedPeer extends CorrelatedCandidate {
-  marketCap: number;
-}
-
-/** ~3.5 standard errors from zero at n≈2159 hourly observations (95% CI
- * ±0.042 — see correlation.ts's own doc comment for the derivation). Sits
- * in the measured gap between junk (0.06-0.07: a random exchange token, a
- * low-relevance L1) and real peers (0.25-0.41) from this session's live
- * AVAX test — not an arbitrary round number. */
-export const MIN_CORRELATION = 0.15;
-
-/** ~2 weeks of hourly data. Below this, a correlation estimate is too
- * noisy to be a real answer, not just a less precise one — see
- * correlation.ts's own doc comment on why daily-90d's ~90 observations
- * (±0.21 CI) wasn't usable at all. A seed or candidate with a shorter
- * cached/fetched history (a newly listed coin) simply can't be scored yet. */
-export const MIN_OVERLAP_HOURS = 336;
-
-const MAX_PEERS = 20;
 
 /**
- * Drops the seed itself, requires both a minimum overlap and a minimum
- * correlation to even be considered a peer (below MIN_CORRELATION isn't "a
- * weak peer" — it's not a peer; this app's data-correctness rule is a
- * missing/unreliable value is never shown as a plausible-looking one),
- * applies the existing market-cap floor control, then sorts by correlation
- * strength descending and caps at MAX_PEERS. Unlike the old category tiers,
- * there is no "keep walking until we find enough" fallback — a seed with no
- * peers clearing the bar genuinely has none in the current universe, and
- * trendPeers.ts reports that honestly rather than padding the list.
+ * Drops the seed itself, applies the market-cap floor, and sorts ascending
+ * by 24h change — laggards (haven't moved yet) first, already-moved peers
+ * still shown (never hidden — the user's own stated preference: "it can be
+ * listed of course but i don't want to chase something that already
+ * moved"). Members with unknown 24h change sort last, not treated as flat.
+ * Members with unknown market cap are excluded (can't apply the floor to
+ * an unknown value — missing is never treated as passing a numeric filter).
  */
-export function rankPeers(
-  candidates: CorrelatedCandidate[],
-  opts: { seedId: string; mcapFloor: number },
-): CorrelatedPeer[] {
-  return candidates
-    .filter((c) => c.id !== opts.seedId)
-    .filter((c) => c.overlapHours >= MIN_OVERLAP_HOURS)
-    .filter((c) => c.correlation >= MIN_CORRELATION)
-    .filter((c): c is CorrelatedPeer => c.marketCap !== null && c.marketCap >= opts.mcapFloor)
-    .sort((a, b) => b.correlation - a.correlation)
-    .slice(0, MAX_PEERS);
+export function rankPeers(members: PeerRow[], opts: { seedId: string; mcapFloor: number }): PeerRow[] {
+  return members
+    .filter((m) => m.id !== opts.seedId)
+    .filter((m) => m.marketCap !== null && m.marketCap >= opts.mcapFloor)
+    .sort((a, b) => {
+      if (a.change24h === null && b.change24h === null) return 0;
+      if (a.change24h === null) return 1;
+      if (b.change24h === null) return -1;
+      return a.change24h - b.change24h;
+    });
+}
+
+const STOPWORDS = new Set(["the", "and", "for", "with"]);
+
+/** Lowercases, strips a trailing "(ABBR)" parenthetical, splits on
+ * non-alphanumeric, drops short/stopword tokens — the normalized token set
+ * matchCategoryName compares. Exported for its own unit tests only. */
+export function normalizeCategoryTokens(name: string): Set<string> {
+  return new Set(
+    name
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, " ")
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 2 && !STOPWORDS.has(t)),
+  );
+}
+
+/** Above this fraction of shared tokens (intersection / larger token-set
+ * size — penalizes both an over-broad guess and an over-narrow category),
+ * a match is confident enough to show; below it, "no matching category
+ * found" is the honest answer. 0.5 was picked by hand-testing against a
+ * real trap in CoinGecko's own taxonomy: two dozen near-duplicate
+ * "Tokenized X" categories that a naive keyword search would all match
+ * equally against a generic "tokenization" guess — this threshold, plus
+ * scoring against ALL categories rather than just the first keyword hit,
+ * lets an exact/near-exact name win outright over a same-family partial
+ * match like "Tokenized Uranium". */
+const MIN_CATEGORY_MATCH_SCORE = 0.5;
+
+export interface CategoryNameStat {
+  id: string;
+  name: string;
+}
+
+/**
+ * Matches the AI's own free-text category guess (see adapters/
+ * perplexity.ts's TrendExplanation.categoryGuess) against the real
+ * CoinGecko category name list — the AI's guess is never trusted directly
+ * as a real category id, since it's free text and CoinGecko's taxonomy is
+ * fragmented enough that a plausible-sounding guess might not correspond
+ * to anything real, or might be a near-miss of several similar real names.
+ */
+export function matchCategoryName<T extends CategoryNameStat>(guess: string, categories: T[]): T | null {
+  const guessTokens = normalizeCategoryTokens(guess);
+  if (guessTokens.size === 0) return null;
+
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const category of categories) {
+    const categoryTokens = normalizeCategoryTokens(category.name);
+    if (categoryTokens.size === 0) continue;
+    let shared = 0;
+    for (const t of guessTokens) if (categoryTokens.has(t)) shared++;
+    const score = shared / Math.max(guessTokens.size, categoryTokens.size);
+    if (score > bestScore) {
+      bestScore = score;
+      best = category;
+    }
+  }
+  return bestScore >= MIN_CATEGORY_MATCH_SCORE ? best : null;
 }

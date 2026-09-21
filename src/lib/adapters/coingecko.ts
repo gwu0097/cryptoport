@@ -373,6 +373,39 @@ export interface MarketDataRow {
   marketCap: number | null;
 }
 
+export interface CategoryStat {
+  id: string;
+  name: string;
+  marketCap: number | null;
+  marketCapChange24h: number | null;
+}
+
+/**
+ * Every CoinGecko category and its total market cap/24h change — one call,
+ * ~765 rows. Revived for Trend Finder v3's category cross-reference (see
+ * trendFinder.ts's matchCategoryName): the AI's own free-text category
+ * guess gets matched against this real name list, rather than trusted
+ * directly, since CoinGecko's taxonomy has many near-duplicate categories
+ * (e.g. "Real World Assets (RWA)" vs. two dozen narrower "Tokenized X"
+ * ones) a keyword match alone could easily mis-pick. Deliberately never
+ * cached — market_cap_change_24h is live financial data, and rendering a
+ * stale figure is exactly the plausible-looking wrong number the Data
+ * Correctness rule exists to prevent.
+ */
+export async function fetchCategoryStats(): Promise<CategoryStat[]> {
+  const url = `${API_BASE}/coins/categories`;
+  const res = await fetchWithRetry(url, { headers: headers() }, MARKETS_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/categories failed: HTTP ${res.status}`);
+  const body: { id: string; name: string; market_cap?: number | null; market_cap_change_24h?: number | null }[] =
+    await res.json();
+  return body.map((c) => ({
+    id: c.id,
+    name: c.name,
+    marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
+    marketCapChange24h: typeof c.market_cap_change_24h === "number" ? c.market_cap_change_24h : null,
+  }));
+}
+
 interface MarketsResponseRow {
   id: string;
   symbol: string;
@@ -410,21 +443,22 @@ async function fetchMarketsPage(extraQuery: string, page = 1, perPage = 250): Pr
   return body.map(parseMarketsRow);
 }
 
-/** Top `limit` coins by market cap, globally — feeds
- * correlationUniverse.ts's candidate pool and trendPeers.ts's live display
- * data (see those files' own doc comments: Trend Finder's peer universe is
- * market-cap-scoped, not CoinGecko-category-scoped — see trendFinder.ts's
- * doc comment for why). Pages in chunks of 250 (CoinGecko's own per_page
- * ceiling) rather than one oversized request. */
-export async function fetchTopCoinsByMarketCap(limit: number): Promise<MarketDataRow[]> {
-  const results: MarketDataRow[] = [];
-  for (let page = 1; results.length < limit; page++) {
-    const perPage = Math.min(250, limit - results.length);
-    const rows = await fetchMarketsPage("", page, perPage);
-    results.push(...rows);
-    if (rows.length < perPage) break; // CoinGecko ran out of coins before `limit`
-  }
-  return results;
+/** Every coin in one CoinGecko category, with 1h/24h/7d change and market
+ * cap — always fetched live (see fetchCategoryStats' own doc comment; the
+ * same reasoning applies here, more so). Category membership is typically
+ * well under 250, so this is one call, not chunked. Revived for Trend
+ * Finder v3 — see trendPeers.ts. */
+export async function fetchCategoryMembers(categoryId: string): Promise<MarketDataRow[]> {
+  return fetchMarketsPage(`category=${categoryId}`);
+}
+
+/** Live display data for a small, explicit set of ids — one batched call
+ * (CoinGecko's ids= filter accepts a comma-separated list), not one call
+ * per id. Trend Finder v3 uses this for its AI-resolved peer tickers
+ * (trendPeers.ts); empty input short-circuits without a call. */
+export async function fetchMarketsByIds(ids: string[]): Promise<MarketDataRow[]> {
+  if (ids.length === 0) return [];
+  return fetchMarketsPage(`ids=${ids.join(",")}`, 1, ids.length);
 }
 
 export interface SeedInfo {

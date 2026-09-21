@@ -8,17 +8,17 @@ import { TrendPeerTable } from "@/components/TrendPeerTable";
 import { TrendRecentSearches } from "@/components/TrendRecentSearches";
 import { TrendLastSearchRedirect } from "@/components/TrendLastSearchRedirect";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
-import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
+import { formatUsd, formatPercent } from "@/lib/format";
 import { findTrendPeers } from "@/lib/trendPeers";
 import { searchCoins, type SeedInfo } from "@/lib/adapters/coingecko";
-import type { CorrelatedPeer } from "@/lib/trendFinder";
+import type { PeerRow } from "@/lib/trendFinder";
 import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
-// A cold cache (no coin_correlations hit yet for this seed) computes
-// correlation against the full ~250-coin universe plus one live
-// fetchTopCoinsByMarketCap call for display data — same order of magnitude
-// as lookup/page.tsx's own maxDuration for a comparable reason.
+// A cold cache (no trend_explanations hit yet for this seed) makes one live
+// Perplexity Agent API call (a real web-search round trip, observed taking
+// up to ~20-30s) plus CoinGecko category/market lookups — same order of
+// magnitude as lookup/page.tsx's own maxDuration for a comparable reason.
 export const maxDuration = 300;
 export const metadata = { title: "Trend finder · CryptoPort" };
 
@@ -73,7 +73,7 @@ export default async function TrendFinderPage({
     <>
       <PageHeader
         title="Trend finder"
-        subtitle="Pick a token that already moved — see correlated peers that haven't yet."
+        subtitle="Pick a token that already moved — see why, and what else shares that narrative."
       />
 
       {/* Always rendered, not just in the empty state — the nav link back
@@ -96,7 +96,7 @@ export default async function TrendFinderPage({
           <TrendLastSearchRedirect />
           <Panel className="text-center">
             <p className="mb-4 text-sm text-fg-muted">
-              Search for a token to find peers that historically move with it and haven&rsquo;t moved as much yet.
+              Search for a token to find out why it&rsquo;s moving and what else shares that narrative.
             </p>
             <div className="mx-auto max-w-sm text-left">
               <TrendSeedPicker />
@@ -142,6 +142,20 @@ async function TrendResultsFromTicker({ ticker, mcapFloor }: { ticker: string; m
   return <TrendResults id={match.id} mcapFloor={mcapFloor} matchedFromTicker={ticker} />;
 }
 
+function ConfidencePill({ confidence }: { confidence: "high" | "medium" | "low" }) {
+  const className =
+    confidence === "high"
+      ? "bg-positive/20 text-positive"
+      : confidence === "medium"
+        ? "bg-warning/20 text-warning"
+        : "bg-surface-raised text-fg-muted";
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${className}`}>
+      {confidence} confidence
+    </span>
+  );
+}
+
 async function TrendResults({
   id,
   mcapFloor,
@@ -163,7 +177,10 @@ async function TrendResults({
     );
   }
 
-  const { seed } = result;
+  const { seed, explanation, category, categoryPeers, aiPeers } = result;
+  const categoryRows = peerRowsWithSeed(seed, categoryPeers);
+  const aiRows = peerRowsWithSeed(seed, aiPeers);
+  const confirmedIds = intersectIds(categoryPeers, aiPeers);
 
   return (
     <>
@@ -208,49 +225,99 @@ async function TrendResults({
         </div>
       </Panel>
 
-      {result.status === "no-peers" ? (
-        <Panel className="text-center">
+      <Panel className="mb-6" title="Why is this moving">
+        {explanation ? (
+          <>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <ConfidencePill confidence={explanation.confidence} />
+              {explanation.narrativeTags.map((tag) => (
+                <span key={tag} className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
+                  {tag}
+                </span>
+              ))}
+            </div>
+            <p className="text-sm text-fg">{explanation.reasonSummary}</p>
+            {explanation.sources.length > 0 && (
+              <div className="mt-3 border-t border-border pt-3">
+                <p className="mb-1 text-xs font-medium text-fg-muted">Sources — for your own DD:</p>
+                <ul className="space-y-0.5">
+                  {explanation.sources.map((s) => (
+                    <li key={s.url} className="truncate text-xs">
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {s.title || s.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
           <p className="text-sm text-fg-muted">
-            No peers found for {seed.symbol} — nothing in the current universe has historically moved with it closely
-            enough{mcapFloor > 0 ? ` above ${formatCompactUsd(mcapFloor)}` : ""} to call a real peer. Try a lower
-            market cap floor, or this token&rsquo;s move may genuinely be idiosyncratic to it.
+            Couldn&rsquo;t determine a reason right now — the AI lookup failed or timed out. Category peers below may
+            still be useful.
           </p>
-        </Panel>
-      ) : (
-        <>
-          <Panel
-            title="Correlated peers"
-            description="90d hourly returns, with broad market moves (BTC/ETH) factored out"
-          >
-            <TrendPeerTable peers={peerRowsWithSeed(seed, result.peers)} seedId={seed.id} />
-          </Panel>
-          <p className="mt-2 text-xs text-fg-muted">
-            Peers are ranked by how closely their price has historically tracked {seed.symbol}&rsquo;s, once broad
-            market moves are factored out — a token can be a real peer without sharing a CoinGecko category, and a
-            shared category is no longer what determines this list. Market data is live as of this page load;
-            correlation is recomputed at most once a day.
+        )}
+      </Panel>
+
+      <Panel
+        className="mb-6"
+        title={category ? `CoinGecko category: ${category.name}` : "CoinGecko category"}
+        description="Verified category membership — no AI involved in this list"
+      >
+        {categoryPeers.length > 0 ? (
+          <TrendPeerTable peers={categoryRows} seedId={seed.id} confirmedIds={confirmedIds} />
+        ) : (
+          <p className="text-sm text-fg-muted">
+            {category
+              ? `No other members above the market cap floor — try a lower one above.`
+              : `No confident CoinGecko category match for this narrative.`}
           </p>
-        </>
-      )}
+        )}
+      </Panel>
+
+      <Panel
+        className="mb-2"
+        title="AI-suggested peers"
+        description="Named by a live news search as moving for a similar reason — not a verified list"
+      >
+        {aiPeers.length > 0 ? (
+          <TrendPeerTable peers={aiRows} seedId={seed.id} confirmedIds={confirmedIds} />
+        ) : (
+          <p className="text-sm text-fg-muted">
+            {explanation
+              ? "No AI-suggested tickers resolved to a real, confident CoinGecko match above the market cap floor."
+              : "Unavailable — the AI lookup failed or timed out."}
+          </p>
+        )}
+      </Panel>
+
+      <p className="mt-2 text-xs text-fg-muted">
+        Peers come from two independent sources: CoinGecko&rsquo;s category taxonomy, and a live AI news search naming
+        other tokens moving for a similar reason — a coin in both is flagged &ldquo;Confirmed by both.&rdquo; This is a
+        starting point for your own research, not a verified signal — read the sources above before acting on
+        anything here. The AI lookup is recomputed at most once a day per token; market data is live as of this page
+        load.
+      </p>
     </>
   );
 }
 
 /** The seed's own info (already fetched for the summary panel above),
- * prepended to the ranked table as its own row — the direct ask: seeing
- * e.g. AVAX itself ranked alongside its peers tells you something the
- * summary panel alone doesn't (is the seed the biggest mover among its own
- * peers, or the laggard everyone else already left behind?). Correlation
- * is fixed at 1 (a token is, trivially, perfectly correlated with itself)
- * rather than computed — it's never passed back through rankPeers, so this
- * never risks being dropped by the correlation/overlap thresholds. Omitted
- * when the seed itself has no market cap (rare) — never fabricated, just
- * left out, same as any other missing-data case in this app. Shown
- * regardless of the market-cap floor — that filters peers, not the token
- * you actually searched for. */
-function peerRowsWithSeed(seed: SeedInfo, peers: CorrelatedPeer[]): CorrelatedPeer[] {
+ * prepended to each ranked table as its own row — the direct ask: seeing
+ * e.g. KMNO itself ranked alongside its peers tells you something the
+ * summary panel alone doesn't. Omitted when the seed itself has no market
+ * cap (rare) — never fabricated, just left out, same as any other
+ * missing-data case in this app. Shown regardless of the market-cap floor
+ * — that filters peers, not the token you actually searched for. */
+function peerRowsWithSeed(seed: SeedInfo, peers: PeerRow[]): PeerRow[] {
   if (seed.marketCap === null) return peers;
-  const seedRow: CorrelatedPeer = {
+  const seedRow: PeerRow = {
     id: seed.id,
     symbol: seed.symbol,
     imageUrl: seed.imageUrl,
@@ -259,8 +326,14 @@ function peerRowsWithSeed(seed: SeedInfo, peers: CorrelatedPeer[]): CorrelatedPe
     change24h: seed.change24h,
     change7d: seed.change7d,
     marketCap: seed.marketCap,
-    correlation: 1,
-    overlapHours: 0,
   };
   return [seedRow, ...peers];
+}
+
+/** Ids present in both peer sources — what TrendPeerTable's "Confirmed by
+ * both" badge is keyed on (see the direct ask: "see if there's overlap and
+ * what isn't" between the CoinGecko-category and AI-suggested lists). */
+function intersectIds(a: PeerRow[], b: PeerRow[]): Set<string> {
+  const bIds = new Set(b.map((p) => p.id));
+  return new Set(a.filter((p) => bIds.has(p.id)).map((p) => p.id));
 }

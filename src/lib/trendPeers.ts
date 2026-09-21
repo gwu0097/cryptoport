@@ -1,126 +1,125 @@
 import "server-only";
-import { fetchHourlyHistory, fetchSeedInfo, fetchTopCoinsByMarketCap, type SeedInfo } from "./adapters/coingecko";
-import { getUniverseSeries, UNIVERSE_SIZE } from "./correlationUniverse";
-import { alignSeries, logReturns, residualizeTwoFactor, pearson } from "./correlation";
-import { rankPeers, MIN_OVERLAP_HOURS, type CorrelatedCandidate, type CorrelatedPeer } from "./trendFinder";
+import {
+  fetchSeedInfo,
+  fetchCategoryStats,
+  fetchCategoryMembers,
+  fetchMarketsByIds,
+  searchCoins,
+  type SeedInfo,
+  type CategoryStat,
+} from "./adapters/coingecko";
+import { explainTrend, type TrendExplanation } from "./adapters/perplexity";
+import { rankPeers, matchCategoryName, type PeerRow } from "./trendFinder";
+import { pickBestMatch } from "./watchlistInput";
 import { serviceDb } from "./supabase";
 
-const HISTORY_DAYS = 90;
-// Matches the universe's own ~daily refresh cadence (correlationUniverse.ts's
-// STALE_MS) — no point recomputing every search when the underlying series
-// only actually changes once a day.
-const RESULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// News moves roughly daily — re-paying ~$0.015 on every page load for the
+// same seed is wasteful, not "more live." Matches coin_categories'/coin_
+// correlations' own TTL-cache shape before it.
+const EXPLANATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-interface CachedPeer {
-  id: string;
-  correlation: number;
-  overlapHours: number;
+interface CachedExplanation {
+  reasonSummary: string;
+  narrativeTags: string[];
+  categoryGuess: string | null;
+  aiTickers: string[];
+  confidence: "high" | "medium" | "low";
+  sources: { title: string; url: string }[];
 }
 
-/** Lazy-populate-on-read cache for one seed's full correlation results
- * against the universe — same shape as coin_categories' old TTL cache
- * (getCoinCategories, this file's previous version), just keyed by seed
- * instead of by coin-and-its-own-categories. Storing the *result* (not
- * just series) is what makes a second search for the same seed instant —
- * the expensive part is the O(universe size) regression pass, not a
- * network call. */
-async function getCachedPeers(seedId: string): Promise<CachedPeer[] | null> {
+/** Lazy-populate-on-read cache for one seed's AI trend explanation — same
+ * shape as coin_categories'/coin_correlations' own TTL cache before it. */
+async function getCachedExplanation(seedId: string): Promise<CachedExplanation | null> {
   const { data, error } = await serviceDb()
-    .from("coin_correlations")
-    .select("peers, computed_at")
+    .from("trend_explanations")
+    .select("reason_summary, narrative_tags, category_guess, ai_tickers, confidence, sources, computed_at")
     .eq("seed_id", seedId)
     .maybeSingle();
-  if (error) throw new Error(`Failed to load coin_correlations: ${error.message}`);
+  if (error) throw new Error(`Failed to load trend_explanations: ${error.message}`);
+  if (!data) return null;
 
-  const row = data as { peers: CachedPeer[]; computed_at: string } | null;
-  if (!row) return null;
-  const isFresh = Date.now() - new Date(row.computed_at).getTime() < RESULT_CACHE_TTL_MS;
-  return isFresh ? row.peers : null;
+  const row = data as {
+    reason_summary: string;
+    narrative_tags: string[];
+    category_guess: string | null;
+    ai_tickers: string[];
+    confidence: "high" | "medium" | "low";
+    sources: { title: string; url: string }[];
+    computed_at: string;
+  };
+  const isFresh = Date.now() - new Date(row.computed_at).getTime() < EXPLANATION_CACHE_TTL_MS;
+  if (!isFresh) return null;
+  return {
+    reasonSummary: row.reason_summary,
+    narrativeTags: row.narrative_tags,
+    categoryGuess: row.category_guess,
+    aiTickers: row.ai_tickers,
+    confidence: row.confidence,
+    sources: row.sources,
+  };
 }
 
-async function cachePeers(seedId: string, peers: CachedPeer[]): Promise<void> {
+async function cacheExplanation(seedId: string, explanation: TrendExplanation): Promise<void> {
   const { error } = await serviceDb()
-    .from("coin_correlations")
-    .upsert({ seed_id: seedId, peers, computed_at: new Date().toISOString() }, { onConflict: "seed_id" });
-  if (error) throw new Error(`Failed to cache coin_correlations: ${error.message}`);
+    .from("trend_explanations")
+    .upsert(
+      {
+        seed_id: seedId,
+        reason_summary: explanation.reasonSummary,
+        narrative_tags: explanation.narrativeTags,
+        category_guess: explanation.categoryGuess,
+        ai_tickers: explanation.aiTickers,
+        confidence: explanation.confidence,
+        sources: explanation.sources,
+        computed_at: new Date().toISOString(),
+      },
+      { onConflict: "seed_id" },
+    );
+  if (error) throw new Error(`Failed to cache trend_explanations: ${error.message}`);
 }
 
-/** The seed's own hourly series: from the pre-warmed universe if it's a
- * top-250 coin (the common case), else one live fetch — a seed outside the
- * universe (a smaller/newer coin a user searches directly) is rare enough
- * that a single extra CoinGecko call is fine; it's a *burst* of N calls
- * that needs to be cron-driven, not one. Not written back to
- * coin_hourly_series here — that table is exclusively the cron's to
- * populate, so its stale-first ordering (correlationUniverse.ts) stays
- * meaningful; coin_correlations' own cache is what makes a repeat search
- * for this same seed fast instead. */
-async function getSeedSeries(
-  coingeckoId: string,
-  universe: Map<string, Map<string, number>>,
-): Promise<Map<string, number> | null> {
-  const cached = universe.get(coingeckoId);
-  if (cached) return cached;
-  const points = await fetchHourlyHistory(coingeckoId, HISTORY_DAYS);
-  if (points.length === 0) return null;
-  return new Map(points.map((p) => [p.hour, p.usd]));
-}
-
-/**
- * Computes BTC+ETH-residual correlation between `seedSeries` and every
- * other series in `universe` — see correlation.ts's own doc comment for
- * why hourly + two-factor is the method. BTC/ETH themselves are always
- * excluded from the output (they're the factors, not candidates — a
- * correlation of a coin against itself/its own factor is meaningless).
- */
-function computeCorrelations(
-  seedId: string,
-  seedSeries: Map<string, number>,
-  universe: Map<string, Map<string, number>>,
-): CachedPeer[] {
-  const btc = universe.get("bitcoin");
-  const eth = universe.get("ethereum");
-  if (!btc || !eth) return []; // universe cron hasn't populated the factors yet
-
-  const results: CachedPeer[] = [];
-  for (const [id, series] of universe) {
-    if (id === seedId || id === "bitcoin" || id === "ethereum") continue;
-
-    const keys = alignSeries(seedSeries, series, btc, eth);
-    if (keys.length - 1 < MIN_OVERLAP_HOURS) continue;
-
-    const rSeed = logReturns(seedSeries, keys);
-    const rCandidate = logReturns(series, keys);
-    const rBtc = logReturns(btc, keys);
-    const rEth = logReturns(eth, keys);
-    // logReturns can drop individual pairs on a bad price point even
-    // within an aligned key range — require the four return series to
-    // still match in length (they're computed from the same key list, so
-    // this only fails if one series had a zero/negative price CoinGecko
-    // itself reported, vanishingly rare but not impossible).
-    if (rSeed.length !== rCandidate.length || rSeed.length !== rBtc.length || rSeed.length !== rEth.length) continue;
-
-    const residSeed = residualizeTwoFactor(rSeed, rBtc, rEth);
-    const residCandidate = residualizeTwoFactor(rCandidate, rBtc, rEth);
-    const r = pearson(residSeed, residCandidate);
-    if (r === null) continue;
-
-    results.push({ id, correlation: r, overlapHours: rSeed.length });
+/** Resolves the AI's raw ticker strings to real CoinGecko coins via the
+ * same searchCoins()+pickBestMatch() pair Watchlist's bulk-add already
+ * trusts for exactly this "a bare ticker string might not be what it looks
+ * like" problem — a ticker that doesn't resolve confidently is dropped,
+ * never guessed at. One /search call per ticker (no batch endpoint), so
+ * this is bounded by how many tickers the AI actually names (typically a
+ * handful), not a concern at this scale. */
+async function resolveAiTickers(tickers: string[]): Promise<string[]> {
+  const ids: string[] = [];
+  for (const ticker of tickers) {
+    const results = await searchCoins(ticker);
+    const match = pickBestMatch(ticker, results);
+    if (match) ids.push(match.id);
   }
-  return results;
+  return [...new Set(ids)];
 }
 
 export type TrendPeersResult =
   | { status: "no-seed-data"; seedId: string }
-  | { status: "no-peers"; seed: SeedInfo }
-  | { status: "ok"; seed: SeedInfo; peers: CorrelatedPeer[] };
+  | {
+      status: "ok";
+      seed: SeedInfo;
+      explanation: TrendExplanation | null;
+      category: CategoryStat | null;
+      categoryPeers: PeerRow[];
+      aiPeers: PeerRow[];
+    };
 
 /**
- * The Trend Finder orchestrator: ranks the current CoinGecko-market-cap
- * universe (correlationUniverse.ts) by how closely each coin's hourly
- * returns have historically tracked the seed's, with BTC's and ETH's own
- * moves regressed out first — replaces the old category-tier walk (see
- * trendFinder.ts's doc comment for why). Own file rather than queries.ts,
- * matching how lookup.ts owns the lookup page's orchestration.
+ * The Trend Finder orchestrator: asks a live, web-search-grounded AI why
+ * the seed is moving and what else is moving for a similar reason, cross-
+ * referenced against CoinGecko's own category taxonomy — replaces v2's
+ * price-correlation approach entirely (see trendFinder.ts's doc comment
+ * for why: real recent rotations and narrative-driven moves this session
+ * checked against aren't present in price history at any lag, only in
+ * news). Own file rather than queries.ts, matching how lookup.ts owns the
+ * lookup page's orchestration.
+ *
+ * `explanation: null` (the AI call failed/timed out, or the cache is
+ * simply empty and the call errors) still returns category peers if a
+ * category match was found — degrade, don't blank-page. Ticker/category
+ * peer lists are independent: either, both, or neither may be non-empty.
  */
 export async function findTrendPeers({
   coingeckoId,
@@ -132,43 +131,29 @@ export async function findTrendPeers({
   const seed = await fetchSeedInfo(coingeckoId);
   if (!seed) return { status: "no-seed-data", seedId: coingeckoId };
 
-  const cached = await getCachedPeers(coingeckoId);
-  let correlated: CachedPeer[];
-
+  const cached = await getCachedExplanation(coingeckoId);
+  let explanation: TrendExplanation | null;
   if (cached) {
-    correlated = cached;
+    explanation = cached;
   } else {
-    const universe = await getUniverseSeries();
-    const seedSeries = await getSeedSeries(coingeckoId, universe);
-    correlated = seedSeries ? computeCorrelations(coingeckoId, seedSeries, universe) : [];
-    await cachePeers(coingeckoId, correlated);
+    explanation = await explainTrend(seed.symbol, seed.name);
+    if (explanation) await cacheExplanation(coingeckoId, explanation);
   }
 
-  if (correlated.length === 0) return { status: "no-peers", seed };
+  const [categoryStats, aiPeerIds] = await Promise.all([
+    explanation?.categoryGuess ? fetchCategoryStats() : Promise.resolve<CategoryStat[]>([]),
+    explanation ? resolveAiTickers(explanation.aiTickers) : Promise.resolve<string[]>([]),
+  ]);
 
-  // Display data (price/1h/24h/7d/market cap) is live financial data and is
-  // deliberately never cached — coin_hourly_series only stores raw price
-  // *history* for the correlation math, not current price for display (the
-  // Data Correctness rule: rendering a stale live-financial figure is
-  // exactly the plausible-looking wrong number that rule exists to
-  // prevent). One call covers virtually the whole candidate set, since
-  // correlationUniverse.ts's own membership rule (top-UNIVERSE_SIZE by
-  // market cap) is the exact same rule this uses.
-  const display = await fetchTopCoinsByMarketCap(UNIVERSE_SIZE);
-  const displayById = new Map(display.map((c) => [c.id, c]));
+  const category = explanation?.categoryGuess ? matchCategoryName(explanation.categoryGuess, categoryStats) : null;
 
-  const candidates = correlated
-    .map(({ id, correlation, overlapHours }): CorrelatedCandidate | null => {
-      const info = displayById.get(id);
-      // Fell out of the top-UNIVERSE_SIZE slice since the last cron run —
-      // rare (market caps don't reshuffle that fast) and not an error, just
-      // skipped: there's no display data to show for it.
-      if (!info) return null;
-      return { ...info, correlation, overlapHours };
-    })
-    .filter((c): c is CorrelatedCandidate => c !== null);
+  const [categoryMembers, aiPeerInfo] = await Promise.all([
+    category ? fetchCategoryMembers(category.id) : Promise.resolve<PeerRow[]>([]),
+    fetchMarketsByIds(aiPeerIds),
+  ]);
 
-  const peers = rankPeers(candidates, { seedId: coingeckoId, mcapFloor });
-  if (peers.length === 0) return { status: "no-peers", seed };
-  return { status: "ok", seed, peers };
+  const categoryPeers = rankPeers(categoryMembers, { seedId: coingeckoId, mcapFloor });
+  const aiPeers = rankPeers(aiPeerInfo, { seedId: coingeckoId, mcapFloor });
+
+  return { status: "ok", seed, explanation, category, categoryPeers, aiPeers };
 }
