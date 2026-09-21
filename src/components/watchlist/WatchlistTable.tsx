@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { Search, X } from "lucide-react";
+import { Fragment, useEffect, useState, useTransition } from "react";
+import { Search, X, ChevronDown, ChevronRight } from "lucide-react";
 import type { WatchlistRow } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
+import { TradingViewCompareChart } from "../TradingViewCompareChart";
 import { inputClass } from "../ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "../ui/table";
 import { SortableHeader as Header } from "../ui/SortableHeader";
@@ -72,9 +73,19 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
   const [showExtraChanges, setShowExtraChanges] = usePersistedState(SHOW_EXTRA_CHANGES_KEY, true);
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function handleRemove(id: string) {
@@ -188,52 +199,83 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
               </tr>
             </thead>
             <tbody>
-              {sorted.map((row) => (
-                <tr key={row.id} className={trClass}>
-                  <td className={tdClass}>
-                    <div className="flex items-center gap-2">
-                      <TokenIcon ticker={row.ticker} url={row.imageUrl} />
-                      <div>
-                        <div className="font-medium text-fg">{row.ticker}</div>
-                        <div className="text-xs text-fg-muted">{row.name}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className={`${tdClass} tabular-nums`}>{row.price !== null ? formatUsd(row.price) : "—"}</td>
-                  {showExtraChanges && (
-                    <td className={`${tdClass} ${hideOnMobileClass}`}>
-                      <ChangeCell value={row.change1h} />
-                    </td>
-                  )}
-                  <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    <ChangeCell value={row.change24h} />
-                  </td>
-                  {showExtraChanges && (
-                    <>
-                      <td className={`${tdClass} ${hideOnMobileClass}`}>
-                        <ChangeCell value={row.change7d} />
+              {sorted.map((row) => {
+                const isExpanded = expanded.has(row.id);
+                return (
+                  <Fragment key={row.id}>
+                    <tr className={trClass}>
+                      <td className={tdClass}>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(row.id)}
+                            aria-expanded={isExpanded}
+                            aria-label={isExpanded ? `Hide chart for ${row.ticker}` : `Show chart for ${row.ticker}`}
+                            className="text-fg-muted transition hover:text-fg"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="size-3.5" aria-hidden="true" />
+                            ) : (
+                              <ChevronRight className="size-3.5" aria-hidden="true" />
+                            )}
+                          </button>
+                          <TokenIcon ticker={row.ticker} url={row.imageUrl} />
+                          <div>
+                            <div className="font-medium text-fg">{row.ticker}</div>
+                            <div className="text-xs text-fg-muted">{row.name}</div>
+                          </div>
+                        </div>
                       </td>
+                      <td className={`${tdClass} tabular-nums`}>{row.price !== null ? formatUsd(row.price) : "—"}</td>
+                      {showExtraChanges && (
+                        <td className={`${tdClass} ${hideOnMobileClass}`}>
+                          <ChangeCell value={row.change1h} />
+                        </td>
+                      )}
                       <td className={`${tdClass} ${hideOnMobileClass}`}>
-                        <ChangeCell value={row.change30d} />
+                        <ChangeCell value={row.change24h} />
                       </td>
-                    </>
-                  )}
-                  <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
-                    {formatCompactUsd(row.marketCap)}
-                  </td>
-                  <td className={tdClass}>
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(row.id)}
-                      disabled={pendingRemoval === row.id}
-                      aria-label={`Remove ${row.ticker} from watchlist`}
-                      className="rounded p-1 text-fg-muted hover:bg-negative/10 hover:text-negative disabled:opacity-50"
-                    >
-                      <X className="size-3.5" aria-hidden="true" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {showExtraChanges && (
+                        <>
+                          <td className={`${tdClass} ${hideOnMobileClass}`}>
+                            <ChangeCell value={row.change7d} />
+                          </td>
+                          <td className={`${tdClass} ${hideOnMobileClass}`}>
+                            <ChangeCell value={row.change30d} />
+                          </td>
+                        </>
+                      )}
+                      <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
+                        {formatCompactUsd(row.marketCap)}
+                      </td>
+                      <td className={tdClass}>
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(row.id)}
+                          disabled={pendingRemoval === row.id}
+                          aria-label={`Remove ${row.ticker} from watchlist`}
+                          className="rounded p-1 text-fg-muted hover:bg-negative/10 hover:text-negative disabled:opacity-50"
+                        >
+                          <X className="size-3.5" aria-hidden="true" />
+                        </button>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-b border-border bg-surface-raised/50">
+                        <td colSpan={showExtraChanges ? 8 : 5} className="p-3">
+                          {/* vs. BTC, same "always show the market baseline"
+                              choice as Trend Finder's own peer-chart expand —
+                              TradingViewCompareChart already skips adding a
+                              second BTC line when compareTicker itself is
+                              BTC, so a BTC row in the watchlist just shows
+                              its own single line instead of BTC-vs-BTC. */}
+                          <TradingViewCompareChart baseTicker={row.ticker} compareTicker="BTC" />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
