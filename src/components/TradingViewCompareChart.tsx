@@ -48,6 +48,22 @@ export function TradingViewCompareChart({
     script.type = "text/javascript";
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.async = true;
+
+    const compareSymbols: { symbol: string; position: string; linestyle?: number }[] = [
+      { symbol: guessTradingViewSymbol(compareTicker), position: "SameScale" },
+    ];
+    // BTC as a always-on baseline, dashed to read as "the market," not a
+    // third thing being compared — skipped when either side already IS
+    // BTC, since overlaying it against itself is meaningless. linestyle:2
+    // (dashed) is a best-effort attempt: TradingView's per-series line-
+    // style override is documented for the full Charting Library's widget
+    // constructor, not confirmed for this free embed widget's compare
+    // config — if the embed silently ignores the field, BTC still shows as
+    // a solid third line, which is still a real, useful baseline.
+    if (baseTicker.toUpperCase() !== "BTC" && compareTicker.toUpperCase() !== "BTC") {
+      compareSymbols.push({ symbol: guessTradingViewSymbol("BTC"), position: "SameScale", linestyle: 2 });
+    }
+
     // autosize:true was reported (with a screenshot) to render a cramped
     // chart even though the outer container genuinely had height:600px —
     // confirmed live in the deployed HTML, so this wasn't a CSS mistake on
@@ -61,7 +77,7 @@ export function TradingViewCompareChart({
       width: "100%",
       height,
       symbol: guessTradingViewSymbol(baseTicker),
-      compareSymbols: [{ symbol: guessTradingViewSymbol(compareTicker), position: "SameScale" }],
+      compareSymbols,
       interval: "60",
       timezone: "Etc/UTC",
       theme: "dark",
@@ -79,7 +95,8 @@ export function TradingViewCompareChart({
       <div className="tradingview-widget-container" ref={containerRef} style={{ height }} />
       <p className="border-t border-border bg-surface-raised px-3 py-1.5 text-[11px] text-fg-muted">
         Best-guess Binance listing for each ticker — use the chart&rsquo;s own symbol search (top-left) to correct
-        either side if it&rsquo;s wrong or unlisted.
+        either side if it&rsquo;s wrong or unlisted. BTC is overlaid (dashed, if the chart honors that) as a market
+        baseline.
       </p>
     </div>
   );
