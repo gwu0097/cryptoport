@@ -25,6 +25,14 @@ interface CachedExplanation {
   aiTickers: AiPeerTicker[];
   confidence: "high" | "medium" | "low";
   sources: { title: string; url: string }[];
+  /** When this explanation was last (re)computed — shown next to "Why is
+   * this moving" so a viewer can tell a same-day cached read from one
+   * that's nearly 24h stale, same staleness-caption discipline as every
+   * other cached figure in this app (CLAUDE.md's Loading Feedback
+   * section). Global/shared across all users, same table as everything
+   * else here — see the direct ask that prompted this: whether a
+   * friend's Encyclopedia lookup reuses one user's own trend search. */
+  computedAt: string;
 }
 
 /** Lazy-populate-on-read cache for one seed's AI trend explanation — same
@@ -56,10 +64,11 @@ async function getCachedExplanation(seedId: string): Promise<CachedExplanation |
     aiTickers: row.ai_tickers,
     confidence: row.confidence,
     sources: row.sources,
+    computedAt: row.computed_at,
   };
 }
 
-async function cacheExplanation(seedId: string, explanation: TrendExplanation): Promise<void> {
+async function cacheExplanation(seedId: string, explanation: TrendExplanation, computedAt: string): Promise<void> {
   const { error } = await serviceDb()
     .from("trend_explanations")
     .upsert(
@@ -71,7 +80,7 @@ async function cacheExplanation(seedId: string, explanation: TrendExplanation): 
         ai_tickers: explanation.aiTickers,
         confidence: explanation.confidence,
         sources: explanation.sources,
-        computed_at: new Date().toISOString(),
+        computed_at: computedAt,
       },
       { onConflict: "seed_id" },
     );
@@ -103,6 +112,10 @@ export type TrendPeersResult =
       status: "ok";
       seed: SeedInfo;
       explanation: TrendExplanation | null;
+      /** null exactly when explanation is null (the AI lookup failed/
+       * timed out with nothing cached yet) — otherwise the same
+       * computed_at whether this came from cache or was just computed. */
+      explanationComputedAt: string | null;
       category: CategoryStat | null;
       categoryPeers: PeerRow[];
       aiPeers: PeerRow[];
@@ -139,11 +152,14 @@ export async function findTrendPeers({
 
   const cached = await getCachedExplanation(coingeckoId);
   let explanation: TrendExplanation | null;
+  let explanationComputedAt: string | null;
   if (cached) {
     explanation = cached;
+    explanationComputedAt = cached.computedAt;
   } else {
     explanation = await explainTrend(seed.symbol, seed.name);
-    if (explanation) await cacheExplanation(coingeckoId, explanation);
+    explanationComputedAt = explanation ? new Date().toISOString() : null;
+    if (explanation) await cacheExplanation(coingeckoId, explanation, explanationComputedAt!);
   }
 
   const [categoryStats, aiPeerReasons] = await Promise.all([
@@ -161,5 +177,5 @@ export async function findTrendPeers({
   const categoryPeers = rankPeers(categoryMembers, { seedId: coingeckoId, mcapFloor });
   const aiPeers = rankPeers(aiPeerInfo, { seedId: coingeckoId, mcapFloor });
 
-  return { status: "ok", seed, explanation, category, categoryPeers, aiPeers, aiPeerReasons };
+  return { status: "ok", seed, explanation, explanationComputedAt, category, categoryPeers, aiPeers, aiPeerReasons };
 }

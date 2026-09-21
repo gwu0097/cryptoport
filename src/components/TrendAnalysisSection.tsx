@@ -5,7 +5,7 @@ import { TokenIcon } from "./TokenIcon";
 import { TrendSeedPicker } from "./TrendSeedPicker";
 import { TrendPeerTable } from "./TrendPeerTable";
 import { RecordRecentWallet } from "./RecordRecentWallet";
-import { formatUsd, formatPercent } from "@/lib/format";
+import { formatUsd, formatPercent, formatStaleness } from "@/lib/format";
 import { findTrendPeers } from "@/lib/trendPeers";
 import type { PeerRow } from "@/lib/trendFinder";
 import type { SeedInfo } from "@/lib/adapters/coingecko";
@@ -159,7 +159,7 @@ export async function TrendAnalysisSection({
     );
   }
 
-  const { seed, explanation, category, categoryPeers, aiPeers, aiPeerReasons } = result;
+  const { seed, explanation, explanationComputedAt, category, categoryPeers, aiPeers, aiPeerReasons } = result;
   const categoryRows = peerRowsWithSeed(seed, categoryPeers);
   const aiRows = peerRowsWithSeed(seed, aiPeers);
   const confirmedIds = intersectIds(categoryPeers, aiPeers);
@@ -218,7 +218,19 @@ export async function TrendAnalysisSection({
         <McapFloorPicker id={id} mcapFloor={mcapFloor} basePath={basePath} extraQuery={extraQuery} />
       </div>
 
-      <Panel className="mb-6" title="Why is this moving">
+      <Panel
+        className="mb-6"
+        title="Why is this moving"
+        description={
+          explanation && explanationComputedAt
+            ? // Shared/global cache (see tokenAnalysis.ts's own doc comment
+              // on the same design) — this can be someone else's search,
+              // not necessarily yours, so "last refreshed" rather than
+              // "you looked this up" avoids implying it's personal.
+              `Last refreshed ${formatStaleness(explanationComputedAt)} — recomputed at most once a day`
+            : undefined
+        }
+      >
         {explanation ? (
           <>
             <div className="mb-2 flex flex-wrap items-center gap-2">
