@@ -177,7 +177,7 @@ async function TrendResults({
     );
   }
 
-  const { seed, explanation, category, categoryPeers, aiPeers } = result;
+  const { seed, explanation, category, categoryPeers, aiPeers, aiPeerReasons } = result;
   const categoryRows = peerRowsWithSeed(seed, categoryPeers);
   const aiRows = peerRowsWithSeed(seed, aiPeers);
   const confirmedIds = intersectIds(categoryPeers, aiPeers);
@@ -284,10 +284,10 @@ async function TrendResults({
       <Panel
         className="mb-2"
         title="AI-suggested peers"
-        description="Named by a live news search as moving for a similar reason — not a verified list"
+        description="Named by a live news search as moving for a similar reason — click the arrow on a row for why; not a verified list"
       >
         {aiPeers.length > 0 ? (
-          <TrendPeerTable peers={aiRows} seedId={seed.id} confirmedIds={confirmedIds} />
+          <TrendPeerTable peers={aiRows} seedId={seed.id} confirmedIds={confirmedIds} reasons={aiPeerReasons} />
         ) : (
           <p className="text-sm text-fg-muted">
             {explanation

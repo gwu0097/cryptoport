@@ -1,6 +1,7 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { Fragment, useState } from "react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import type { PeerRow } from "@/lib/trendFinder";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
@@ -55,18 +56,36 @@ function ChangeCell({ value }: { value: number | null }) {
  * that token into the table too"), this marks which row it is so it
  * doesn't read as an unexplained duplicate. `confirmedIds` — ids present in
  * *both* peer sources get a "Confirmed by both" badge, per the direct ask:
- * "see if there's overlap and what isn't" between the two sources. */
+ * "see if there's overlap and what isn't" between the two sources.
+ * `reasons` — id -> the AI's own specific justification for that peer
+ * (only ever passed for the AI-suggested table, never the CoinGecko-
+ * category one, which has no per-row reason to show). A row with a reason
+ * gets a chevron that expands to show it inline — reported directly: the
+ * flat list didn't say *why* a given ticker was suggested, e.g. whether it
+ * shares KMNO's specific RWA angle or a different reason entirely. */
 export function TrendPeerTable({
   peers,
   seedId,
   confirmedIds,
+  reasons,
 }: {
   peers: PeerRow[];
   seedId?: string;
   confirmedIds?: Set<string>;
+  reasons?: Map<string, string>;
 }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function toggleSort(key: PeerSortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -118,50 +137,78 @@ export function TrendPeerTable({
           {sorted.map((peer) => {
             const isSeed = peer.id === seedId;
             const isConfirmed = confirmedIds?.has(peer.id) ?? false;
+            const reason = reasons?.get(peer.id);
+            const isExpanded = expanded.has(peer.id);
             return (
-              <tr key={peer.id} className={`${trClass} ${isSeed ? "bg-accent/10" : ""}`}>
-                <td className={tdClass}>
-                  <div className="flex items-center gap-2">
-                    <TokenIcon ticker={peer.symbol} url={peer.imageUrl} />
-                    <span className="font-medium text-fg">{peer.symbol}</span>
-                    {isSeed && (
-                      <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
-                        Seed
-                      </span>
-                    )}
-                    {!isSeed && isConfirmed && (
-                      <span className="rounded-full bg-positive/20 px-1.5 py-0.5 text-[10px] font-medium text-positive">
-                        Confirmed by both
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className={`${tdClass} tabular-nums`}>{peer.price !== null ? formatUsd(peer.price) : "—"}</td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>
-                  <ChangeCell value={peer.change1h} />
-                </td>
-                <td className={tdClass}>
-                  <ChangeCell value={peer.change24h} />
-                </td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>
-                  <ChangeCell value={peer.change7d} />
-                </td>
-                <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
-                  {formatCompactUsd(peer.marketCap)}
-                </td>
-                <td className={tdClass}>
-                  <a
-                    href={`https://www.coingecko.com/en/coins/${peer.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="View on CoinGecko"
-                    aria-label={`View ${peer.symbol} on CoinGecko`}
-                    className="text-fg-muted transition hover:text-accent"
-                  >
-                    <ExternalLink className="size-3.5" aria-hidden="true" />
-                  </a>
-                </td>
-              </tr>
+              <Fragment key={peer.id}>
+                <tr className={`${trClass} ${isSeed ? "bg-accent/10" : ""}`}>
+                  <td className={tdClass}>
+                    <div className="flex items-center gap-2">
+                      {reason ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(peer.id)}
+                          aria-expanded={isExpanded}
+                          aria-label={isExpanded ? `Hide why ${peer.symbol} was suggested` : `Show why ${peer.symbol} was suggested`}
+                          className="text-fg-muted transition hover:text-fg"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="size-3.5" aria-hidden="true" />
+                          ) : (
+                            <ChevronRight className="size-3.5" aria-hidden="true" />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="size-3.5" aria-hidden="true" />
+                      )}
+                      <TokenIcon ticker={peer.symbol} url={peer.imageUrl} />
+                      <span className="font-medium text-fg">{peer.symbol}</span>
+                      {isSeed && (
+                        <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                          Seed
+                        </span>
+                      )}
+                      {!isSeed && isConfirmed && (
+                        <span className="rounded-full bg-positive/20 px-1.5 py-0.5 text-[10px] font-medium text-positive">
+                          Confirmed by both
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={`${tdClass} tabular-nums`}>{peer.price !== null ? formatUsd(peer.price) : "—"}</td>
+                  <td className={`${tdClass} ${hideOnMobileClass}`}>
+                    <ChangeCell value={peer.change1h} />
+                  </td>
+                  <td className={tdClass}>
+                    <ChangeCell value={peer.change24h} />
+                  </td>
+                  <td className={`${tdClass} ${hideOnMobileClass}`}>
+                    <ChangeCell value={peer.change7d} />
+                  </td>
+                  <td className={`${tdClass} ${hideOnMobileClass} tabular-nums text-fg-muted`}>
+                    {formatCompactUsd(peer.marketCap)}
+                  </td>
+                  <td className={tdClass}>
+                    <a
+                      href={`https://www.coingecko.com/en/coins/${peer.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="View on CoinGecko"
+                      aria-label={`View ${peer.symbol} on CoinGecko`}
+                      className="text-fg-muted transition hover:text-accent"
+                    >
+                      <ExternalLink className="size-3.5" aria-hidden="true" />
+                    </a>
+                  </td>
+                </tr>
+                {reason && isExpanded && (
+                  <tr className="border-b border-border bg-surface-raised/50">
+                    <td colSpan={7} className="px-4 py-2 text-xs text-fg-muted">
+                      <span className="font-medium text-fg">Why {peer.symbol}:</span> {reason}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>

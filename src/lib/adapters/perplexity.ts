@@ -3,11 +3,23 @@ import "server-only";
 const API_URL = "https://api.perplexity.ai/v1/agent";
 const API_KEY = process.env.PERPLEXITY_API_KEY ?? "";
 
+export interface AiPeerTicker {
+  ticker: string;
+  /** Why the AI named this specific ticker — e.g. "Avalanche RWA credit hub
+   * and institutional collateral-lending push," not just "same category."
+   * Shown per-row in TrendPeerTable's expandable reason (see that
+   * component and trend-finder/page.tsx) — reported directly: the AI was
+   * already reasoning per-ticker in its prose summary, just not returning
+   * that structurally, so there was no way to show *why* a specific row
+   * was suggested without parsing free text. */
+  reason: string;
+}
+
 export interface TrendExplanation {
   reasonSummary: string;
   narrativeTags: string[];
   categoryGuess: string | null;
-  aiTickers: string[];
+  aiTickers: AiPeerTicker[];
   confidence: "high" | "medium" | "low";
   sources: { title: string; url: string }[];
 }
@@ -30,7 +42,17 @@ const RESPONSE_SCHEMA = {
     reason_summary: { type: "string" },
     narrative_tags: { type: "array", items: { type: "string" } },
     category_guess: { type: "string" },
-    related_tickers: { type: "array", items: { type: "string" } },
+    related_tickers: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          ticker: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["ticker", "reason"],
+      },
+    },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
   },
   required: ["reason_summary", "narrative_tags", "category_guess", "related_tickers", "confidence"],
@@ -39,7 +61,7 @@ const RESPONSE_SCHEMA = {
 function buildPrompt(symbol: string, name: string): string {
   return `Why has the crypto token ${name} (${symbol}) been moving in price recently? Search for current news and explain the specific catalyst — clearly distinguish a token-specific/company-specific reason from general crypto market beta (the whole market moving together isn't a real answer here).
 
-Then name other crypto tokens that are CURRENTLY moving for a similar underlying reason (the same narrative or catalyst type, not just tokens that happen to share a category tag) — for each, briefly say why it fits.
+Then name other crypto tokens that are CURRENTLY moving for a similar underlying reason (the same narrative or catalyst type, not just tokens that happen to share a category tag) — for EACH one, give its own specific 1-sentence reason (e.g. "an Avalanche RWA credit hub with an institutional collateral-lending push," not "same category" or "also RWA-related").
 
 Also give your single best guess at a short category/theme name (2-5 words, the kind of phrase a taxonomy like "Real World Assets" or "Privacy Coins" would use) that best captures this narrative.
 
@@ -48,7 +70,7 @@ Return ONLY this JSON:
   "reason_summary": "2-4 sentences explaining the specific catalyst, with dates where known",
   "narrative_tags": ["short tag", "short tag", ...],
   "category_guess": "short category/theme name",
-  "related_tickers": ["TICKER", "TICKER", ...],
+  "related_tickers": [{"ticker": "TICKER", "reason": "1 sentence specific to this token, not generic"}, ...],
   "confidence": "high|medium|low"
 }`;
 }
@@ -125,7 +147,7 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
     reason_summary?: unknown;
     narrative_tags?: unknown;
     category_guess?: unknown;
-    related_tickers?: unknown;
+    related_tickers?: unknown; // { ticker: string; reason: string }[]
     confidence?: unknown;
   };
   try {
@@ -139,6 +161,18 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
 
   const asStringArray = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0) : [];
+  const asAiTickers = (v: unknown): AiPeerTicker[] => {
+    if (!Array.isArray(v)) return [];
+    const result: AiPeerTicker[] = [];
+    for (const item of v) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const ticker = typeof o.ticker === "string" ? o.ticker.trim().toUpperCase() : "";
+      const reason = typeof o.reason === "string" ? o.reason.trim() : "";
+      if (ticker && reason) result.push({ ticker, reason });
+    }
+    return result;
+  };
   const confidence: TrendExplanation["confidence"] =
     parsed.confidence === "high" || parsed.confidence === "medium" || parsed.confidence === "low"
       ? parsed.confidence
@@ -162,7 +196,7 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
     reasonSummary,
     narrativeTags: asStringArray(parsed.narrative_tags),
     categoryGuess,
-    aiTickers: asStringArray(parsed.related_tickers).map((t) => t.toUpperCase()),
+    aiTickers: asAiTickers(parsed.related_tickers),
     confidence,
     sources,
   };

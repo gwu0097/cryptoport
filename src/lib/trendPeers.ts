@@ -8,7 +8,7 @@ import {
   type SeedInfo,
   type CategoryStat,
 } from "./adapters/coingecko";
-import { explainTrend, type TrendExplanation } from "./adapters/perplexity";
+import { explainTrend, type TrendExplanation, type AiPeerTicker } from "./adapters/perplexity";
 import { rankPeers, matchCategoryName, type PeerRow } from "./trendFinder";
 import { pickBestMatch } from "./watchlistInput";
 import { serviceDb } from "./supabase";
@@ -22,7 +22,7 @@ interface CachedExplanation {
   reasonSummary: string;
   narrativeTags: string[];
   categoryGuess: string | null;
-  aiTickers: string[];
+  aiTickers: AiPeerTicker[];
   confidence: "high" | "medium" | "low";
   sources: { title: string; url: string }[];
 }
@@ -42,7 +42,7 @@ async function getCachedExplanation(seedId: string): Promise<CachedExplanation |
     reason_summary: string;
     narrative_tags: string[];
     category_guess: string | null;
-    ai_tickers: string[];
+    ai_tickers: AiPeerTicker[];
     confidence: "high" | "medium" | "low";
     sources: { title: string; url: string }[];
     computed_at: string;
@@ -78,21 +78,23 @@ async function cacheExplanation(seedId: string, explanation: TrendExplanation): 
   if (error) throw new Error(`Failed to cache trend_explanations: ${error.message}`);
 }
 
-/** Resolves the AI's raw ticker strings to real CoinGecko coins via the
- * same searchCoins()+pickBestMatch() pair Watchlist's bulk-add already
- * trusts for exactly this "a bare ticker string might not be what it looks
- * like" problem — a ticker that doesn't resolve confidently is dropped,
- * never guessed at. One /search call per ticker (no batch endpoint), so
- * this is bounded by how many tickers the AI actually names (typically a
- * handful), not a concern at this scale. */
-async function resolveAiTickers(tickers: string[]): Promise<string[]> {
-  const ids: string[] = [];
-  for (const ticker of tickers) {
+/** Resolves the AI's raw {ticker, reason} pairs to real CoinGecko coin ids
+ * via the same searchCoins()+pickBestMatch() pair Watchlist's bulk-add
+ * already trusts for exactly this "a bare ticker string might not be what
+ * it looks like" problem — a ticker that doesn't resolve confidently is
+ * dropped, never guessed at. One /search call per ticker (no batch
+ * endpoint), so this is bounded by how many tickers the AI actually names
+ * (typically a handful), not a concern at this scale. Returns id -> reason
+ * so page.tsx can show each AI-suggested row's own specific justification
+ * (see AiPeerTicker's own doc comment) rather than just the list. */
+async function resolveAiTickers(tickers: AiPeerTicker[]): Promise<Map<string, string>> {
+  const reasonsById = new Map<string, string>();
+  for (const { ticker, reason } of tickers) {
     const results = await searchCoins(ticker);
     const match = pickBestMatch(ticker, results);
-    if (match) ids.push(match.id);
+    if (match && !reasonsById.has(match.id)) reasonsById.set(match.id, reason);
   }
-  return [...new Set(ids)];
+  return reasonsById;
 }
 
 export type TrendPeersResult =
@@ -104,6 +106,10 @@ export type TrendPeersResult =
       category: CategoryStat | null;
       categoryPeers: PeerRow[];
       aiPeers: PeerRow[];
+      /** id -> the AI's specific reason for naming that peer — keyed
+       * separately from aiPeers since PeerRow is shared with the category
+       * table (which has no per-row reason). */
+      aiPeerReasons: Map<string, string>;
     };
 
 /**
@@ -140,20 +146,20 @@ export async function findTrendPeers({
     if (explanation) await cacheExplanation(coingeckoId, explanation);
   }
 
-  const [categoryStats, aiPeerIds] = await Promise.all([
+  const [categoryStats, aiPeerReasons] = await Promise.all([
     explanation?.categoryGuess ? fetchCategoryStats() : Promise.resolve<CategoryStat[]>([]),
-    explanation ? resolveAiTickers(explanation.aiTickers) : Promise.resolve<string[]>([]),
+    explanation ? resolveAiTickers(explanation.aiTickers) : Promise.resolve(new Map<string, string>()),
   ]);
 
   const category = explanation?.categoryGuess ? matchCategoryName(explanation.categoryGuess, categoryStats) : null;
 
   const [categoryMembers, aiPeerInfo] = await Promise.all([
     category ? fetchCategoryMembers(category.id) : Promise.resolve<PeerRow[]>([]),
-    fetchMarketsByIds(aiPeerIds),
+    fetchMarketsByIds([...aiPeerReasons.keys()]),
   ]);
 
   const categoryPeers = rankPeers(categoryMembers, { seedId: coingeckoId, mcapFloor });
   const aiPeers = rankPeers(aiPeerInfo, { seedId: coingeckoId, mcapFloor });
 
-  return { status: "ok", seed, explanation, category, categoryPeers, aiPeers };
+  return { status: "ok", seed, explanation, category, categoryPeers, aiPeers, aiPeerReasons };
 }
