@@ -28,18 +28,35 @@ export interface NavItemData {
   icon: LucideIcon;
 }
 
-export const NAV_ITEMS: NavItemData[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/portfolio", label: "Portfolio", icon: Briefcase },
-  { href: "/wallets", label: "Wallets", icon: Wallet },
-  { href: "/assets", label: "Assets", icon: Coins },
-  { href: "/watchlist", label: "Watchlist", icon: Star },
-  { href: "/trend-finder", label: "Trend Finder", icon: TrendingUp },
-  { href: "/compare", label: "Compare", icon: GitCompare },
-  { href: "/encyclopedia", label: "Encyclopedia", icon: BookOpen },
-  { href: "/analytics", label: "Analytics", icon: ChartLine },
-  { href: "/defi", label: "DeFi", icon: Layers },
-  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+// Grouped rather than one flat 11-item list — reported directly as "too
+// many tabs jammed together." Portfolio = everything about what you
+// actually own (drill-down pages included); Research = market-
+// intelligence tools that aren't tied to your specific holdings. Picked
+// over a finer 3-way split (Overview/Holdings/Research) via a side-by-side
+// preview comparison — this one keeps the mental model to two questions
+// ("is this about my money, or the market") instead of three.
+export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
+  {
+    label: "Portfolio",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/portfolio", label: "Portfolio", icon: Briefcase },
+      { href: "/wallets", label: "Wallets", icon: Wallet },
+      { href: "/assets", label: "Assets", icon: Coins },
+      { href: "/analytics", label: "Analytics", icon: ChartLine },
+      { href: "/defi", label: "DeFi", icon: Layers },
+      { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+    ],
+  },
+  {
+    label: "Research",
+    items: [
+      { href: "/watchlist", label: "Watchlist", icon: Star },
+      { href: "/trend-finder", label: "Trend Finder", icon: TrendingUp },
+      { href: "/compare", label: "Compare", icon: GitCompare },
+      { href: "/encyclopedia", label: "Encyclopedia", icon: BookOpen },
+    ],
+  },
 ];
 
 export const SETTINGS_ITEM: NavItemData = { href: "/settings", label: "Settings", icon: Settings };
@@ -109,77 +126,100 @@ export function NavLink({
   );
 }
 
+function NavItemRow({
+  item,
+  pathname,
+  onLinkClick,
+}: {
+  item: NavItemData;
+  pathname: string;
+  onLinkClick?: () => void;
+}) {
+  if (item.href === "/wallets") {
+    return (
+      <CollapsibleNavItem
+        item={item}
+        active={isActive(pathname, item.href)}
+        pathname={pathname}
+        onLinkClick={onLinkClick}
+        namespace="wallets"
+        openStorageKey="cryptoport:recentWalletsOpen"
+        linkFor={(w) => `/wallets/${w.id}`}
+        isRecentActive={(w) => pathname === `/wallets/${w.id}`}
+      />
+    );
+  }
+  if (item.href === "/analytics") {
+    return (
+      <CollapsibleNavItem
+        item={item}
+        active={isActive(pathname, item.href)}
+        pathname={pathname}
+        onLinkClick={onLinkClick}
+        namespace="analyticsWallets"
+        openStorageKey="cryptoport:recentAnalyticsWalletsOpen"
+        linkFor={(w) => `/analytics?wallet=${w.id}`}
+        // Analytics' own wallet selection lives in PerformanceChart's
+        // client state, not observable from here — no honest way to
+        // tell which recent entry (if any) is "active" from the nav
+        // alone, so this never highlights one rather than guessing.
+        isRecentActive={() => false}
+      />
+    );
+  }
+  if (item.href === "/transactions") {
+    return (
+      <CollapsibleNavItem
+        item={item}
+        active={isActive(pathname, item.href)}
+        pathname={pathname}
+        onLinkClick={onLinkClick}
+        namespace="transactionsWallets"
+        openStorageKey="cryptoport:recentTransactionsWalletsOpen"
+        linkFor={(w) => `/transactions?wallet=${w.id}`}
+        // Transactions' wallet selection is a real ?wallet= query
+        // param (unlike Analytics' client-state one), but `pathname`
+        // here is path-only — no search params threaded through
+        // Sidebar/MobileNav to compare against. Same honest
+        // "can't tell from here, don't guess" call as Analytics
+        // rather than plumbing searchParams through two more
+        // components just for this highlight.
+        isRecentActive={() => false}
+      />
+    );
+  }
+  return <NavLink {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />;
+}
+
 /**
  * The full nav item list, shared verbatim by Sidebar.tsx and MobileNav.tsx
  * (see this file's own top comment on why the two must never diverge) —
- * renders Wallets and Analytics via CollapsibleNavItem (same row, plus a
- * recent-wallets disclosure chevron each, in their own namespace — see
- * recentWallets.ts) instead of the plain NavLink every other item gets.
+ * renders NAV_GROUPS as labeled sections (a plain muted heading, not
+ * collapsible — every item stays one click away, this is purely visual
+ * chunking, see that array's own doc comment for why grouped at all).
+ * Wallets/Analytics/Transactions still render via CollapsibleNavItem (same
+ * row, plus a recent-wallets disclosure chevron each, in their own
+ * namespace — see recentWallets.ts) instead of the plain NavLink every
+ * other item gets — unchanged by grouping, just moved into NavItemRow so
+ * the per-item branching isn't duplicated across two group loops.
  * `onLinkClick` is only used by MobileNav, to close the drawer on
  * navigation (recent-wallet links included).
  */
 export function NavItemsList({ pathname, onLinkClick }: { pathname: string; onLinkClick?: () => void }) {
   return (
     <>
-      {NAV_ITEMS.map((item) => {
-        if (item.href === "/wallets") {
-          return (
-            <CollapsibleNavItem
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-              pathname={pathname}
-              onLinkClick={onLinkClick}
-              namespace="wallets"
-              openStorageKey="cryptoport:recentWalletsOpen"
-              linkFor={(w) => `/wallets/${w.id}`}
-              isRecentActive={(w) => pathname === `/wallets/${w.id}`}
-            />
-          );
-        }
-        if (item.href === "/analytics") {
-          return (
-            <CollapsibleNavItem
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-              pathname={pathname}
-              onLinkClick={onLinkClick}
-              namespace="analyticsWallets"
-              openStorageKey="cryptoport:recentAnalyticsWalletsOpen"
-              linkFor={(w) => `/analytics?wallet=${w.id}`}
-              // Analytics' own wallet selection lives in PerformanceChart's
-              // client state, not observable from here — no honest way to
-              // tell which recent entry (if any) is "active" from the nav
-              // alone, so this never highlights one rather than guessing.
-              isRecentActive={() => false}
-            />
-          );
-        }
-        if (item.href === "/transactions") {
-          return (
-            <CollapsibleNavItem
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-              pathname={pathname}
-              onLinkClick={onLinkClick}
-              namespace="transactionsWallets"
-              openStorageKey="cryptoport:recentTransactionsWalletsOpen"
-              linkFor={(w) => `/transactions?wallet=${w.id}`}
-              // Transactions' wallet selection is a real ?wallet= query
-              // param (unlike Analytics' client-state one), but `pathname`
-              // here is path-only — no search params threaded through
-              // Sidebar/MobileNav to compare against. Same honest
-              // "can't tell from here, don't guess" call as Analytics
-              // rather than plumbing searchParams through two more
-              // components just for this highlight.
-              isRecentActive={() => false}
-            />
-          );
-        }
-        return <NavLink key={item.href} {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />;
-      })}
+      {NAV_GROUPS.map((group, i) => (
+        <div key={group.label} className={i === 0 ? undefined : "mt-4"}>
+          <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-fg-muted/70">
+            {group.label}
+          </p>
+          <div className="flex flex-col gap-1">
+            {group.items.map((item) => (
+              <NavItemRow key={item.href} item={item} pathname={pathname} onLinkClick={onLinkClick} />
+            ))}
+          </div>
+        </div>
+      ))}
     </>
   );
 }

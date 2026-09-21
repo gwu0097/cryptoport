@@ -11,7 +11,7 @@ import { NavItemsList, SETTINGS_ITEM, ADMIN_ITEM, isActive, NavLink } from "./na
  * previously no way to reach any page except /wallets and whatever the
  * current page happened to link to. A hamburger button in TopBar (this
  * component, `md:hidden`) opens a left-anchored drawer with the same
- * NAV_ITEMS/SETTINGS_ITEM list Sidebar renders, so the two can't drift out
+ * NAV_GROUPS/SETTINGS_ITEM list Sidebar renders, so the two can't drift out
  * of sync.
  *
  * Not built on ui/Dialog.tsx's native <dialog> — that shell is a centered
