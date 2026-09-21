@@ -314,7 +314,16 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                     <td className={tdClass}>
                       <div className="flex items-center gap-2">
                         <TokenIcon ticker={group.ticker} url={group.iconUrl} />
-                        <span className="font-medium text-fg">{group.ticker}</span>
+                        <div>
+                          <div className="font-medium text-fg">{group.ticker}</div>
+                          {/* Qty has its own dedicated column at sm+ (hideOnMobileClass
+                              below) — this is mobile-only (sm:hidden), tucked under
+                              the ticker rather than added to the already-doubled-up
+                              Price (24h%) or Value (share%) cells. */}
+                          <div className="text-xs tabular-nums text-fg-muted sm:hidden">
+                            {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td className={`${tdClass} tabular-nums`}>

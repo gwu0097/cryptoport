@@ -258,6 +258,12 @@ export function HoldingsTable({
                       label={holding.contract ? "Copy contract address" : "Copy ticker"}
                     />
                   </span>
+                  {/* Qty has its own dedicated column at sm+ (hideOnMobileClass
+                      below) — this is mobile-only (sm:hidden), tucked under the
+                      ticker rather than added to Price or Value, neither of
+                      which has any spare room of its own to carry a second
+                      figure here (unlike Assets' own Price/Value cells). */}
+                  <span className="text-xs tabular-nums text-fg-muted sm:hidden">{formatQty(holding.qty)}</span>
                   {holding.protocol && !hideProtocolTag && (
                     <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />
                   )}
