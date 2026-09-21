@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TrendSeedPicker } from "@/components/TrendSeedPicker";
@@ -16,6 +18,25 @@ export const maxDuration = 300;
 export const metadata = { title: "Trend finder · CryptoPort" };
 
 const DEFAULT_MCAP_FLOOR = 200_000_000;
+
+// loading.tsx's Suspense boundary is keyed without search params (see
+// node_modules/next/dist/client/components/layout-router.js), so it only
+// shows a fallback on a genuine first visit to /trend-finder — clicking
+// the market-cap-floor picker, or searching a new token while results are
+// already shown, only changes `id`/`ticker`/`mcap` on this same segment,
+// which resumes inside an already-resolved boundary and shows no loading
+// feedback at all. This local, keyed Suspense fixes it: a key change
+// forces a brand-new boundary, which does show its fallback mid-
+// transition. See encyclopedia/page.tsx's TabFallback for the same fix
+// applied to its tab pills.
+function TrendResultsFallback() {
+  return (
+    <Panel className="flex flex-col items-center gap-3 py-12 text-center">
+      <Loader2 className="size-6 animate-spin text-accent" aria-hidden="true" />
+      <p className="text-sm text-fg-muted">Looking up sector peers — a first-time token can take a few seconds…</p>
+    </Panel>
+  );
+}
 
 export default async function TrendFinderPage({
   searchParams,
@@ -40,9 +61,13 @@ export default async function TrendFinderPage({
       <TrendRecentSearches />
 
       {id ? (
-        <TrendAnalysisSection id={id} mcapFloor={mcapFloor} basePath="/trend-finder" />
+        <Suspense key={`id:${id}:${mcapFloor}`} fallback={<TrendResultsFallback />}>
+          <TrendAnalysisSection id={id} mcapFloor={mcapFloor} basePath="/trend-finder" />
+        </Suspense>
       ) : ticker ? (
-        <TrendResultsFromTicker ticker={ticker} mcapFloor={mcapFloor} />
+        <Suspense key={`ticker:${ticker}:${mcapFloor}`} fallback={<TrendResultsFallback />}>
+          <TrendResultsFromTicker ticker={ticker} mcapFloor={mcapFloor} />
+        </Suspense>
       ) : (
         <>
           {/* Only mounted here (never on a real result) — redirects to the

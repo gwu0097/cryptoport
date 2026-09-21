@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { TokenIcon } from "@/components/TokenIcon";
@@ -26,6 +28,30 @@ const TABS = [
   { key: "ai", label: "AI Analysis" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
+
+// Next keys a route segment's loading.tsx Suspense boundary WITHOUT search
+// params (see node_modules/next/dist/client/components/layout-router.js —
+// "search params do not cause state to be lost, so two segments with the
+// same segment path but different search params should have the same
+// state key"), so that boundary only ever shows its fallback on a genuine
+// first entry into /encyclopedia. Clicking a tab pill here only changes
+// `tab`/`mcap` on the same segment — React suspends inside the *already-
+// resolved* outer boundary during the transition, and per React's
+// transition semantics that keeps the old tab's content on screen instead
+// of falling back to a spinner, until the new tab is ready. This local,
+// keyed Suspense is what actually fixes it: a key change forces React to
+// treat this as a brand-new boundary, which does show its fallback even
+// mid-transition (same pattern as Next's own `?query=` search-page
+// tutorial). Reported directly: "it's doing that thing where it loads
+// without going anywhere and then shows up after it's done."
+function TabFallback() {
+  return (
+    <Panel className="flex flex-col items-center gap-3 py-12 text-center">
+      <Loader2 className="size-6 animate-spin text-accent" aria-hidden="true" />
+      <p className="text-sm text-fg-muted">Loading — a first-time trend or AI lookup can take up to 20-30 seconds…</p>
+    </Panel>
+  );
+}
 
 function ChangeText({ value }: { value: number | null }) {
   const className =
@@ -187,19 +213,21 @@ async function EncyclopediaResults({
         ))}
       </div>
 
-      {tab === "chart" && <TradingViewCompareChart baseTicker={seed.symbol} compareTicker="BTC" />}
+      <Suspense key={`${id}:${tab}:${mcapFloor}`} fallback={<TabFallback />}>
+        {tab === "chart" && <TradingViewCompareChart baseTicker={seed.symbol} compareTicker="BTC" />}
 
-      {tab === "trend" && (
-        <TrendAnalysisSection
-          id={id}
-          mcapFloor={mcapFloor}
-          basePath="/encyclopedia"
-          extraQuery="tab=trend"
-          showHeader={false}
-        />
-      )}
+        {tab === "trend" && (
+          <TrendAnalysisSection
+            id={id}
+            mcapFloor={mcapFloor}
+            basePath="/encyclopedia"
+            extraQuery="tab=trend"
+            showHeader={false}
+          />
+        )}
 
-      {tab === "ai" && <TokenAnalysisPanel coingeckoId={seed.id} ticker={seed.symbol} name={seed.name} />}
+        {tab === "ai" && <TokenAnalysisPanel coingeckoId={seed.id} ticker={seed.symbol} name={seed.name} />}
+      </Suspense>
     </>
   );
 }

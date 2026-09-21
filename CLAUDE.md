@@ -206,7 +206,35 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
 - Every route that fetches data on render should have a `loading.tsx` —
   `(app)/loading.tsx` covers every page under that group; add a
   route-specific one only if a page's fetch is slow enough to want a
-  tailored skeleton instead of the shared one.
+  tailored skeleton instead of the shared one. **But `loading.tsx` only
+  ever shows its fallback on a genuine first entry into that route
+  segment** — verified directly from the installed Next.js source
+  (`node_modules/next/dist/client/components/layout-router.js`): the
+  Suspense boundary it creates is keyed *without* search params
+  (`createRouterCacheKey(segment, /*withoutSearchParameters*/ true)`),
+  and Next's own comment on that line says why: "search params do not
+  cause state to be lost, so two segments with the same segment path but
+  different search params should have the same state key." Once that
+  boundary has resolved once, a same-route `<Link>` click that only
+  changes a searchParam (a tab, a filter, a market-cap picker, a new
+  search while results are already shown) suspends *inside an
+  already-resolved boundary* during a transition — React's transition
+  semantics then keep the old content on screen instead of falling back
+  to the spinner, with **zero visible loading feedback**, until the new
+  content is ready. This produced the same reported bug twice
+  (`trend-finder`'s market-cap-floor picker, then `encyclopedia`'s tab
+  pills) because the file-existence rule above sounds like it should
+  cover this case and doesn't — don't rely on `loading.tsx` for it.
+  **The fix for that case**: wrap the searchParams-dependent content in
+  its own `<Suspense key={...}>` at the point where those params are
+  read, keyed by whatever combination of params should trigger a fresh
+  loading state (e.g. `` key={`${id}:${tab}:${mcapFloor}`} ``). A key
+  change forces React to treat it as a brand-new boundary, which *does*
+  show its fallback even mid-transition — same pattern as Next's own
+  `?query=` search-page tutorial. See `trend-finder/page.tsx` and
+  `encyclopedia/page.tsx` for the canonical example (`TrendResultsFallback`/
+  `TabFallback`). Any new searchParams-driven tab/filter/re-search UI on an
+  already-mounted page needs this, not just a sibling `loading.tsx`.
 - If an action genuinely takes a while, say why in the UI (a caption, not
   just a spinner) — "this pulls a live price for every holding" is more
   useful than silence.
