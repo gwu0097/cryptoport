@@ -12,15 +12,17 @@ import { searchCoinsAction } from "@/app/(app)/trend-finder/actions";
  * Trend Finder's seed unambiguous — see trend-finder/page.tsx's own doc
  * comment on why there's deliberately no ?ticker= fallback in v1. `mcap`
  * carries the current floor selection through so picking a new seed
- * doesn't reset it. */
-export function TrendSeedPicker({ mcap }: { mcap?: string }) {
+ * doesn't reset it — only meaningful on Trend Finder itself; Encyclopedia
+ * (the second consumer, `basePath="/encyclopedia"`) has no mcap param at
+ * all, so it's simply omitted there. */
+export function TrendSeedPicker({ mcap, basePath = "/trend-finder" }: { mcap?: string; basePath?: string }) {
   const router = useRouter();
 
   function handleSelect(coin: CoinSearchResult | null) {
     if (!coin) return;
     const params = new URLSearchParams({ id: coin.id });
     if (mcap) params.set("mcap", mcap);
-    router.push(`/trend-finder?${params.toString()}`);
+    router.push(`${basePath}?${params.toString()}`);
   }
 
   return (
