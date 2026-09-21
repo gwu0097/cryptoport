@@ -126,12 +126,11 @@ export async function fetchWalletTransactions(
     const heldChains = [...new Set((data as { chain: string }[]).map((r) => r.chain))];
     // Three independent free sources, dispatched to whichever actually
     // covers a given chain, each chain attempted by exactly one of them
-    // (no double-fetch): Alchemy first for any chain it's known to help on
-    // (today just "base" — added after a real, live-confirmed gap where
-    // Blockscout silently failed to index a real transaction; see
-    // alchemy.ts's own doc comment), then Etherscan where it's genuinely
-    // free (see FREE_TIER_UNSUPPORTED), then Blockscout as the fallback for
-    // whatever neither of those covers.
+    // (no double-fetch): Alchemy first for every chain it's known to cover
+    // (see alchemy.ts's own doc comment — expanded from just "base" to 29
+    // of this app's 32 EVM chains, a deliberate consolidation decision),
+    // then Etherscan where it's genuinely free (see FREE_TIER_UNSUPPORTED)
+    // for whatever's left, then Blockscout as the final fallback.
     const alchemyChains = heldChains.filter((c) => c in ALCHEMY_HOSTS);
     const etherscanChains = heldChains.filter(
       (c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c) && !alchemyChains.includes(c),
@@ -140,18 +139,27 @@ export async function fetchWalletTransactions(
       (c) => c in BLOCKSCOUT_HOSTS && !etherscanChains.includes(c) && !alchemyChains.includes(c),
     );
 
+    // Each per-chain call wrapped in its own catch — real bug, caught
+    // live: mapWithConcurrency has no per-item error handling of its own,
+    // so one chain throwing (a network not yet enabled in Alchemy's
+    // dashboard, a transient Etherscan/Blockscout hiccup) would reject the
+    // whole Promise.all for that source, discarding every OTHER chain's
+    // already-fetched, correct data in the same batch. Same "one source's
+    // failure never discards another's correctly-fetched data" rule this
+    // app applies everywhere else, just needed at the per-chain level here
+    // rather than only the per-source level.
     const [alchemyResults, etherscanResults, blockscoutResults] = await Promise.all([
       mapWithConcurrency(alchemyChains, 2, (evmChainId) => {
         const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-        return fetchAlchemyTransactions(evmChainId, address, evmChain.nativeSymbol);
+        return fetchAlchemyTransactions(evmChainId, address, evmChain.nativeSymbol).catch(() => []);
       }),
       mapWithConcurrency(etherscanChains, 2, (evmChainId) => {
         const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-        return fetchEvmTransactions(evmChainId, address, evmChain.nativeSymbol);
+        return fetchEvmTransactions(evmChainId, address, evmChain.nativeSymbol).catch(() => []);
       }),
       mapWithConcurrency(blockscoutChains, 3, (evmChainId) => {
         const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-        return fetchBlockscoutTransactions(evmChainId, address, evmChain.nativeSymbol);
+        return fetchBlockscoutTransactions(evmChainId, address, evmChain.nativeSymbol).catch(() => []);
       }),
     ]);
     return {
