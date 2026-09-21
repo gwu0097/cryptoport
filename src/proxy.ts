@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isAdminEmail } from "./lib/adminEmail";
 
 // This is a Next.js "proxy" file — the successor to middleware.ts, renamed
 // in Next 16 (middleware.ts still works but is deprecated). Proxy now
@@ -74,6 +75,26 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = "/wallets";
     return NextResponse.redirect(url);
+  }
+
+  // /admin's own requireAdmin() (src/lib/adminAuth.ts) already calls
+  // notFound() and is what actually keeps another user's data out of a
+  // non-admin's response — verified live that it does. But live-verified
+  // just as directly (checked this exact Next 16 version's own docs,
+  // node_modules/next/dist/docs/.../not-found.md, not assumed from
+  // training data) that once a page has started streaming its response as
+  // 200, notFound() can change what renders but never the status code
+  // that already went out — the docs' own fix for that is to run this
+  // check in proxy instead, before any streaming starts, which is what
+  // this block is. Kept in both places on purpose: this is what makes the
+  // status code a real 404 (matters for anything watching status codes —
+  // scanners, monitoring, search crawlers), requireAdmin() is what
+  // actually guarantees no data leak if this check is ever bypassed
+  // (a future matcher change, a route this doesn't cover) — same
+  // "defense in depth, not instead of" relationship RLS has with
+  // requireUser() elsewhere in this app.
+  if (isPath(path, ["/admin"]) && !isAdminEmail(user?.email, process.env.ADMIN_EMAIL)) {
+    return new NextResponse("Not Found", { status: 404 });
   }
 
   return response;
