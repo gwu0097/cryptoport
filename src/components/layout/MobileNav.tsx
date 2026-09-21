@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-import { NavItemsList, SETTINGS_ITEM, isActive, NavLink } from "./navItems";
+import { NavItemsList, SETTINGS_ITEM, ADMIN_ITEM, isActive, NavLink } from "./navItems";
 
 /**
  * The phone-width replacement for Sidebar.tsx, which is `hidden` below
@@ -18,7 +18,7 @@ import { NavItemsList, SETTINGS_ITEM, isActive, NavLink } from "./navItems";
  * modal (fixed inset-0 m-auto), the wrong shape for a full-height
  * side-anchored drawer, so this is a plain fixed-position overlay instead.
  */
-export function MobileNav() {
+export function MobileNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -70,7 +70,10 @@ export function MobileNav() {
             <div className="flex flex-1 flex-col gap-1">
               <NavItemsList pathname={pathname} onLinkClick={() => setOpen(false)} />
             </div>
-            <div className="mt-auto pt-3">
+            <div className="mt-auto flex flex-col gap-1 pt-3">
+              {isAdmin && (
+                <NavLink {...ADMIN_ITEM} active={isActive(pathname, ADMIN_ITEM.href)} onClick={() => setOpen(false)} />
+              )}
               <NavLink
                 {...SETTINGS_ITEM}
                 active={isActive(pathname, SETTINGS_ITEM.href)}

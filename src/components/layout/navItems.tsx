@@ -11,6 +11,7 @@ import {
   ArrowLeftRight,
   GitCompare,
   Settings,
+  ShieldCheck,
   Star,
   TrendingUp,
   type LucideIcon,
@@ -40,6 +41,15 @@ export const NAV_ITEMS: NavItemData[] = [
 ];
 
 export const SETTINGS_ITEM: NavItemData = { href: "/settings", label: "Settings", icon: Settings };
+
+// Never added to NAV_ITEMS (that array has no per-viewer conditionality at
+// all) — Sidebar.tsx/MobileNav.tsx each render this themselves, gated on
+// the `isAdmin` boolean layout.tsx computes server-side and passes down.
+// The boolean itself is the only thing that crosses into these client
+// components — ADMIN_EMAIL never does. This is a convenience (a non-admin
+// no chart shows a dead link) — src/lib/adminAuth.ts's requireAdmin() on
+// the routes themselves is the actual security boundary.
+export const ADMIN_ITEM: NavItemData = { href: "/admin", label: "Admin", icon: ShieldCheck };
 
 export function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);

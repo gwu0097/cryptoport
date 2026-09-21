@@ -4,11 +4,11 @@ import { signOut } from "@/app/(auth)/actions";
 import { buttonClass } from "@/components/ui/Button";
 import { MobileNav } from "./MobileNav";
 
-export function TopBar({ userEmail }: { userEmail: string | null }) {
+export function TopBar({ userEmail, isAdmin }: { userEmail: string | null; isAdmin: boolean }) {
   return (
     <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface px-4">
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-        <MobileNav />
+        <MobileNav isAdmin={isAdmin} />
         <Link
           href="/wallets/new"
           aria-label="Connect wallet"

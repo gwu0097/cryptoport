@@ -334,17 +334,29 @@ export interface WalletListResult {
 }
 
 /** Wallets list, each with its own total, plus a grand total across all of them. */
-export async function getWalletsWithTotals(): Promise<WalletListResult> {
-  if (!(await getUser())) return { wallets: [], grand: aggregate([], {}) };
-  const db = await userDb();
+/**
+ * `opts.userId` — the admin-only read path (src/app/(app)/admin/), never
+ * passed from a normal page. Swaps userDb()'s implicit, session-scoped RLS
+ * for serviceDb() + an explicit .eq("user_id", ...) filter — same
+ * "serviceDb() + explicit user_id, session-independent" shape
+ * captureUserSnapshot (snapshots.ts) already established, rather than a
+ * second copy of this whole function that could quietly drift from this
+ * one. Linked-wallet verification badges are skipped for the admin path
+ * (linkedWallets stays []) — getLinkedWallets() is itself session-scoped,
+ * and "is this wallet's signature verified" isn't essential to a read-only
+ * peek at someone else's portfolio.
+ */
+export async function getWalletsWithTotals(opts?: { userId: string }): Promise<WalletListResult> {
+  if (!opts && !(await getUser())) return { wallets: [], grand: aggregate([], {}) };
+  const db = opts ? serviceDb() : await userDb();
+  const baseQuery = db.from("wallets").select("*, holdings(*), tags(id,name)").eq("active", true);
+  const walletsQuery = (opts ? baseQuery.eq("user_id", opts.userId) : baseQuery).order("created_at", {
+    ascending: true,
+  });
   const [{ data: wallets, error: walletsError }, prices, linkedWallets] = await Promise.all([
-    db
-      .from("wallets")
-      .select("*, holdings(*), tags(id,name)")
-      .eq("active", true)
-      .order("created_at", { ascending: true }),
+    walletsQuery,
     getPriceMap(),
-    getLinkedWallets(),
+    opts ? Promise.resolve<LinkedWallet[]>([]) : getLinkedWallets(),
   ]);
   if (walletsError) throw new Error(`Failed to load wallets: ${walletsError.message}`);
 
@@ -488,10 +500,16 @@ export type WalletWithHoldings = Wallet & { holdings: Holding[] };
  * this query and its type-cast. Cached per-request (same reasoning as
  * getPriceMap's doc comment) — a page rendering more than one of those
  * three views in one request, which nothing currently does but nothing
- * rules out either, would otherwise fetch this identical data twice. */
-export const getActiveWalletsWithHoldings = cache(async (): Promise<WalletWithHoldings[]> => {
-  const db = await userDb();
-  const { data, error } = await db.from("wallets").select("*, holdings(*)").eq("active", true);
+ * rules out either, would otherwise fetch this identical data twice.
+ *
+ * `opts.userId` — same admin-only read path as getWalletsWithTotals' own
+ * `opts` param (see that function's doc comment); serviceDb() + an
+ * explicit user_id filter instead of userDb()'s implicit session-scoped
+ * RLS, never passed from a normal page. */
+export const getActiveWalletsWithHoldings = cache(async (opts?: { userId: string }): Promise<WalletWithHoldings[]> => {
+  const db = opts ? serviceDb() : await userDb();
+  const query = db.from("wallets").select("*, holdings(*)").eq("active", true);
+  const { data, error } = await (opts ? query.eq("user_id", opts.userId) : query);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
   return data as WalletWithHoldings[];
 });
@@ -608,10 +626,12 @@ export interface AssetsByTickerResult {
  * so this stays consistent with that rather than introducing a second,
  * stricter notion of "same asset" just for this one page.
  */
-export async function getAssetsGroupedByTicker(): Promise<AssetsByTickerResult> {
-  if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
+/** `opts.userId` — admin-only read path, see getWalletsWithTotals' own doc
+ * comment for the pattern this follows. */
+export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promise<AssetsByTickerResult> {
+  if (!opts && !(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const [rows, prices, priceStats, contractStats] = await Promise.all([
-    getActiveWalletsWithHoldings(),
+    getActiveWalletsWithHoldings(opts),
     getPriceMap(),
     getPriceStatsMap(),
     getContractStatsMap(),
@@ -820,9 +840,14 @@ export interface PortfolioHistoryPoint {
  * created — there is no real backfill possible; see analytics.ts for the
  * estimated series Analytics stitches in front of this.
  */
-export async function getValueHistory(walletId?: string): Promise<PortfolioHistoryPoint[]> {
-  if (!(await getUser())) return [];
-  const db = await userDb();
+/** `opts.userId` — admin-only read path, see getWalletsWithTotals' own doc
+ * comment for the pattern. Only meaningful for the no-`walletId` (user-
+ * level) branch below — an admin peek doesn't need per-wallet history, so
+ * `wallet_snapshots` stays on userDb() (it's never reached with `opts`
+ * set by any current caller). */
+export async function getValueHistory(walletId?: string, opts?: { userId: string }): Promise<PortfolioHistoryPoint[]> {
+  if (!opts && !(await getUser())) return [];
+  const db = opts ? serviceDb() : await userDb();
 
   const { data, error } = walletId
     ? await db
@@ -830,7 +855,10 @@ export async function getValueHistory(walletId?: string): Promise<PortfolioHisto
         .select("snapshot_date, total_usd")
         .eq("wallet_id", walletId)
         .order("snapshot_date", { ascending: true })
-    : await db.from("portfolio_snapshots").select("snapshot_date, total_usd").order("snapshot_date", { ascending: true });
+    : await (opts
+        ? db.from("portfolio_snapshots").select("snapshot_date, total_usd").eq("user_id", opts.userId)
+        : db.from("portfolio_snapshots").select("snapshot_date, total_usd")
+      ).order("snapshot_date", { ascending: true });
   if (error) throw new Error(`Failed to load value history: ${error.message}`);
 
   return (data as { snapshot_date: string; total_usd: number | string }[]).map((row) => ({

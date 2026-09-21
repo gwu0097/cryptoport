@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { getUser } from "@/lib/auth";
 import { walletDisplayName } from "@/lib/walletDisplay";
+import { isAdminEmail } from "@/lib/adminEmail";
 
 // Deliberately its own top-level route, not under (app) — the address
 // lookup is read-only and saves nothing (see lookup/page.tsx's own
@@ -10,5 +11,10 @@ import { walletDisplayName } from "@/lib/walletDisplay";
 // with userEmail: null (see TopBar), no redirect here.
 export default async function LookupLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();
-  return <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null}>{children}</AppShell>;
+  const isAdmin = isAdminEmail(user?.email, process.env.ADMIN_EMAIL);
+  return (
+    <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null} isAdmin={isAdmin}>
+      {children}
+    </AppShell>
+  );
 }

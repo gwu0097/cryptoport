@@ -1,12 +1,12 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { NavItemsList, SETTINGS_ITEM, isActive, NavLink } from "./navItems";
+import { NavItemsList, SETTINGS_ITEM, ADMIN_ITEM, isActive, NavLink } from "./navItems";
 
 // Below md, this is replaced by MobileNav's drawer (see TopBar.tsx) — not
 // shown at all, rather than e.g. collapsing to icons-only, since a phone
 // screen doesn't have room for a persistent nav column at any width.
-export function Sidebar() {
+export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -14,7 +14,8 @@ export function Sidebar() {
       <div className="flex flex-1 flex-col gap-1">
         <NavItemsList pathname={pathname} />
       </div>
-      <div className="mt-auto pt-3">
+      <div className="mt-auto flex flex-col gap-1 pt-3">
+        {isAdmin && <NavLink {...ADMIN_ITEM} active={isActive(pathname, ADMIN_ITEM.href)} />}
         <NavLink {...SETTINGS_ITEM} active={isActive(pathname, SETTINGS_ITEM.href)} />
       </div>
     </nav>
