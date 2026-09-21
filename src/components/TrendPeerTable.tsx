@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, ExternalLink, ListPlus, BookOpen } from "luc
 import Link from "next/link";
 import type { PeerRow } from "@/lib/trendFinder";
 import type { WatchlistSummary } from "@/lib/queries";
-import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
+import { formatUsd, formatCompactUsd, formatPercent, stripCitations } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { TradingViewCompareChart } from "./TradingViewCompareChart";
 import { WatchlistAddMenu } from "./WatchlistAddMenu";
@@ -291,7 +291,7 @@ export function TrendPeerTable({
                     <td colSpan={8} className="p-3">
                       {reason && (
                         <p className="mb-3 text-xs text-fg-muted">
-                          <span className="font-medium text-fg">Why {peer.symbol}:</span> {reason}
+                          <span className="font-medium text-fg">Why {peer.symbol}:</span> {stripCitations(reason)}
                         </p>
                       )}
                       <TradingViewCompareChart baseTicker={seedSymbol} compareTicker={peer.symbol} />

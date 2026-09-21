@@ -129,3 +129,19 @@ export function formatStaleness(lastRefreshAt: string | null): string {
   const days = Math.round(hours / 24);
   return `${days}d ago`;
 }
+
+/** Perplexity's Agent API bakes inline citation markers like "[web:16]" —
+ * sometimes several back to back, e.g. "[web:16][web:49]" — directly into
+ * the prose it returns for trend explanations and token analyses. They're
+ * pure noise in this app's UI: every source they'd point to is already
+ * listed underneath as a real, clickable link, so this strips them at
+ * display time (not at write time, so already-cached rows clean up too,
+ * with no backfill needed) rather than showing numbers with nothing to
+ * click. Reported directly as part of "this is a wall of text." */
+export function stripCitations(text: string): string {
+  return text
+    .replace(/\s*\[web:\d+\]/g, "")
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}

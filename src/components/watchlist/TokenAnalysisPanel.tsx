@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, RefreshCw, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Sparkles, RefreshCw, TrendingUp, TrendingDown, Minus, ChevronDown } from "lucide-react";
 import type { TokenAnalysisRow } from "@/lib/tokenAnalysis";
 import type { DirectionalNote } from "@/lib/adapters/perplexity";
 import { refreshTokenAnalysis, getTokenAnalysisAction } from "@/app/(app)/watchlist/actions";
-import { formatStaleness } from "@/lib/format";
+import { formatStaleness, stripCitations } from "@/lib/format";
 
 const POLL_MS = 2500; // same cadence as useJobStatus's own DEFAULT_POLL_MS, for consistency
 
@@ -37,6 +37,25 @@ const CATEGORY_LABELS: Record<string, string> = {
   governance: "Governance",
   other: "Event",
 };
+
+/** Collapsed-by-default disclosure row for the panel's denser sections —
+ * reported directly as "a wall of text": Confidence/Catalysts/Bull-Bear
+ * are the TL;DR shown open, everything else (momentum detail, tokenomics,
+ * risks, sources) is one click away instead of all dumped open at once.
+ * Same native <details>/<summary> + rotating ChevronDown pattern already
+ * used for ChainGroupedHoldings' per-chain sections — just not `open` by
+ * default here. */
+function DisclosureRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <details className="group border-t border-border py-1 first:border-t-0">
+      <summary className="flex cursor-pointer list-none items-center justify-between py-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted [&::-webkit-details-marker]:hidden hover:text-fg">
+        {label}
+        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="pb-2 pt-1">{children}</div>
+    </details>
+  );
+}
 
 /**
  * Watchlist's on-demand, cached AI deep-dive — drafted collaboratively
@@ -181,6 +200,9 @@ export function TokenAnalysisPanel({
 
       {data && (
         <div className={isRefreshing ? "opacity-60" : ""}>
+          {/* TL;DR, always open: confidence, catalysts, bull/bear — the
+              other sections below are one click away instead of all
+              dumped open, per the direct ask to fix "a wall of text." */}
           <div className="mb-3">
             <ConfidencePill confidence={data.confidence} />
           </div>
@@ -195,7 +217,7 @@ export function TokenAnalysisPanel({
                       {CATEGORY_LABELS[c.category] ?? c.category}
                     </span>
                     <span className="text-fg">
-                      {c.event} <span className="text-fg-muted">— {c.timing}</span>
+                      {stripCitations(c.event)} <span className="text-fg-muted">— {stripCitations(c.timing)}</span>
                     </span>
                   </li>
                 ))}
@@ -203,63 +225,67 @@ export function TokenAnalysisPanel({
             </div>
           )}
 
-          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-                <DirectionIcon direction={data.socialMomentum.direction} /> Social momentum
-              </p>
-              <p className="text-sm text-fg">{data.socialMomentum.summary}</p>
-            </div>
-            <div>
-              <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-                <DirectionIcon direction={data.onchainActivity.direction} /> On-chain activity
-              </p>
-              <p className="text-sm text-fg">{data.onchainActivity.summary}</p>
-            </div>
-          </div>
-
-          {(data.tokenomicsNote || data.narrativePosition) && (
-            <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {data.tokenomicsNote && (
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Tokenomics</p>
-                  <p className="text-sm text-fg">{data.tokenomicsNote}</p>
-                </div>
-              )}
-              {data.narrativePosition && (
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Narrative position</p>
-                  <p className="text-sm text-fg">{data.narrativePosition}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {data.risks.length > 0 && (
-            <div className="mb-3">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Risks</p>
-              <ul className="list-inside list-disc space-y-0.5 text-sm text-warning">
-                {data.risks.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="mb-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-positive/30 bg-positive/5 p-2.5">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-positive">Bull case</p>
-              <p className="text-sm text-fg">{data.bullCase}</p>
+              <p className="text-sm text-fg">{stripCitations(data.bullCase)}</p>
             </div>
             <div className="rounded-lg border border-negative/30 bg-negative/5 p-2.5">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-negative">Bear case</p>
-              <p className="text-sm text-fg">{data.bearCase}</p>
+              <p className="text-sm text-fg">{stripCitations(data.bearCase)}</p>
             </div>
           </div>
 
+          <DisclosureRow label="Social & on-chain momentum">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                  <DirectionIcon direction={data.socialMomentum.direction} /> Social momentum
+                </p>
+                <p className="text-sm text-fg">{stripCitations(data.socialMomentum.summary)}</p>
+              </div>
+              <div>
+                <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                  <DirectionIcon direction={data.onchainActivity.direction} /> On-chain activity
+                </p>
+                <p className="text-sm text-fg">{stripCitations(data.onchainActivity.summary)}</p>
+              </div>
+            </div>
+          </DisclosureRow>
+
+          {(data.tokenomicsNote || data.narrativePosition) && (
+            <DisclosureRow label="Tokenomics & narrative">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {data.tokenomicsNote && (
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Tokenomics</p>
+                    <p className="text-sm text-fg">{stripCitations(data.tokenomicsNote)}</p>
+                  </div>
+                )}
+                {data.narrativePosition && (
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                      Narrative position
+                    </p>
+                    <p className="text-sm text-fg">{stripCitations(data.narrativePosition)}</p>
+                  </div>
+                )}
+              </div>
+            </DisclosureRow>
+          )}
+
+          {data.risks.length > 0 && (
+            <DisclosureRow label={`Risks (${data.risks.length})`}>
+              <ul className="list-inside list-disc space-y-0.5 text-sm text-warning">
+                {data.risks.map((r, i) => (
+                  <li key={i}>{stripCitations(r)}</li>
+                ))}
+              </ul>
+            </DisclosureRow>
+          )}
+
           {data.sources.length > 0 && (
-            <div className="border-t border-border pt-2">
-              <p className="mb-1 text-xs font-medium text-fg-muted">Sources — for your own DD:</p>
+            <DisclosureRow label={`Sources (${data.sources.length})`}>
               <ul className="space-y-0.5">
                 {data.sources.map((s) => (
                   <li key={s.url} className="truncate text-xs">
@@ -269,7 +295,7 @@ export function TokenAnalysisPanel({
                   </li>
                 ))}
               </ul>
-            </div>
+            </DisclosureRow>
           )}
         </div>
       )}

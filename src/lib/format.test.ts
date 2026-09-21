@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatPercent, formatUsdSigned } from "./format.ts";
+import { formatPercent, formatUsdSigned, stripCitations } from "./format.ts";
 
 test("formatPercent adds an explicit + sign for a positive value", () => {
   assert.equal(formatPercent(1.8), "+1.80%");
@@ -32,4 +32,23 @@ test("formatUsdSigned lets Intl's own minus sign handle a negative value", () =>
 
 test("formatUsdSigned shows a bare $0.00 for exactly zero, no sign", () => {
   assert.equal(formatUsdSigned(0), "$0.00");
+});
+
+test("stripCitations removes a single inline citation marker", () => {
+  assert.equal(stripCitations("TVL rose 40% [web:23] over 30 days."), "TVL rose 40% over 30 days.");
+});
+
+test("stripCitations removes several back-to-back markers", () => {
+  assert.equal(
+    stripCitations("Confidential Intents surpassed $70M TVL[web:16][web:49]."),
+    "Confidential Intents surpassed $70M TVL.",
+  );
+});
+
+test("stripCitations doesn't leave a stray space before punctuation", () => {
+  assert.equal(stripCitations("organic discussion [web:20], not bot-driven"), "organic discussion, not bot-driven");
+});
+
+test("stripCitations leaves text with no citation markers untouched", () => {
+  assert.equal(stripCitations("No unlock cliff was found for this window."), "No unlock cliff was found for this window.");
 });

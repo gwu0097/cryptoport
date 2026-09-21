@@ -5,7 +5,7 @@ import { TokenIcon } from "./TokenIcon";
 import { TrendSeedPicker } from "./TrendSeedPicker";
 import { TrendPeerTable } from "./TrendPeerTable";
 import { RecordRecentWallet } from "./RecordRecentWallet";
-import { formatUsd, formatPercent, formatStaleness } from "@/lib/format";
+import { formatUsd, formatPercent, formatStaleness, stripCitations } from "@/lib/format";
 import { findTrendPeers } from "@/lib/trendPeers";
 import type { PeerRow } from "@/lib/trendFinder";
 import type { SeedInfo } from "@/lib/adapters/coingecko";
@@ -241,7 +241,7 @@ export async function TrendAnalysisSection({
                 </span>
               ))}
             </div>
-            <p className="text-sm text-fg">{explanation.reasonSummary}</p>
+            <p className="text-sm text-fg">{stripCitations(explanation.reasonSummary)}</p>
             {explanation.sources.length > 0 && (
               <div className="mt-3 border-t border-border pt-3">
                 <p className="mb-1 text-xs font-medium text-fg-muted">Sources — for your own DD:</p>
