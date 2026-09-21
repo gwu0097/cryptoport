@@ -4,6 +4,7 @@ import { fetchEvmChainsHoldings } from "./multicallEvm";
 import { fetchHyperliquidHoldings } from "./hyperliquid";
 import { fetchAxieStaking } from "./axieStaking";
 import { fetchPolymarketHoldings } from "./polymarket";
+import { fetchSuperverseStaking } from "./superverseStaking";
 import type { AdapterHolding } from "./types";
 
 export interface EvmHoldingsResult {
@@ -31,7 +32,7 @@ export interface EvmHoldingsResult {
  * syncWalletHoldings).
  */
 export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResult> {
-  const [chainsResult, hyperliquidResult, axieResult, polymarketResult] = await Promise.all([
+  const [chainsResult, hyperliquidResult, axieResult, polymarketResult, superverseResult] = await Promise.all([
     fetchEvmChainsHoldings(address as Address),
     fetchHyperliquidHoldings(address)
       .then((holdings) => ({ holdings, error: null as string | null }))
@@ -48,6 +49,10 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     fetchPolymarketHoldings(address)
       .then((holdings) => ({ holdings, error: null as string | null }))
       .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
+    // Soft failure too — most EVM wallets have never staked on SuperVerse.
+    fetchSuperverseStaking(address as Address)
+      .then((holdings) => ({ holdings, error: null as string | null }))
+      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
   ]);
 
   const holdings = [
@@ -55,12 +60,14 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     ...hyperliquidResult.holdings,
     ...axieResult.holdings,
     ...polymarketResult.holdings,
+    ...superverseResult.holdings,
   ];
   const warnings = [
     ...chainsResult.failedChains.map((f) => `${f.chainId}: ${f.error}`),
     ...(hyperliquidResult.error ? [`hyperliquid: ${hyperliquidResult.error}`] : []),
     ...(axieResult.error ? [`axie staking: ${axieResult.error}`] : []),
     ...(polymarketResult.error ? [`polymarket: ${polymarketResult.error}`] : []),
+    ...(superverseResult.error ? [`superverse staking: ${superverseResult.error}`] : []),
   ];
 
   // Nothing succeeded anywhere and something actually went wrong badly

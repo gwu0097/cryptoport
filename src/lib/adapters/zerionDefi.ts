@@ -11,13 +11,21 @@ const API_BASE = "https://api.zerion.io/v1";
 // real position (sync_defi_holdings' source='auto_defi' delete-scope is
 // deliberately disjoint from the regular sync's source='auto', so nothing
 // would ever catch or dedupe the overlap — see the "auto_defi" doc comment
-// on holdings.source in schema.sql). Currently just Hyperliquid on the EVM
-// side (hyperliquid.ts); today this is only reachable in practice because
-// Hyperliquid's own chain isn't in EVM_CHAINS, so its positions already
-// get dropped below as an unrecognized chain — this list is what keeps
-// that safe if a HyperEVM entry (or similar) is ever added to EVM_CHAINS,
-// rather than relying on that chain-mapping gap staying incidental.
-const NATIVELY_COVERED_PROTOCOLS = new Set(["hyperliquid"]);
+// on holdings.source in schema.sql). Hyperliquid (hyperliquid.ts) is only
+// reachable in practice today because its own chain isn't in EVM_CHAINS, so
+// its positions already get dropped below as an unrecognized chain — this
+// list is what keeps that safe if a HyperEVM entry (or similar) is ever
+// added to EVM_CHAINS, rather than relying on that chain-mapping gap
+// staying incidental. "superverse" (superverseStaking.ts) is on Ethereum
+// itself, which Zerion does actively cover — live-verified Zerion returns
+// zero positions today for a wallet with a real, confirmed SuperVerse
+// stake (this app's own on-chain read found real nonzero staked SUPER +
+// claimable ETH rewards for that same address), so this entry is purely
+// defensive against Zerion adding coverage later, not a fix for anything
+// observed today. The exact string is a best guess at Zerion's own future
+// application_metadata.name for it, unverified since Zerion has nothing to
+// name yet.
+const NATIVELY_COVERED_PROTOCOLS = new Set(["hyperliquid", "superverse"]);
 
 export interface ZerionDefiResult {
   holdings: AdapterHolding[];
