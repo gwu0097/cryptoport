@@ -226,7 +226,22 @@ export interface ChainHoldingsResult {
 }
 
 export async function fetchChainHoldings(chain: EvmChain, address: Address): Promise<ChainHoldingsResult> {
-  const tokens = await getRegisteredTokens(chain.id);
+  // Real, reported bug (confirmed live via a real wallet's holdings, exact
+  // qty match on both sides): some chains' own CoinGecko coins/list entry
+  // for their native gas token ALSO carries a contract address on that
+  // same chain — Mantle's is a 0xdead...0000 sentinel, Celo's native CELO
+  // has genuinely always been a real, first-class ERC-20 contract
+  // alongside being the gas token. refreshTokenRegistry (coingecko.ts)
+  // ingests every (chain, contract) pair CoinGecko reports for a platform
+  // without knowing this, so token_registry ends up with a contract row
+  // whose coingecko_id is the SAME asset the separate nativeBalancePromise
+  // check below already covers — Multicall3's balanceOf on that address
+  // returns the same balance a second time, doubling that holding's value
+  // in every total. Filtered out by coingecko_id (the real signal that two
+  // rows represent the same asset), not by hardcoding the specific
+  // sentinel addresses seen so far — that would miss this pattern on any
+  // other chain with the same CoinGecko-data quirk.
+  const tokens = (await getRegisteredTokens(chain.id)).filter((t) => t.coingecko_id !== chain.nativeCoingeckoId);
   const client = createPublicClient({ transport: http(chain.rpc) });
 
   const nativeBalancePromise = client.getBalance({ address });
