@@ -268,10 +268,10 @@ async function TrendResults({
       <Panel
         className="mb-6"
         title={category ? `CoinGecko category: ${category.name}` : "CoinGecko category"}
-        description="Verified category membership — no AI involved in this list"
+        description="Verified category membership — no AI involved in this list. Click the arrow on a row to overlay its chart."
       >
         {categoryPeers.length > 0 ? (
-          <TrendPeerTable peers={categoryRows} seedId={seed.id} confirmedIds={confirmedIds} />
+          <TrendPeerTable peers={categoryRows} seedId={seed.id} seedSymbol={seed.symbol} confirmedIds={confirmedIds} />
         ) : (
           <p className="text-sm text-fg-muted">
             {category
@@ -284,10 +284,16 @@ async function TrendResults({
       <Panel
         className="mb-2"
         title="AI-suggested peers"
-        description="Named by a live news search as moving for a similar reason — click the arrow on a row for why; not a verified list"
+        description="Named by a live news search as moving for a similar reason — click the arrow on a row for why and an overlaid chart; not a verified list"
       >
         {aiPeers.length > 0 ? (
-          <TrendPeerTable peers={aiRows} seedId={seed.id} confirmedIds={confirmedIds} reasons={aiPeerReasons} />
+          <TrendPeerTable
+            peers={aiRows}
+            seedId={seed.id}
+            seedSymbol={seed.symbol}
+            confirmedIds={confirmedIds}
+            reasons={aiPeerReasons}
+          />
         ) : (
           <p className="text-sm text-fg-muted">
             {explanation

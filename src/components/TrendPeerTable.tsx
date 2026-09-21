@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import type { PeerRow } from "@/lib/trendFinder";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
+import { TradingViewCompareChart } from "./TradingViewCompareChart";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { SortableHeader } from "./ui/SortableHeader";
 import { usePersistedState } from "./usePersistedState";
@@ -59,18 +60,26 @@ function ChangeCell({ value }: { value: number | null }) {
  * "see if there's overlap and what isn't" between the two sources.
  * `reasons` — id -> the AI's own specific justification for that peer
  * (only ever passed for the AI-suggested table, never the CoinGecko-
- * category one, which has no per-row reason to show). A row with a reason
- * gets a chevron that expands to show it inline — reported directly: the
- * flat list didn't say *why* a given ticker was suggested, e.g. whether it
- * shares KMNO's specific RWA angle or a different reason entirely. */
+ * category one, which has no per-row reason to show). `seedSymbol` — the
+ * seed's own ticker, needed to build a TradingViewCompareChart against
+ * every peer row. Every non-seed row gets an expand chevron: a reason (if
+ * one exists) plus a live TradingView overlay chart of that peer against
+ * the seed — reported directly: neither the flat peer list nor a single
+ * correlation/24h-change number says whether a "laggard" actually moved
+ * early or is genuinely behind, which the overlaid chart shows directly.
+ * The standalone `/compare` page (ComparePage) renders the exact same
+ * TradingViewCompareChart for any two tokens picked directly, not just
+ * ones that came out of a Trend Finder search. */
 export function TrendPeerTable({
   peers,
   seedId,
+  seedSymbol,
   confirmedIds,
   reasons,
 }: {
   peers: PeerRow[];
   seedId?: string;
+  seedSymbol: string;
   confirmedIds?: Set<string>;
   reasons?: Map<string, string>;
 }) {
@@ -144,12 +153,12 @@ export function TrendPeerTable({
                 <tr className={`${trClass} ${isSeed ? "bg-accent/10" : ""}`}>
                   <td className={tdClass}>
                     <div className="flex items-center gap-2">
-                      {reason ? (
+                      {!isSeed ? (
                         <button
                           type="button"
                           onClick={() => toggleExpanded(peer.id)}
                           aria-expanded={isExpanded}
-                          aria-label={isExpanded ? `Hide why ${peer.symbol} was suggested` : `Show why ${peer.symbol} was suggested`}
+                          aria-label={isExpanded ? `Hide chart for ${peer.symbol}` : `Compare ${peer.symbol} against ${seedSymbol}`}
                           className="text-fg-muted transition hover:text-fg"
                         >
                           {isExpanded ? (
@@ -201,10 +210,15 @@ export function TrendPeerTable({
                     </a>
                   </td>
                 </tr>
-                {reason && isExpanded && (
+                {!isSeed && isExpanded && (
                   <tr className="border-b border-border bg-surface-raised/50">
-                    <td colSpan={7} className="px-4 py-2 text-xs text-fg-muted">
-                      <span className="font-medium text-fg">Why {peer.symbol}:</span> {reason}
+                    <td colSpan={7} className="p-3">
+                      {reason && (
+                        <p className="mb-3 text-xs text-fg-muted">
+                          <span className="font-medium text-fg">Why {peer.symbol}:</span> {reason}
+                        </p>
+                      )}
+                      <TradingViewCompareChart baseTicker={seedSymbol} compareTicker={peer.symbol} />
                     </td>
                   </tr>
                 )}
