@@ -6,6 +6,7 @@ import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
 import { AssetsTable, type Sort } from "@/components/AssetsTable";
+import { CoinAllocationChart } from "@/components/CoinAllocationChart";
 import { GuestBanner } from "@/components/GuestBanner";
 import { ASSET_SORT_KEYS } from "@/lib/sortKeys";
 import { refreshPricesAction } from "../wallets/actions";
@@ -116,6 +117,8 @@ export default async function AssetsPage({
         )
       ) : (
         <>
+          {user && <CoinAllocationChart groups={groups} total={grand.total} />}
+
           <div className="mb-4 flex justify-end gap-4">
             <CheckboxLink
               href={buildHref(!hideUnpriced, hideLow)}

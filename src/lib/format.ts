@@ -41,6 +41,17 @@ export function formatPercent(value: number | string | null): string {
   return `${sign}${n.toFixed(2)}%`;
 }
 
+/** An unsigned share of some total — deliberately not formatPercent (that
+ * adds a "+" for positive deltas, which reads wrong for a plain
+ * proportion like this). "—" when there's no priced total to divide by,
+ * same missing-≠-0 rule as every other figure in this app — not "0.0%",
+ * which would look like the thing is genuinely worthless. Moved here from
+ * AssetsTable.tsx once CoinAllocationChart needed the identical logic. */
+export function formatShare(value: number, total: number): string {
+  if (total <= 0) return "—";
+  return `${((value / total) * 100).toFixed(1)}%`;
+}
+
 const qtyFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
 
 /** Caps a holding's quantity to 4 decimal places for display — the raw

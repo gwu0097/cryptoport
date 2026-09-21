@@ -4,7 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
-import { formatUsd, formatCompactUsd, formatQty, formatPercent } from "@/lib/format";
+import { formatUsd, formatCompactUsd, formatQty, formatPercent, formatShare } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
@@ -66,16 +66,6 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
 function ChangeCell({ value }: { value: number | null }) {
   const className = value === null ? "text-fg-muted" : value > 0 ? "text-positive" : value < 0 ? "text-negative" : "text-fg-muted";
   return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
-}
-
-/** An unsigned share of the portfolio total — deliberately not
- * formatPercent (that adds a "+" for positive deltas, which reads wrong
- * for a plain proportion like this). "—" when there's no priced total to
- * divide by, same missing-≠-0 rule as every other figure in this app —
- * not "0.0%", which would look like the asset is genuinely worthless. */
-function formatShare(value: number, total: number): string {
-  if (total <= 0) return "—";
-  return `${((value / total) * 100).toFixed(1)}%`;
 }
 
 /** group.coingeckoId is only ever a real, resolved id (see
