@@ -1,7 +1,12 @@
+"use client";
+
 import type { AssetGroup } from "@/lib/queries";
 import { formatShare, formatUsd } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { Panel } from "./ui/Panel";
+import { useHideBalance } from "./HideBalanceProvider";
+
+const MASK = "••••••";
 
 // A fixed categorical palette rather than deriving a color per-ticker
 // (e.g. hashing the symbol) — this app has no per-asset brand-color data,
@@ -85,8 +90,21 @@ function buildSlices(groups: AssetGroup[], total: number): Slice[] {
  * Stacks vertically on narrow screens (ring above the legend list, both
  * full-width) and side-by-side from `sm:` up — verified against a ~400px
  * viewport, this app's own established mobile-width bar.
+ *
+ * The legend's per-coin $ figures mask under the shared privacy toggle
+ * (useHideBalance, see HideBalanceProvider's own doc comment) — reported
+ * directly: hiding the total elsewhere on the page should hide these too,
+ * since they're raw dollar figures derived from the same portfolio, not
+ * an individual holding's own market price. The ring itself and every %
+ * figure stay visible either way — a relative proportion doesn't reveal
+ * portfolio size the way an absolute dollar amount does, same reasoning
+ * TotalValuePanel's own doc comment already applies elsewhere. This makes
+ * the component a client component (the hook is client-only), unlike the
+ * rest of this page's server-rendered tree — data still arrives as plain
+ * props from the Server Component parent, nothing else changes.
  */
 export function CoinAllocationChart({ groups, total }: { groups: AssetGroup[]; total: number }) {
+  const { hidden } = useHideBalance();
   const slices = buildSlices(groups, total);
   if (slices.length === 0) return null;
 
@@ -158,7 +176,7 @@ export function CoinAllocationChart({ groups, total }: { groups: AssetGroup[]; t
                 <span className="truncate text-fg">{s.label}</span>
               </span>
               <span className="flex shrink-0 items-baseline gap-2 tabular-nums">
-                <span className="hidden text-xs text-fg-muted sm:inline">{formatUsd(s.usd)}</span>
+                <span className="hidden text-xs text-fg-muted sm:inline">{hidden ? MASK : formatUsd(s.usd)}</span>
                 <span className="text-fg-muted">{formatShare(s.usd, total)}</span>
               </span>
             </li>
