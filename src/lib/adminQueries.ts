@@ -12,7 +12,17 @@ export interface AdminUserSummary {
    * @wallet.cryptoport.invalid string; that's meaningless to a person. */
   displayName: string;
   createdAt: string;
-  lastSignInAt: string | null;
+  /** Really `updated_at`, not `last_sign_in_at` — reported directly, with
+   * real data: last_sign_in_at only advances on an actual auth *event*
+   * (a magic-link click), not a silent token refresh, and this app
+   * refreshes a session automatically on every request (proxy.ts). A user
+   * who logs in once and just keeps using the app shows a permanently
+   * stale last_sign_in_at while genuinely active — live-verified against
+   * this app's own two real accounts: one had `updated_at` ten days newer
+   * than `last_sign_in_at`, with no other plausible cause for that gap.
+   * `updated_at` is what actually moves when a session is touched, so
+   * it's the honest "last active" signal here. */
+  lastActiveAt: string | null;
   walletCount: number;
   totalUsd: number;
 }
@@ -61,19 +71,19 @@ export async function listAdminUsers(): Promise<AdminUserSummary[]> {
         id: user.id,
         displayName: walletDisplayName(user) ?? user.email ?? "(no email)",
         createdAt: user.created_at,
-        lastSignInAt: user.last_sign_in_at ?? null,
+        lastActiveAt: user.updated_at ?? null,
         walletCount: summary?.walletCount ?? 0,
         totalUsd: total,
       };
     })
     .sort((a, b) => {
-      // Never-signed-in accounts (lastSignInAt null) sort last, not first —
+      // Never-active accounts (lastActiveAt null) sort last, not first —
       // same "missing is never treated as the smallest/most-recent real
       // value" rule this app applies everywhere else.
-      if (!a.lastSignInAt && !b.lastSignInAt) return 0;
-      if (!a.lastSignInAt) return 1;
-      if (!b.lastSignInAt) return -1;
-      return b.lastSignInAt.localeCompare(a.lastSignInAt);
+      if (!a.lastActiveAt && !b.lastActiveAt) return 0;
+      if (!a.lastActiveAt) return 1;
+      if (!b.lastActiveAt) return -1;
+      return b.lastActiveAt.localeCompare(a.lastActiveAt);
     });
 }
 

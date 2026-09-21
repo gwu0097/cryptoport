@@ -52,7 +52,7 @@ export default async function AdminPage() {
                       {new Date(u.createdAt).toLocaleDateString()}
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
-                      {u.lastSignInAt ? formatStaleness(u.lastSignInAt) : "Never signed in"}
+                      {u.lastActiveAt ? formatStaleness(u.lastActiveAt) : "Never active"}
                     </td>
                     <td className={`${tdClass} text-fg-muted`}>{u.walletCount}</td>
                     <td className={`${tdClass} tabular-nums`}>{u.totalUsd > 0 ? formatUsd(u.totalUsd) : "—"}</td>
