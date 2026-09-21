@@ -4,6 +4,17 @@ import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
 const BASE_URL = "https://api.hyperliquid.xyz/info";
+// Consumed by zerionDefi.ts's NATIVELY_COVERED_PROTOCOLS (unioned across
+// every dedicated-adapter file, not hand-maintained separately there) — see
+// that constant's own doc comment for why this exists: Zerion must never
+// write a row for a protocol this app already has its own bespoke adapter
+// for, or a wallet's total silently double-counts the same real position.
+// Best-guess at Zerion's own application_metadata.name for this protocol,
+// largely moot in practice since Hyperliquid's own chain isn't in
+// EVM_CHAINS (its positions already get dropped as an unrecognized chain
+// before this check would even run) — kept anyway so that stays true by
+// construction rather than by an incidental chain-mapping gap.
+export const ZERION_PROTOCOL_NAMES = ["hyperliquid"];
 // Verified against real Hyperliquid balances (see commit message): only
 // these three can be taken at exactly $1. Everything else on the spot
 // account needs a real price or must be left unpriced — never guessed.

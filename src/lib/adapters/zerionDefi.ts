@@ -1,31 +1,40 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
 import { EVM_CHAINS } from "./evmChains";
+import { ZERION_PROTOCOL_NAMES as HYPERLIQUID_PROTOCOL_NAMES } from "./hyperliquid";
+import { ZERION_PROTOCOL_NAMES as AXIE_PROTOCOL_NAMES } from "./axieStaking";
+import { ZERION_PROTOCOL_NAMES as SUPERVERSE_PROTOCOL_NAMES } from "./superverseStaking";
 import type { AdapterHolding } from "./types";
 
 const API_BASE = "https://api.zerion.io/v1";
 
-// Every protocol this app already has its own dedicated, hand-verified
-// adapter for — Zerion must never write a row for these, even if it starts
-// indexing them, or the wallet's total silently double-counts the same
-// real position (sync_defi_holdings' source='auto_defi' delete-scope is
-// deliberately disjoint from the regular sync's source='auto', so nothing
-// would ever catch or dedupe the overlap — see the "auto_defi" doc comment
-// on holdings.source in schema.sql). Hyperliquid (hyperliquid.ts) is only
-// reachable in practice today because its own chain isn't in EVM_CHAINS, so
-// its positions already get dropped below as an unrecognized chain — this
-// list is what keeps that safe if a HyperEVM entry (or similar) is ever
-// added to EVM_CHAINS, rather than relying on that chain-mapping gap
-// staying incidental. "superverse" (superverseStaking.ts) is on Ethereum
-// itself, which Zerion does actively cover — live-verified Zerion returns
-// zero positions today for a wallet with a real, confirmed SuperVerse
-// stake (this app's own on-chain read found real nonzero staked SUPER +
-// claimable ETH rewards for that same address), so this entry is purely
-// defensive against Zerion adding coverage later, not a fix for anything
-// observed today. The exact string is a best guess at Zerion's own future
-// application_metadata.name for it, unverified since Zerion has nothing to
-// name yet.
-const NATIVELY_COVERED_PROTOCOLS = new Set(["hyperliquid", "superverse"]);
+/**
+ * Every protocol this app already has its own dedicated, hand-verified
+ * adapter for — Zerion must never write a row for these, even if it starts
+ * indexing them, or the wallet's total silently double-counts the same
+ * real position (sync_defi_holdings' source='auto_defi' delete-scope is
+ * deliberately disjoint from the regular sync's source='auto', so nothing
+ * would ever catch or dedupe the overlap — see the "auto_defi" doc comment
+ * on holdings.source in schema.sql).
+ *
+ * Unioned from each adapter's own `ZERION_PROTOCOL_NAMES` export rather
+ * than hand-maintained as a separate list here — a real gap found live:
+ * this file used to own that list directly, and SuperVerse's own adapter
+ * shipped without anyone remembering to add it here until a stale, already-
+ * double-counting-risk Zerion row was found by chance in the database
+ * afterward. Colocating the exclusion with the adapter that needs it means
+ * the next dedicated adapter naturally follows the same pattern when its
+ * author copies an existing one as a template, rather than depending on
+ * them separately remembering to come edit this file too. Every one of
+ * these entries is a best guess at Zerion's own protocol-name string,
+ * documented per-adapter for exactly how (un)verified it is — see each
+ * adapter's own ZERION_PROTOCOL_NAMES comment.
+ */
+const NATIVELY_COVERED_PROTOCOLS = new Set([
+  ...HYPERLIQUID_PROTOCOL_NAMES,
+  ...AXIE_PROTOCOL_NAMES,
+  ...SUPERVERSE_PROTOCOL_NAMES,
+]);
 
 export interface ZerionDefiResult {
   holdings: AdapterHolding[];

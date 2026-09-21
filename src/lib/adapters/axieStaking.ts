@@ -17,6 +17,13 @@ const STAKING_CONTRACT = "0x05b0bb3c1c320b280501b86706c3551995bc8571" as const;
 const AXS_CONTRACT = "0x97a9107c1793bc407d6f527b77e7fff4d812bece";
 const AXS_COINGECKO_ID = "axie-infinity";
 const APP_URL = "https://stake.axieinfinity.com/";
+// Consumed by zerionDefi.ts's NATIVELY_COVERED_PROTOCOLS — see that
+// constant's own doc comment. Live-verified via Zerion's own /v1/chains/
+// endpoint that Ronin carries `supports_positions: false`, meaning Zerion
+// structurally cannot return a staked position here regardless of this
+// list — kept anyway as defense-in-depth against that flag changing,
+// rather than relying on an external provider's current feature support.
+export const ZERION_PROTOCOL_NAMES = ["axie staking"];
 
 const ABI = [
   {

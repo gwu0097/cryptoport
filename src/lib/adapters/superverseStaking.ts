@@ -31,6 +31,14 @@ const SUPER_CONTRACT = "0xe53ec727dbdeb9e2d5456c3be40cff031ab40a55";
 // SuperFarm), not guessed from the current SuperVerse name.
 const SUPER_COINGECKO_ID = "superfarm";
 const APP_URL = "https://staking.superverse.co/";
+// Consumed by zerionDefi.ts's NATIVELY_COVERED_PROTOCOLS — see that
+// constant's own doc comment. Live-verified Zerion returns zero positions
+// for a wallet with a real, confirmed SuperVerse stake, so this is purely
+// defensive against Zerion adding coverage later, not a fix for anything
+// observed today. The exact string is a best guess at Zerion's own future
+// application_metadata.name for it, unverified since Zerion has nothing to
+// name yet.
+export const ZERION_PROTOCOL_NAMES = ["superverse"];
 
 const ABI = [
   {
