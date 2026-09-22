@@ -5,7 +5,8 @@ import { TokenIcon } from "./TokenIcon";
 import { TrendSeedPicker } from "./TrendSeedPicker";
 import { TrendPeerTable } from "./TrendPeerTable";
 import { RecordRecentWallet } from "./RecordRecentWallet";
-import { formatUsd, formatPercent, formatStaleness, stripCitations } from "@/lib/format";
+import { TrendExplanationRefresh } from "./TrendExplanationRefresh";
+import { formatUsd, formatPercent, stripCitations } from "@/lib/format";
 import { findTrendPeers } from "@/lib/trendPeers";
 import type { PeerRow } from "@/lib/trendFinder";
 import type { SeedInfo } from "@/lib/adapters/coingecko";
@@ -159,7 +160,8 @@ export async function TrendAnalysisSection({
     );
   }
 
-  const { seed, explanation, explanationComputedAt, category, categoryPeers, aiPeers, aiPeerReasons } = result;
+  const { seed, explanation, category, categoryPeers, aiPeers, aiPeerReasons } = result;
+  const explanationData = explanation.data;
   const categoryRows = peerRowsWithSeed(seed, categoryPeers);
   const aiRows = peerRowsWithSeed(seed, aiPeers);
   const confirmedIds = intersectIds(categoryPeers, aiPeers);
@@ -220,33 +222,29 @@ export async function TrendAnalysisSection({
 
       <Panel
         className="mb-6"
-        title="Why is this moving"
-        description={
-          explanation && explanationComputedAt
-            ? // Shared/global cache (see tokenAnalysis.ts's own doc comment
-              // on the same design) — this can be someone else's search,
-              // not necessarily yours, so "last refreshed" rather than
-              // "you looked this up" avoids implying it's personal.
-              `Last refreshed ${formatStaleness(explanationComputedAt)} — recomputed at most once a day`
-            : undefined
+        title={
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>Why is this moving</span>
+            <TrendExplanationRefresh seedId={seed.id} symbol={seed.symbol} name={seed.name} initialRow={explanation} />
+          </div>
         }
       >
-        {explanation ? (
+        {explanationData ? (
           <>
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <ConfidencePill confidence={explanation.confidence} />
-              {explanation.narrativeTags.map((tag) => (
+              <ConfidencePill confidence={explanationData.confidence} />
+              {explanationData.narrativeTags.map((tag) => (
                 <span key={tag} className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                   {tag}
                 </span>
               ))}
             </div>
-            <p className="text-sm text-fg">{stripCitations(explanation.reasonSummary)}</p>
-            {explanation.sources.length > 0 && (
+            <p className="text-sm text-fg">{stripCitations(explanationData.reasonSummary)}</p>
+            {explanationData.sources.length > 0 && (
               <div className="mt-3 border-t border-border pt-3">
                 <p className="mb-1 text-xs font-medium text-fg-muted">Sources — for your own DD:</p>
                 <ul className="space-y-0.5">
-                  {explanation.sources.map((s) => (
+                  {explanationData.sources.map((s) => (
                     <li key={s.url} className="truncate text-xs">
                       <a
                         href={s.url}
@@ -264,8 +262,11 @@ export async function TrendAnalysisSection({
           </>
         ) : (
           <p className="text-sm text-fg-muted">
-            Couldn&rsquo;t determine a reason right now — the AI lookup failed or timed out. Category peers below may
-            still be useful.
+            {explanation.status === "refreshing"
+              ? "Scanning the web for why this is moving — usually takes 20-30s."
+              : explanation.status?.startsWith("error:")
+                ? "The last scan failed — click Refresh above to try again. Category peers below may still be useful."
+                : "No scan yet for this token — click Scan above to search the web for why it's moving."}
           </p>
         )}
       </Panel>
@@ -308,9 +309,9 @@ export async function TrendAnalysisSection({
           />
         ) : (
           <p className="text-sm text-fg-muted">
-            {explanation
+            {explanationData
               ? "No AI-suggested tickers resolved to a real, confident CoinGecko match above the market cap floor."
-              : "Unavailable — the AI lookup failed or timed out."}
+              : "Unavailable — scan above to search the web for why this is moving."}
           </p>
         )}
       </Panel>
@@ -319,8 +320,8 @@ export async function TrendAnalysisSection({
         Peers come from two independent sources: CoinGecko&rsquo;s category taxonomy, and a live AI news search naming
         other tokens moving for a similar reason — a coin in both is flagged &ldquo;Confirmed by both.&rdquo; This is a
         starting point for your own research, not a verified signal — read the sources above before acting on
-        anything here. The AI lookup is recomputed at most once a day per token; market data is live as of this page
-        load.
+        anything here. The AI lookup runs only when someone clicks Scan/Refresh above, then stays cached for everyone
+        until the next click; market data is live as of this page load.
       </p>
     </>
   );

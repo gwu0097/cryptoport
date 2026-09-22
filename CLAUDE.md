@@ -194,6 +194,28 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
    window's length, so it's no longer covering for a gap. If a future
    Next version narrows `revalidatePath` to only invalidate its own path,
    re-check this before trusting it again.
+4. **A stored research artifact (an AI narrative explanation, an analysis)
+   is reused forever until a user explicitly asks for a refresh — never
+   TTL-expired into a silent recompute on a plain page load.** `token_
+   analyses` and `trend_explanations` are the pattern: an on-demand claim
+   (`claimTokenAnalysis`/`claimTrendExplanation`, CAS: update-if-stale-or-
+   idle else insert) + the real slow call inside `after()`
+   (`runTokenAnalysis`/`runTrendExplanation`), a `status`/`started_at`
+   pair reusing `jobStatus.ts`'s own `IN_PROGRESS_STATUSES` vocabulary,
+   always show the last result with `formatStaleness(computedAt)` next to
+   a Refresh button — see `TokenAnalysisPanel.tsx`/
+   `TrendExplanationRefresh.tsx`. `trend_explanations` originally used a
+   24h TTL (`EXPLANATION_CACHE_TTL_MS`) that silently re-ran a live ~20-30s
+   Perplexity call on whichever page load happened to land after the row
+   turned stale — reported directly as "I thought we said everything
+   should be stored... it showed up in Recent, which means I used it
+   before" — a real, previously-searched token still paid the full cold-
+   start wait because nothing about "already searched before" was part of
+   the freshness check. A slow-changing figure with no real cost to
+   recompute (a price, a balance) can still use rule 2's plain TTL cache;
+   this rule is specifically for anything that costs real money/time per
+   recompute (an LLM call, an extensive multi-API workup) — those get
+   claim-and-store-forever, not claim-and-expire.
 
 ## Loading feedback — every click should either be fast or say why it isn't
 

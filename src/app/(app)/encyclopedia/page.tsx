@@ -16,8 +16,9 @@ import { fetchSeedInfo, searchCoins } from "@/lib/adapters/coingecko";
 import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
-// The Trend Finder tab can make a fresh Perplexity Agent call (~20-30s) —
-// same reasoning as trend-finder/page.tsx's own maxDuration.
+// AI Analysis's and Trend Finder's own Refresh buttons each kick off a
+// fresh Perplexity Agent call (~20-30s) via after() — same reasoning as
+// trend-finder/page.tsx's own maxDuration.
 export const maxDuration = 300;
 export const metadata = { title: "Encyclopedia · CryptoPort" };
 

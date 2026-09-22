@@ -10,10 +10,11 @@ import { searchCoins } from "@/lib/adapters/coingecko";
 import { pickBestMatch } from "@/lib/watchlistInput";
 
 export const dynamic = "force-dynamic";
-// A cold cache (no trend_explanations hit yet for this seed) makes one live
-// Perplexity Agent API call (a real web-search round trip, observed taking
-// up to ~20-30s) plus CoinGecko category/market lookups — same order of
-// magnitude as lookup/page.tsx's own maxDuration for a comparable reason.
+// The page render itself only ever reads the cached trend_explanations row
+// (fast) plus live CoinGecko category/market lookups — the slow ~20-30s
+// live Perplexity Agent call only happens via the explicit Refresh action
+// (see TrendExplanationRefresh.tsx), whose after() shares this route's
+// maxDuration budget — same order of magnitude as lookup/page.tsx's own.
 export const maxDuration = 300;
 export const metadata = { title: "Trend finder · CryptoPort" };
 
