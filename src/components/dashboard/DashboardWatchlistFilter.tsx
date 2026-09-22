@@ -30,7 +30,7 @@ export function DashboardWatchlistFilter({
         writeDashboardWatchlistPref(value);
         router.push(value === "all" ? "/dashboard" : `/dashboard?list=${encodeURIComponent(value)}`);
       }}
-      className={`${inputClass} w-auto max-w-[16rem] py-1.5 text-sm`}
+      className={`${inputClass} w-auto max-w-[11rem] px-2 py-1 text-xs font-semibold`}
     >
       <option value="all">All watchlists</option>
       {watchlists.map((w) => (

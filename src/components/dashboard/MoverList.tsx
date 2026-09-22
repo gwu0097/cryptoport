@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight, TrendingUp, BookOpen } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
@@ -47,15 +48,49 @@ function ChangeText({ value }: { value: number | null }) {
  * the click target (not a separate small "view all" link) since a Panel
  * title with nothing else interactive in it is an obvious, low-risk place
  * to put one extra affordance rather than adding new chrome.
+ *
+ * `filter` — an interactive control (Dashboard's watchlist `<select>`)
+ * rendered inline in the title, replacing the plain "· {name}" text a
+ * static suffix would otherwise need — reported directly: a separate row
+ * above both panels plus each title repeating the selected list's name
+ * said it three times over. Pulled out of the title Link (a `<select>`
+ * nested inside an `<a>` is both invalid and fights the anchor's own
+ * click handling), so this one case gets its own two-Link layout instead
+ * of the single wrapping Link every other caller still uses unchanged.
  */
-export function MoverList({ title, items, href }: { title: string; items: MoverItem[]; href: string }) {
+export function MoverList({
+  title,
+  items,
+  href,
+  filter,
+}: {
+  title: string;
+  items: MoverItem[];
+  href: string;
+  filter?: ReactNode;
+}) {
   return (
     <Panel
       title={
-        <Link href={href} className="flex items-center justify-between gap-2 hover:text-accent">
-          {title}
-          <ChevronRight className="size-4 shrink-0 text-fg-muted" aria-hidden="true" />
-        </Link>
+        filter ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Link href={href} className="truncate hover:text-accent">
+                {title}
+              </Link>
+              <span className="text-fg-muted">·</span>
+              {filter}
+            </span>
+            <Link href={href} aria-label={`View all — ${title}`} className="text-fg-muted transition hover:text-accent">
+              <ChevronRight className="size-4 shrink-0" aria-hidden="true" />
+            </Link>
+          </div>
+        ) : (
+          <Link href={href} className="flex items-center justify-between gap-2 hover:text-accent">
+            {title}
+            <ChevronRight className="size-4 shrink-0 text-fg-muted" aria-hidden="true" />
+          </Link>
+        )
       }
     >
       {items.length === 0 ? (

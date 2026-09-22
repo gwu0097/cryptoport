@@ -190,30 +190,31 @@ export default async function DashboardPage({
         )}
       </div>
 
-      {user && (
-        <>
-          {/* Only mounted on the bare, param-less landing state (same
-              convention as TrendLastSearchRedirect) — never overrides an
-              explicit ?list= already in the URL. */}
-          {!list && <DashboardWatchlistRedirect />}
-          {watchlists.length > 0 && (
-            <div className="mb-2 flex items-center justify-end">
-              <DashboardWatchlistFilter watchlists={watchlists} selected={selectedWatchlist?.id} />
-            </div>
-          )}
-        </>
-      )}
+      {/* Only mounted on the bare, param-less landing state (same
+          convention as TrendLastSearchRedirect) — never overrides an
+          explicit ?list= already in the URL. */}
+      {user && !list && <DashboardWatchlistRedirect />}
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         {user ? (
           <>
+            {/* The dropdown itself names the selected list (or "All
+                watchlists") inline in this panel's own title — no separate
+                row, and the Top losers panel below doesn't repeat the name
+                a second time, per the direct ask ("no need to say it
+                twice, save space"). */}
             <MoverList
-              title={`Top gainers (24h) · ${selectedWatchlist?.name ?? "Watchlist"}`}
+              title="Top gainers (24h)"
               items={watchlistGainers}
               href={`${watchlistHrefBase}sort=change24h&dir=desc`}
+              filter={
+                watchlists.length > 0 ? (
+                  <DashboardWatchlistFilter watchlists={watchlists} selected={selectedWatchlist?.id} />
+                ) : undefined
+              }
             />
             <MoverList
-              title={`Top losers (24h) · ${selectedWatchlist?.name ?? "Watchlist"}`}
+              title="Top losers (24h) · Watchlist"
               items={watchlistLosers}
               href={`${watchlistHrefBase}sort=change24h&dir=asc`}
             />
