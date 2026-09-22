@@ -49,6 +49,7 @@ export async function getLatestUniverseSnapshot(): Promise<UniverseSnapshotResul
   const { data: runRow, error: runError } = await db
     .from("screener_runs")
     .select("id, started_at, unmatched_count, notes")
+    .eq("kind", "live") // backfill runs also land in screener_runs now
     .eq("status", "ok")
     .order("started_at", { ascending: false })
     .limit(1)

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Monthly screener snapshot archive (scripts/screener-archive.ts - -delete).
+  Runs 09:00 local on the 1st; if the Mac is asleep then, launchd runs it at
+  next wake. Missing a month entirely is harmless: the window is "everything
+  older than 400 days", so the next run catches up.
+
+  Install:
+    cp scripts/launchd/com.cryptoport.screener-archive.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cryptoport.screener-archive.plist
+  Run once now (to test):
+    launchctl kickstart gui/$(id -u)/com.cryptoport.screener-archive
+  Remove:
+    launchctl bootout gui/$(id -u)/com.cryptoport.screener-archive
+
+  zsh -lc so the login profile puts node on PATH (launchd's own PATH doesn't).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cryptoport.screener-archive</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "$HOME/appDevelopmentWorkSpace/cryptoport" &amp;&amp; mkdir -p "$HOME/cryptoport-archive/screener" &amp;&amp; node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/screener-archive.ts --delete &gt;&gt; "$HOME/cryptoport-archive/screener/archive.log" 2&gt;&amp;1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Day</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+</dict>
+</plist>

@@ -1,20 +1,30 @@
-// One-time historical backfill runner for the screener's asset universe.
-// Not deployed as a Vercel route — this can run long enough (per-protocol
-// history fetches across the whole universe) that a fixed function
-// maxDuration isn't the right shape for it; run it locally instead:
+// Historical backfill runner for the screener's asset universe (last 365
+// days only — see BACKFILL_DAYS in backfill.ts). Not deployed as a Vercel
+// route — it can run longer than any function maxDuration; run it locally:
 //
-//   NODE_OPTIONS="--conditions=react-server" npx --no-install tsx scripts/screener-backfill.ts
+//   NODE_OPTIONS="--conditions=react-server" npx --no-install tsx scripts/screener-backfill.ts [--assets uniswap,hyperliquid,...]
 //
-// Safe to re-run: runScreenerBackfill() skips any (asset, date) pair that
-// already has a backfilled row (see backfill.ts's own doc comment).
-// Requires at least one successful /api/cron/screener-snapshot run first —
-// this reads the universe from screener_assets, it doesn't build it.
+// --assets restricts to those gecko_ids (the validation run); omit for the
+// whole universe. Safe to re-run: an (asset, date) pair that already has a
+// backfilled row is skipped. Requires at least one successful live
+// /api/cron/screener-snapshot run written by the lean-provenance code
+// (it reads each asset's contributing_slugs from that run).
 import { runScreenerBackfill } from "../src/lib/screener/backfill";
 
+function parseAssets(argv: string[]): string[] | undefined {
+  const i = argv.indexOf("--assets");
+  if (i === -1) return undefined;
+  const ids = (argv[i + 1] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (ids.length === 0) throw new Error("--assets needs a comma-separated list of gecko_ids");
+  return ids;
+}
+
 async function main() {
-  console.log("Starting screener backfill...");
-  const result = await runScreenerBackfill();
-  console.log(`\nAssets processed: ${result.assetsProcessed}`);
+  const geckoIds = parseAssets(process.argv.slice(2));
+  console.log(`Starting screener backfill (${geckoIds ? `${geckoIds.length} assets` : "whole universe"})...`);
+  const result = await runScreenerBackfill({ geckoIds });
+  console.log(`\nBackfill run: ${result.runId}`);
+  console.log(`Assets processed: ${result.assetsProcessed}`);
   console.log(`Total rows inserted: ${result.totalRowsInserted}`);
   const errors = result.perAsset.filter((r) => r.error !== null);
   if (errors.length > 0) {

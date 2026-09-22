@@ -39,7 +39,7 @@ export default async function ScreenerUniversePage() {
           <Panel className="mb-4">
             <p className="text-sm text-fg-muted">
               Latest run: {formatStaleness(runStartedAt)} · {rows.length} matched assets · {unmatchedCount} unmatched
-              (see `screener_unmatched_log`) · {conflictCount} source conflict{conflictCount === 1 ? "" : "s"} flagged.
+              (open intervals in `screener_unmatched`) · {conflictCount} source conflict{conflictCount === 1 ? "" : "s"} flagged.
             </p>
           </Panel>
           <Panel padding={false}>

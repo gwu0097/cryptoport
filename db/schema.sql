@@ -1367,3 +1367,142 @@ create table cryptoport.coin_categories (
 );
 alter table cryptoport.coin_categories enable row level security;
 grant all on cryptoport.coin_categories to service_role;
+
+-- ===========================================================================
+-- Crypto fundamentals screener (docs/screener/). Every table prefixed
+-- screener_; src/lib/screener/* is never imported by portfolio code. RLS
+-- enabled, no policies (deny-by-default, service_role only) — this Postgres
+-- is shared with csp-screener, whose anon key is public.
+--
+-- History: Phase 1 created these tables (2026-09-22). The storage fix the
+-- same day (1.7 GB on a 0.5 GB tier, 95% of it this snapshot table's
+-- per-row provenance JSONB) truncated the backfilled rows and ran:
+--   step A  — screener_runs.kind/provenance, snapshots.contributing_slugs/
+--             provenance_override, snapshots.run_id NOT NULL
+--   step A2 — screener_unmatched (change-only log) + observed_at index
+--   step B  — (after the lean-provenance deploy) drop snapshots.provenance
+--             and the old per-run screener_unmatched_log
+-- Statements below are the end state; the two legacy objects step B drops
+-- are kept, commented, at the bottom of this section.
+-- ===========================================================================
+
+create table cryptoport.screener_assets (
+  id                 uuid primary key default gen_random_uuid(),
+  gecko_id           text not null unique,
+  defillama_slug     text,   -- first contributing slug only; the full list is per snapshot row
+  name               text not null,
+  ticker             text not null,
+  sector             text,
+  status             text not null default 'active' check (status in ('active','delisted','dead','unknown')),
+  first_seen_at      timestamptz not null default now(),
+  last_seen_at       timestamptz not null default now(),
+  status_changed_at  timestamptz
+);
+
+-- One row per pipeline execution: the daily live job (kind 'live') or a
+-- manual backfill (kind 'backfill'). `provenance` is the run's manifest
+-- (field -> {source, endpoint}, plus fetched_at) — see
+-- src/lib/screener/provenance.ts. Gap detection and "latest run" reads
+-- filter kind = 'live'.
+create table cryptoport.screener_runs (
+  id             uuid primary key default gen_random_uuid(),
+  started_at     timestamptz not null default now(),
+  finished_at    timestamptz,
+  status         text not null default 'running' check (status in ('running','ok','partial','error')),
+  universe_size  int,
+  matched_count  int,
+  unmatched_count int,
+  notes          jsonb,
+  kind           text not null default 'live'
+                   constraint screener_runs_kind_check check (kind in ('live', 'backfill')),
+  provenance     jsonb
+);
+
+-- Append-only, point-in-time. A field's provenance = its run's manifest
+-- (screener_runs.provenance), overridden per field by provenance_override
+-- when that row's value came from somewhere else (e.g. a backfilled price
+-- that fell back to CoinGecko). run_id is NOT NULL on purpose (a tripwire
+-- against the old run-less backfill); note its FK is still ON DELETE SET
+-- NULL from Phase 1, so deleting a referenced run errors — runs are never
+-- deleted (the archive keeps them). Rows older than 400 days are moved to
+-- local Parquet monthly by scripts/screener-archive.ts.
+create table cryptoport.screener_asset_snapshots (
+  id                    uuid primary key default gen_random_uuid(),
+  asset_id              uuid not null references cryptoport.screener_assets(id) on delete cascade,
+  observed_at           timestamptz not null default now(),
+  run_id                uuid not null references cryptoport.screener_runs(id) on delete set null,
+  is_backfilled         boolean not null default false,
+  price_usd             double precision,
+  market_cap_usd        double precision,
+  fdv_usd               double precision,
+  circulating_supply    double precision,
+  total_supply          double precision,
+  max_supply            double precision,
+  tvl_usd               double precision,
+  fees_24h              double precision,
+  fees_7d               double precision,
+  fees_30d              double precision,
+  fees_1y               double precision,
+  revenue_24h           double precision,
+  revenue_7d            double precision,
+  revenue_30d           double precision,
+  revenue_1y            double precision,
+  holders_revenue_24h   double precision,
+  holders_revenue_30d   double precision,
+  volume_24h_usd        double precision,
+  contributing_slugs    text[],
+  provenance_override   jsonb
+);
+create index screener_asset_snapshots_asset_observed_idx on cryptoport.screener_asset_snapshots (asset_id, observed_at desc);
+create index screener_asset_snapshots_run_idx on cryptoport.screener_asset_snapshots (run_id);
+-- date-first scans: "every asset as of date D" (Phase 2/4) and the archive's "older than N days"
+create index screener_asset_snapshots_observed_idx on cryptoport.screener_asset_snapshots (observed_at);
+-- one backfilled row per asset per UTC day (the Phase 1 duplication incident)
+create unique index screener_asset_snapshots_backfilled_asset_date_uidx
+  on cryptoport.screener_asset_snapshots (asset_id, ((observed_at at time zone 'UTC')::date))
+  where is_backfilled;
+
+create table cryptoport.screener_field_conflicts (
+  id           uuid primary key default gen_random_uuid(),
+  asset_id     uuid not null references cryptoport.screener_assets(id) on delete cascade,
+  observed_at  timestamptz not null,
+  field_name   text not null,
+  source_a     text not null,
+  value_a      double precision,
+  source_b     text not null,
+  value_b      double precision,
+  pct_diff     double precision,
+  run_id       uuid references cryptoport.screener_runs(id) on delete set null
+);
+create unique index screener_field_conflicts_asset_run_field_uidx
+  on cryptoport.screener_field_conflicts (asset_id, run_id, field_name);
+
+-- Change-only unmatched log: one row per continuous interval an item stays
+-- unmatched (opened the first run it appears, resolved the first run it's
+-- gone) — replaces rewriting all ~7.3K unmatched items every run.
+create table cryptoport.screener_unmatched (
+  id                 uuid primary key default gen_random_uuid(),
+  kind               text not null check (kind in ('no_gecko_id','no_fee_data','no_coingecko_market_data')),
+  identifier         text not null,
+  reason             text,
+  first_seen_run_id  uuid not null references cryptoport.screener_runs(id),
+  first_seen_at      timestamptz not null default now(),
+  resolved_run_id    uuid references cryptoport.screener_runs(id),
+  resolved_at        timestamptz
+);
+create unique index screener_unmatched_open_uidx
+  on cryptoport.screener_unmatched (kind, identifier) where resolved_run_id is null;
+
+alter table cryptoport.screener_assets enable row level security;
+alter table cryptoport.screener_runs enable row level security;
+alter table cryptoport.screener_asset_snapshots enable row level security;
+alter table cryptoport.screener_field_conflicts enable row level security;
+alter table cryptoport.screener_unmatched enable row level security;
+
+-- Legacy, dropped in step B:
+--   screener_asset_snapshots.provenance jsonb not null default '{}'::jsonb
+--   create table cryptoport.screener_unmatched_log (
+--     id uuid primary key default gen_random_uuid(),
+--     run_id uuid references cryptoport.screener_runs(id) on delete set null,
+--     kind text not null, identifier text not null, reason text,
+--     created_at timestamptz not null default now());
