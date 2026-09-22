@@ -38,11 +38,8 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
-### Trend Finder — AI peer "why" doesn't explain the peer-to-seed connection
-**Raised**: general use, 2026-09-22 (ZRO/LayerZero example).
-**Status**: not started. Full detail: `project_trend_finder_peer_reason_gap.md`.
-
-AI-suggested peers are matched by shared causal narrative (the AI's read of "moving for a similar reason"), not by function/category. The bug: each peer's shown "why" (`AiPeerTicker.reason`) states the peer's own independent catalyst in isolation, never explicitly connecting it back to the seed's own narrative — a reader has to already know the seed's explanation and infer the link themselves. Fix is a prompt change in `explainTrend` (`src/lib/adapters/perplexity.ts`): instruct it to state each peer's reason in explicitly relational terms ("also benefiting from X, the same driver behind [seed]'s move"), not as a standalone fact.
+### Trend Finder — AI peer "why" doesn't explain the peer-to-seed connection — FIXED 2026-09-22
+**Raised**: general use, 2026-09-22 (ZRO/LayerZero example). **Fixed**: `explainTrend`'s prompt (`src/lib/adapters/perplexity.ts`) now requires each peer reason in relational form — "Same driver as <seed> (<shared catalyst>): <this token's own exposure>" — and to say "Broader theme, not the same catalyst" when the link is only thematic. Live-verified on ZRO: MORPHO/AERO/UNI each named Circle's Arc launch as the shared driver, then their own exposure. Stored explanations are reused until refreshed (CLAUDE.md caching rule 4), so older tokens show the old-style reasons until someone hits Refresh — deliberately not mass-invalidated (each recompute is a paid Perplexity call).
 
 ### SMC signal overlay — spec provided, not built
 **Raised**: user-provided spec, `external/smc_signal_overlay_spec.md`, added 2026-09-22.

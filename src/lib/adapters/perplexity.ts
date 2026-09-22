@@ -11,7 +11,10 @@ export interface AiPeerTicker {
    * component and trend-finder/page.tsx) — reported directly: the AI was
    * already reasoning per-ticker in its prose summary, just not returning
    * that structurally, so there was no way to show *why* a specific row
-   * was suggested without parsing free text. */
+   * was suggested without parsing free text. Prompted to be relational
+   * ("Same driver as <seed> (<catalyst>): <this token's exposure>") —
+   * reported directly (ZRO example): peer reasons that only stated the
+   * peer's own catalyst left the reader to connect it back to the seed. */
   reason: string;
 }
 
@@ -61,7 +64,7 @@ const RESPONSE_SCHEMA = {
 function buildPrompt(symbol: string, name: string): string {
   return `Why has the crypto token ${name} (${symbol}) been moving in price recently? Search for current news and explain the specific catalyst — clearly distinguish a token-specific/company-specific reason from general crypto market beta (the whole market moving together isn't a real answer here).
 
-Then name other crypto tokens that are CURRENTLY moving for a similar underlying reason (the same narrative or catalyst type, not just tokens that happen to share a category tag) — for EACH one, give its own specific 1-sentence reason (e.g. "an Avalanche RWA credit hub with an institutional collateral-lending push," not "same category" or "also RWA-related").
+Then name other crypto tokens that are CURRENTLY moving for a similar underlying reason (the same narrative or catalyst type, not just tokens that happen to share a category tag). For EACH one, write its reason in relational terms — connect it back to ${symbol} explicitly, don't describe the peer in isolation. Each reason must (1) name the shared driver behind ${symbol}'s move, and (2) state this token's own specific exposure to that same driver. Shape: "Same driver as ${symbol} (<the shared catalyst>): <how this token specifically benefits or is exposed>." Example: "Same driver as ZRO (Circle's Arc chain launch): Morpho vaults took day-one deposits on Arc, putting it directly in the institutional-stablecoin flow." Not acceptable: "an Avalanche RWA credit hub with an institutional lending push" (true, but never says how it relates to ${symbol}), "same category", or "also RWA-related". If a token only shares a broader theme rather than the same specific catalyst, say that plainly ("Broader theme, not the same catalyst: ...") instead of implying a direct link.
 
 Also give your single best guess at a short category/theme name (2-5 words, the kind of phrase a taxonomy like "Real World Assets" or "Privacy Coins" would use) that best captures this narrative.
 
@@ -70,7 +73,7 @@ Return ONLY this JSON:
   "reason_summary": "2-4 sentences explaining the specific catalyst, with dates where known",
   "narrative_tags": ["short tag", "short tag", ...],
   "category_guess": "short category/theme name",
-  "related_tickers": [{"ticker": "TICKER", "reason": "1 sentence specific to this token, not generic"}, ...],
+  "related_tickers": [{"ticker": "TICKER", "reason": "1-2 sentences: the driver it shares with ${symbol}, then this token's own specific exposure to it"}, ...],
   "confidence": "high|medium|low"
 }`;
 }
