@@ -1,4 +1,11 @@
-import { getAssetsGroupedByTicker, getAllWatchlistItems, getValueHistory, getPriceRefreshState } from "@/lib/queries";
+import {
+  getAssetsGroupedByTicker,
+  getAllWatchlistItems,
+  getWatchlists,
+  getWatchlistItems,
+  getValueHistory,
+  getPriceRefreshState,
+} from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { blendedChange } from "@/lib/dashboard";
@@ -9,6 +16,8 @@ import { GuestBanner } from "@/components/GuestBanner";
 import { MoverList, type MoverItem } from "@/components/dashboard/MoverList";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
 import { CryptoHeatmapPanel } from "@/components/dashboard/CryptoHeatmap";
+import { DashboardWatchlistFilter } from "@/components/dashboard/DashboardWatchlistFilter";
+import { DashboardWatchlistRedirect } from "@/components/dashboard/DashboardWatchlistRedirect";
 import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
@@ -42,14 +51,28 @@ function topMovers(items: MoverItem[]): { gainers: MoverItem[]; losers: MoverIte
   return { gainers, losers };
 }
 
-export default async function DashboardPage() {
-  const [{ groups, grand }, watchlistItems, history, priceState, user] = await Promise.all([
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ list?: string }>;
+}) {
+  const { list } = await searchParams;
+  const [{ groups, grand }, watchlists, history, priceState, user] = await Promise.all([
     getAssetsGroupedByTicker(),
-    getAllWatchlistItems(),
+    getWatchlists(),
     getValueHistory(),
     getPriceRefreshState(),
     getUser(),
   ]);
+
+  // A real, currently-existing watchlist id (never trusts `list` blindly —
+  // a stale localStorage value for a since-deleted watchlist should fall
+  // back to "All", not 404 or silently show nothing) — undefined means
+  // "All watchlists," getAllWatchlistItems()'s existing cross-list summary.
+  const selectedWatchlist = list ? watchlists.find((w) => w.id === list) : undefined;
+  const watchlistItems = selectedWatchlist
+    ? await getWatchlistItems(selectedWatchlist.id)
+    : await getAllWatchlistItems();
 
   // Dust filter only makes sense for Holdings (a $0.001 spam token's 300%
   // swing shouldn't dominate the movers list) — a Watchlist coin has no
@@ -84,6 +107,14 @@ export default async function DashboardPage() {
   );
 
   const change = blendedChange(groups);
+
+  // Forwards the same selected list to the real Watchlist page (?list=)
+  // when one's chosen, so clicking through from a per-list Dashboard panel
+  // lands on that exact list rather than whichever one that page falls
+  // back to on its own (see WatchlistPage's own doc comment on that
+  // fallback, written before Dashboard had a per-list selector to forward
+  // here).
+  const watchlistHrefBase = selectedWatchlist ? `/watchlist?list=${selectedWatchlist.id}&` : "/watchlist?";
 
   return (
     <>
@@ -159,11 +190,33 @@ export default async function DashboardPage() {
         )}
       </div>
 
+      {user && (
+        <>
+          {/* Only mounted on the bare, param-less landing state (same
+              convention as TrendLastSearchRedirect) — never overrides an
+              explicit ?list= already in the URL. */}
+          {!list && <DashboardWatchlistRedirect />}
+          {watchlists.length > 0 && (
+            <div className="mb-2 flex items-center justify-end">
+              <DashboardWatchlistFilter watchlists={watchlists} selected={selectedWatchlist?.id} />
+            </div>
+          )}
+        </>
+      )}
+
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         {user ? (
           <>
-            <MoverList title="Top gainers (24h) · Watchlist" items={watchlistGainers} href="/watchlist?sort=change24h&dir=desc" />
-            <MoverList title="Top losers (24h) · Watchlist" items={watchlistLosers} href="/watchlist?sort=change24h&dir=asc" />
+            <MoverList
+              title={`Top gainers (24h) · ${selectedWatchlist?.name ?? "Watchlist"}`}
+              items={watchlistGainers}
+              href={`${watchlistHrefBase}sort=change24h&dir=desc`}
+            />
+            <MoverList
+              title={`Top losers (24h) · ${selectedWatchlist?.name ?? "Watchlist"}`}
+              items={watchlistLosers}
+              href={`${watchlistHrefBase}sort=change24h&dir=asc`}
+            />
           </>
         ) : (
           <>
