@@ -9,11 +9,15 @@ import { fetchWithRetry } from "@/lib/adapters/http";
 // requests with a 1.5s delay ran 200 requests with zero rate-limiting).
 const COINS_BASE = "https://coins.llama.fi";
 
-// Live-verified hard ceiling: span=500 succeeds, span=1000 returns a real
-// 400 ("Requested 1000 data points exceeds the maximum of 500") — not a
-// soft default, an enforced cap. Depth beyond this needs chained calls,
-// each one's `start` advanced by the previous span.
-const CHART_MAX_SPAN = 500;
+// Live-verified hard ceiling of 500 data points PER CALL, counted across
+// every coin in the call — coins × span, not span per coin. Re-verified
+// 2026-09-22: 15 coins × span 33 (495) → 200, 15 × 34 (510) → 400
+// "Requested 510 data points exceeds the maximum of 500"; 20 × 366 → 400
+// "Requested 7320 ...". Phase 1 recorded this as a per-coin cap, and the
+// batched (15-coin, span-500) path never completed a run, so the wrong
+// reading went unnoticed until the first validation backfill. Depth beyond
+// one call needs chained calls, each `start` advanced by the previous span.
+const CHART_MAX_POINTS = 500;
 
 // The validated safe throttle (PHASE_1 sign-off) — serial, 1.5s between
 // EVERY individual HTTP call to this host, not just between logical
@@ -68,13 +72,14 @@ export async function fetchChartPrices(
   // very slightly more current) observation.
   const byAssetByDate = new Map<string, Map<string, number>>(geckoIds.map((id) => [id, new Map()]));
   if (geckoIds.length === 0) return new Map();
+  if (geckoIds.length > CHART_MAX_POINTS) throw new Error(`fetchChartPrices: ${geckoIds.length} coins can't fit one call's ${CHART_MAX_POINTS}-point cap`);
   const coinsParam = geckoIds.map((id) => `coingecko:${id}`).join(",");
 
   let cursor = startEpochSeconds;
   let remaining = totalDays;
   while (remaining > 0) {
     await sleep(THROTTLE_MS);
-    const span = Math.min(CHART_MAX_SPAN, remaining);
+    const span = Math.min(Math.floor(CHART_MAX_POINTS / geckoIds.length), remaining);
     const res = await fetchWithRetry(`${COINS_BASE}/chart/${coinsParam}?start=${cursor}&span=${span}&period=1d`);
     if (!res.ok) throw new Error(`DefiLlama /chart failed: HTTP ${res.status}`);
     const body: { coins: Record<string, { prices?: { timestamp: number; price: number }[] }> } = await res.json();

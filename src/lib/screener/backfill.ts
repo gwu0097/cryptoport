@@ -24,9 +24,11 @@ const BACKFILL_DAYS = 365;
 const CONCURRENCY = 4;
 const SLUG_CALL_CONCURRENCY = 3;
 
-// Coins per /chart call — the throttle (serial, 1.5s before every HTTP
-// call, the validated safe rate from Phase 1 sign-off) lives in
-// fetchChartPrices itself.
+// Coins per /chart call. DefiLlama's 500-point cap is coins × days per
+// call, so batching doesn't reduce the total number of calls much —
+// fetchChartPrices shrinks the span to fit (15 coins → 33 days per call,
+// ~12 calls per batch for 366 days). The throttle (serial, 1.5s before
+// every HTTP call) lives in fetchChartPrices itself.
 const PRICE_BATCH_SIZE = 15;
 
 const INSERT_CHUNK_SIZE = 500; // single-statement inserts of long histories hit a statement timeout (Phase 1)
@@ -154,6 +156,7 @@ export async function runScreenerBackfill(options: BackfillOptions = {}): Promis
     const windowStart = new Date();
     windowStart.setUTCDate(windowStart.getUTCDate() - BACKFILL_DAYS);
     const windowStartDate = windowStart.toISOString().slice(0, 10);
+    const todayDate = new Date().toISOString().slice(0, 10);
     const windowStartEpoch = Math.floor(windowStart.getTime() / 1000);
 
     const windowPrices = await fetchWindowPrices(
@@ -238,7 +241,12 @@ export async function runScreenerBackfill(options: BackfillOptions = {}): Promis
         for (const p of holdersRevenue) ensure(p.date).holders_revenue_24h = p.value;
         for (const [date, v] of rollingSum(holdersRevenue, 30)) ensure(date).holders_revenue_30d = v;
 
-        const inWindow = [...byDate.values()].filter((r) => r.date >= windowStartDate);
+        // Today (UTC) is excluded: every source's current day is incomplete —
+        // live-verified on the first validation run: today's row had an
+        // intraday price, null mcap for 19/20 assets and null fees for 9/20.
+        // A partial day stored as a full backfilled day could never be
+        // corrected later (the backfill skips dates that already have a row).
+        const inWindow = [...byDate.values()].filter((r) => r.date >= windowStartDate && r.date < todayDate);
         const toInsert = inWindow
           .filter((r) => !existingDates.has(r.date))
           .map((r) => ({
