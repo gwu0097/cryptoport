@@ -13,7 +13,7 @@ import { CopyButton } from "./CopyButton";
 import { usePersistedState } from "./usePersistedState";
 import { updateHolding, deleteHolding } from "@/app/(app)/wallets/actions";
 
-type SortKey = "ticker" | "qty" | "price" | "value" | "category";
+type SortKey = "ticker" | "qty" | "price" | "change24h" | "value" | "category";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:holdingsSort";
@@ -34,9 +34,21 @@ function sortValue(holding: HoldingWithValuation, key: SortKey): number | string
       return numeric(holding.qty);
     case "price":
       return numeric(holding.price);
+    case "change24h":
+      return holding.change24h ?? -Infinity;
     case "value":
       return holding.valuation.kind === "priced" ? holding.valuation.usd : -Infinity;
   }
+}
+
+// Same green/red/muted convention as AssetsTable.tsx's/WatchlistTable.tsx's
+// own ChangeCell, duplicated rather than imported — see AssetsTable's
+// ProtocolTag doc comment on why (surrounding markup differs enough that a
+// shared component would need its own prop-plumbing for no real benefit).
+function ChangeCell({ value }: { value: number | null }) {
+  const className =
+    value === null ? "text-fg-muted" : value > 0 ? "text-positive" : value < 0 ? "text-negative" : "text-fg-muted";
+  return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
 }
 
 // The DeFi-position breakdown (DeBank/Rabby-style: which protocol, and a
@@ -232,6 +244,14 @@ export function HoldingsTable({
             className={hideOnMobileClass}
           />
           <Header label="Price" sortKeyValue="price" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          <Header
+            label="24h"
+            sortKeyValue="change24h"
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={toggleSort}
+            className={hideOnMobileClass}
+          />
           <Header label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           <Header
             label="Category"
@@ -277,8 +297,23 @@ export function HoldingsTable({
                   ticker that happens to coincide with a real tracked ticker
                   (e.g. "BTC") would otherwise show an unrelated market price
                   next to a value the user entered directly, which reads as
-                  "this is where that number came from" when it isn't. */}
+                  "this is where that number came from" when it isn't. Same
+                  reasoning excludes the mobile-inline 24h% below for a
+                  manual_usd row — no real price context, no real 24h either. */}
               {holding.source === "manual_usd" ? "—" : holding.price !== null ? formatUsd(holding.price) : "unpriced"}
+              {holding.source !== "manual_usd" && (
+                // 24h has its own dedicated column at sm+ (hideOnMobileClass
+                // below) — this is mobile-only (sm:hidden), tucked next to
+                // price, same convention as AssetsTable/WatchlistTable —
+                // reported directly: Portfolio/Wallet's mobile view showed
+                // no 24h at all, unlike those two.
+                <span className="ml-1.5 text-xs sm:hidden">
+                  <ChangeCell value={holding.change24h} />
+                </span>
+              )}
+            </td>
+            <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+              <ChangeCell value={holding.change24h} />
             </td>
             <td className={`${tdClass} tabular-nums`}>
               {holding.valuation.kind === "priced" ? (

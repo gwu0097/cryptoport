@@ -235,7 +235,17 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
                           </div>
                         </div>
                       </td>
-                      <td className={`${tdClass} tabular-nums`}>{row.price !== null ? formatUsd(row.price) : "—"}</td>
+                      <td className={`${tdClass} tabular-nums`}>
+                        {row.price !== null ? formatUsd(row.price) : "—"}
+                        {/* 24h has its own dedicated column at sm+ (hideOnMobileClass
+                            below) — this is mobile-only (sm:hidden), tucked next to
+                            price, same convention as AssetsTable/HoldingsTable.
+                            Reported directly, with a screenshot of the Dashboard's
+                            mover cards as the reference layout. */}
+                        <span className="ml-1.5 text-xs sm:hidden">
+                          <ChangeCell value={row.change24h} />
+                        </span>
+                      </td>
                       {showExtraChanges && (
                         <td className={`${tdClass} ${hideOnMobileClass}`}>
                           <ChangeCell value={row.change1h} />

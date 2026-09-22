@@ -309,6 +309,26 @@ function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "ticker"
   return parseNumeric(prices[holding.ticker]);
 }
 
+/** Contract-keyed first, ticker-keyed fallback — EVM holdings are valued
+ * via usd_override and never touch the ticker-keyed `prices` table (see
+ * valuation.ts), so only token_registry's stats (getContractStatsMap)
+ * exist for them; everything else falls back to the ticker table
+ * (getPriceStatsMap). Extracted once a third call site needed the exact
+ * same resolution getAssetsGroupedByTicker's own inline version already
+ * did (this codebase's own "two is fine, three is the threshold" rule —
+ * see CLAUDE.md's Architecture section). */
+function resolveChange24h(
+  holding: Pick<Holding, "contract" | "ticker">,
+  priceStats: PriceStatsMap,
+  contractStats: PriceStatsMap,
+): number | null {
+  return (
+    (holding.contract ? contractStats[holding.contract.toLowerCase()]?.change24h : undefined) ??
+    priceStats[holding.ticker]?.change24h ??
+    null
+  );
+}
+
 export interface WalletWithTotal extends WalletWithTags {
   total: number;
   unpricedCount: number;
@@ -412,6 +432,14 @@ export interface HoldingWithValuation extends Holding {
   valuation: Valuation;
   /** Raw per-unit ticker price, for display only — manual_usd holdings have no per-unit price. */
   price: number | null;
+  /** Same contract-then-ticker resolution as getAssetsGroupedByTicker's own
+   * per-holding change24h (see that function's doc comment on why
+   * contract-keyed stats take priority — EVM holdings are valued via
+   * usd_override and never touch the ticker-keyed `prices` table, so only
+   * token_registry's stats exist for them). Null, not 0, when neither
+   * source has it — reported directly: Portfolio/Wallet's mobile view
+   * showed no 24h at all, unlike Assets/Watchlist. */
+  change24h: number | null;
 }
 
 export interface ChainGroup {
@@ -471,16 +499,27 @@ export interface ValuatedHoldings {
 /** Shared by every "one entity, many chains" view — a saved wallet
  * (getWalletDetail) and an ad-hoc, unsaved address lookup (lib/lookup.ts)
  * alike. `fallbackChain` covers holdings with no `chain` of their own
- * (manual rows, or pre-chain-column sync rows). */
+ * (manual rows, or pre-chain-column sync rows).
+ *
+ * `priceStats`/`contractStats` default to `{}` (lookup.ts's own call
+ * doesn't pass them — an ad-hoc, unsaved address preview never had 24h
+ * data either, unchanged here) rather than being required, so this stays
+ * a small, additive change instead of forcing every caller to fetch stats
+ * maps it doesn't need. Same contract-then-ticker resolution as
+ * getAssetsGroupedByTicker's own per-holding change24h — see
+ * HoldingWithValuation's own doc comment for why. */
 export function valuateHoldings(
   holdings: Holding[],
   fallbackChain: string,
   prices: PriceMap,
+  priceStats: PriceStatsMap = {},
+  contractStats: PriceStatsMap = {},
 ): ValuatedHoldings {
   const holdingsWithValuation: HoldingWithValuation[] = holdings.map((holding) => ({
     ...holding,
     valuation: valueHolding(holding, prices),
     price: effectivePrice(holding, prices),
+    change24h: resolveChange24h(holding, priceStats, contractStats),
   }));
   const chainGroups = groupByChain(
     holdingsWithValuation.map((holding) => ({ holding, fallbackChain })),
@@ -510,15 +549,20 @@ export async function getWalletDetail(id: string, opts?: { userId: string }): Pr
   if (!opts && !(await getUser())) return null;
   const db = opts ? serviceDb() : await userDb();
   const baseQuery = db.from("wallets").select("*, holdings(*), tags(id,name)").eq("id", id);
-  const [{ data: wallet, error: walletError }, prices] = await Promise.all([
+  const [{ data: wallet, error: walletError }, prices, priceStats, contractStats] = await Promise.all([
     (opts ? baseQuery.eq("user_id", opts.userId) : baseQuery).maybeSingle(),
     getPriceMap(),
+    getPriceStatsMap(),
+    getContractStatsMap(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (!wallet) return null;
 
   const { holdings, ...rest } = wallet as WalletWithTags & { holdings: Holding[] };
-  return { wallet: rest, ...valuateHoldings(holdings, defaultChainId(rest.chain), prices) };
+  return {
+    wallet: rest,
+    ...valuateHoldings(holdings, defaultChainId(rest.chain), prices, priceStats, contractStats),
+  };
 }
 
 export type WalletWithHoldings = Wallet & { holdings: Holding[] };
@@ -551,7 +595,12 @@ export interface AssetsResult {
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
 export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap()]);
+  const [rows, prices, priceStats, contractStats] = await Promise.all([
+    getActiveWalletsWithHoldings(),
+    getPriceMap(),
+    getPriceStatsMap(),
+    getContractStatsMap(),
+  ]);
 
   const entries = rows.flatMap((wallet) =>
     wallet.holdings.map((holding) => ({
@@ -559,6 +608,7 @@ export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
         ...holding,
         valuation: valueHolding(holding, prices),
         price: effectivePrice(holding, prices),
+        change24h: resolveChange24h(holding, priceStats, contractStats),
       },
       fallbackChain: defaultChainId(wallet.chain),
     })),
@@ -675,6 +725,7 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
         ...holding,
         valuation,
         price: effectivePrice(holding, prices),
+        change24h: resolveChange24h(holding, priceStats, contractStats),
         walletId: wallet.id,
         walletName: wallet.name,
         chainId,
@@ -809,7 +860,12 @@ export interface DefiResult {
  */
 export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap()]);
+  const [rows, prices, priceStats, contractStats] = await Promise.all([
+    getActiveWalletsWithHoldings(),
+    getPriceMap(),
+    getPriceStatsMap(),
+    getContractStatsMap(),
+  ]);
 
   const byProtocol = new Map<string, Map<string, { walletName: string; holdings: Holding[] }>>();
   for (const wallet of rows) {
@@ -835,7 +891,12 @@ export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
         .map(([walletId, { walletName, holdings }]) => {
           const { total, unpricedCount } = aggregate(holdings, prices);
           const positions = holdings
-            .map((h) => ({ ...h, valuation: valueHolding(h, prices), price: effectivePrice(h, prices) }))
+            .map((h) => ({
+              ...h,
+              valuation: valueHolding(h, prices),
+              price: effectivePrice(h, prices),
+              change24h: resolveChange24h(h, priceStats, contractStats),
+            }))
             .sort(byValueDesc);
           return { walletId, walletName, total, unpricedCount, positions };
         })
