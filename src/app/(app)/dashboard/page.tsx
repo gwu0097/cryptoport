@@ -78,6 +78,12 @@ export default async function DashboardPage({
   // swing shouldn't dominate the movers list) — a Watchlist coin has no
   // position size to filter on, every watched coin counts equally.
   const holdingsMoversEligible = groups.filter((g) => g.total >= LOW_VALUE_USD);
+  // Full (undust-filtered) ticker -> position value, so a Watchlist row's
+  // "you own this" figure reflects any real holding, not just ones above
+  // the Holdings movers' own dust cutoff — direct ask: "also do it for
+  // the watchlist tokens if i own them," not "if I own a dust-filtered
+  // amount of them."
+  const tickerValueMap = new Map(groups.map((g) => [g.ticker.toUpperCase(), g.total]));
   const { gainers: holdingsGainers, losers: holdingsLosers } = topMovers(
     holdingsMoversEligible.map((g) => ({
       key: g.tickerKey,
@@ -90,6 +96,7 @@ export default async function DashboardPage({
       // resolution — undefined (not null) when unresolved, matching
       // MoverItem's own optional-field convention.
       coingeckoId: g.coingeckoId ?? undefined,
+      holdingValueUsd: g.total,
     })),
   );
   const { gainers: watchlistGainers, losers: watchlistLosers } = topMovers(
@@ -103,6 +110,10 @@ export default async function DashboardPage({
       // rows below, so their "Find Trend" link can go straight to the
       // unambiguous ?id= path (see MoverItem's own doc comment).
       coingeckoId: w.coingeckoId,
+      // undefined (not 0) when the user doesn't actually hold this ticker
+      // — the normal case for most watchlist entries, matching
+      // MoverItem.holdingValueUsd's own "undefined means not held" rule.
+      holdingValueUsd: tickerValueMap.get(w.ticker.toUpperCase()),
     })),
   );
 

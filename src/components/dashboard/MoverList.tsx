@@ -4,6 +4,7 @@ import { ChevronRight, TrendingUp, BookOpen } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { Panel } from "../ui/Panel";
+import { MoverHoldingValue } from "./MoverHoldingValue";
 
 /** The narrow shape MoverList actually needs — deliberately not AssetGroup
  * (which carries `total`/`holdings`/unpriced-count, all Holdings-specific
@@ -28,6 +29,15 @@ export interface MoverItem {
    * instead). Drives whether the "Find Trend" link below uses the
    * unambiguous ?id= or the best-effort ?ticker=. */
   coingeckoId?: string;
+  /** How much of this ticker the user actually holds, in USD — undefined
+   * (not 0) when they don't hold it at all, which is the normal case for
+   * every Watchlist row that isn't also a real position. Holdings rows
+   * always have one (AssetGroup.total); Watchlist rows only get one when
+   * the same ticker shows up in the user's own holdings too. Masked by
+   * MoverHoldingValue behind the shared privacy toggle — see that
+   * component's own doc comment for why (a position size reveals
+   * portfolio size; the row's own market price doesn't). */
+  holdingValueUsd?: number;
 }
 
 /** Same green/red/muted convention as AssetsTable.tsx's ChangeCell,
@@ -102,6 +112,7 @@ export function MoverList({
               <div className="flex min-w-0 items-center gap-2">
                 <TokenIcon ticker={item.ticker} url={item.iconUrl} />
                 <span className="truncate text-sm font-medium text-fg">{item.ticker}</span>
+                <MoverHoldingValue usd={item.holdingValueUsd} />
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 {/* Per-unit price, not the user's own position value — a
