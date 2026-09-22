@@ -156,8 +156,10 @@ export function MoverList({
                     to hand off to), so a guessed URL could easily land on
                     the wrong coin. Omitted rather than risk that, same
                     "never a plausible-looking wrong X" reasoning as the
-                    rest of this app's Data Correctness rule. */}
-                {item.coingeckoId && (
+                    rest of this app's Data Correctness rule. An empty
+                    same-size slot takes its place so the price/change/icon
+                    columns stay aligned across rows. */}
+                {item.coingeckoId ? (
                   <a
                     href={`https://www.coingecko.com/en/coins/${item.coingeckoId}`}
                     target="_blank"
@@ -168,6 +170,8 @@ export function MoverList({
                   >
                     <ExternalLink className="size-3.5" aria-hidden="true" />
                   </a>
+                ) : (
+                  <span className="size-3.5 shrink-0" aria-hidden="true" />
                 )}
               </div>
             </li>
