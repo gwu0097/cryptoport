@@ -51,6 +51,8 @@ export interface BackfillAssetResult {
 export interface BackfillResult {
   runId: string;
   assetsProcessed: number;
+  /** Already had backfilled rows in the window — skipped before any external call. */
+  assetsSkippedDone: number;
   totalRowsInserted: number;
   perAsset: BackfillAssetResult[];
 }
@@ -114,6 +116,72 @@ async function loadLiveMembership(): Promise<Map<string, string[]>> {
   return membership;
 }
 
+function backfillWindow(): { startDate: string; startEpoch: number; todayDate: string } {
+  const start = new Date();
+  start.setUTCDate(start.getUTCDate() - BACKFILL_DAYS);
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    startEpoch: Math.floor(start.getTime() / 1000),
+    todayDate: new Date().toISOString().slice(0, 10),
+  };
+}
+
+/** Assets that already have backfilled rows in the current window — skipped
+ * before ANY external call. Safe as "done" because an asset's rows go in as
+ * one insert statement (≤ BACKFILL_DAYS + 1 rows, under INSERT_CHUNK_SIZE),
+ * so an asset is all-or-nothing. Added after a resumed full run would have
+ * re-spent a CoinGecko call on every already-finished asset — the run that
+ * needed resuming had just exhausted the Demo key's 10,000 calls/month cap. */
+async function assetsAlreadyBackfilled(assetIds: string[], windowStartDate: string): Promise<Set<string>> {
+  const db = serviceDb();
+  const done = new Set<string>();
+  await mapWithConcurrency(assetIds, 8, async (assetId) => {
+    const { count, error } = await db
+      .from("screener_asset_snapshots")
+      .select("id", { count: "exact", head: true })
+      .eq("asset_id", assetId)
+      .eq("is_backfilled", true)
+      .gte("observed_at", `${windowStartDate}T00:00:00Z`);
+    if (error) throw new Error(`Failed to check existing backfill for ${assetId}: ${error.message}`);
+    if ((count ?? 0) > 0) done.add(assetId);
+  });
+  return done;
+}
+
+export interface BackfillPlan {
+  /** gecko_ids that would be fetched — one CoinGecko call each. */
+  toFetch: string[];
+  alreadyDone: number;
+  /** In screener_assets but not in the latest live run — can't be backfilled. */
+  noMembership: string[];
+}
+
+/** What a backfill would do, with no external API calls and no writes —
+ * scripts/screener-backfill.ts prints this and refuses to spend more than a
+ * small CoinGecko budget without --confirm. */
+export async function planScreenerBackfill(options: BackfillOptions = {}): Promise<BackfillPlan> {
+  const db = serviceDb();
+  let assetRows = await fetchAllRows<{ id: string; gecko_id: string }>(async (cursor, limit) =>
+    db.from("screener_assets").select("id, gecko_id").gt("id", cursor).order("id").limit(limit),
+  );
+  if (options.geckoIds) {
+    const wanted = new Set(options.geckoIds);
+    assetRows = assetRows.filter((a) => wanted.has(a.gecko_id));
+  }
+  const membership = await loadLiveMembership();
+  const noMembership = assetRows.filter((a) => !membership.has(a.id)).map((a) => a.gecko_id);
+  const candidates = assetRows.filter((a) => membership.has(a.id));
+  const done = await assetsAlreadyBackfilled(
+    candidates.map((a) => a.id),
+    backfillWindow().startDate,
+  );
+  return {
+    toFetch: candidates.filter((a) => !done.has(a.id)).map((a) => a.gecko_id),
+    alreadyDone: done.size,
+    noMembership,
+  };
+}
+
 /**
  * Historical backfill — run manually (`scripts/screener-backfill.ts`), not
  * on a schedule. Every row gets `is_backfilled = true` and the `run_id` of
@@ -153,11 +221,15 @@ export async function runScreenerBackfill(options: BackfillOptions = {}): Promis
     }
 
     const membership = await loadLiveMembership();
-    const windowStart = new Date();
-    windowStart.setUTCDate(windowStart.getUTCDate() - BACKFILL_DAYS);
-    const windowStartDate = windowStart.toISOString().slice(0, 10);
-    const todayDate = new Date().toISOString().slice(0, 10);
-    const windowStartEpoch = Math.floor(windowStart.getTime() / 1000);
+    const { startDate: windowStartDate, startEpoch: windowStartEpoch, todayDate } = backfillWindow();
+
+    // Skip finished assets before any external call (see assetsAlreadyBackfilled).
+    const done = await assetsAlreadyBackfilled(
+      assetRows.map((a) => a.id),
+      windowStartDate,
+    );
+    const skippedDone = assetRows.filter((a) => done.has(a.id)).length;
+    assetRows = assetRows.filter((a) => !done.has(a.id));
 
     const windowPrices = await fetchWindowPrices(
       assetRows.map((a) => a.gecko_id),
@@ -294,11 +366,16 @@ export async function runScreenerBackfill(options: BackfillOptions = {}): Promis
         universe_size: assetRows.length,
         matched_count: perAsset.length - failed,
         unmatched_count: failed,
-        notes: { window_days: BACKFILL_DAYS, gecko_ids: options.geckoIds ?? "all", rows_inserted: totalRowsInserted },
+        notes: {
+          window_days: BACKFILL_DAYS,
+          gecko_ids: options.geckoIds ?? "all",
+          rows_inserted: totalRowsInserted,
+          assets_skipped_already_done: skippedDone,
+        },
       })
       .eq("id", runId);
 
-    return { runId, assetsProcessed: assetRows.length, totalRowsInserted, perAsset };
+    return { runId, assetsProcessed: assetRows.length, assetsSkippedDone: skippedDone, totalRowsInserted, perAsset };
   } catch (e) {
     await db
       .from("screener_runs")
