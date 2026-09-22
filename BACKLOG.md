@@ -17,6 +17,11 @@ Committed copy of items tracked in this session's memory (`~/.claude/projects/<p
 
 **Retention (decided)**: a monthly local job (`scripts/screener-archive.ts --delete`, launchd plist in `scripts/launchd/`) exports every snapshot row older than 400 days to Parquet under `~/cryptoport-archive/screener`, verifies it row-for-row (count + content SHA-256), then deletes those rows. Monthly from the start, not on a quota trigger, so the path is exercised early (backfilled rows cross 400 days ~35 days after a backfill). Export + verify tested on 424 real rows; `--delete` not yet exercised. **The archive dir is the only copy of any live row it removes — it must be on a backed-up disk.** Thresholds (per-row cost, steady-state size) get locked after the validation backfill measures real bytes/row.
 
+### Storage watch-line automation — open
+**Raised**: storage-fix sign-off, 2026-09-22. **Status**: not started.
+
+Decided thresholds: archive snapshots after 400 days, backfill at most 365 days into Supabase, **watch line 350 MB db_total (70% of the 0.5 GB tier)** with ~200 days as the fallback retention if it's crossed (longest lookback is 180 days). Projected steady state ≈ 205 MB (41%). Today the watch line is a manual check (`select pg_size_pretty(pg_database_size(current_database()))` in the SQL editor) because PostgREST can't read database size. Fix: a `security definer` SQL function (e.g. `cryptoport.screener_db_size_bytes()`, service_role-only) called by the daily snapshot job, recording db size into `screener_runs.notes` and flagging when it crosses 350 MB — so the trend is visible in the same place as the gap detector. Needs a schema change (plan + confirm SQL first).
+
 ### DefiLlama `gecko_id` staleness — small, fixable, not urgent
 **Raised**: Phase 1 sign-off, item D/1 investigation (10-sample audit of unmatched protocols).
 **Status**: not started.
