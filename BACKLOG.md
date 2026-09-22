@@ -6,6 +6,20 @@ Committed copy of items tracked in this session's memory (`~/.claude/projects/<p
 
 ## Screener project
 
+### 🔴 HIGH PRIORITY — Supabase free tier storage at 355% over quota (1.776/0.5 GB)
+**Raised**: Phase 1 sign-off, mid-backfill-validation, 2026-09-22.
+**Status**: not started — explicitly deferred to the next session, do not investigate until then. **All further backfill runs are paused until this is diagnosed** — writing more rows to an already-over-quota database makes this worse, not better.
+
+Likely self-inflicted: this session's two backfill runs (one buggy, writing 924,746 total rows before ~383,557 duplicates were caught and deleted, leaving 542,189) are the most probable cause — each row carries a nontrivial JSONB `provenance` blob. Not confirmed; that's exactly what the diagnosis below is for.
+
+**Diagnosis steps for the next session, in order:**
+1. Per-table `pg_total_relation_size` breakdown, split table / index / TOAST. Include cryptoport's own existing tables too, not just `screener_*` — don't assume the screener tables are the only contributor without checking.
+2. `pg_stat_user_tables` dead-tuple counts on `screener_asset_snapshots` — the ~383K duplicate rows deleted earlier this session may not have actually reclaimed disk space (a plain `DELETE` doesn't shrink a table on its own). Try `VACUUM (FULL)` on that table and re-measure. This may also explain the `COUNT(*)` timeout observed at sign-off (though note: an exact `COUNT(*)` requires a real scan in Postgres regardless of dead tuples or indexing — don't treat the timeout itself as proof of a storage problem, the dead-tuple check is the real diagnostic).
+3. **Only after 1 and 2**: decide on a retention split. Working hypothesis from the user: keep ~100 days of snapshots in Supabase for live metrics, archive older history elsewhere. Options to evaluate, not yet decided between:
+   - Local Parquet files (good for backtest scans, no second database to run/maintain).
+   - A Mac Mini running its own Postgres.
+   - Delete the archived history entirely and re-derive it from DefiLlama on demand — free and reproducible (DefiLlama's own price/fee history goes back years, see `docs/screener/SPEC.md`), so this may genuinely be the simplest option rather than a fallback.
+
 ### DefiLlama `gecko_id` staleness — small, fixable, not urgent
 **Raised**: Phase 1 sign-off, item D/1 investigation (10-sample audit of unmatched protocols).
 **Status**: not started.
