@@ -6,6 +6,10 @@
   next wake. Missing a month entirely is harmless: the window is "everything
   older than 400 days", so the next run catches up.
 
+  Set SCREENER_ARCHIVE_DIR below (EnvironmentVariables) to a backed-up
+  folder BEFORE installing. The archive is the only copy of any live row it
+  deletes. The log (archive.log) and index.jsonl live in that folder too.
+
   Install:
     cp scripts/launchd/com.cryptoport.screener-archive.plist ~/Library/LaunchAgents/
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cryptoport.screener-archive.plist
@@ -24,8 +28,13 @@
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>cd "$HOME/appDevelopmentWorkSpace/cryptoport" &amp;&amp; mkdir -p "$HOME/cryptoport-archive/screener" &amp;&amp; node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/screener-archive.ts --delete &gt;&gt; "$HOME/cryptoport-archive/screener/archive.log" 2&gt;&amp;1</string>
+    <string>cd "$HOME/appDevelopmentWorkSpace/cryptoport" &amp;&amp; mkdir -p "$SCREENER_ARCHIVE_DIR" &amp;&amp; node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/screener-archive.ts --delete &gt;&gt; "$SCREENER_ARCHIVE_DIR/archive.log" 2&gt;&amp;1</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SCREENER_ARCHIVE_DIR</key>
+    <string>/Users/raitsai/cryptoport-archive/screener</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Day</key>
