@@ -2,7 +2,7 @@ import "server-only";
 import { serviceDb } from "@/lib/supabase";
 import { SCREENER_CONFIG, configHash, validateConfig } from "./config";
 import { computeAssetMetrics, type SnapshotForMetrics } from "./metrics";
-import { evaluateRegime, percentileOf, type RegimeInputs } from "./regime";
+import { evaluateRegime, percentileOf, oneValuePerDay, type RegimeInputs } from "./regime";
 import { fetchBtcDominancePct } from "./adapters/coingecko";
 import { fetchStablecoinSupply } from "./adapters/defillama";
 import { fetchPricesAt } from "./adapters/defillamaPrices";
@@ -148,9 +148,9 @@ export async function computeRegime(runId: string, configVersionId: string): Pro
   const btc = perps?.get("BTC");
   const eth = perps?.get("ETH");
   const avgFunding = btc && eth ? (btc.funding + eth.funding) / 2 : null;
-  const fundingHistory = (history ?? [])
-    .map((h) => h.avg_funding_rate_hourly as number | null)
-    .filter((v): v is number => v !== null);
+  const fundingHistory = oneValuePerDay(
+    (history ?? []).map((h) => ({ computed_at: h.computed_at as string, value: h.avg_funding_rate_hourly as number | null })),
+  );
 
   const btcNow = pricesNow?.get("bitcoin");
   const ethNow = pricesNow?.get("ethereum");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluateRegime, percentileOf, type RegimeInputs } from "./regime.ts";
+import { evaluateRegime, percentileOf, oneValuePerDay, type RegimeInputs } from "./regime.ts";
 
 const none: RegimeInputs = {
   btcDominancePct: null, btcDominance4wChangePts: null, ethBtc4wChangePct: null,
@@ -51,4 +51,14 @@ test("percentile needs enough history, and never counts ties as below", () => {
   const hist = Array.from({ length: 40 }, (_, i) => i);
   assert.equal(percentileOf(20, hist, 30), 0.5);
   assert.equal(percentileOf(null, hist, 30), null);
+});
+
+test("funding history counts days, not runs: same-day rows collapse to the latest", () => {
+  const rows = [
+    { computed_at: "2026-09-22T23:05:00Z", value: 1 },
+    { computed_at: "2026-09-22T21:00:00Z", value: 9 },
+    { computed_at: "2026-09-23T07:00:00Z", value: 2 },
+    { computed_at: "2026-09-24T07:00:00Z", value: null },
+  ];
+  assert.deepEqual(oneValuePerDay(rows), [1, 2]);
 });

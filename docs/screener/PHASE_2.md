@@ -30,7 +30,7 @@ The ratio differences are price and revenue drift between the run and the check 
 
 **Stablecoin input vs a different DefiLlama endpoint** (the history chart instead of the snapshot): supply $312.1B vs $311.8B (0.1%). The 30-day change is **0.94% vs 1.15%**, because the two endpoints define "a month ago" differently. That straddles the ±1% "flat stablecoins" band, so BTC_LED's stablecoin condition can flip on data-source definitions alone. It's one more reason the regime thresholds are marked unvalidated.
 
-Tests: 212 pass, including new ones for the metric formulas (null handling, the $1M floor, mechanism-gated capture), gates, config validation and hashing, regime rules and percentiles, and dominant-sector selection.
+Tests: 213 pass, including new ones for the metric formulas (null handling, the $1M floor, mechanism-gated capture), gates, config validation and hashing, regime rules and percentiles, and dominant-sector selection.
 
 ## Regime output (run `d770c889`)
 
@@ -53,7 +53,7 @@ Tests: 212 pass, including new ones for the metric formulas (null handling, the 
 | ROTATION | not evaluable | needs the dominance 4-week change |
 | BTC_LED | not evaluable | dominance > 58% ✓, stablecoins flat ✓, but needs the dominance 4-week change |
 
-**Until ~2026-10-20 the label can only be NEUTRAL** (or FROTH, if OI builds faster than expected). From then on, at ~58–59% dominance, **BTC_LED will fire most days**. If the label doesn't vary over the first month with full inputs, the thresholds need revising, not the label trusting (recorded in `config.regime.validated: false` and SPEC). Note also that the funding history counts stored *rows*, not days. Extra manual runs (like this one) add rows, so a few days of double-counting are possible early on.
+**Until ~2026-10-20 the label can only be NEUTRAL** (or FROTH, if OI builds faster than expected). From then on, at ~58–59% dominance, **BTC_LED will fire most days**. If the label doesn't vary over the first month with full inputs, the thresholds need revising, not the label trusting (recorded in `config.regime.validated: false` and SPEC). The funding history is deduplicated to one value per UTC day (the latest run that day), so extra manual or re-triggered runs don't weight a day twice.
 
 ## Kill filters (run `d770c889`, 682 assets)
 
@@ -68,6 +68,8 @@ A gate whose input is null is `not_evaluable` and doesn't fail (absence of data 
 | Annualized revenue ≥ **$1M** | 133 | 463 | 86 | 68 |
 | Unlock overhang | 0 | 0 | 682 | — (no forward unlock data) |
 | Collapsing revenue | 0 | 0 | 682 | — (Phase 2b) |
+
+The 11 `not_evaluable` on the market cap and volume gates are assets with those values missing. They're still unrated, because **core data** is the gate that owns "market cap missing → unrated" (it fails on a null market cap). The floor gates just don't double-count it.
 
 **Rated: 79.** The earlier "85 at $1M" was a quick three-gate count on the 21:24 run. On this run the same count is 83 (the market moved in between), and the full gate set also excludes 4 out-of-scope assets. No asset is rated that the quick count excluded.
 
@@ -107,8 +109,8 @@ All valuation ratios are **display-only (weight 0)** until Phase 4. "—" means 
   - `beta_btc`
   - `rev_growth`
   - the revenue-collapse gate
-  - `dilution_rate_implied` (backfilled market cap ÷ price, display only)
+  - `dilution_rate_implied` (backfilled market cap ÷ price, display only). The column exists, but nothing writes it yet; it's null for every 2a row.
   - measured `dilution_rate` (null until enough live supply history exists; the only one that may drive a tier).
 - **Unlock data:** none exists (the `screener_manual_unlocks` table isn't built). The overhang gate and the unlock tier rule stay not evaluable until it is.
-- **Regime thresholds:** unvalidated; review after ~2026-10-20.
+- **Regime thresholds:** unvalidated; review after ~2026-10-20. **Specific revisit item:** BTC_LED's "flat stablecoins" clause (±1%) sits right where today's value is (0.94% from the snapshot endpoint vs 1.15% from the history endpoint). It can flip on which DefiLlama endpoint defines "a month ago". Either widen the band or use the history endpoint's 30-points-back definition. Decide in 2b or later.
 - **Rating tiers and setup tags** are Phase 3, using the revised tier rules in config.

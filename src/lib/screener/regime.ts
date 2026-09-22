@@ -91,3 +91,18 @@ export function percentileOf(value: number | null, history: readonly number[], m
   if (value === null || history.length < minPoints) return null;
   return history.filter((h) => h < value).length / history.length;
 }
+
+/** One value per UTC day (the latest-computed row that day wins), in date
+ * order. The funding percentile must compare against days, not runs — a
+ * manual re-run or an extra cron trigger on the same day would otherwise
+ * count that day twice. */
+export function oneValuePerDay(rows: readonly { computed_at: string; value: number | null }[]): number[] {
+  const byDay = new Map<string, { at: string; value: number }>();
+  for (const r of rows) {
+    if (r.value === null) continue;
+    const day = r.computed_at.slice(0, 10);
+    const current = byDay.get(day);
+    if (!current || r.computed_at > current.at) byDay.set(day, { at: r.computed_at, value: r.value });
+  }
+  return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v.value);
+}
