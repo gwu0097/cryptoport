@@ -85,14 +85,23 @@ const RESPONSE_SCHEMA = {
  * UNI), which share a news event, not a function. The category comes
  * from CoinGecko first and goes into the search, not the reverse (the old
  * flow guessed a category from the AI's narrative afterwards). */
-function buildPrompt(symbol: string, name: string, functionalCategories: readonly string[]): string {
+function buildPrompt(
+  symbol: string,
+  name: string,
+  functionalCategories: readonly string[],
+  knownPeers: readonly { symbol: string; name: string }[],
+): string {
   const classification =
     functionalCategories.length > 0
       ? `${symbol} is classified by CoinGecko under these functional categories: ${functionalCategories.join(", ")}.`
       : `CoinGecko gives ${symbol} no functional category, so judge what kind of project it is from what it actually does.`;
+  const known =
+    knownPeers.length > 0
+      ? `\n\nCoinGecko lists these tokens in the same categories (largest first): ${knownPeers.map((p) => `${p.symbol} (${p.name})`).join(", ")}. Use this as a starting list, not a boundary: check which of them are actually exposed to the same driver, AND look beyond it — CoinGecko's tagging is incomplete, so include genuinely same-function tokens that aren't on the list (e.g. a bridge or interoperability token filed under a different CoinGecko category). Only include a listed token if there's a real reason to; don't just repeat the list.`
+      : "";
   return `Why has the crypto token ${name} (${symbol}) been moving in price recently? Search for current news and explain the specific catalyst — clearly distinguish a token-specific/company-specific reason from general crypto market beta (the whole market moving together isn't a real answer here).
 
-${classification}
+${classification}${known}
 
 Then name PEERS: other tokens that do the same kind of thing as ${symbol} — direct competitors or same-function projects in the categories above (for example, a cross-chain messaging protocol's peers are other bridges and interoperability protocols) — that are exposed to the same driver or currently moving for a similar reason. Do NOT name a token as a peer just because it was part of the same news event, partnered with the same company, or launched on the same chain: being a launch partner on the same chain is not being a peer. For EACH peer, write its reason in relational terms — connect it back to ${symbol} explicitly. Shape: "Same driver as ${symbol} (<the shared catalyst>): <how this token, as a same-function project, is exposed to it>." If a same-category token only shares a broader theme rather than the same specific catalyst, say that plainly ("Broader theme, not the same catalyst: ...") instead of implying a direct link. Never pad the list — fewer, genuinely comparable peers are better than a longer list.
 
@@ -161,6 +170,7 @@ export async function explainTrend(
   symbol: string,
   name: string,
   functionalCategories: readonly string[],
+  knownPeers: readonly { symbol: string; name: string }[] = [],
 ): Promise<TrendExplanation | null> {
   if (!API_KEY) {
     console.warn("[perplexity] PERPLEXITY_API_KEY not set");
@@ -168,7 +178,7 @@ export async function explainTrend(
   }
 
   const body = {
-    input: buildPrompt(symbol, name, functionalCategories),
+    input: buildPrompt(symbol, name, functionalCategories, knownPeers),
     preset: "low",
     max_output_tokens: 2000, // was 1500; the response now carries a second ticker list
     tools: [{ type: "web_search" }],

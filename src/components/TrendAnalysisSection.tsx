@@ -168,6 +168,7 @@ export async function TrendAnalysisSection({
     categoryCheck,
     categoryPeers,
     aiPeers,
+    aiDiscovered,
     aiOtherCategory,
     aiPeerReasons,
   } = result;
@@ -175,6 +176,7 @@ export async function TrendAnalysisSection({
   const categoryRows = peerRowsWithSeed(seed, categoryPeers);
   const aiRows = peerRowsWithSeed(seed, aiPeers);
   const aiOtherRows = peerRowsWithSeed(seed, aiOtherCategory);
+  const aiDiscoveredRows = peerRowsWithSeed(seed, aiDiscovered);
   const categoryLabel = categories.map((c) => c.name).join(" · ");
   const confirmedIds = intersectIds(categoryPeers, aiPeers);
 
@@ -312,7 +314,7 @@ export async function TrendAnalysisSection({
         title="AI-suggested peers"
         description={
           categoryCheck
-            ? `Named by a live news search, kept only if they share a category above with ${seed.symbol} (checked against CoinGecko, not the AI's word). Click the arrow on a row for why and an overlaid chart.`
+            ? `Named by a live news search that's given the category list above and told to look beyond it too. The table shows only tokens CoinGecko confirms share a category with ${seed.symbol}; the AI's finds outside the category are listed separately below. Click the arrow on a row for why and an overlaid chart.`
             : `Named by a live news search — NOT category-checked (${seed.symbol}'s CoinGecko categories couldn't be determined). Click the arrow on a row for why and an overlaid chart.`
         }
       >
@@ -329,10 +331,27 @@ export async function TrendAnalysisSection({
           <p className="text-sm text-fg-muted">
             {explanationData
               ? categoryCheck
-                ? `None of the AI's suggestions share a functional category with ${seed.symbol} above the market cap floor.`
+                ? `None of the AI's suggestions are CoinGecko-confirmed members of ${seed.symbol}'s category above the market cap floor.`
                 : "No AI-suggested tickers resolved to a real, confident CoinGecko match above the market cap floor."
               : "Unavailable — scan above to search the web for why this is moving."}
           </p>
+        )}
+        {aiDiscovered.length > 0 && (
+          <div className="mt-4 border-t border-border pt-3">
+            <p className="text-sm font-medium text-fg">Found beyond CoinGecko&rsquo;s category ({aiDiscovered.length})</p>
+            <p className="mt-1 mb-3 text-xs text-fg-muted">
+              The AI judged these to do the same kind of thing as {seed.symbol}, but CoinGecko doesn&rsquo;t list them in{" "}
+              {categoryLabel || "its category"} — its tagging is incomplete. The AI&rsquo;s judgement, not a verified
+              peer: check the reason on each row.
+            </p>
+            <TrendPeerTable
+              peers={aiDiscoveredRows}
+              seedId={seed.id}
+              seedSymbol={seed.symbol}
+              reasons={aiPeerReasons}
+              watchlists={watchlists}
+            />
+          </div>
         )}
         {aiOtherCategory.length > 0 && (
           <details className="mt-4 border-t border-border pt-3">
