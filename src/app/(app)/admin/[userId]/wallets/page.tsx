@@ -29,7 +29,7 @@ export default async function AdminUserWalletsPage({ params }: { params: Promise
         </Panel>
       ) : (
         <Panel padding={false} className="overflow-hidden">
-          <AdminWalletsTable wallets={wallets} />
+          <AdminWalletsTable userId={userId} wallets={wallets} />
         </Panel>
       )}
     </>

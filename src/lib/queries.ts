@@ -495,14 +495,23 @@ export interface WalletDetailResult extends ValuatedHoldings {
   wallet: WalletWithTags;
 }
 
-export async function getWalletDetail(id: string): Promise<WalletDetailResult | null> {
+/** `opts.userId` — same admin-only read path as getWalletsWithTotals' own
+ * `opts` param (see that function's doc comment); serviceDb() + an
+ * explicit user_id filter instead of userDb()'s implicit session-scoped
+ * RLS, never passed from a normal page. Filtering on both `id` and
+ * `opts.userId` together (not just `id`) means an admin route can never
+ * be tricked into returning a wallet outside the target user it already
+ * resolved via getAdminTargetUser — same as looking up "this wallet,
+ * belonging to this user" rather than "this wallet, whoever owns it". */
+export async function getWalletDetail(id: string, opts?: { userId: string }): Promise<WalletDetailResult | null> {
   // Belt and suspenders — wallets/[id]/page.tsx checks getUser() itself and
   // redirects a guest to /login before ever calling this, but this stays
   // guarded too rather than relying solely on the caller to do it first.
-  if (!(await getUser())) return null;
-  const db = await userDb();
+  if (!opts && !(await getUser())) return null;
+  const db = opts ? serviceDb() : await userDb();
+  const baseQuery = db.from("wallets").select("*, holdings(*), tags(id,name)").eq("id", id);
   const [{ data: wallet, error: walletError }, prices] = await Promise.all([
-    db.from("wallets").select("*, holdings(*), tags(id,name)").eq("id", id).maybeSingle(),
+    (opts ? baseQuery.eq("user_id", opts.userId) : baseQuery).maybeSingle(),
     getPriceMap(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { WalletWithTotal } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
@@ -14,8 +15,13 @@ import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass
  * single mutation function, so there is no path for a click here to ever
  * change another user's data — not "the button is hidden," there is no
  * button.
+ *
+ * Each row still links through to `/admin/{userId}/wallets/{wallet.id}` —
+ * reported directly: "I can peek at the wallets but I can't go into
+ * them." That page is the same kind of read-only-by-construction reuse,
+ * just for a single wallet's holdings/sync status instead of the list.
  */
-export function AdminWalletsTable({ wallets }: { wallets: WalletWithTotal[] }) {
+export function AdminWalletsTable({ userId, wallets }: { userId: string; wallets: WalletWithTotal[] }) {
   return (
     <div className="overflow-x-auto">
       <table className={tableClass}>
@@ -31,7 +37,11 @@ export function AdminWalletsTable({ wallets }: { wallets: WalletWithTotal[] }) {
         <tbody>
           {wallets.map((wallet) => (
             <tr key={wallet.id} className={trClass}>
-              <td className={tdClass}>{wallet.name}</td>
+              <td className={tdClass}>
+                <Link href={`/admin/${userId}/wallets/${wallet.id}`} className="hover:text-accent hover:underline">
+                  {wallet.name}
+                </Link>
+              </td>
               <td className={tdClass}>
                 <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">{wallet.chain}</span>
               </td>
