@@ -1,5 +1,5 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { coingeckoFetch, COINGECKO_HAS_KEY } from "./coingeckoFetch";
 import { EVM_CHAINS } from "./evmChains";
 import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
@@ -12,13 +12,9 @@ const API_BASE = "https://api.coingecko.com/api/v3";
 // simple/token_price at 1 contract address per call, which is slow for a
 // chain with 100+ registered tokens. A free Demo key (no payment) raises
 // that batch size substantially. Falls back to single-address calls when
-// unset, so this works out of the box either way.
-const API_KEY = process.env.COINGECKO_API_KEY;
-const PRICE_BATCH_SIZE = API_KEY ? 100 : 1;
-
-function headers(): Record<string, string> {
-  return API_KEY ? { "x-cg-demo-api-key": API_KEY } : {};
-}
+// unset, so this works out of the box either way. Keys (primary + backup)
+// are handled in coingeckoFetch.ts.
+const PRICE_BATCH_SIZE = COINGECKO_HAS_KEY ? 100 : 1;
 
 interface CoinListEntry {
   id: string;
@@ -48,8 +44,8 @@ interface AssetPlatform {
  */
 export async function refreshTokenRegistry(): Promise<{ chainId: string; count: number }[]> {
   const [coinsRes, platformsRes] = await Promise.all([
-    fetchWithRetry(`${API_BASE}/coins/list?include_platform=true`, { headers: headers() }),
-    fetchWithRetry(`${API_BASE}/asset_platforms`, { headers: headers() }),
+    coingeckoFetch(`${API_BASE}/coins/list?include_platform=true`),
+    coingeckoFetch(`${API_BASE}/asset_platforms`),
   ]);
   if (!coinsRes.ok) throw new Error(`CoinGecko coins/list failed: HTTP ${coinsRes.status}`);
   if (!platformsRes.ok) throw new Error(`CoinGecko asset_platforms failed: HTTP ${platformsRes.status}`);
@@ -175,7 +171,7 @@ export async function fetchTokenPrices(
 
   for (const batch of chunk(contracts, PRICE_BATCH_SIZE)) {
     const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
-    const res = await fetchWithRetry(url, { headers: headers() });
+    const res = await coingeckoFetch(url);
     if (!res.ok) throw new Error(`CoinGecko token_price(${coingeckoPlatform}) failed: HTTP ${res.status}`);
     const body: Record<string, { usd?: number; usd_24h_change?: number; usd_market_cap?: number }> =
       await res.json();
@@ -232,7 +228,7 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
     // same basis, even though both should be equivalent here (vs_currency
     // is already fixed to usd for the whole call).
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&price_change_percentage=1h,24h,7d,30d&sparkline=false`;
-    const res = await fetchWithRetry(url, { headers: headers() });
+    const res = await coingeckoFetch(url);
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
     const body: {
       id: string;
@@ -279,7 +275,7 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
 
   for (const batch of chunk(coingeckoIds, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&sparkline=false`;
-    const res = await fetchWithRetry(url, { headers: headers() });
+    const res = await coingeckoFetch(url);
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
     const body: { id: string; image?: string }[] = await res.json();
     for (const coin of body) {
@@ -311,7 +307,7 @@ async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, 
 
   for (const batch of chunk(distinct, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&symbols=${batch.join(",")}`;
-    const res = await fetchWithRetry(url, { headers: headers() });
+    const res = await coingeckoFetch(url);
     if (!res.ok) throw new Error(`CoinGecko coins/markets(symbols) failed: HTTP ${res.status}`);
     const body: { symbol: string; image?: string }[] = await res.json();
     for (const coin of body) {
@@ -396,19 +392,15 @@ export interface CategoryStat {
 
 /**
  * Every CoinGecko category and its total market cap/24h change — one call,
- * ~765 rows. Revived for Trend Finder v3's category cross-reference (see
- * trendFinder.ts's matchCategoryName): the AI's own free-text category
- * guess gets matched against this real name list, rather than trusted
- * directly, since CoinGecko's taxonomy has many near-duplicate categories
- * (e.g. "Real World Assets (RWA)" vs. two dozen narrower "Tokenized X"
- * ones) a keyword match alone could easily mis-pick. Deliberately never
- * cached — market_cap_change_24h is live financial data, and rendering a
- * stale figure is exactly the plausible-looking wrong number the Data
- * Correctness rule exists to prevent.
+ * ~765 rows. Trend Finder uses it to resolve the seed's functional category
+ * names (categoryFilter.ts) to real category ids before fetching members.
+ * Deliberately never cached — market_cap_change_24h is live financial data,
+ * and rendering a stale figure is exactly the plausible-looking wrong number
+ * the Data Correctness rule exists to prevent.
  */
 export async function fetchCategoryStats(): Promise<CategoryStat[]> {
   const url = `${API_BASE}/coins/categories`;
-  const res = await fetchWithRetry(url, { headers: headers() }, MARKETS_FETCH_OPTS);
+  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
   if (!res.ok) throw new Error(`CoinGecko coins/categories failed: HTTP ${res.status}`);
   const body: { id: string; name: string; market_cap?: number | null; market_cap_change_24h?: number | null }[] =
     await res.json();
@@ -463,7 +455,7 @@ function parseMarketsRow(c: MarketsResponseRow): MarketDataRow {
 async function fetchMarketsPage(extraQuery: string, page = 1, perPage = 250): Promise<MarketDataRow[]> {
   const suffix = extraQuery ? `&${extraQuery}` : "";
   const url = `${API_BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=${page}&price_change_percentage=1h,24h,7d${suffix}`;
-  const res = await fetchWithRetry(url, { headers: headers() }, MARKETS_FETCH_OPTS);
+  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
   if (!res.ok) throw new Error(`CoinGecko coins/markets(${extraQuery || "top"}) failed: HTTP ${res.status}`);
   const body: MarketsResponseRow[] = await res.json();
   return body.map(parseMarketsRow);
@@ -518,7 +510,7 @@ export interface SeedInfo {
  * possibility for a very illiquid coin picked via /search). */
 export async function fetchSeedInfo(coingeckoId: string): Promise<SeedInfo | null> {
   const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${coingeckoId}&price_change_percentage=1h,24h,7d`;
-  const res = await fetchWithRetry(url, { headers: headers() }, MARKETS_FETCH_OPTS);
+  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
   if (!res.ok) throw new Error(`CoinGecko coins/markets(ids=${coingeckoId}) failed: HTTP ${res.status}`);
   const body: {
     id: string;
@@ -549,9 +541,25 @@ export async function fetchSeedInfo(coingeckoId: string): Promise<SeedInfo | nul
   };
 }
 
+/** A coin's raw CoinGecko category names (function, chain ecosystems,
+ * investor portfolios, indexes — all mixed; see categoryFilter.ts for which
+ * ones Trend Finder actually uses). /coins/{id} is the most rate-limited
+ * call Trend Finder makes (429s at ~3s spacing, per coin_categories' own
+ * schema comment), so callers go through trendPeers.ts's cached
+ * getCoinCategories, never this directly per page load. Null when
+ * CoinGecko has no such coin. */
+export async function fetchCoinCategories(coingeckoId: string): Promise<string[] | null> {
+  const url = `${API_BASE}/coins/${encodeURIComponent(coingeckoId)}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false`;
+  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`CoinGecko coins/${coingeckoId} failed: HTTP ${res.status}`);
+  const body: { categories?: (string | null)[] } = await res.json();
+  return (body.categories ?? []).filter((c): c is string => typeof c === "string" && c.length > 0);
+}
+
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
   const url = `${API_BASE}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
-  const res = await fetchWithRetry(url, { headers: headers() });
+  const res = await coingeckoFetch(url);
   if (!res.ok) throw new Error(`CoinGecko simple/price(${coingeckoId}) failed: HTTP ${res.status}`);
   const body: Record<string, { usd?: number }> = await res.json();
   return body[coingeckoId]?.usd ?? null;
@@ -578,7 +586,7 @@ export interface CoinSearchResult {
  */
 export async function searchCoins(query: string): Promise<CoinSearchResult[]> {
   const url = `${API_BASE}/search?query=${encodeURIComponent(query)}`;
-  const res = await fetchWithRetry(url, { headers: headers() });
+  const res = await coingeckoFetch(url);
   if (!res.ok) throw new Error(`CoinGecko search failed: HTTP ${res.status}`);
   const body: {
     coins?: { id: string; symbol: string; name: string; thumb?: string; market_cap_rank?: number | null }[];
@@ -619,7 +627,7 @@ function marketChartUrl(key: string, days: number): string {
  * priceHistory.ts's caller). */
 async function fetchBucketedHistory(key: string, days: number, isoPrefixLen: number): Promise<[string, number][]> {
   const url = marketChartUrl(key, days);
-  const res = await fetchWithRetry(url, { headers: headers() });
+  const res = await coingeckoFetch(url);
   if (!res.ok) {
     if (res.status === 404) return [];
     throw new Error(`CoinGecko market_chart(${key}) failed: HTTP ${res.status}`);

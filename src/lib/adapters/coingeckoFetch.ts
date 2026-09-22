@@ -1,0 +1,50 @@
+import "server-only";
+import { fetchWithRetry } from "./http";
+
+// Every CoinGecko call in the app goes through here (the shared adapter and
+// the screener's own) — the key handling used to be duplicated in both.
+//
+// Two free Demo keys, primary then backup. The primary hit CoinGecko's
+// 10,000 calls/month cap on 2026-09-22 (a full screener backfill on top of
+// normal app usage — error_code 10006, "You've reached 10,000 calls
+// limit"), which took down every CoinGecko-backed feature until the monthly
+// reset. On that specific rejection this switches to the next key for the
+// rest of the process's life and retries immediately; an ordinary per-
+// minute 429 is still just retried with backoff on the same key. State is
+// per server instance, so a cold start re-checks the primary once (one
+// rejected call) and resumes using it automatically after its reset.
+const KEYS = [process.env.COINGECKO_API_KEY, process.env.COINGECKO_API_KEY_BACKUP].filter(
+  (k): k is string => typeof k === "string" && k.length > 0,
+);
+let active = 0;
+
+export const COINGECKO_HAS_KEY = KEYS.length > 0;
+
+/** CoinGecko's own error code for the Demo plan's monthly call cap. */
+const QUOTA_EXHAUSTED_CODE = 10006;
+
+async function isQuotaExhausted(res: Response): Promise<boolean> {
+  if (res.status !== 429) return false;
+  try {
+    const body: { status?: { error_code?: number } } = await res.json();
+    return body.status?.error_code === QUOTA_EXHAUSTED_CODE;
+  } catch {
+    return false;
+  }
+}
+
+export async function coingeckoFetch(
+  url: string,
+  opts?: { attempts?: number; baseDelayMs?: number },
+): Promise<Response> {
+  for (;;) {
+    const key = KEYS[active];
+    const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...opts, stopOn: isQuotaExhausted });
+    if (res.status === 429 && active < KEYS.length - 1 && (await isQuotaExhausted(res.clone()))) {
+      console.warn(`[coingecko] key #${active + 1} hit the monthly call cap — switching to key #${active + 2}`);
+      active++;
+      continue;
+    }
+    return res;
+  }
+}

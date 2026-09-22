@@ -1,12 +1,7 @@
 import "server-only";
-import { fetchWithRetry } from "@/lib/adapters/http";
+import { coingeckoFetch } from "@/lib/adapters/coingeckoFetch";
 
 const API_BASE = "https://api.coingecko.com/api/v3";
-const API_KEY = process.env.COINGECKO_API_KEY;
-
-function headers(): Record<string, string> {
-  return API_KEY ? { "x-cg-demo-api-key": API_KEY } : {};
-}
 
 export interface HistoricalMarketPoint {
   date: string; // UTC calendar date, YYYY-MM-DD
@@ -42,7 +37,7 @@ const HISTORY_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
 
 export async function fetchHistoricalMarketData(coingeckoId: string, days: number): Promise<HistoricalMarketPoint[]> {
   const url = `${API_BASE}/coins/${coingeckoId}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-  const res = await fetchWithRetry(url, { headers: headers() }, HISTORY_FETCH_OPTS);
+  const res = await coingeckoFetch(url, HISTORY_FETCH_OPTS);
   if (!res.ok) {
     if (res.status === 404) return []; // CoinGecko has no history at all for this id
     throw new Error(`CoinGecko market_chart(${coingeckoId}) failed: HTTP ${res.status}`);

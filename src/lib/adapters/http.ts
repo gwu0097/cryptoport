@@ -15,7 +15,19 @@ function sleep(ms: number): Promise<void> {
 export async function fetchWithRetry(
   url: string,
   init: RequestInit = {},
-  { attempts = 3, baseDelayMs = 1000 }: { attempts?: number; baseDelayMs?: number } = {},
+  {
+    attempts = 3,
+    baseDelayMs = 1000,
+    stopOn,
+  }: {
+    attempts?: number;
+    baseDelayMs?: number;
+    /** A 429/503 this returns true for is handed straight back instead of
+     * retried — for a rejection backoff can't fix (e.g. a monthly quota
+     * being exhausted, see coingeckoFetch.ts). Gets a clone; the returned
+     * response's body is still unread. */
+    stopOn?: (res: Response) => Promise<boolean>;
+  } = {},
 ): Promise<Response> {
   let lastError: Error | null = null;
 
@@ -26,6 +38,7 @@ export async function fetchWithRetry(
     try {
       const res = await fetch(url, { ...init, cache: "no-store" });
       if (res.status === 429 || res.status === 503) {
+        if (stopOn && (await stopOn(res.clone()))) return res;
         lastError = new Error(`HTTP ${res.status} from ${url}`);
         continue;
       }
