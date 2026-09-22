@@ -7,6 +7,7 @@ import {
   sumDailySeriesAcrossSlugs,
   rollingSum,
   type ProtocolForGrouping,
+  dominantCategory,
 } from "./aggregate.ts";
 
 const proto = (slug: string, geckoId: string | null, parentProtocol: string | null, tvl = 1, mcap: number | null = null): ProtocolForGrouping => ({
@@ -88,4 +89,26 @@ test("rollingSum is a trailing window by calendar date, not by point count", () 
   );
   assert.equal(r.get("2026-01-02"), 3);
   assert.equal(r.get("2026-01-05"), 4, "01-01 and 01-02 fall outside a 3-day window ending 01-05");
+});
+
+test("dominantCategory: the highest-revenue child sets the sector, not the first child", () => {
+  const cats = new Map([
+    ["hyperliquid-spot-orderbook", "Dexs"],
+    ["hyperliquid-perps", "Derivatives"],
+  ]);
+  const rev = new Map([
+    ["hyperliquid-spot-orderbook", 1],
+    ["hyperliquid-perps", 99],
+  ]);
+  assert.equal(
+    dominantCategory(["hyperliquid-spot-orderbook", "hyperliquid-perps"], cats, (s) => rev.get(s), () => null),
+    "Derivatives",
+  );
+});
+
+test("dominantCategory: falls back to fees, then to any child with a category", () => {
+  const cats = new Map<string, string | null>([["a", "Dexs"], ["b", "Launchpad"], ["c", null]]);
+  assert.equal(dominantCategory(["a", "b"], cats, () => null, (s) => (s === "b" ? 10 : 1)), "Launchpad");
+  assert.equal(dominantCategory(["c", "a"], cats, () => null, () => null), "Dexs");
+  assert.equal(dominantCategory(["c"], cats, () => null, () => null), null);
 });

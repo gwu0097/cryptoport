@@ -59,7 +59,28 @@ export const RUN_ARCHIVE_COLUMNS: readonly { name: string; type: ColumnType }[] 
   { name: "notes", type: "JSON" },
 ];
 
+/** screener_asset_metrics — derived (recomputable from snapshots + the
+ * versioned config), kept 90 days in Supabase, then archived and deleted
+ * like snapshots. Decided 2026-09-22. */
+export const METRICS_ARCHIVE_AFTER_DAYS = 90;
+
+export const METRICS_ARCHIVE_COLUMNS: readonly { name: string; type: ColumnType }[] = [
+  { name: "run_id", type: "STRING" },
+  { name: "asset_id", type: "STRING" },
+  { name: "config_version_id", type: "STRING" },
+  { name: "computed_at", type: "STRING" },
+  { name: "sector_bucket", type: "STRING" },
+  ...[
+    "fees_ann", "rev_ann", "holders_rev_ann", "pf_fd", "pf_circ", "ps_fd", "ps_circ", "capture", "buyback_yield",
+    "float_ratio", "mc_tvl", "size_log_mcap", "mom_3w", "mom_12w", "beta_btc", "dilution_rate", "dilution_rate_implied",
+    "rev_growth", "rev_90d_change",
+  ].map((name) => ({ name, type: "DOUBLE" as const })),
+  { name: "rated", type: "BOOLEAN" },
+  { name: "gate_status", type: "JSON" },
+];
+
 export const SNAPSHOT_SELECT = SNAPSHOT_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
+export const METRICS_SELECT = METRICS_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
 export const RUN_SELECT = RUN_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
 
 type Row = Record<string, unknown>;
@@ -101,9 +122,13 @@ export function fingerprint(rows: readonly Row[], columns: readonly { name: stri
 /** [from, to) window for a run. Default: everything observed before
  * now − ARCHIVE_AFTER_DAYS. An explicit range is for testing on a small
  * slice. */
-export function archiveWindow(now: Date, explicit?: { from?: string; to?: string }): { from: string | null; to: string } {
+export function archiveWindow(
+  now: Date,
+  explicit?: { from?: string; to?: string },
+  afterDays: number = ARCHIVE_AFTER_DAYS,
+): { from: string | null; to: string } {
   if (explicit?.to) return { from: explicit.from ?? null, to: new Date(explicit.to).toISOString() };
   const cutoff = new Date(now);
-  cutoff.setUTCDate(cutoff.getUTCDate() - ARCHIVE_AFTER_DAYS);
+  cutoff.setUTCDate(cutoff.getUTCDate() - afterDays);
   return { from: explicit?.from ?? null, to: cutoff.toISOString() };
 }

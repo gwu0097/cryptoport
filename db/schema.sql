@@ -1493,11 +1493,89 @@ create table cryptoport.screener_unmatched (
 create unique index screener_unmatched_open_uidx
   on cryptoport.screener_unmatched (kind, identifier) where resolved_run_id is null;
 
+-- Phase 2a (2026-09-22). One row per distinct config (src/lib/screener/config.ts),
+-- keyed by the SHA-256 of its canonical JSON; every derived row points here.
+create table cryptoport.screener_scoring_config_versions (
+  id           uuid primary key default gen_random_uuid(),
+  config_hash  text not null unique,
+  config       jsonb not null,
+  created_at   timestamptz not null default now(),
+  notes        text
+);
+
+-- One row per live run. Inputs whose history doesn't exist for free (BTC
+-- dominance, open interest) get their 4-week change from this table's own
+-- earlier rows; until 28 days exist those are null and the rules needing
+-- them are not evaluable (rules jsonb: fired true|false|null).
+create table cryptoport.screener_regime_snapshots (
+  run_id                           uuid primary key references cryptoport.screener_runs(id),
+  config_version_id                uuid not null references cryptoport.screener_scoring_config_versions(id),
+  computed_at                      timestamptz not null default now(),
+  label                            text not null check (label in ('RISK_OFF','BTC_LED','ROTATION','FROTH','NEUTRAL')),
+  btc_dominance_pct                double precision,
+  btc_dominance_4w_change_pts      double precision,
+  eth_btc_4w_change_pct            double precision,
+  stablecoin_supply_usd            double precision,
+  stablecoin_supply_30d_change_pct double precision,
+  avg_funding_rate_hourly          double precision,
+  funding_percentile_1y            double precision,
+  btc_open_interest_usd            double precision,
+  btc_oi_4w_change_pct             double precision,
+  btc_price_4w_change_pct          double precision,
+  rules                            jsonb not null,
+  provenance                       jsonb not null
+);
+
+-- Per-asset metrics + kill-filter gates for one live run (derived; kept 90
+-- days, then archived to Parquet and deleted by scripts/screener-archive.ts).
+-- The composite primary key is the only index. dilution_rate is MEASURED
+-- from live supply snapshots (the only one allowed to drive a risk tier);
+-- dilution_rate_implied comes from backfilled mcap / price and is display
+-- only. The history-derived columns are filled from Phase 2b.
+create table cryptoport.screener_asset_metrics (
+  run_id                 uuid not null references cryptoport.screener_runs(id),
+  asset_id               uuid not null references cryptoport.screener_assets(id) on delete cascade,
+  config_version_id      uuid not null references cryptoport.screener_scoring_config_versions(id),
+  computed_at            timestamptz not null default now(),
+  sector_bucket          text,
+  fees_ann               double precision,
+  rev_ann                double precision,
+  holders_rev_ann        double precision,
+  pf_fd                  double precision,
+  pf_circ                double precision,
+  ps_fd                  double precision,
+  ps_circ                double precision,
+  capture                double precision,
+  buyback_yield          double precision,
+  float_ratio            double precision,
+  mc_tvl                 double precision,
+  size_log_mcap          double precision,
+  mom_3w                 double precision,
+  mom_12w                double precision,
+  beta_btc               double precision,
+  dilution_rate          double precision,
+  dilution_rate_implied  double precision,
+  rev_growth             double precision,
+  rev_90d_change         double precision,
+  rated                  boolean not null,
+  gate_status            jsonb not null,
+  primary key (run_id, asset_id)
+);
+
+-- Duplicate guard for the live path (the backfilled path has its own,
+-- above): one live row per asset per run.
+create unique index screener_asset_snapshots_live_run_asset_uidx
+  on cryptoport.screener_asset_snapshots (run_id, asset_id)
+  where not is_backfilled;
+
 alter table cryptoport.screener_assets enable row level security;
 alter table cryptoport.screener_runs enable row level security;
 alter table cryptoport.screener_asset_snapshots enable row level security;
 alter table cryptoport.screener_field_conflicts enable row level security;
 alter table cryptoport.screener_unmatched enable row level security;
+alter table cryptoport.screener_scoring_config_versions enable row level security;
+alter table cryptoport.screener_regime_snapshots enable row level security;
+alter table cryptoport.screener_asset_metrics enable row level security;
 
 -- Legacy, dropped in step B:
 --   screener_asset_snapshots.provenance jsonb not null default '{}'::jsonb

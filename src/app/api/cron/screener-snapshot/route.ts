@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { runScreenerSnapshot } from "@/lib/screener/snapshot";
+import { runScreenerDerivations } from "@/lib/screener/derive";
 
 // Real network calls across the DefiLlama-matched universe (4 DefiLlama
 // calls regardless of size, plus one CoinGecko /coins/markets call per 250
@@ -40,5 +41,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     trigger: cronScheduleHeader ? "vercel-cron" : "unknown",
     cronScheduleHeader,
   });
-  return Response.json(result);
+  // Phase 2a metrics + regime from the run just written. Never throws —
+  // each step's success/error is recorded in the run's notes instead, so a
+  // derivation problem can't turn a good snapshot into a failed cron.
+  const derivations = await runScreenerDerivations(result.runId);
+  return Response.json({ ...result, derivations });
 }

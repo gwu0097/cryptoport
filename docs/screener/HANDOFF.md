@@ -4,6 +4,16 @@ Written because this session is restarting on a new model. Everything substantiv
 
 **Canonical location**: `cryptoport/docs/screener/` (this folder, in git). An earlier copy at `/Users/raitsai/appDevelopmentWorkSpace/crypto-fundamentals-recon/` is now stale/superseded — this repo copy is the one to read and edit; the old folder can be deleted whenever convenient (left in place only because this session couldn't remove it itself).
 
+## Status update — 2026-09-22, end of Phase 2a (read this first)
+
+Most of the "open decisions" below are now resolved; `SPEC.md`'s amendments and `PHASE_2.md` are current. In short:
+- **Storage overage: resolved.** 1,701 MB → 87 MB → 180 MB after the full backfill (36% of quota). Lean provenance, a change-only unmatched log, and monthly 400-day Parquet archival (`scripts/screener-archive.ts`, launchd plist in `scripts/launchd/`).
+- **The backfill dataset exists:** 236,007 rows, all 682 assets, 2025-09-22 → 2026-09-21. It was verified against DefiLlama parent pages (48/48 exact). CoinGecko calls go through `coingeckoFetch.ts`, which fails over from the primary Demo key to `COINGECKO_API_KEY_BACKUP` (the primary hit its monthly cap). Before any large backfill, see the budget rule in SPEC.
+- **Decision 1 (holder mechanisms): filled and source-verified** in `src/lib/screener/config.ts`.
+- **Decision 3 (scoring runs): deferred to Phase 3.** Phase 2 metrics hang off the snapshot run plus the config version.
+- **Decision 6: done.** **Decision 7:** replaced by a plain `(observed_at)` index.
+- **Still open:** decision 2 (Phase 5 finalist definition), decision 4 (the scheduled-cron proof: check the first 07:00 UTC run after 2026-09-22), and Phase 2b.
+
 ## Read in this order
 
 1. **`SPEC.md`** (this folder) — the current, authoritative spec. Original v2 build prompt in full, amended inline by every methodology/architecture decision made during Phase 0/1. Read the amendments section before the original text below it — the original is base reference, not current truth where it's been superseded.

@@ -35,6 +35,9 @@ import {
   RUN_ARCHIVE_COLUMNS,
   SNAPSHOT_SELECT,
   RUN_SELECT,
+  METRICS_ARCHIVE_COLUMNS,
+  METRICS_SELECT,
+  METRICS_ARCHIVE_AFTER_DAYS,
   toColumnData,
   fingerprint,
   archiveWindow,
@@ -109,12 +112,22 @@ async function writeAndVerify(path: string, rows: Row[], columns: typeof SNAPSHO
   return want.sha256;
 }
 
+type Window = { from: string | null; to: string };
+
 async function main() {
   const doDelete = process.argv.includes("--delete");
-  const w = archiveWindow(new Date(), { from: arg("--from"), to: arg("--to") });
+  const table = arg("--table") ?? "all"; // snapshots | metrics | all
+  const explicit = { from: arg("--from"), to: arg("--to") };
   const dir = process.env.SCREENER_ARCHIVE_DIR ?? join(homedir(), "cryptoport-archive", "screener");
   mkdirSync(dir, { recursive: true });
-  console.log(`Window: [${w.from ?? "-inf"}, ${w.to})  mode: ${doDelete ? "archive + DELETE" : "dry run (no delete)"}  dir: ${dir}`);
+  if (table === "snapshots" || table === "all") await archiveSnapshots(archiveWindow(new Date(), explicit), dir, doDelete);
+  if (table === "metrics" || table === "all") {
+    await archiveMetrics(archiveWindow(new Date(), explicit, METRICS_ARCHIVE_AFTER_DAYS), dir, doDelete);
+  }
+}
+
+async function archiveSnapshots(w: Window, dir: string, doDelete: boolean) {
+  console.log(`[snapshots] Window: [${w.from ?? "-inf"}, ${w.to})  mode: ${doDelete ? "archive + DELETE" : "dry run (no delete)"}  dir: ${dir}`);
 
   const expected = await exactCount(w);
   const rows = await fetchWindow(w);
@@ -167,6 +180,62 @@ async function main() {
       file_sha256: fileSha,
       deleted,
     }) + "\n",
+  );
+}
+
+/** screener_asset_metrics has no single id — its key is (run_id, asset_id)
+ * — so it's fetched and deleted per live run, restricted to the window. */
+async function archiveMetrics(w: Window, dir: string, doDelete: boolean) {
+  console.log(`[metrics] Window: [${w.from ?? "-inf"}, ${w.to})  mode: ${doDelete ? "archive + DELETE" : "dry run (no delete)"}`);
+  const inWin = <Q extends { gte: (c: string, v: string) => Q; lt: (c: string, v: string) => Q }>(q: Q): Q => {
+    const bounded = q.lt("computed_at", w.to);
+    return w.from ? bounded.gte("computed_at", w.from) : bounded;
+  };
+  const { count: expected, error: countError } = await inWin(
+    db.from("screener_asset_metrics").select("run_id", { count: "exact", head: true }),
+  );
+  if (countError) throw new Error(`metrics count failed: ${countError.message}`);
+  if (!expected) {
+    appendFileSync(join(dir, "index.jsonl"), JSON.stringify({ at: new Date().toISOString(), table: "metrics", window: w, rows: 0 }) + "\n");
+    console.log("[metrics] Nothing to archive.");
+    return;
+  }
+
+  // Metrics are computed right after their run starts, so every run in the
+  // window started before its end (+1 day of slack).
+  const runsBefore = new Date(new Date(w.to).getTime() + 86_400_000).toISOString();
+  const { data: runs, error: runsError } = await db.from("screener_runs").select("id").eq("kind", "live").lt("started_at", runsBefore);
+  if (runsError) throw new Error(`runs lookup failed: ${runsError.message}`);
+  const rows: Record<string, unknown>[] = [];
+  const runIds: string[] = [];
+  for (const { id } of runs ?? []) {
+    const { data, error } = await inWin(db.from("screener_asset_metrics").select(METRICS_SELECT).eq("run_id", id)).limit(PAGE * 5);
+    if (error) throw new Error(`metrics fetch failed: ${error.message}`);
+    if (data && data.length > 0) {
+      rows.push(...(data as unknown as Record<string, unknown>[]));
+      runIds.push(id as string);
+    }
+  }
+  if (rows.length !== expected) throw new Error(`[metrics] fetched ${rows.length} rows but Postgres counts ${expected} — aborting, nothing written`);
+
+  const tag = `${(w.from ?? "start").slice(0, 10)}_${w.to.slice(0, 10)}_${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const path = join(dir, `metrics_${tag}.parquet`);
+  const sha = await writeAndVerify(path, rows as Row[], METRICS_ARCHIVE_COLUMNS);
+  console.log(`[metrics] Verified: ${path} (${rows.length} rows, content ${sha.slice(0, 12)}…)`);
+
+  let deleted = 0;
+  if (doDelete) {
+    for (const id of runIds) {
+      const { count, error } = await inWin(db.from("screener_asset_metrics").delete({ count: "exact" }).eq("run_id", id));
+      if (error) throw new Error(`[metrics] delete failed after ${deleted} rows (archive is complete and verified): ${error.message}`);
+      deleted += count ?? 0;
+    }
+    if (deleted !== rows.length) throw new Error(`[metrics] deleted ${deleted} of ${rows.length} archived rows — investigate before the next run`);
+    console.log(`[metrics] Deleted ${deleted} rows from Supabase.`);
+  }
+  appendFileSync(
+    join(dir, "index.jsonl"),
+    JSON.stringify({ at: new Date().toISOString(), table: "metrics", window: w, rows: rows.length, file: path, content_sha256: sha, deleted }) + "\n",
   );
 }
 

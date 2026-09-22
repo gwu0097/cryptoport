@@ -213,3 +213,26 @@ export function rollingSum(series: readonly DailyPoint[], windowDays: number): M
   }
   return result;
 }
+
+/** A grouped asset's sector: the DefiLlama category of its highest-revenue
+ * child (30d revenue, then 30d fees as a tiebreak/fallback), else the first
+ * child that has a category. Previously it was just the first child's —
+ * which filed Hyperliquid (spot orderbook listed first) and PUMP (PumpSwap)
+ * under "Dexs" instead of Derivatives / Launchpad, the lines that actually
+ * earn the revenue. */
+export function dominantCategory(
+  slugs: readonly string[],
+  categoryBySlug: ReadonlyMap<string, string | null>,
+  revenue30d: (slug: string) => number | null | undefined,
+  fees30d: (slug: string) => number | null | undefined,
+): string | null {
+  let best: { category: string; rev: number; fees: number } | null = null;
+  for (const slug of slugs) {
+    const category = categoryBySlug.get(slug) ?? null;
+    if (!category) continue;
+    const rev = revenue30d(slug) ?? -1;
+    const fees = fees30d(slug) ?? -1;
+    if (!best || rev > best.rev || (rev === best.rev && fees > best.fees)) best = { category, rev, fees };
+  }
+  return best?.category ?? null;
+}

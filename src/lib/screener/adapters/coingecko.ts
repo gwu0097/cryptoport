@@ -69,3 +69,14 @@ export async function fetchHistoricalMarketData(coingeckoId: string, days: numbe
       volume24hUsd: volumes.get(date) ?? null,
     }));
 }
+
+/** BTC's share of total crypto market cap, from /global (one call). The free
+ * tier has no dominance history (/global/market_cap_chart is paid), so the
+ * 4-week change is built from our own stored regime rows instead. */
+export async function fetchBtcDominancePct(): Promise<number | null> {
+  const res = await coingeckoFetch(`${API_BASE}/global`, HISTORY_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko /global failed: HTTP ${res.status}`);
+  const body: { data?: { market_cap_percentage?: { btc?: number } } } = await res.json();
+  const v = body.data?.market_cap_percentage?.btc;
+  return typeof v === "number" ? v : null;
+}

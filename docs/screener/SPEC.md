@@ -56,11 +56,11 @@ Latest verified run (2026-09-22): 831 resolved candidates, **682 matched to Coin
 A published 2026 study of the same DefiLlama universe found ~345 tokens with a traded market cap — **recorded as unreconciled**, not chased further (different inclusion rules, different snapshot date, exact study methodology unknown). Reference table if revisited: mcap≥$10M → 225 (nonzero-fees definition) / 52 (real 3-gate definition below); mcap≥$50M → 124 / 46; mcap≥$100M → 85 / 40.
 
 ### Kill filter — market cap floor lowered, DECIDED
-**$100M → $10M.** Reason: 85 rated assets (at the old $100M floor, using the real 3-gate definition, not just "nonzero fees") is too few for Phase 2's own sector-percentile min-4-per-sector rule and Phase 4's statistical power. Liquidity gate unchanged (24h volume < $2M → unrated) — handles tradability on its own, doesn't need the mcap floor to do that job too. Revenue floor unchanged ($5M annualized, `rev_ann = revenue_30d × 365/30` — the real formula, not "any nonzero fees").
+**$100M → $10M.** Reason: 85 rated assets (at the old $100M floor, using the real 3-gate definition, not just "nonzero fees") is too few for Phase 2's own sector-percentile min-4-per-sector rule and Phase 4's statistical power. Liquidity gate unchanged (24h volume < $2M → unrated) — handles tradability on its own, doesn't need the mcap floor to do that job too. **Revenue floor lowered $5M → $1M annualized — decided 2026-09-22 (Phase 2a sign-off)**, same reason as the mcap floor: at $5M only 53 assets were rated. `rev_ann = revenue_30d × 365/30` — the real formula, not "any nonzero fees". (The user remembered lowering it earlier; no record of that existed in any doc, memory or the Phase 1 session log, so it's recorded here with today's date.)
 
-Re-reported rated count, all 3 gates together, real formula: **$10M floor → 52 rated** (was 40 at $100M, 46 at $50M — these are stricter/lower than earlier session numbers that used "nonzero fees" as a shortcut for the revenue condition instead of the actual $5M-annualized threshold).
+**Current rated count (2026-09-22, $10M mcap / $2M volume / $1M revenue): 85.** Earlier figure, at the $5M revenue floor: **$10M floor → 52 rated** (was 40 at $100M, 46 at $50M — these are stricter/lower than earlier session numbers that used "nonzero fees" as a shortcut for the revenue condition instead of the actual $5M-annualized threshold).
 
-**Not yet in a committed config file** — Phase 2 builds `screener.config.ts`; this $10M figure is the value to put there, recorded here so it isn't lost.
+Both floors now live in `src/lib/screener/config.ts` (Phase 2a).
 
 ### Quality & Risk — a TIER, not a score (full redesign from the original spec below)
 The original spec's "Score A: Fundamental" (equal-weighted composite, own letter grade) **no longer exists in that form.** Renamed and redesigned in two rounds of amendment:
@@ -69,15 +69,20 @@ The original spec's "Score A: Fundamental" (equal-weighted composite, own letter
 2. Valuation metrics (P/S, P/F, circ+FD) → display-only, weight 0 in any score until Phase 4 shows predictive value. Needs a config-level `active`/weight-0 field per factor (see "Candidate factor shape" below), not an implicit code-level omission.
 3. **Renamed "Quality & Risk," and it is now a tier (Pass / Caution / High risk), never a score or letter grade.** Its job is filtering and risk-flagging, not predicting returns.
 
-**Tier rules** (config-held thresholds — not yet in a real config file), evaluated worst-tier-wins:
+**Tier rules** (in `src/lib/screener/config.ts`), evaluated worst-tier-wins. **Revised 2026-09-22 (Phase 2a sign-off)** — three fixes, because the original rules made Pass empty by construction and let a documented buyback lower a tier:
 
 | Tier | Triggers (any one fires) |
 |---|---|
-| **High risk** | `dilution_rate` > 25%/yr, OR unlocks next 90d > 5% of circulating, OR revenue down > 40% vs. prior 90d |
-| **Caution** | `dilution_rate` > 10%/yr, OR unlock status `UNKNOWN`, OR value-capture status paused/conditional or stale (`as_of` older than 60 days) |
+| **High risk** | measured `dilution_rate` > 25%/yr, OR real unlock data shows next-90d unlocks > 5% of circulating, OR revenue down > 40% vs. prior 90d |
+| **Caution** | measured `dilution_rate` > 10%/yr |
 | **Pass** | none of the above fire |
 
-Every triggered rule is stored (not just the resulting tier), same "show the inputs, never a black box" discipline as the regime label. `dilution_rate` = trailing circulating-supply growth rate, computed from the screener's own accumulating snapshot history (the same signal originally proposed as the free unlock-detection workaround — now formalized as a named metric, not just a proxy). Note: the original Phase 2 kill-filter table *also* has an unlock-overhang hard gate at >10%/90d → `UNRATED` (excludes from ranking entirely) — that's a different, stricter, still-separate mechanism from this tier's 5%/90d High-risk trigger (which flags, doesn't exclude). Both apply; not a conflict, same two-layer "can we evaluate this at all" vs. "how much to trust it" separation csp-screener's own Unrated/capped-C design used.
+1. **Unlock status UNKNOWN is a display flag, never a tier trigger.** Only real unlock data triggers tiers. (Previously UNKNOWN → Caution, which put every asset without hand-entered unlocks — i.e. nearly all — in Caution, so LEADER/WATCH could never appear.)
+2. **A rule with a null input does not fire.** Per-asset rule coverage (which rules were evaluable) is stored and shown next to the tier. Absence of data is not evidence of risk.
+3. **Value-capture status is not a tier input at all**, including the old 60-day staleness rule. It stays a display field and the `buyback_yield` candidate factor. A documented buyback must never lower a tier.
+4. **`dilution_rate` triggers tiers only when measured** from live circulating-supply snapshots. `dilution_rate_implied` (backfilled market cap ÷ price) is stored for display only — an inferred input must not drive a risk tier.
+
+Every triggered rule is stored (not just the resulting tier), same "show the inputs, never a black box" discipline as the regime label. The kill-filter table's unlock-overhang gate (>10%/90d → `UNRATED`) is separate and likewise needs real data: no data = `not_evaluable`, which neither passes nor fails. Both layers apply — "can we evaluate this at all" vs. "how much to trust it".
 
 `dilution_rate` has a **second, separate job**: as a weight-0 candidate alpha factor in the *momentum* ranking (Score B), pending Phase 4 proof, same as P/S, P/F, and `buyback_yield` (below). One job each — driving a tier threshold here, earning weight there — not the same thing twice.
 
@@ -98,20 +103,8 @@ Real shift from the original spec (which treated Score A "cheap?" and Score B "g
 
 **Letter grade** = Score B percentile (`timing_grade_raw`), unchanged percentile→letter mechanism from the original spec (exact breakpoints still Phase 3's job to set). **High risk caps the displayed grade at C**, regardless of the raw percentile. **Caution does not cap anything** — it only participates in the tag grid above. Store both the raw and the final capped grade (`timing_grade_raw` vs `timing_grade`) so a capped C is auditable back to "this was really a B" — a deliberate addition beyond what was literally asked, in the spirit of the spec's own "every number traceable" principle.
 
-### `KNOWN_HOLDER_VALUE_MECHANISMS` config — shape decided, **entries still missing**
-```ts
-export const KNOWN_HOLDER_VALUE_MECHANISMS: Record<string, {
-  status: "active" | "paused" | "conditional";
-  mechanism: string;
-  sourceUrl: string;
-  as_of: string; // ISO date — an entry older than 60 days is a Caution trigger in its own right ("value-capture status stale")
-}> = {
-  // EMPTY. Six real entries were referenced (HYPE, PUMP, SKY active; AAVE
-  // paused; ENA, LDO conditional) but the attachment never actually came
-  // through in chat — flagged live, not fabricated. Still needed before
-  // Phase 2 builds `capture`/`buyback_yield`/the Caution tier against it.
-};
-```
+### `KNOWN_HOLDER_VALUE_MECHANISMS` — filled 2026-09-22, every entry source-verified
+Lives in `config.ts` as `holderValueMechanisms`, keyed by gecko_id: `hyperliquid`, `pump-fun`, `sky` (active); `aave` (paused); `ethena`, `lido-dao` (conditional). Shape: `{status, mechanism, sourceUrls: string[], as_of}`. It has `sourceUrls` (plural) because HYPE and ENA each need two sources. **`as_of` = the latest date a cited source shows the status**, not the date it was entered — AAVE is `2026-06-25` (the last evidence of the pause; nothing confirms September), LDO `2026-06-30` (the H1 report carries no publication date). Two of the originally supplied citations didn't support their numbers (HYPE's ~99%, ENA's $7.5B threshold) and were replaced with sources that do. Value capture is display-only (see the tier rules above); an asset absent from the config gets `capture`/`buyback_yield` = null, never 0.
 
 ### Candidate factor shape — decided, enforced
 ```ts
@@ -149,6 +142,12 @@ Vercel Cron, `/api/cron/screener-snapshot` (distinct from the pre-existing unrel
 - **Retention**: monthly, rows older than 400 days → local Parquet (verified by count + content hash) → deleted from Supabase. `screener_runs` rows are never deleted. Script: `scripts/screener-archive.ts`; schedule: `scripts/launchd/`.
   - **Threshold: 400 days, decided.** Steady state ≈ 400 × 682 rows × ~375–510 B ≈ 102–139 MB of snapshots, ~190–225 MB whole database (40–45% of the 0.5 GB tier). If that tightens, the lever is dropping to ~200 days: the design's longest lookback is 180 days (revenue 90d vs prior 90d) plus buffer; everything past that is margin.
 - **`screener_asset_snapshots.run_id` is NOT NULL but its FK is still `ON DELETE SET NULL`** (from Phase 1; the NOT NULL was added later as a tripwire against the old run-less backfill). Deleting any `screener_runs` row that snapshots reference therefore **errors** (the SET NULL action violates NOT NULL). Deliberate, left as is: runs are never deleted — the archive keeps them.
+
+### Phase 2a — regime, sector buckets, snapshot indexes (decided 2026-09-22)
+- **Regime thresholds are unvalidated starting guesses** (`config.regime.validated: false`). Flat band ±0.5pt dominance / ±1% stablecoins; ROTATION needs dominance −1.5pt over 4w; FROTH = funding ≥ 90th percentile of stored history OR OI 4w change − price 4w change > 20pt; precedence FROTH > RISK_OFF > ROTATION > BTC_LED > NEUTRAL. Dominance and OI have no free history, so their 4-week changes build from our own stored rows (28-day warm-up); until then the rules needing them are not evaluable. Revisit after 28 days. At ~58-60% dominance BTC_LED will fire nearly always — **if the label never varies in the first month, revise the thresholds; don't treat a constant label as informative.**
+- **Sector buckets** (DefiLlama category → bucket) are in `config.sectorBuckets`. Prediction Market sits in perps_dex only because the rated universe is thin — revisit past ~100 rated assets. A grouped asset's sector is now its **highest-revenue child's** category (previously the first child's, which filed Hyperliquid and PUMP under "Dexs").
+- **Snapshot indexes reviewed at 245K rows — keep all five**: backfilled-only unique 15 MB (1,090 scans; insert-time duplicate checks), asset_observed 15 MB (5,963), pkey 9.2 MB (7,080), run_idx 2.7 MB (98), observed 1.8 MB (150). A live-path duplicate guard was added: unique `(run_id, asset_id) where not is_backfilled`.
+- **Metrics retention**: `screener_asset_metrics` kept 90 days, then archived to Parquet and deleted (recomputable from snapshots + the versioned config).
 
 ### Read-only table view
 Built (`(app)/screener`), sortable, flags conflicts and backfilled rows. Not linked from nav — this is the Phase 1 spot-check surface, not the real screener UI (that needs Phase 3's grades/tiers/setup-tags to exist first).

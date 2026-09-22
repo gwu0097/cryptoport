@@ -103,3 +103,21 @@ export async function fetchChartPrices(
   }
   return result;
 }
+
+/** Prices for a few coins now (`atEpochSeconds` omitted) or at a past
+ * moment — /prices/current or /prices/historical/{ts}, one call for all
+ * coins. Same host and same throttle as fetchChartPrices. */
+export async function fetchPricesAt(geckoIds: string[], atEpochSeconds?: number): Promise<Map<string, number>> {
+  const coins = geckoIds.map((id) => `coingecko:${id}`).join(",");
+  const path = atEpochSeconds === undefined ? `/prices/current/${coins}` : `/prices/historical/${atEpochSeconds}/${coins}`;
+  await sleep(THROTTLE_MS);
+  const res = await fetchWithRetry(`${COINS_BASE}${path}`);
+  if (!res.ok) throw new Error(`DefiLlama ${path.split("/").slice(0, 3).join("/")} failed: HTTP ${res.status}`);
+  const body: { coins: Record<string, { price?: number }> } = await res.json();
+  const result = new Map<string, number>();
+  for (const id of geckoIds) {
+    const p = body.coins[`coingecko:${id}`]?.price;
+    if (typeof p === "number") result.set(id, p);
+  }
+  return result;
+}

@@ -173,3 +173,35 @@ export async function fetchProtocolFeeHistory(slug: string, dataType: FeesDataTy
     value,
   }));
 }
+
+export interface StablecoinSupply {
+  totalUsd: number;
+  prevMonthUsd: number;
+  /** USD-pegged assets counted — ones missing either figure are left out of
+   * BOTH sums, so the 30d change compares like with like. */
+  assetsCounted: number;
+}
+
+/** Total USD-pegged stablecoin supply now and ~30 days ago, from DefiLlama's
+ * stablecoins snapshot (live-verified 2026-09-22: 339 peggedUSD assets, each
+ * with circulating.peggedUSD and circulatingPrevMonth.peggedUSD). One call —
+ * no per-stablecoin history needed for a 30-day change. */
+export async function fetchStablecoinSupply(): Promise<StablecoinSupply> {
+  const res = await fetchWithRetry("https://stablecoins.llama.fi/stablecoins?includePrices=false");
+  if (!res.ok) throw new Error(`DefiLlama /stablecoins failed: HTTP ${res.status}`);
+  const body: {
+    peggedAssets: { pegType?: string; circulating?: { peggedUSD?: number }; circulatingPrevMonth?: { peggedUSD?: number } }[];
+  } = await res.json();
+  let totalUsd = 0;
+  let prevMonthUsd = 0;
+  let assetsCounted = 0;
+  for (const a of body.peggedAssets) {
+    const now = a.circulating?.peggedUSD;
+    const prev = a.circulatingPrevMonth?.peggedUSD;
+    if (a.pegType !== "peggedUSD" || typeof now !== "number" || typeof prev !== "number") continue;
+    totalUsd += now;
+    prevMonthUsd += prev;
+    assetsCounted++;
+  }
+  return { totalUsd, prevMonthUsd, assetsCounted };
+}

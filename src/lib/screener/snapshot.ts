@@ -2,18 +2,21 @@ import "server-only";
 import { serviceDb } from "@/lib/supabase";
 import { fetchMarketsByIds } from "@/lib/adapters/coingecko";
 import { fetchProtocols, fetchFeesOverview, fetchParentProtocols } from "./adapters/defillama";
-import { resolveGroups, aggregateGroupTotals } from "./aggregate";
+import { resolveGroups, aggregateGroupTotals, dominantCategory } from "./aggregate";
+import { SCREENER_CONFIG } from "./config";
 import { buildLiveRunProvenance } from "./provenance";
 import { diffUnmatched, type UnmatchedEntry, type OpenUnmatchedRow } from "./unmatched";
 import { fetchAllRows } from "./pagination";
 
-// Configurable per CLAUDE.md/build-prompt principle #9 ("all thresholds and
-// weights live in one config file") — inlined here for now since Phase 1
-// has no config file of its own yet and this is the only threshold Phase 1
-// needs; move into a real screener.config.ts alongside Phase 2's gate/tier
-// thresholds and Phase 3's weights rather than letting this become the
-// first of several scattered constants.
-const CONFLICT_THRESHOLD_PCT = 5;
+// Rows per insert/upsert request. Also well under the Phase 1 statement-
+// timeout ceiling that forced chunking in the backfill.
+const WRITE_CHUNK = 500;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 // How many days back the gap detector checks on every run — cheap (one
 // query over screener_runs), catches a missed day within a week of it
@@ -217,9 +220,12 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
       .eq("id", runId);
     if (provenanceError) throw new Error(`Failed to write screener_runs.provenance(${runId}): ${provenanceError.message}`);
 
-    let matchedCount = 0;
-    let conflictCount = 0;
-
+    // Batched writes (chunks of WRITE_CHUNK): this loop used to do two
+    // sequential round trips per asset (upsert + insert) — 173s of the
+    // route's 300s budget for 682 assets, measured 2026-09-22 — leaving no
+    // room for the Phase 2 derivation step in the same invocation.
+    const categoryBySlug = new Map(candidates.map((p) => [p.slug, p.category]));
+    const prepared = [];
     for (const group of groups.values()) {
       const market = marketByGeckoId.get(group.geckoId);
       if (!market) {
@@ -230,84 +236,99 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
         });
         continue;
       }
+      const sector = dominantCategory(
+        group.contributingSlugs,
+        categoryBySlug,
+        (s) => revenue.get(s)?.total30d,
+        (s) => fees.get(s)?.total30d,
+      );
+      prepared.push({ group, market, sector, totals: aggregateGroupTotals(group.contributingSlugs, fees, revenue, holdersRevenue) });
+    }
 
-      const { data: assetRow, error: assetError } = await db
+    const assetIdByGeckoId = new Map<string, string>();
+    for (const batch of chunk(prepared, WRITE_CHUNK)) {
+      const { data, error } = await db
         .from("screener_assets")
         .upsert(
-          {
+          batch.map(({ group, market, sector }) => ({
             gecko_id: group.geckoId,
             defillama_slug: group.contributingSlugs[0],
             name: market.name,
             ticker: market.symbol,
-            sector: group.category,
+            sector,
             last_seen_at: observedAt,
-          },
+          })),
           { onConflict: "gecko_id" },
         )
-        .select("id")
-        .single();
-      if (assetError) throw new Error(`Failed to upsert screener_assets(${group.geckoId}): ${assetError.message}`);
-      const assetId = assetRow.id as string;
-
-      // Conflict check: DefiLlama's own mcap (the parent's own aggregate
-      // figure when this group rolled up through one) vs. CoinGecko's
-      // market_cap — the two sources' own figures can genuinely disagree
-      // (different methodology, different refresh cadence). CoinGecko's
-      // is what actually gets written to market_cap_usd below (it's the
-      // more broadly-scoped source of truth this app already trusts
-      // elsewhere); this only flags the disagreement, never resolves it
-      // silently (build-prompt principle #4).
-      if (group.mcapForConflictCheck !== null && market.marketCap !== null && group.mcapForConflictCheck > 0) {
-        const pctDiff = (Math.abs(group.mcapForConflictCheck - market.marketCap) / group.mcapForConflictCheck) * 100;
-        if (pctDiff > CONFLICT_THRESHOLD_PCT) {
-          conflictCount++;
-          const { error: conflictError } = await db.from("screener_field_conflicts").insert({
-            asset_id: assetId,
-            observed_at: observedAt,
-            field_name: "market_cap_usd",
-            source_a: "defillama",
-            value_a: group.mcapForConflictCheck,
-            source_b: "coingecko",
-            value_b: market.marketCap,
-            pct_diff: pctDiff,
-            run_id: runId,
-          });
-          if (conflictError)
-            throw new Error(`Failed to log screener_field_conflicts(${group.geckoId}): ${conflictError.message}`);
-        }
-      }
-
-      const totals = aggregateGroupTotals(group.contributingSlugs, fees, revenue, holdersRevenue);
-
-      const { error: snapshotError } = await db.from("screener_asset_snapshots").insert({
-        asset_id: assetId,
-        observed_at: observedAt,
-        run_id: runId,
-        is_backfilled: false,
-        price_usd: market.price,
-        market_cap_usd: market.marketCap,
-        fdv_usd: market.fdv,
-        circulating_supply: market.circulatingSupply,
-        total_supply: market.totalSupply,
-        max_supply: market.maxSupply,
-        tvl_usd: group.tvl,
-        fees_24h: totals.fees24h,
-        fees_7d: totals.fees7d,
-        fees_30d: totals.fees30d,
-        fees_1y: totals.fees1y,
-        revenue_24h: totals.revenue24h,
-        revenue_7d: totals.revenue7d,
-        revenue_30d: totals.revenue30d,
-        revenue_1y: totals.revenue1y,
-        holders_revenue_24h: totals.holdersRevenue24h,
-        holders_revenue_30d: totals.holdersRevenue30d,
-        volume_24h_usd: market.volume24h,
-        contributing_slugs: group.contributingSlugs,
-      });
-      if (snapshotError) throw new Error(`Failed to write screener_asset_snapshots(${group.geckoId}): ${snapshotError.message}`);
-
-      matchedCount++;
+        .select("id, gecko_id");
+      if (error) throw new Error(`Failed to upsert screener_assets: ${error.message}`);
+      for (const row of data as { id: string; gecko_id: string }[]) assetIdByGeckoId.set(row.gecko_id, row.id);
     }
+    const assetIdFor = (geckoId: string): string => {
+      const id = assetIdByGeckoId.get(geckoId);
+      if (!id) throw new Error(`screener_assets upsert returned no id for ${geckoId}`);
+      return id;
+    };
+
+    // Conflict check: DefiLlama's own mcap (the parent's aggregate when this
+    // group rolled up through one) vs. CoinGecko's market_cap. CoinGecko's
+    // is what gets written to market_cap_usd; this only flags the
+    // disagreement, never resolves it silently (build-prompt principle #4).
+    const conflicts = prepared.flatMap(({ group, market }) => {
+      if (group.mcapForConflictCheck === null || market.marketCap === null || !(group.mcapForConflictCheck > 0)) return [];
+      const pctDiff = (Math.abs(group.mcapForConflictCheck - market.marketCap) / group.mcapForConflictCheck) * 100;
+      if (pctDiff <= SCREENER_CONFIG.conflictThresholdPct) return [];
+      return [
+        {
+          asset_id: assetIdFor(group.geckoId),
+          observed_at: observedAt,
+          field_name: "market_cap_usd",
+          source_a: "defillama",
+          value_a: group.mcapForConflictCheck,
+          source_b: "coingecko",
+          value_b: market.marketCap,
+          pct_diff: pctDiff,
+          run_id: runId,
+        },
+      ];
+    });
+    for (const batch of chunk(conflicts, WRITE_CHUNK)) {
+      const { error } = await db.from("screener_field_conflicts").insert(batch);
+      if (error) throw new Error(`Failed to log screener_field_conflicts: ${error.message}`);
+    }
+    const conflictCount = conflicts.length;
+
+    for (const batch of chunk(prepared, WRITE_CHUNK)) {
+      const { error } = await db.from("screener_asset_snapshots").insert(
+        batch.map(({ group, market, totals }) => ({
+          asset_id: assetIdFor(group.geckoId),
+          observed_at: observedAt,
+          run_id: runId,
+          is_backfilled: false,
+          price_usd: market.price,
+          market_cap_usd: market.marketCap,
+          fdv_usd: market.fdv,
+          circulating_supply: market.circulatingSupply,
+          total_supply: market.totalSupply,
+          max_supply: market.maxSupply,
+          tvl_usd: group.tvl,
+          fees_24h: totals.fees24h,
+          fees_7d: totals.fees7d,
+          fees_30d: totals.fees30d,
+          fees_1y: totals.fees1y,
+          revenue_24h: totals.revenue24h,
+          revenue_7d: totals.revenue7d,
+          revenue_30d: totals.revenue30d,
+          revenue_1y: totals.revenue1y,
+          holders_revenue_24h: totals.holdersRevenue24h,
+          holders_revenue_30d: totals.holdersRevenue30d,
+          volume_24h_usd: market.volume24h,
+          contributing_slugs: group.contributingSlugs,
+        })),
+      );
+      if (error) throw new Error(`Failed to write screener_asset_snapshots: ${error.message}`);
+    }
+    const matchedCount = prepared.length;
 
     const unmatchedChanges = await recordUnmatchedChanges(runId, unmatched);
 
