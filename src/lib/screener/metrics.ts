@@ -2,9 +2,12 @@
 // see metrics.test.ts. Null is never 0 (principle #2): every ratio is null
 // when an input is null or its denominator isn't positive (a P/S with zero
 // revenue is undefined, not infinite). History-derived metrics (momentum,
-// beta, dilution, revenue growth/collapse) are Phase 2b and stay null here.
+// beta, dilution, revenue growth/collapse) come from history.ts (Phase 2b)
+// and are passed in; without them those fields are null and the revenue-
+// collapse gate is not evaluable.
 
 import { SCREENER_CONFIG, sectorBucketFor, type ScreenerConfig, type SectorBucket } from "./config.ts";
+import type { HistoryMetrics } from "./history.ts";
 
 export interface SnapshotForMetrics {
   asset_id: string;
@@ -35,7 +38,7 @@ export interface GateStatus {
   collapsing_revenue: GateResult;
 }
 
-export interface AssetMetrics {
+export interface AssetMetrics extends HistoryMetrics {
   asset_id: string;
   sector_bucket: SectorBucket;
   fees_ann: number | null;
@@ -67,7 +70,21 @@ export function ratio(a: number | null, b: number | null): number | null {
 /** threshold check on a possibly-null value: null -> not_evaluable. */
 const atLeast = (v: number | null, min: number): GateResult => (v === null ? "not_evaluable" : v >= min ? "pass" : "fail");
 
-export function computeAssetMetrics(s: SnapshotForMetrics, config: ScreenerConfig = SCREENER_CONFIG): AssetMetrics {
+const NO_HISTORY: HistoryMetrics = {
+  mom_3w: null,
+  mom_12w: null,
+  beta_btc: null,
+  rev_growth: null,
+  rev_90d_change: null,
+  dilution_rate: null,
+  dilution_rate_implied: null,
+};
+
+export function computeAssetMetrics(
+  s: SnapshotForMetrics,
+  config: ScreenerConfig = SCREENER_CONFIG,
+  history: HistoryMetrics = NO_HISTORY,
+): AssetMetrics {
   const sectorBucket = sectorBucketFor(s.sector, config);
   const feesAnn = annualize(s.fees_30d);
   const revAnn = annualize(s.revenue_30d);
@@ -85,7 +102,13 @@ export function computeAssetMetrics(s: SnapshotForMetrics, config: ScreenerConfi
     liquidity: atLeast(s.volume_24h_usd, config.gates.minVolume24hUsd),
     revenue_floor: atLeast(revAnn, config.gates.minRevenueAnnualizedUsd),
     unlock_overhang: "not_evaluable", // no forward unlock data source yet
-    collapsing_revenue: "not_evaluable", // Phase 2b
+    // 90d revenue vs the prior 90d; null (too little history) -> not_evaluable.
+    collapsing_revenue:
+      history.rev_90d_change === null
+        ? "not_evaluable"
+        : history.rev_90d_change < config.gates.collapsingRevenue90d.unratedBelow
+          ? "fail"
+          : "pass",
   };
 
   return {
@@ -103,6 +126,7 @@ export function computeAssetMetrics(s: SnapshotForMetrics, config: ScreenerConfi
     float_ratio: ratio(s.circulating_supply, supplyCap),
     mc_tvl: (config.mcTvlBuckets as readonly string[]).includes(sectorBucket) ? ratio(s.market_cap_usd, s.tvl_usd) : null,
     size_log_mcap: s.market_cap_usd !== null && s.market_cap_usd > 0 ? Math.log(s.market_cap_usd) : null,
+    ...history,
     rated: !Object.values(gate_status).includes("fail"),
     gate_status,
   };

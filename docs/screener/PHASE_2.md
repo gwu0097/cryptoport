@@ -114,3 +114,72 @@ All valuation ratios are **display-only (weight 0)** until Phase 4. "—" means 
 - **Unlock data:** none exists (the `screener_manual_unlocks` table isn't built). The overhang gate and the unlock tier rule stay not evaluable until it is.
 - **Regime thresholds:** unvalidated; review after ~2026-10-20. **Specific revisit item:** BTC_LED's "flat stablecoins" clause (±1%) sits right where today's value is (0.94% from the snapshot endpoint vs 1.15% from the history endpoint). It can flip on which DefiLlama endpoint defines "a month ago". Either widen the band or use the history endpoint's 30-points-back definition. Decide in 2b or later.
 - **Rating tiers and setup tags** are Phase 3, using the revised tier rules in config.
+
+---
+
+# Phase 2b — history-derived metrics
+
+## What I built
+
+- **`history.ts`** (pure, tested): `mom_3w`/`mom_12w` (the change in the asset's price measured in BTC, as a ratio), `beta_btc` (90 days of daily log returns regressed on BTC's, needing ≥ 60 paired days), `rev_90d_change` and `rev_growth` (from the stored rolling 30-day revenue totals at t, −30, −60, and −90, −120, −150), `dilution_rate_implied` (market cap ÷ price at t vs t−90, annualized over the *actual* gap between readings), and measured `dilution_rate` (live `circulating_supply` only; null until ~2026-12-21). One reading per asset per UTC day (the latest), ±2-day tolerance on lookbacks, and nothing observed after the run's own timestamp.
+- **The revenue-collapse gate is now evaluated**: a fall of more than 60% vs the prior 90 days means unrated.
+- **BTC reference, paired by moment:**
+  - The live snapshot job adds `bitcoin` to the same CoinGecko `/coins/markets` call and stores its price in the run's `notes.reference_prices`, so each live asset price has a BTC price from the same response.
+  - Older live runs get DefiLlama's BTC price at their exact `observed_at`, written back into their notes once.
+  - Backfilled rows pair with BTC on **their backfill run's own time-of-day grid** (see "What surprised me").
+- **`derive.ts`** loads each asset's history window (the last ~95 days in full, plus narrow windows at t−120 and t−150) with keyset pagination. No schema change: every column already existed from 2a.
+- **`scripts/check-screener-schema.mjs`**: the pre-push schema preflight (in CLAUDE.md's verification gate). It checks every `screener_*` table and column in `db/schema.sql` against the live database, and was tested with an injected missing column (exit 1).
+
+## What I verified
+
+Run `a1a3d6dd` (a live snapshot plus derivations, 2026-09-22 ~23:3x UTC):
+
+**Timing (the read-path risk):**
+
+| Step | Time |
+|---|---|
+| History read (73,138 rows) | 21 s |
+| BTC reference | 16 s (7 grids: one per backfill run in the window, plus midnight) |
+| Compute + write | 1.3 s |
+| **Derivations total** | **~40 s** |
+| **Whole cron** | **~52 s of 300 s** |
+
+That's under the ~60 s threshold for the read, so **no Postgres function was needed.** The BTC reference gets cheaper as backfilled rows age out of the window.
+
+**Coverage (all 682 / rated 76):** mom_3w 627/76 · mom_12w 628/71 · beta_btc 571/75 · rev_growth 483/75 · rev_90d_change 459/68 · dilution_rate_implied 574/71 · **dilution_rate 0/0** (by design until ~2026-12-21).
+
+**Revenue-collapse gate:** 339 pass, 120 fail, 223 not evaluable (not enough history). **Rated fell 80 → 76**, because four assets failed only this gate: USUAL (−64%), EDGE (−61%), CHIP (−89%), BASED (−64%).
+
+**Rated distributions:**
+- beta_btc: median 1.13 (p10 0.51, p90 1.53)
+- mom_3w: median +12% (p10 −13%, p90 +59%)
+- mom_12w: median +7% (p10 −31%, p90 +95%)
+
+**Independent spot checks** (none of our code; CoinGecko's own prices and DefiLlama's parent-page daily revenue):
+
+| Check | Ours | Independent |
+|---|---|---|
+| UNI mom_3w, at the same moments (CoinGecko hourly) | 0.5690 | 0.5688 |
+| AAVE mom_3w, same moments (nearest hourly point is 28 min off) | 0.0517 | 0.0481 |
+| HYPE / AAVE / UNI beta (CoinGecko close-to-close, a different sampling time) | 1.19 / 1.41 / 1.33 | 1.29 / 1.39 / 1.26 |
+| UNI / HYPE / GMX rev_90d_change (parent-page daily sums) | 102.9% / −3.8% / −2.9% | 102.9% / −3.4% / −1.7% |
+| UNI / HYPE / GMX rev_growth | 76.9% / 29.4% / −0.6% | 78.0% / 29.5% / −1.2% |
+
+A naive momentum check against CoinGecko's *daily* points disagreed (UNI 56.9% vs 75.3%). That comparison wasn't like for like: those points are at 00:00 and our start reading is at 21:32 the same day. At the same moments it matches to 4 decimal places.
+
+Tests: 231 pass, including the pairing tests and the plausibility check. One of them reproduces the bug below: the correct pairing gives beta exactly 2, and pairing on the wrong time of day collapses it.
+
+## What surprised me
+
+**"Daily point" isn't a moment, and the first 2b run showed it.** Median beta among rated assets came out **0.07**. DefiLlama's `/chart` spaces its points from the requested start time, so every backfilled price is DefiLlama's price **at that backfill run's time of day**. HYPE's stored 09-01 price, 82.046, is its 21:31 price; 00:00 was 84.16. My BTC reference was fetched on a 00:00 grid, so every backfilled return was offset ~21.5 hours from its BTC return: "daily vs daily" in name, different moments in fact. Fixed by pairing each backfilled row with BTC on its own run's grid. That grid time was verified on rows from two different backfill runs, matching to 15 digits. Median beta is now **1.13**. This is SPEC's levels rule applied one level deeper, and SPEC now says so explicitly.
+
+**Plausibility check** (added after the beta bug; see SPEC): on this run it flagged one rated asset, NEAR (float ratio 1.000000006, CoinGecko's two supply fields sampled a moment apart), which set a 0.1% slack on that bound. The rated medians are all inside their ranges.
+
+## Open items
+
+- **Scope gap (a decision for Phase 3):** NEAR, an L1 token, is rated. DefiLlama files NEAR Intents (Bridge) and NEAR Perps under the parent "NEAR Protocol", whose CoinGecko id is the L1 token, so the category-based out-of-scope gate can't see it. It's valued on ~$1.4M/month of app revenue in oracles_infra.
+- **Measured `dilution_rate`** is null until ~2026-12-21 (90 days of live supply), so the dilution tier rules can't fire before then. The implied figure is display only.
+- **Unlock data:** still none. The overhang gate and unlock tier rule stay not evaluable.
+- **Stablecoin 30-day change:** switches to stored history ~2026-10-22 (BACKLOG).
+- **Regime thresholds:** review after ~2026-10-20.
+- **Next, Phase 3:** tiers (with the revised rules and per-rule coverage), Score B, grades and setup tags.

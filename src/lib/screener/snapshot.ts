@@ -8,6 +8,8 @@ import { buildLiveRunProvenance } from "./provenance";
 import { diffUnmatched, type UnmatchedEntry, type OpenUnmatchedRow } from "./unmatched";
 import { fetchAllRows } from "./pagination";
 
+const BTC_GECKO_ID = "bitcoin";
+
 // Rows per insert/upsert request. Also well under the Phase 1 statement-
 // timeout ceiling that forced chunking in the backfill.
 const WRITE_CHUNK = 500;
@@ -205,9 +207,18 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
       });
     }
 
-    const geckoIds = [...groups.keys()];
+    // BTC rides along in the same /coins/markets call: Phase 2b pairs each
+    // live asset price with a BTC price read at the SAME moment (SPEC
+    // standing rule, levels case), and the same response is as same-moment
+    // as it gets. BTC has no fee data, so it's never a universe row itself.
+    const geckoIds = [...new Set([...groups.keys(), BTC_GECKO_ID])];
     const marketRows = await fetchMarketsByIds(geckoIds);
     const marketByGeckoId = new Map(marketRows.map((r) => [r.id, r]));
+    const btcMarket = marketByGeckoId.get(BTC_GECKO_ID);
+    const referencePrices =
+      btcMarket?.price != null
+        ? { [BTC_GECKO_ID]: { price_usd: btcMarket.price, source: "coingecko /coins/markets (same response as the asset prices)" } }
+        : {};
 
     const observedAt = new Date().toISOString();
 
@@ -342,7 +353,13 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
         universe_size: groups.size,
         matched_count: matchedCount,
         unmatched_count: unmatched.length,
-        notes: { ...invocationNotes, conflict_count: conflictCount, gap_dates: gapDates, unmatched_changes: unmatchedChanges },
+        notes: {
+          ...invocationNotes,
+          conflict_count: conflictCount,
+          gap_dates: gapDates,
+          unmatched_changes: unmatchedChanges,
+          reference_prices: referencePrices,
+        },
       })
       .eq("id", runId);
     if (finishError) throw new Error(`Failed to finalize screener_runs(${runId}): ${finishError.message}`);

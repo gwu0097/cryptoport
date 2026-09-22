@@ -343,7 +343,11 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
 ## Process
 
 - Push directly to `main` — no PR intermediate step.
-- Verification gate: `npx tsc --noEmit`, `npm run lint`, `npm test`.
+- Verification gate: `npx tsc --noEmit`, `npm run lint`, `npm test`. For
+  any push touching screener code, also `node scripts/check-screener-schema.mjs`
+  — push deploys, so DDL the user hasn't run yet means the next cron writes to
+  a column that doesn't exist. Hand over the SQL, wait for it to be run, pass
+  the preflight, then push (twice on 2026-09-22 the push went first).
   `npm run build` will always fail locally at "Collecting page data" due to
   a permanent, unrelated local `.env.local` gap (`NEXT_PUBLIC_SUPABASE_ANON_KEY`
   empty) — known and non-blocking, not something to chase.

@@ -97,6 +97,40 @@ export const SCREENER_CONFIG = {
     out_of_scope: ["Chain", "Meme"],
   } satisfies Partial<Record<SectorBucket, string[]>>,
 
+  /** Phase 2b history-derived metrics (decided 2026-09-22). Momentum is the
+   * relative-to-BTC ratio; beta is OLS on daily log returns; measured
+   * dilution uses a 90-day window (a 30-day window annualized would multiply
+   * a single unlock by ~12 and fire High risk on one event). */
+  history: {
+    lookbackToleranceDays: 2,
+    betaDays: 90,
+    betaMinPairs: 60,
+    dilutionDays: 90,
+    dilutionToleranceDays: 3,
+  },
+
+  /** Plausibility ranges for derived metrics, checked at compute time
+   * (decided 2026-09-22). A run whose RATED-set median falls outside its
+   * range, or any rated asset outside a hard per-asset bound, is logged as a
+   * warning in the run's notes (the metrics are still written — a warning,
+   * not a failure). Exists because the first 2b run's median beta of 0.07
+   * was only caught by eye: nothing failed, the number was just implausible.
+   * Unvalidated starting ranges — widen or tighten with evidence. */
+  plausibility: {
+    median: {
+      beta_btc: { min: 0.3, max: 3 },
+      mom_3w: { min: -0.5, max: 1 },
+      mom_12w: { min: -0.8, max: 2 },
+      rev_90d_change: { min: -0.9, max: 3 },
+    },
+    perAsset: {
+      capture: { min: 0, max: 1 }, // holders' share of revenue can't exceed all of it
+      // circulating ≤ max/total supply, with 0.1% slack: CoinGecko's two supply
+      // fields are sampled a moment apart (NEAR read 8 tokens over, 1.000000006)
+      float_ratio: { min: 0, max: 1.001 },
+    },
+  },
+
   /** Buckets where market cap / TVL is economically meaningful. */
   mcTvlBuckets: ["lending", "liquid_staking", "yield"] satisfies SectorBucket[],
 

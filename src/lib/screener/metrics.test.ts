@@ -46,7 +46,7 @@ test("capture/buyback_yield are null without a documented mechanism, even when D
   assert.equal(hype.buyback_yield, (500_000 * 365 / 30) / 100_000_000);
 });
 
-test("gates: a clean asset is rated; unlock and collapse are not evaluable in 2a and never fail", () => {
+test("gates: a clean asset is rated; without history, unlock and collapse are not evaluable and never fail", () => {
   const m = computeAssetMetrics(snap());
   assert.equal(m.rated, true);
   assert.equal(m.gate_status.unlock_overhang, "not_evaluable");
@@ -72,4 +72,16 @@ test("gates: mcap floor, liquidity and out-of-scope sectors each unrate", () => 
   assert.equal(computeAssetMetrics(snap({ market_cap_usd: 9_000_000 })).rated, false);
   assert.equal(computeAssetMetrics(snap({ volume_24h_usd: 1_000_000 })).rated, false);
   assert.equal(computeAssetMetrics(snap({ sector: "Chain" })).rated, false);
+});
+
+test("collapsing-revenue gate: fails below -60% vs the prior 90 days, passes above, not evaluable without history", () => {
+  const h = (rev_90d_change: number | null) => ({
+    mom_3w: null, mom_12w: null, beta_btc: null, rev_growth: null, rev_90d_change, dilution_rate: null, dilution_rate_implied: null,
+  });
+  const collapsed = computeAssetMetrics(snap(), undefined, h(-0.61));
+  assert.equal(collapsed.gate_status.collapsing_revenue, "fail");
+  assert.equal(collapsed.rated, false);
+  assert.equal(computeAssetMetrics(snap(), undefined, h(-0.59)).gate_status.collapsing_revenue, "pass");
+  assert.equal(computeAssetMetrics(snap(), undefined, h(null)).gate_status.collapsing_revenue, "not_evaluable");
+  assert.equal(computeAssetMetrics(snap(), undefined, h(-0.3)).rev_90d_change, -0.3, "history fields are carried onto the row");
 });

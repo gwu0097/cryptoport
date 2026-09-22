@@ -5,7 +5,10 @@ import { computeAssetMetrics, type SnapshotForMetrics } from "./metrics";
 import { evaluateRegime, percentileOf, oneValuePerDay, type RegimeInputs } from "./regime";
 import { fetchBtcDominancePct } from "./adapters/coingecko";
 import { fetchStablecoinSupply, fetchStablecoinDailyChange } from "./adapters/defillama";
-import { fetchPricesAt } from "./adapters/defillamaPrices";
+import { fetchPricesAt, fetchChartPrices } from "./adapters/defillamaPrices";
+import { computeHistoryMetrics, shiftDate, type Reading, type BtcReference } from "./history";
+import { fetchAllRows } from "./pagination";
+import { checkPlausibility, type PlausibilityWarning } from "./plausibility";
 import { fetchPerpContexts } from "./adapters/hyperliquid";
 
 // Phase 2a: everything derived from a finished live snapshot run — per-asset
@@ -41,17 +44,132 @@ export async function ensureConfigVersion(): Promise<string> {
   return again.data.id as string;
 }
 
-/** Metrics + gates for every asset in one live run. Idempotent: re-running
- * for the same run overwrites (upsert on the (run_id, asset_id) key). */
-export async function computeRunMetrics(runId: string, configVersionId: string): Promise<{ assets: number; rated: number }> {
+type HistoryRow = Reading & { id: string; asset_id: string; provenance_override?: { price_usd?: { source?: string } } | null };
+
+const HISTORY_SELECT =
+  "id, asset_id, observed_at, is_backfilled, run_id, price_usd, market_cap_usd, circulating_supply, revenue_30d, provenance_override";
+
+/** Every stored reading an asset's 2b metrics can need, up to `asOf`:
+ * the last ~95 days in full (beta 90d, momentum 84d, dilution 90d, revenue
+ * t/-30/-60/-90), plus the two older revenue checkpoints (t-120, t-150)
+ * as narrow date windows instead of reading ~155 days of rows. */
+async function loadHistoryReadings(asOf: string): Promise<{ rows: HistoryRow[]; ms: number }> {
+  const t0 = Date.now();
+  const db = serviceDb();
+  const tol = SCREENER_CONFIG.history.lookbackToleranceDays;
+  const end = asOf.slice(0, 10);
+  const ranges: [string, string][] = [[`${shiftDate(end, -95)}T00:00:00Z`, asOf]];
+  for (const back of [120, 150]) {
+    ranges.push([`${shiftDate(end, -back - tol)}T00:00:00Z`, `${shiftDate(end, -back + tol + 1)}T00:00:00Z`]);
+  }
+  const rows: HistoryRow[] = [];
+  for (const [from, to] of ranges) {
+    rows.push(
+      ...(await fetchAllRows<HistoryRow>(async (cursor, limit) => {
+        const res = await db
+          .from("screener_asset_snapshots")
+          .select(HISTORY_SELECT)
+          .gte("observed_at", from)
+          .lte("observed_at", to)
+          .gt("id", cursor)
+          .order("id")
+          .limit(limit);
+        return res as unknown as { data: HistoryRow[] | null; error: { message: string } | null };
+      })),
+    );
+  }
+  for (const r of rows) r.price_from_coingecko = r.is_backfilled && r.provenance_override?.price_usd?.source === "coingecko";
+  return { rows, ms: Date.now() - t0 };
+}
+
+/** BTC read at the same moments as the asset readings (see BtcReference in
+ * history.ts for why "daily point" isn't a moment):
+ * - each backfill run's rows: BTC from /chart started at that run's time of
+ *   day (its window started when it did, so its points sit on that grid);
+ * - CoinGecko-priced backfilled rows: BTC at 00:00 UTC;
+ * - live runs: the same-moment price in the run's notes (stored by the
+ *   snapshot job since 2b, from the same CoinGecko response as the assets);
+ *   older runs get DefiLlama's BTC at their exact observed_at, written back
+ *   into their notes so it's fetched only once. */
+async function loadBtcReference(
+  asOf: string,
+  liveRuns: Map<string, string>,
+  backfillRunIds: Set<string>,
+): Promise<{ btc: BtcReference; ms: number; backfilledRuns: number; grids: number }> {
+  const t0 = Date.now();
+  const db = serviceDb();
+  const firstDate = shiftDate(asOf.slice(0, 10), -100);
+  const chartFrom = async (timeOfDay: string) => {
+    const start = Math.floor(new Date(`${firstDate}T${timeOfDay}Z`).getTime() / 1000);
+    const points = (await fetchChartPrices(["bitcoin"], start, 101)).get("bitcoin") ?? [];
+    return new Map(points.map((p) => [p.date, p.priceUsd]));
+  };
+
+  const midnight = await chartFrom("00:00:00");
+  const backfillGridByRun = new Map<string, Map<string, number>>();
+  if (backfillRunIds.size > 0) {
+    const { data, error } = await db.from("screener_runs").select("id, started_at").in("id", [...backfillRunIds]);
+    if (error) throw new Error(`Failed to read backfill runs for BTC grids: ${error.message}`);
+    for (const run of data ?? []) {
+      backfillGridByRun.set(run.id as string, await chartFrom((run.started_at as string).slice(11, 19)));
+    }
+  }
+
+  const byRun = new Map<string, number>();
+  let backfilledRuns = 0;
+  const runIds = [...liveRuns.keys()];
+  if (runIds.length > 0) {
+    const { data, error } = await db.from("screener_runs").select("id, notes").in("id", runIds);
+    if (error) throw new Error(`Failed to read run notes for BTC reference: ${error.message}`);
+    for (const run of data ?? []) {
+      const notes = (run.notes ?? {}) as { reference_prices?: { bitcoin?: { price_usd?: number } } };
+      const stored = notes.reference_prices?.bitcoin?.price_usd;
+      if (typeof stored === "number") {
+        byRun.set(run.id as string, stored);
+        continue;
+      }
+      const observedAt = liveRuns.get(run.id as string)!;
+      const price = (await fetchPricesAt(["bitcoin"], Math.floor(new Date(observedAt).getTime() / 1000))).get("bitcoin");
+      if (price === undefined) continue; // stays unpaired -> that reading yields null, never a different-moment fallback
+      byRun.set(run.id as string, price);
+      backfilledRuns++;
+      await db
+        .from("screener_runs")
+        .update({
+          notes: {
+            ...(run.notes as Record<string, unknown>),
+            reference_prices: { bitcoin: { price_usd: price, source: `defillama /prices/historical at observed_at ${observedAt} (run predates same-response BTC)` } },
+          },
+        })
+        .eq("id", run.id as string);
+    }
+  }
+  return { btc: { backfillGridByRun, midnight, byRun }, ms: Date.now() - t0, backfilledRuns, grids: backfillGridByRun.size + 1 };
+}
+
+/** Metrics + gates for every asset in one live run, including the Phase 2b
+ * history-derived fields (as of the run's own observed_at — never later
+ * data). Idempotent: re-running overwrites (upsert on (run_id, asset_id)). */
+export async function computeRunMetrics(
+  runId: string,
+  configVersionId: string,
+): Promise<{
+  assets: number;
+  rated: number;
+  timing_ms: Record<string, number>;
+  history_rows: number;
+  btc_runs_backfilled: number;
+  btc_grids: number;
+  plausibility_warnings: PlausibilityWarning[];
+}> {
   const db = serviceDb();
   // A live run has ~700 rows; one page is enough, but page defensively.
-  const rows: (SnapshotForMetrics & { screener_assets: { gecko_id: string; sector: string | null } })[] = [];
+  const rows: (SnapshotForMetrics & { observed_at: string; screener_assets: { gecko_id: string; sector: string | null } })[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db
       .from("screener_asset_snapshots")
       .select(
-        "asset_id, price_usd, market_cap_usd, fdv_usd, circulating_supply, total_supply, max_supply, tvl_usd, fees_30d, revenue_30d, holders_revenue_30d, volume_24h_usd, screener_assets(gecko_id, sector)",
+        "asset_id, observed_at, price_usd, market_cap_usd, fdv_usd, circulating_supply, total_supply, max_supply, tvl_usd, fees_30d, revenue_30d, holders_revenue_30d, volume_24h_usd, screener_assets(gecko_id, sector)",
       )
       .eq("run_id", runId)
       .eq("is_backfilled", false)
@@ -61,10 +179,38 @@ export async function computeRunMetrics(runId: string, configVersionId: string):
     rows.push(...((data ?? []) as unknown as typeof rows));
     if (!data || data.length < 1000) break;
   }
+  if (rows.length === 0) throw new Error(`Run ${runId} has no live snapshot rows`);
+  const asOf = rows.reduce((max, r) => (r.observed_at > max ? r.observed_at : max), rows[0].observed_at);
 
+  const history = await loadHistoryReadings(asOf);
+  const byAsset = new Map<string, HistoryRow[]>();
+  const liveRuns = new Map<string, string>(); // run_id -> observed_at
+  const backfillRunIds = new Set<string>();
+  for (const h of history.rows) {
+    if (!byAsset.has(h.asset_id)) byAsset.set(h.asset_id, []);
+    byAsset.get(h.asset_id)!.push(h);
+    if (h.is_backfilled) backfillRunIds.add(h.run_id);
+    else liveRuns.set(h.run_id, h.observed_at);
+  }
+  const reference = await loadBtcReference(asOf, liveRuns, backfillRunIds);
+
+  const t0 = Date.now();
   const metrics = rows.map((r) =>
-    computeAssetMetrics({ ...r, gecko_id: r.screener_assets.gecko_id, sector: r.screener_assets.sector }),
+    computeAssetMetrics(
+      { ...r, gecko_id: r.screener_assets.gecko_id, sector: r.screener_assets.sector },
+      SCREENER_CONFIG,
+      computeHistoryMetrics(byAsset.get(r.asset_id) ?? [], asOf, reference.btc, SCREENER_CONFIG.history),
+    ),
   );
+  const computeMs = Date.now() - t0;
+  // Implausible run-level results are reported (run notes + log), never
+  // silently written as if fine — see plausibility.ts for why.
+  const plausibilityWarnings = checkPlausibility(metrics);
+  if (plausibilityWarnings.length > 0) {
+    console.warn(`[screener] run ${runId} plausibility warnings: ${JSON.stringify(plausibilityWarnings)}`);
+  }
+
+  const t1 = Date.now();
   const computedAt = new Date().toISOString();
   for (let i = 0; i < metrics.length; i += WRITE_CHUNK) {
     const { error } = await db.from("screener_asset_metrics").upsert(
@@ -73,7 +219,15 @@ export async function computeRunMetrics(runId: string, configVersionId: string):
     );
     if (error) throw new Error(`Failed to write screener_asset_metrics: ${error.message}`);
   }
-  return { assets: metrics.length, rated: metrics.filter((m) => m.rated).length };
+  return {
+    assets: metrics.length,
+    rated: metrics.filter((m) => m.rated).length,
+    history_rows: history.rows.length,
+    btc_runs_backfilled: reference.backfilledRuns,
+    btc_grids: reference.grids,
+    plausibility_warnings: plausibilityWarnings,
+    timing_ms: { history_read: history.ms, btc_reference: reference.ms, compute: computeMs, write: Date.now() - t1 },
+  };
 }
 
 const SOURCE_RETRY_DELAY_MS = 5000;
