@@ -210,7 +210,8 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
     // BTC rides along in the same /coins/markets call: Phase 2b pairs each
     // live asset price with a BTC price read at the SAME moment (SPEC
     // standing rule, levels case), and the same response is as same-moment
-    // as it gets. BTC has no fee data, so it's never a universe row itself.
+    // as it gets. (BTC is also a universe asset itself — DefiLlama lists a
+    // `bitcoin` protocol — hence the Set: it's fetched once either way.)
     const geckoIds = [...new Set([...groups.keys(), BTC_GECKO_ID])];
     const marketRows = await fetchMarketsByIds(geckoIds);
     const marketByGeckoId = new Map(marketRows.map((r) => [r.id, r]));
