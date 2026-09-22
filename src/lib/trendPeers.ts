@@ -201,21 +201,43 @@ export async function getCoinCategories(coingeckoId: string): Promise<string[] |
   }
 }
 
-/** Resolves the AI's raw {ticker, reason} pairs to real CoinGecko coin ids
- * via the same searchCoins()+pickBestMatch() pair Watchlist's bulk-add
- * already trusts for exactly this "a bare ticker string might not be what
- * it looks like" problem — a ticker that doesn't resolve confidently is
- * dropped, never guessed at. One /search call per ticker (no batch
- * endpoint), so this is bounded by how many tickers the AI actually names
- * (typically a handful), not a concern at this scale. Returns id -> reason
- * so page.tsx can show each AI-suggested row's own specific justification
- * (see AiPeerTicker's own doc comment) rather than just the list. */
-async function resolveAiTickers(tickers: AiPeerTicker[]): Promise<Map<string, string>> {
+/** Resolves the AI's raw {ticker, reason} pairs to real CoinGecko coin
+ * ids — a ticker that doesn't resolve confidently is dropped, never
+ * guessed at. Two steps:
+ *
+ * 1. The seed's own category members first (`members`), by exact symbol,
+ *    highest market cap winning a symbol shared within them. The category
+ *    is the right context for an ambiguous ticker. Found live on
+ *    2026-09-22: CoinGecko's /search for the one-letter "W" doesn't return
+ *    Wormhole at all, so the search path resolved the AI's "W" to WhiteBIT
+ *    and Wormhole — a real same-category peer — landed in "different
+ *    category".
+ * 2. Otherwise /search, accepted only on an exact symbol match.
+ *    pickBestMatch falls back to the top result when nothing matches
+ *    exactly (right for Watchlist bulk-add, where a human reviews what
+ *    gets added), which here silently turned a ticker into a different
+ *    coin.
+ *
+ * One /search call per ticker not found among members (no batch
+ * endpoint) — bounded by how many tickers the AI names. Returns id ->
+ * reason so each AI-suggested row can show its own justification. */
+async function resolveAiTickers(tickers: AiPeerTicker[], members: ReadonlyMap<string, PeerRow>): Promise<Map<string, string>> {
+  const memberBySymbol = new Map<string, PeerRow>();
+  for (const m of members.values()) {
+    const sym = m.symbol.toUpperCase();
+    const current = memberBySymbol.get(sym);
+    if (!current || (m.marketCap ?? -1) > (current.marketCap ?? -1)) memberBySymbol.set(sym, m);
+  }
+
   const reasonsById = new Map<string, string>();
   for (const { ticker, reason } of tickers) {
-    const results = await searchCoins(ticker);
-    const match = pickBestMatch(ticker, results);
-    if (match && !reasonsById.has(match.id)) reasonsById.set(match.id, reason);
+    const sym = ticker.toUpperCase();
+    let id = memberBySymbol.get(sym)?.id ?? null;
+    if (!id) {
+      const match = pickBestMatch(ticker, await searchCoins(ticker));
+      if (match && match.symbol.toUpperCase() === sym) id = match.id;
+    }
+    if (id && !reasonsById.has(id)) reasonsById.set(id, reason);
   }
   return reasonsById;
 }
@@ -295,12 +317,11 @@ export async function findTrendPeers({
     .slice(0, MAX_ANCHOR_CATEGORIES);
   const categoryCheck = seedCategories !== null && categories.length > 0;
 
-  const [memberLists, aiPeerReasons] = await Promise.all([
-    Promise.all(categories.map((c) => fetchCategoryMembers(c.id))),
-    data ? resolveAiTickers(data.aiTickers) : Promise.resolve(new Map<string, string>()),
-  ]);
+  const memberLists = await Promise.all(categories.map((c) => fetchCategoryMembers(c.id)));
   const membersById = new Map<string, PeerRow>();
   for (const list of memberLists) for (const m of list) membersById.set(m.id, m);
+  // After members are known — they're the first place an AI ticker is resolved.
+  const aiPeerReasons = data ? await resolveAiTickers(data.aiTickers, membersById) : new Map<string, string>();
 
   const aiPeerInfo = await fetchMarketsByIds([...aiPeerReasons.keys()]);
   const aiSameCategory = categoryCheck ? aiPeerInfo.filter((p) => membersById.has(p.id)) : aiPeerInfo;
