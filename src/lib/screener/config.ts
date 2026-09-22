@@ -118,6 +118,10 @@ export const SCREENER_CONFIG = {
     frothFundingPercentile: 0.9,
     frothOiMinusPriceChangePts: 20,
     precedence: ["FROTH", "RISK_OFF", "ROTATION", "BTC_LED"],
+    /** Decided 2026-09-22: stablecoin 30d change = DefiLlama's dated daily
+     * chart, last complete day vs exactly 30 days earlier. Switches to our
+     * own stored supply history once 30 days exist (BACKLOG, ~2026-10-22). */
+    stablecoinChangeSource: "defillama /stablecoincharts/all: last complete day vs 30 days earlier",
   },
 
   /** Holder value-capture mechanisms, keyed by gecko_id. Absent = no known

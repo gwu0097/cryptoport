@@ -205,3 +205,38 @@ export async function fetchStablecoinSupply(): Promise<StablecoinSupply> {
   }
   return { totalUsd, prevMonthUsd, assetsCounted };
 }
+
+export interface StablecoinDailyChange {
+  latestDate: string; // YYYY-MM-DD, the last COMPLETE day
+  latestUsd: number;
+  priorDate: string; // exactly `days` earlier
+  priorUsd: number;
+}
+
+/** USD-pegged stablecoin supply on the last complete day and exactly `days`
+ * earlier, from DefiLlama's dated daily chart (/stablecoincharts/all,
+ * totalCirculatingUSD.peggedUSD). The regime's chosen source (decided
+ * 2026-09-22): "a month ago" is explicit date arithmetic here rather than the
+ * snapshot endpoint's undocumented circulatingPrevMonth — the two disagreed
+ * across BTC_LED's ±1% band (1.15% vs 0.94%). Today's point is dropped: it
+ * carries extra fields (totalMintedUSD, ...) and an intraday value, live-
+ * verified, so it isn't a daily close. */
+export async function fetchStablecoinDailyChange(days: number): Promise<StablecoinDailyChange> {
+  const res = await fetchWithRetry("https://stablecoins.llama.fi/stablecoincharts/all");
+  if (!res.ok) throw new Error(`DefiLlama /stablecoincharts/all failed: HTTP ${res.status}`);
+  const body: { date: string | number; totalCirculatingUSD?: { peggedUSD?: number } }[] = await res.json();
+  const byDate = new Map<string, number>();
+  for (const p of body) {
+    const usd = p.totalCirculatingUSD?.peggedUSD;
+    if (typeof usd === "number") byDate.set(new Date(Number(p.date) * 1000).toISOString().slice(0, 10), usd);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const latestDate = [...byDate.keys()].filter((d) => d < today).sort().at(-1);
+  if (!latestDate) throw new Error("/stablecoincharts/all has no complete day");
+  const prior = new Date(`${latestDate}T00:00:00Z`);
+  prior.setUTCDate(prior.getUTCDate() - days);
+  const priorDate = prior.toISOString().slice(0, 10);
+  const priorUsd = byDate.get(priorDate);
+  if (priorUsd === undefined) throw new Error(`/stablecoincharts/all has no point for ${priorDate}`);
+  return { latestDate, latestUsd: byDate.get(latestDate)!, priorDate, priorUsd };
+}

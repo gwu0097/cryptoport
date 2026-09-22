@@ -1516,7 +1516,8 @@ create table cryptoport.screener_regime_snapshots (
   btc_dominance_4w_change_pts      double precision,
   eth_btc_4w_change_pct            double precision,
   stablecoin_supply_usd            double precision,
-  stablecoin_supply_30d_change_pct double precision,
+  stablecoin_supply_30d_change_pct double precision,   -- chosen source: /stablecoincharts/all, last complete day vs 30 days earlier
+  stablecoin_supply_30d_change_pct_prevmonth double precision,  -- /stablecoins circulatingPrevMonth; comparison only (added 2026-09-22)
   avg_funding_rate_hourly          double precision,
   funding_percentile_1y            double precision,
   btc_open_interest_usd            double precision,

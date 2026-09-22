@@ -17,6 +17,11 @@ Committed copy of items tracked in this session's memory (`~/.claude/projects/<p
 
 **Retention (decided)**: a monthly local job (`scripts/screener-archive.ts --delete`, launchd plist in `scripts/launchd/`) exports every snapshot row older than 400 days to Parquet under `~/cryptoport-archive/screener`, verifies it row-for-row (count + content SHA-256), then deletes those rows. Monthly from the start, not on a quota trigger, so the path is exercised early (backfilled rows cross 400 days ~35 days after a backfill). Export + verify tested on 424 real rows; `--delete` not yet exercised. **The archive dir is the only copy of any live row it removes — it must be on a backed-up disk.** Thresholds (per-row cost, steady-state size) get locked after the validation backfill measures real bytes/row.
 
+### Regime: stablecoin 30-day change → our own stored history — due ~2026-10-22
+**Raised**: Phase 2a sign-off, 2026-09-22. **Status**: scheduled, not started.
+
+The regime's stablecoin 30-day change currently comes from DefiLlama's `/stablecoincharts/all` (last complete day vs exactly 30 days earlier; see SPEC, "Stablecoin 30-day change"). Two DefiLlama endpoints disagreed across BTC_LED's ±1% band, so the long-term fix is to not depend on either API's history. Compute the change from `screener_regime_snapshots.stablecoin_supply_usd` (stored daily since 2026-09-22) once a row exists ~30 days back (±3-day tolerance), with the endpoint value as the fallback. Keep storing the `_prevmonth` comparison column until the switch is verified, then decide whether to drop it.
+
 ### Storage watch-line automation — open
 **Raised**: storage-fix sign-off, 2026-09-22. **Status**: not started.
 

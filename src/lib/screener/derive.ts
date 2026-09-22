@@ -4,7 +4,7 @@ import { SCREENER_CONFIG, configHash, validateConfig } from "./config";
 import { computeAssetMetrics, type SnapshotForMetrics } from "./metrics";
 import { evaluateRegime, percentileOf, oneValuePerDay, type RegimeInputs } from "./regime";
 import { fetchBtcDominancePct } from "./adapters/coingecko";
-import { fetchStablecoinSupply } from "./adapters/defillama";
+import { fetchStablecoinSupply, fetchStablecoinDailyChange } from "./adapters/defillama";
 import { fetchPricesAt } from "./adapters/defillamaPrices";
 import { fetchPerpContexts } from "./adapters/hyperliquid";
 
@@ -120,7 +120,14 @@ export async function computeRegime(runId: string, configVersionId: string): Pro
   const lookbackEpoch = Math.floor((Date.now() - cfg.lookbackDays * DAY_MS) / 1000);
 
   const btcDominancePct = await source(provenance, "btc_dominance", "coingecko /global", fetchBtcDominancePct);
-  const stables = await source(provenance, "stablecoin_supply", "stablecoins.llama.fi /stablecoins", fetchStablecoinSupply);
+  // Chosen source: the dated daily chart (see fetchStablecoinDailyChange).
+  // The snapshot endpoint's circulatingPrevMonth figure is stored alongside
+  // (…_prevmonth) only to see when the two would disagree, until the 30d
+  // change switches to our own stored history (BACKLOG, ~2026-10-22).
+  const stableChange = await source(provenance, "stablecoin_daily_chart", "stablecoins.llama.fi /stablecoincharts/all", () =>
+    fetchStablecoinDailyChange(30),
+  );
+  const stables = await source(provenance, "stablecoin_snapshot", "stablecoins.llama.fi /stablecoins", fetchStablecoinSupply);
   const pricesNow = await source(provenance, "prices_now", "coins.llama.fi /prices/current", () =>
     fetchPricesAt(["bitcoin", "ethereum"]),
   );
@@ -162,7 +169,7 @@ export async function computeRegime(runId: string, configVersionId: string): Pro
     btcDominance4wChangePts:
       btcDominancePct !== null && near?.btc_dominance_pct != null ? btcDominancePct - (near.btc_dominance_pct as number) : null,
     ethBtc4wChangePct: btcNow && ethNow && btcThen && ethThen ? pctChange(ethNow / btcNow, ethThen / btcThen) : null,
-    stablecoinSupply30dChangePct: stables ? pctChange(stables.totalUsd, stables.prevMonthUsd) : null,
+    stablecoinSupply30dChangePct: stableChange ? pctChange(stableChange.latestUsd, stableChange.priorUsd) : null,
     fundingPercentile: percentileOf(avgFunding, fundingHistory, cfg.fundingHistoryMinDays),
     btcOi4wChangePct: pctChange(btc?.openInterestUsd, near?.btc_open_interest_usd as number | null | undefined),
     btcPrice4wChangePct: pctChange(btcNow, btcThen),
@@ -172,6 +179,7 @@ export async function computeRegime(runId: string, configVersionId: string): Pro
     lookback_row_computed_at: near?.computed_at ?? null,
     funding_history_points: fundingHistory.length,
     stablecoin_assets_counted: stables?.assetsCounted ?? null,
+    stablecoin_change_dates: stableChange ? [stableChange.priorDate, stableChange.latestDate] : null,
   };
 
   const { error } = await db.from("screener_regime_snapshots").upsert(
@@ -183,8 +191,9 @@ export async function computeRegime(runId: string, configVersionId: string): Pro
       btc_dominance_pct: inputs.btcDominancePct,
       btc_dominance_4w_change_pts: inputs.btcDominance4wChangePts,
       eth_btc_4w_change_pct: inputs.ethBtc4wChangePct,
-      stablecoin_supply_usd: stables?.totalUsd ?? null,
+      stablecoin_supply_usd: stableChange?.latestUsd ?? null,
       stablecoin_supply_30d_change_pct: inputs.stablecoinSupply30dChangePct,
+      stablecoin_supply_30d_change_pct_prevmonth: stables ? pctChange(stables.totalUsd, stables.prevMonthUsd) : null,
       avg_funding_rate_hourly: avgFunding,
       funding_percentile_1y: inputs.fundingPercentile,
       btc_open_interest_usd: btc?.openInterestUsd ?? null,
