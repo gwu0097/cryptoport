@@ -1,7 +1,32 @@
+"use client";
+
 import Link from "next/link";
 import type { WalletWithTotal } from "@/lib/queries";
 import { formatUsd } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { SortableHeader } from "@/components/ui/SortableHeader";
+import { usePersistedState } from "@/components/usePersistedState";
+
+type SortKey = "name" | "chain" | "tags" | "mode" | "value";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
+
+const STORAGE_KEY = "cryptoport:adminWalletsSort";
+const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
+
+function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
+  switch (key) {
+    case "name":
+      return wallet.name;
+    case "chain":
+      return wallet.chain;
+    case "tags":
+      return wallet.tags.map((t) => t.name).join(", ");
+    case "mode":
+      return wallet.mode;
+    case "value":
+      return wallet.total;
+  }
+}
 
 /**
  * A deliberately separate, minimal component from the real WalletsTable —
@@ -16,26 +41,59 @@ import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass
  * change another user's data — not "the button is hidden," there is no
  * button.
  *
+ * Sortable via the same SortableHeader/usePersistedState pattern every
+ * other table in this app uses (AssetsTable, WatchlistTable, HoldingsTable)
+ * — see CLAUDE.md's UI conventions section: every table gets this by
+ * default now, not as a one-off request per table.
+ *
  * Each row still links through to `/admin/{userId}/wallets/{wallet.id}` —
  * reported directly: "I can peek at the wallets but I can't go into
  * them." That page is the same kind of read-only-by-construction reuse,
  * just for a single wallet's holdings/sync status instead of the list.
  */
 export function AdminWalletsTable({ userId, wallets }: { userId: string; wallets: WalletWithTotal[] }) {
+  const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const { key: sortKey, dir: sortDir } = sort;
+
+  function toggleSort(key: SortKey) {
+    setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }
+
+  const sorted = [...wallets].sort((a, b) => {
+    const av = sortValue(a, sortKey);
+    const bv = sortValue(b, sortKey);
+    const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+    return sortDir === "desc" ? -cmp : cmp;
+  });
+
   return (
     <div className="overflow-x-auto">
       <table className={tableClass}>
         <thead>
           <tr className={theadRowClass}>
-            <th className={thClass}>Name</th>
-            <th className={thClass}>Chain</th>
-            <th className={`${thClass} ${hideOnMobileClass}`}>Tags</th>
-            <th className={`${thClass} ${hideOnMobileClass}`}>Mode</th>
-            <th className={thClass}>Value</th>
+            <SortableHeader label="Name" sortKeyValue="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortableHeader label="Chain" sortKeyValue="chain" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortableHeader
+              label="Tags"
+              sortKeyValue="tags"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
+              className={hideOnMobileClass}
+            />
+            <SortableHeader
+              label="Mode"
+              sortKeyValue="mode"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
+              className={hideOnMobileClass}
+            />
+            <SortableHeader label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
           </tr>
         </thead>
         <tbody>
-          {wallets.map((wallet) => (
+          {sorted.map((wallet) => (
             <tr key={wallet.id} className={trClass}>
               <td className={tdClass}>
                 <Link href={`/admin/${userId}/wallets/${wallet.id}`} className="hover:text-accent hover:underline">

@@ -291,6 +291,18 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   wrapped in `overflow-x-auto`; mobile nav is a separate drawer sharing
   `navItems.tsx` with the desktop sidebar rather than a divergent nav
   structure.
+- **Every table gets sortable columns by default** — not a per-table
+  request, the baseline for any new table with more than a couple of rows
+  worth reordering. Use the shared `SortableHeader`/`SortIcon`
+  (`ui/SortableHeader.tsx`) for the header cells and `usePersistedState`
+  (keyed `cryptoport:<table>Sort`, e.g. `cryptoport:adminWalletsSort`) so
+  the chosen sort survives a reload — see AssetsTable.tsx, WatchlistTable.tsx,
+  HoldingsTable.tsx, and AdminWalletsTable.tsx for the exact shape (a local
+  `SortKey` union, a `sortValue(row, key)` switch, `toggleSort` flipping
+  direction on a repeat click else defaulting to `desc`). A column with no
+  sensible sort value (an actions column, a rendered icon with no
+  underlying scalar) just doesn't get a `SortableHeader` — the rest of the
+  table still does.
 
 ## Database/schema conventions
 
