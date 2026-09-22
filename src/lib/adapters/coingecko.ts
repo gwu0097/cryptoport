@@ -372,6 +372,19 @@ export interface MarketDataRow {
   change24h: number | null;
   change7d: number | null;
   marketCap: number | null;
+  /** Fully diluted valuation, circulating/total/max supply, and 24h volume
+   * — all present in the same /coins/markets response every row here
+   * already comes from, just unparsed until the screener needed them
+   * (src/lib/screener/adapters/coingecko.ts). Added here rather than as a
+   * separate screener-only fetcher since it's the same endpoint, same
+   * call, zero extra cost — CLAUDE.md's "don't duplicate a second near-
+   * identical adapter" rule. Existing callers are unaffected (additive
+   * fields only). */
+  fdv: number | null;
+  circulatingSupply: number | null;
+  totalSupply: number | null;
+  maxSupply: number | null;
+  volume24h: number | null;
 }
 
 export interface CategoryStat {
@@ -417,6 +430,11 @@ interface MarketsResponseRow {
   price_change_percentage_24h_in_currency?: number;
   price_change_percentage_7d_in_currency?: number;
   market_cap?: number;
+  fully_diluted_valuation?: number;
+  circulating_supply?: number;
+  total_supply?: number;
+  max_supply?: number;
+  total_volume?: number;
 }
 
 /** Shared response shape for every /coins/markets call in this file
@@ -434,6 +452,11 @@ function parseMarketsRow(c: MarketsResponseRow): MarketDataRow {
       typeof c.price_change_percentage_24h_in_currency === "number" ? c.price_change_percentage_24h_in_currency : null,
     change7d: typeof c.price_change_percentage_7d_in_currency === "number" ? c.price_change_percentage_7d_in_currency : null,
     marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
+    fdv: typeof c.fully_diluted_valuation === "number" ? c.fully_diluted_valuation : null,
+    circulatingSupply: typeof c.circulating_supply === "number" ? c.circulating_supply : null,
+    totalSupply: typeof c.total_supply === "number" ? c.total_supply : null,
+    maxSupply: typeof c.max_supply === "number" ? c.max_supply : null,
+    volume24h: typeof c.total_volume === "number" ? c.total_volume : null,
   };
 }
 
@@ -455,13 +478,21 @@ export async function fetchCategoryMembers(categoryId: string): Promise<MarketDa
   return fetchMarketsPage(`category=${categoryId}`);
 }
 
-/** Live display data for a small, explicit set of ids — one batched call
- * (CoinGecko's ids= filter accepts a comma-separated list), not one call
- * per id. Trend Finder v3 uses this for its AI-resolved peer tickers
- * (trendPeers.ts); empty input short-circuits without a call. */
+/** Live display data for an explicit set of ids, chunked at
+ * MARKETS_BATCH_SIZE (CoinGecko's own per-call ids= cap) rather than
+ * passed through in one shot — Trend Finder v3's AI-resolved peer list
+ * (trendPeers.ts) is always well under 250 so this was previously a no-op
+ * distinction, but the screener's universe (screener/snapshot.ts) can
+ * realistically exceed it; batching here fixes it for every caller at
+ * once instead of adding a second, screener-only wrapper around the same
+ * endpoint. Empty input short-circuits without a call. */
 export async function fetchMarketsByIds(ids: string[]): Promise<MarketDataRow[]> {
   if (ids.length === 0) return [];
-  return fetchMarketsPage(`ids=${ids.join(",")}`, 1, ids.length);
+  const results: MarketDataRow[] = [];
+  for (const batch of chunk(ids, MARKETS_BATCH_SIZE)) {
+    results.push(...(await fetchMarketsPage(`ids=${batch.join(",")}`, 1, batch.length)));
+  }
+  return results;
 }
 
 export interface SeedInfo {
