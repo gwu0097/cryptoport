@@ -38,7 +38,13 @@ export async function fetchGeminiBalances(
   apiKey: string,
   apiSecret: string,
 ): Promise<{ holdings: AdapterHolding[]; warnings: string[] }> {
-  const payload = { request: BALANCES_PATH, nonce: Date.now().toString() };
+  // Gemini validates the nonce against its own server clock in Unix
+  // *seconds* (live-verified from a real 400: "Nonce '1790040997692' is
+  // not within 30 seconds of server time '1790040997'" — the rejected
+  // nonce was literally the server's own second value in milliseconds,
+  // Date.now() sent unconverted), not the millisecond epoch every other
+  // adapter's nonce/timestamp in this app uses.
+  const payload = { request: BALANCES_PATH, nonce: Math.floor(Date.now() / 1000).toString() };
   const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
   const signature = createHmac("sha384", apiSecret).update(payloadBase64).digest("hex");
 
