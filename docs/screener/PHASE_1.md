@@ -110,10 +110,20 @@ Backfilled rows can now genuinely mix sources within one row (DefiLlama price, C
 
 Different inclusion rules (unknown exact study methodology) and a different date (the study's snapshot date vs. this run's 2026-09-22) — not chasing this further. Reference table for whoever revisits it: mcap≥$10M → 225 (nonzero-fees definition) / 52 (real 3-gate definition); mcap≥$50M → 124 / 46; mcap≥$100M → 85 / 40.
 
-### 6. Backfill re-run with DefiLlama price + CoinGecko mcap merge
+### 6. Backfill re-run with DefiLlama price + CoinGecko mcap merge — BLOCKED, not run
 
-*[Pending — backfill re-run in progress with the new DefiLlama deep-price source (approved at sign-off) batched via `/chart` (multi-coin, chained past its 500-point/call cap) at the validated serial/1.5s throttle. Will report: rows written, date range covered, share of the 682 with price beyond 365 days, and how many rows have price but null mcap, once it completes.]*
+Not done. Sequence of what actually happened, for the record:
+
+1. First real run (682 assets, DefiLlama-preferred price + CoinGecko mcap/volume merge) hit a real performance bug: an early design updated already-backfilled dates' price in place via a per-row SELECT-then-UPDATE round trip — at ~365 overlapping days × hundreds of assets, that was thousands of sequential round trips for marginal benefit. Caught and stopped before it ran for hours; redesigned to insert-only (DefiLlama price only ever wins for a genuinely new date, never retroactively corrects an existing one — see `SPEC.md`'s non-negotiable-principles amendment).
+2. Re-run with the fix hit a second real bug: the price pre-fetch batched multiple assets per `/chart` call but only throttled *between* batches, not between a batch's own up-to-4 chained span-500 calls — risking exactly the kind of request burst that caused the original rate-limit lockout. Fixed: `fetchChartPrices` now throttles every individual HTTP call itself, unconditionally (see `defillamaPrices.ts`). Also added explicit per-date dedup within that function (a chained call's boundary can legitimately overlap the next one, since DefiLlama's returned timestamps carry real jitter, not exact day multiples) — previously this was only incidentally absorbed by a downstream Map overwrite, now it's deliberate.
+3. Before a validated re-run could happen, **Supabase storage was found at 355% over the free-tier quota (1.776/0.5 GB)** — very likely caused by this session's own backfill activity (924,746 rows written across two runs before ~383,557 duplicates were caught and deleted). **All further backfill runs — including the smaller 20-asset validation that was about to replace the full 682-asset run — are paused until that's diagnosed.** Full detail: `BACKLOG.md`'s "Supabase free tier storage" entry (marked high priority).
+
+**What this means for Phase 1 sign-off**: the backfill script itself is built, code-reviewed, and its real bugs are fixed — but it has not produced a validated dataset. Item 6's original ask (rows written, date range, price-depth share, null-mcap count) cannot be answered until the storage issue is resolved and a real run completes. This does not block sign-off on the rest of Phase 1 (the live daily snapshot job is a separate, much smaller write path, already deployed and running on its own schedule) — but the backfilled historical dataset should be treated as not-yet-produced, not as an existing asset with unreported numbers.
+
+### Deploy status
+
+Deployed. Confirmed directly against production (`vercel crons ls`, not just local `vercel.json`): `/api/cron/screener-snapshot` is registered, schedule `0 7 * * *`. First real scheduled firing: 2026-09-23 07:00 UTC. To pause if the storage diagnosis points at the snapshot table: Vercel dashboard → cryptoport project → Settings → Cron Jobs (instant, no redeploy needed) — see `BACKLOG.md`'s storage entry.
 
 ---
 
-Stopping here per the brief pending item 6. Nothing committed except the code itself, per your own "leave uncommitted for review" — you're reviewing and deploying Phase 1 yourself.
+Phase 1 code is committed (single commit, `a08f8a5`) and deployed. The backfilled dataset remains unproduced pending the storage diagnosis — see item 6 above and `BACKLOG.md`.
