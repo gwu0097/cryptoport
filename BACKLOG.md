@@ -38,8 +38,8 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
-### Trend Finder — AI peer "why" doesn't explain the peer-to-seed connection — FIXED 2026-09-22
-**Raised**: general use, 2026-09-22 (ZRO/LayerZero example). **Fixed**: `explainTrend`'s prompt (`src/lib/adapters/perplexity.ts`) now requires each peer reason in relational form — "Same driver as <seed> (<shared catalyst>): <this token's own exposure>" — and to say "Broader theme, not the same catalyst" when the link is only thematic. Live-verified on ZRO: MORPHO/AERO/UNI each named Circle's Arc launch as the shared driver, then their own exposure. Stored explanations are reused until refreshed (CLAUDE.md caching rule 4), so older tokens show the old-style reasons until someone hits Refresh — deliberately not mass-invalidated (each recompute is a paid Perplexity call).
+### Trend Finder — peers weren't anchored to what the token does — FIXED 2026-09-22
+**Raised**: general use, 2026-09-22 (ZRO/LayerZero example: MORPHO/AERO/UNI named as "peers" because all were Circle Arc launch partners — "like saying a project launched on Solana must be the same as another app launched on Solana"). **Fixed** in two steps: (1) peer reasons must be relational ("Same driver as <seed> (<catalyst>): <exposure>"); (2) peers are anchored on the seed's own CoinGecko functional categories (`categoryFilter.ts` drops chain-ecosystem/investor/index/listing tags; `coin_categories` 7-day cache), which are passed into the Perplexity search and enforced in code — an AI-named token only counts as a peer if it's a member of one of those categories; the rest show as "same news, different category". Live-verified on ZRO: anchor "Cross-chain Communication", AI peers W/LINK/AXL/STG. Stored explanations are reused until refreshed, so tokens scanned earlier keep old-style reasons until Refresh — but the code-side category gate applies to them immediately.
 
 ### SMC signal overlay — spec provided, not built
 **Raised**: user-provided spec, `external/smc_signal_overlay_spec.md`, added 2026-09-22.

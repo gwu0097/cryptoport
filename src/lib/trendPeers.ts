@@ -4,12 +4,14 @@ import {
   fetchCategoryStats,
   fetchCategoryMembers,
   fetchMarketsByIds,
+  fetchCoinCategories,
   searchCoins,
   type SeedInfo,
   type CategoryStat,
 } from "./adapters/coingecko";
 import { explainTrend, type TrendExplanation, type AiPeerTicker } from "./adapters/perplexity";
-import { rankPeers, matchCategoryName, type PeerRow } from "./trendFinder";
+import { rankPeers, type PeerRow } from "./trendFinder";
+import { anchorCategories } from "./categoryFilter";
 import { pickBestMatch } from "./watchlistInput";
 import { serviceDb } from "./supabase";
 import { JOB_STALE_MS } from "./jobStatus";
@@ -129,7 +131,11 @@ export async function claimTrendExplanation(seedId: string): Promise<boolean> {
  * forever) so the claim can be retried instead of permanently wedged. */
 export async function runTrendExplanation(seedId: string, symbol: string, name: string): Promise<void> {
   try {
-    const result = await explainTrend(symbol, name);
+    // Unknown categories (CoinGecko error) shouldn't block the scan — the
+    // prompt then asks the AI to judge the token's function itself, and
+    // findTrendPeers says the peer list couldn't be category-checked.
+    const categories = await getCoinCategories(seedId).catch(() => null);
+    const result = await explainTrend(symbol, name, anchorCategories(categories ?? []));
     if (!result) {
       const { error } = await serviceDb()
         .from("trend_explanations")
@@ -160,6 +166,41 @@ export async function runTrendExplanation(seedId: string, symbol: string, name: 
   }
 }
 
+// Category membership changes on the order of months; a stale list only
+// shifts which tokens count as peers, it never shows a wrong price.
+const COIN_CATEGORIES_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A coin's raw CoinGecko category names, cached in coin_categories (the
+ * existing 7-day-TTL table — slow-changing reference data, CLAUDE.md
+ * caching rule 2). Live fetch on a miss or a stale row; if the live fetch
+ * fails, a stale row is still used rather than nothing. null = unknown
+ * (no row and the live fetch failed, or CoinGecko has no such coin). */
+export async function getCoinCategories(coingeckoId: string): Promise<string[] | null> {
+  const db = serviceDb();
+  const { data: row, error } = await db
+    .from("coin_categories")
+    .select("categories, updated_at")
+    .eq("coingecko_id", coingeckoId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to read coin_categories: ${error.message}`);
+  const cached = row && Array.isArray(row.categories) ? (row.categories as string[]) : null;
+  const fresh = row?.updated_at && Date.now() - new Date(row.updated_at as string).getTime() < COIN_CATEGORIES_TTL_MS;
+  if (cached && fresh) return cached;
+
+  try {
+    const live = await fetchCoinCategories(coingeckoId);
+    if (live === null) return cached;
+    const { error: upsertError } = await db
+      .from("coin_categories")
+      .upsert({ coingecko_id: coingeckoId, categories: live, updated_at: new Date().toISOString() });
+    if (upsertError) console.warn(`[trendPeers] coin_categories upsert(${coingeckoId}) failed: ${upsertError.message}`);
+    return live;
+  } catch (e) {
+    console.warn(`[trendPeers] fetchCoinCategories(${coingeckoId}) failed: ${(e as Error).message}`);
+    return cached;
+  }
+}
+
 /** Resolves the AI's raw {ticker, reason} pairs to real CoinGecko coin ids
  * via the same searchCoins()+pickBestMatch() pair Watchlist's bulk-add
  * already trusts for exactly this "a bare ticker string might not be what
@@ -179,40 +220,56 @@ async function resolveAiTickers(tickers: AiPeerTicker[]): Promise<Map<string, st
   return reasonsById;
 }
 
+// Cap on how many of the seed's functional categories get their member
+// list fetched (one /coins/markets call each). Most tokens have 1-3; a
+// broad multi-narrative L1 (NEAR has 6) shouldn't fan out unbounded.
+const MAX_ANCHOR_CATEGORIES = 6;
+
 export type TrendPeersResult =
   | { status: "no-seed-data"; seedId: string }
   | {
       status: "ok";
       seed: SeedInfo;
       explanation: TrendExplanationRow;
-      category: CategoryStat | null;
+      /** The seed's functional CoinGecko categories (see categoryFilter.ts)
+       * — what a peer must share. Empty when CoinGecko gives none, or when
+       * the lookup failed (`categoryCheck === false` distinguishes). */
+      anchorCategoryNames: string[];
+      /** Anchor categories resolved to real CoinGecko category ids — the
+       * ones whose members were actually fetched. */
+      categories: CategoryStat[];
+      /** false = categories couldn't be determined, so AI suggestions
+       * below are NOT category-checked (the UI says so). */
+      categoryCheck: boolean;
       categoryPeers: PeerRow[];
+      /** AI-named tokens that share a functional category with the seed. */
       aiPeers: PeerRow[];
-      /** id -> the AI's specific reason for naming that peer — keyed
-       * separately from aiPeers since PeerRow is shared with the category
-       * table (which has no per-row reason). */
+      /** AI-named tokens from a different category — same news, not peers. */
+      aiOtherCategory: PeerRow[];
+      /** id -> the AI's specific reason for naming that token (both lists). */
       aiPeerReasons: Map<string, string>;
     };
 
 /**
- * The Trend Finder orchestrator: reads a stored, web-search-grounded AI
- * explanation of why the seed is moving and what else is moving for a
- * similar reason, cross-referenced against CoinGecko's own category
- * taxonomy — replaces v2's price-correlation approach entirely (see
- * trendFinder.ts's doc comment for why: real recent rotations and
- * narrative-driven moves this session checked against aren't present in
- * price history at any lag, only in news). Own file rather than
- * queries.ts, matching how lookup.ts owns the lookup page's orchestration.
+ * The Trend Finder orchestrator. Peers are anchored on the seed's OWN
+ * CoinGecko functional categories (categoryFilter.ts), not on the AI's
+ * narrative: reported directly (ZRO example), the old flow let the AI's
+ * news story define both panels — its free-text category guess picked the
+ * "category" panel, and every Circle Arc launch partner became an "AI
+ * peer" — so a cross-chain messaging token got a lending protocol and two
+ * DEXes as peers. Now: the seed's functional categories define the
+ * category panel (their members), are passed into the AI search (see
+ * runTrendExplanation), and gate the AI's suggestions in code — an AI-
+ * named token counts as a peer only if it's a member of one of those
+ * categories; the rest are shown separately as "same news, different
+ * category". Membership comes from each category's top 250 by market cap
+ * (one /coins/markets call per category), so a genuine peer ranked below
+ * that in a very large category would land in the "different category"
+ * list — acceptable at this scale, noted rather than hidden.
  *
- * The AI explanation itself is never fetched live here — `explanation`
- * is always just a read of whatever's cached (possibly nothing yet). The
- * live Perplexity call only ever happens via the explicit Refresh action
- * (see runTrendExplanation) — this function stays fast and side-effect-
- * free on every page load, unlike its old TTL-recompute design. Category/
- * AI-suggested peer market data is still fetched live from CoinGecko on
- * every call — that's fast, free-tier-respecting, and unrelated to the
- * "research shouldn't be redone" concern, which is specifically about the
- * slow, costed Perplexity narrative call.
+ * The AI explanation itself is never fetched live here — `explanation` is
+ * always just a read of whatever's cached. The live Perplexity call only
+ * ever happens via the explicit Refresh action (runTrendExplanation).
  */
 export async function findTrendPeers({
   coingeckoId,
@@ -224,23 +281,41 @@ export async function findTrendPeers({
   const seed = await fetchSeedInfo(coingeckoId);
   if (!seed) return { status: "no-seed-data", seedId: coingeckoId };
 
-  const explanation = await getTrendExplanation(coingeckoId);
+  const [explanation, seedCategories, categoryStats] = await Promise.all([
+    getTrendExplanation(coingeckoId),
+    getCoinCategories(coingeckoId),
+    fetchCategoryStats(),
+  ]);
   const data = explanation.data;
+  const anchorCategoryNames = anchorCategories(seedCategories ?? []);
+  const statByName = new Map(categoryStats.map((c) => [c.name, c]));
+  const categories = anchorCategoryNames
+    .map((n) => statByName.get(n))
+    .filter((c): c is CategoryStat => c !== undefined)
+    .slice(0, MAX_ANCHOR_CATEGORIES);
+  const categoryCheck = seedCategories !== null && categories.length > 0;
 
-  const [categoryStats, aiPeerReasons] = await Promise.all([
-    data?.categoryGuess ? fetchCategoryStats() : Promise.resolve<CategoryStat[]>([]),
+  const [memberLists, aiPeerReasons] = await Promise.all([
+    Promise.all(categories.map((c) => fetchCategoryMembers(c.id))),
     data ? resolveAiTickers(data.aiTickers) : Promise.resolve(new Map<string, string>()),
   ]);
+  const membersById = new Map<string, PeerRow>();
+  for (const list of memberLists) for (const m of list) membersById.set(m.id, m);
 
-  const category = data?.categoryGuess ? matchCategoryName(data.categoryGuess, categoryStats) : null;
+  const aiPeerInfo = await fetchMarketsByIds([...aiPeerReasons.keys()]);
+  const aiSameCategory = categoryCheck ? aiPeerInfo.filter((p) => membersById.has(p.id)) : aiPeerInfo;
+  const aiDifferent = categoryCheck ? aiPeerInfo.filter((p) => !membersById.has(p.id)) : [];
 
-  const [categoryMembers, aiPeerInfo] = await Promise.all([
-    category ? fetchCategoryMembers(category.id) : Promise.resolve<PeerRow[]>([]),
-    fetchMarketsByIds([...aiPeerReasons.keys()]),
-  ]);
-
-  const categoryPeers = rankPeers(categoryMembers, { seedId: coingeckoId, mcapFloor });
-  const aiPeers = rankPeers(aiPeerInfo, { seedId: coingeckoId, mcapFloor });
-
-  return { status: "ok", seed, explanation, category, categoryPeers, aiPeers, aiPeerReasons };
+  return {
+    status: "ok",
+    seed,
+    explanation,
+    anchorCategoryNames,
+    categories,
+    categoryCheck,
+    categoryPeers: rankPeers([...membersById.values()], { seedId: coingeckoId, mcapFloor }),
+    aiPeers: rankPeers(aiSameCategory, { seedId: coingeckoId, mcapFloor }),
+    aiOtherCategory: rankPeers(aiDifferent, { seedId: coingeckoId, mcapFloor }),
+    aiPeerReasons,
+  };
 }

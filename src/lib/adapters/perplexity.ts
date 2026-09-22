@@ -16,6 +16,12 @@ export interface AiPeerTicker {
    * reported directly (ZRO example): peer reasons that only stated the
    * peer's own catalyst left the reader to connect it back to the seed. */
   reason: string;
+  /** "peer" = named as a same-category peer; "other_category" = named only
+   * as part of the same news from a different category (context, not a
+   * peer). Absent on explanations stored before this split existed.
+   * Advisory only — trendPeers.ts decides peer status itself from
+   * CoinGecko category membership, never from this label. */
+  relation?: "peer" | "other_category";
 }
 
 export interface TrendExplanation {
@@ -56,15 +62,41 @@ const RESPONSE_SCHEMA = {
         required: ["ticker", "reason"],
       },
     },
+    other_category_tickers: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          ticker: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["ticker", "reason"],
+      },
+    },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
   },
-  required: ["reason_summary", "narrative_tags", "category_guess", "related_tickers", "confidence"],
+  required: ["reason_summary", "narrative_tags", "category_guess", "related_tickers", "other_category_tickers", "confidence"],
 };
 
-function buildPrompt(symbol: string, name: string): string {
+/** `functionalCategories` are the seed's own CoinGecko categories after
+ * categoryFilter.ts drops chain-ecosystem/investor/index tags. They anchor
+ * the peer search on what the token DOES — reported directly: without
+ * this, ZRO's "peers" were other Circle Arc launch partners (MORPHO, AERO,
+ * UNI), which share a news event, not a function. The category comes
+ * from CoinGecko first and goes into the search, not the reverse (the old
+ * flow guessed a category from the AI's narrative afterwards). */
+function buildPrompt(symbol: string, name: string, functionalCategories: readonly string[]): string {
+  const classification =
+    functionalCategories.length > 0
+      ? `${symbol} is classified by CoinGecko under these functional categories: ${functionalCategories.join(", ")}.`
+      : `CoinGecko gives ${symbol} no functional category, so judge what kind of project it is from what it actually does.`;
   return `Why has the crypto token ${name} (${symbol}) been moving in price recently? Search for current news and explain the specific catalyst — clearly distinguish a token-specific/company-specific reason from general crypto market beta (the whole market moving together isn't a real answer here).
 
-Then name other crypto tokens that are CURRENTLY moving for a similar underlying reason (the same narrative or catalyst type, not just tokens that happen to share a category tag). For EACH one, write its reason in relational terms — connect it back to ${symbol} explicitly, don't describe the peer in isolation. Each reason must (1) name the shared driver behind ${symbol}'s move, and (2) state this token's own specific exposure to that same driver. Shape: "Same driver as ${symbol} (<the shared catalyst>): <how this token specifically benefits or is exposed>." Example: "Same driver as ZRO (Circle's Arc chain launch): Morpho vaults took day-one deposits on Arc, putting it directly in the institutional-stablecoin flow." Not acceptable: "an Avalanche RWA credit hub with an institutional lending push" (true, but never says how it relates to ${symbol}), "same category", or "also RWA-related". If a token only shares a broader theme rather than the same specific catalyst, say that plainly ("Broader theme, not the same catalyst: ...") instead of implying a direct link.
+${classification}
+
+Then name PEERS: other tokens that do the same kind of thing as ${symbol} — direct competitors or same-function projects in the categories above (for example, a cross-chain messaging protocol's peers are other bridges and interoperability protocols) — that are exposed to the same driver or currently moving for a similar reason. Do NOT name a token as a peer just because it was part of the same news event, partnered with the same company, or launched on the same chain: being a launch partner on the same chain is not being a peer. For EACH peer, write its reason in relational terms — connect it back to ${symbol} explicitly. Shape: "Same driver as ${symbol} (<the shared catalyst>): <how this token, as a same-function project, is exposed to it>." If a same-category token only shares a broader theme rather than the same specific catalyst, say that plainly ("Broader theme, not the same catalyst: ...") instead of implying a direct link. Never pad the list — fewer, genuinely comparable peers are better than a longer list.
+
+Separately, under other_category_tickers, list tokens from OTHER categories that were part of the same news (for example other partners in the same launch), each with one sentence on their role in that news. These are context for the reader, not peers.
 
 Also give your single best guess at a short category/theme name (2-5 words, the kind of phrase a taxonomy like "Real World Assets" or "Privacy Coins" would use) that best captures this narrative.
 
@@ -73,7 +105,8 @@ Return ONLY this JSON:
   "reason_summary": "2-4 sentences explaining the specific catalyst, with dates where known",
   "narrative_tags": ["short tag", "short tag", ...],
   "category_guess": "short category/theme name",
-  "related_tickers": [{"ticker": "TICKER", "reason": "1-2 sentences: the driver it shares with ${symbol}, then this token's own specific exposure to it"}, ...],
+  "related_tickers": [{"ticker": "TICKER", "reason": "1-2 sentences: the driver it shares with ${symbol}, then this same-function token's own exposure to it"}, ...],
+  "other_category_tickers": [{"ticker": "TICKER", "reason": "1 sentence: its role in the same news"}, ...],
   "confidence": "high|medium|low"
 }`;
 }
@@ -124,16 +157,20 @@ function extractSources(output: OutputItem[]): { title: string; url: string }[] 
  * open past its own maxDuration (same reasoning as csp-screener's own
  * askPerplexityRaw, which this mirrors).
  */
-export async function explainTrend(symbol: string, name: string): Promise<TrendExplanation | null> {
+export async function explainTrend(
+  symbol: string,
+  name: string,
+  functionalCategories: readonly string[],
+): Promise<TrendExplanation | null> {
   if (!API_KEY) {
     console.warn("[perplexity] PERPLEXITY_API_KEY not set");
     return null;
   }
 
   const body = {
-    input: buildPrompt(symbol, name),
+    input: buildPrompt(symbol, name, functionalCategories),
     preset: "low",
-    max_output_tokens: 1500,
+    max_output_tokens: 2000, // was 1500; the response now carries a second ticker list
     tools: [{ type: "web_search" }],
     response_format: { type: "json_schema", json_schema: { name: "trend_reason", schema: RESPONSE_SCHEMA } },
     stream: false,
@@ -174,6 +211,7 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
     narrative_tags?: unknown;
     category_guess?: unknown;
     related_tickers?: unknown; // { ticker: string; reason: string }[]
+    other_category_tickers?: unknown; // same shape
     confidence?: unknown;
   };
   try {
@@ -187,7 +225,7 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
 
   const asStringArray = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0) : [];
-  const asAiTickers = (v: unknown): AiPeerTicker[] => {
+  const asAiTickers = (v: unknown, relation: AiPeerTicker["relation"]): AiPeerTicker[] => {
     if (!Array.isArray(v)) return [];
     const result: AiPeerTicker[] = [];
     for (const item of v) {
@@ -195,7 +233,7 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
       const o = item as Record<string, unknown>;
       const ticker = typeof o.ticker === "string" ? o.ticker.trim().toUpperCase() : "";
       const reason = typeof o.reason === "string" ? o.reason.trim() : "";
-      if (ticker && reason) result.push({ ticker, reason });
+      if (ticker && reason) result.push({ ticker, reason, relation });
     }
     return result;
   };
@@ -212,7 +250,10 @@ export async function explainTrend(symbol: string, name: string): Promise<TrendE
     reasonSummary,
     narrativeTags: asStringArray(parsed.narrative_tags),
     categoryGuess,
-    aiTickers: asAiTickers(parsed.related_tickers),
+    aiTickers: [
+      ...asAiTickers(parsed.related_tickers, "peer"),
+      ...asAiTickers(parsed.other_category_tickers, "other_category"),
+    ],
     confidence,
     sources: extractSources(output),
   };
