@@ -6,14 +6,14 @@ Committed copy of items tracked in this session's memory (`~/.claude/projects/<p
 
 ## Screener project
 
-### Supabase storage overage — reclaimed; structural fix committed, deploy + step B pending
+### Supabase storage overage — RESOLVED 2026-09-22 (only the launchd install remains, on the user's side)
 **Raised**: Phase 1 sign-off, 2026-09-22. **Diagnosed and reclaimed** the same day.
 
 **Diagnosis (measured, not estimated)**: db_total 1,701 MB; `screener_asset_snapshots` was 1,614 MB of it (95%) — ~873 MB of live backfilled rows (1,611 B/row on disk, **92% of it the per-row `provenance` JSONB**) plus ~640 MB of unshrunk pages left by the ~383K deleted duplicates (autovacuum had already run — 49K dead tuples left, plain VACUUM had nothing to give) plus 103 MB of indexes. csp-screener and every other table combined: ~87 MB. The backfilled rows were also *wrong* for grouped assets (fetched one child slug instead of summing all — Hyperliquid revenue null, Uniswap fees 3.5x low).
 
 **Reclaimed**: TRUNCATE + re-insert of the 1,106 live rows (not VACUUM FULL — it would have left ~1.0 GB, still 2x quota). db_total 1,701 → 87 MB.
 
-**Structural fix (committed, not yet deployed)**: provenance is one manifest per run + a per-row override only on deviation; `contributing_slugs` stored once; the unmatched log is change-only (it was 7,307 rows/run ≈ 490 MB/yr — the biggest daily writer); backfill sums every child slug through the same function as the live job, writes its own run row, and is capped at 365 days. Remaining sequence: run step A2 SQL → deploy → step B SQL (drops the legacy column/table, with guards) → 20-asset validation backfill, measuring real bytes/row.
+**Structural fix (deployed; step B run)**: provenance is one manifest per run + a per-row override only on deviation; `contributing_slugs` stored once; the unmatched log is change-only (it was 7,307 rows/run ≈ 490 MB/yr — the biggest daily writer); backfill sums every child slug through the same function as the live job, writes its own run row, and is capped at 365 days. Full backfill done since (236,007 rows, all 682 assets; db_total 180 MB, 36% of quota).
 
 **Retention (decided)**: a monthly local job (`scripts/screener-archive.ts --delete`, launchd plist in `scripts/launchd/`) exports every snapshot row older than 400 days to Parquet under `~/cryptoport-archive/screener`, verifies it row-for-row (count + content SHA-256), then deletes those rows. Monthly from the start, not on a quota trigger, so the path is exercised early (backfilled rows cross 400 days ~35 days after a backfill). Export + verify tested on 424 real rows; `--delete` not yet exercised. **The archive dir is the only copy of any live row it removes — it must be on a backed-up disk.** Thresholds (per-row cost, steady-state size) get locked after the validation backfill measures real bytes/row.
 
