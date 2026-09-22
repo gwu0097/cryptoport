@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, TrendingUp, BookOpen } from "lucide-react";
+import { ChevronRight, TrendingUp, BookOpen, ExternalLink } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { Panel } from "../ui/Panel";
@@ -150,6 +150,25 @@ export function MoverList({
                 >
                   <BookOpen className="size-3.5" aria-hidden="true" />
                 </Link>
+                {/* Only when a real coingeckoId is known — unlike the two
+                    links above, there's no ticker-fallback path to a
+                    correct CoinGecko coin page (no on-site ticker search
+                    to hand off to), so a guessed URL could easily land on
+                    the wrong coin. Omitted rather than risk that, same
+                    "never a plausible-looking wrong X" reasoning as the
+                    rest of this app's Data Correctness rule. */}
+                {item.coingeckoId && (
+                  <a
+                    href={`https://www.coingecko.com/en/coins/${item.coingeckoId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`View ${item.ticker} on CoinGecko`}
+                    title="View on CoinGecko"
+                    className="text-fg-muted transition hover:text-accent"
+                  >
+                    <ExternalLink className="size-3.5" aria-hidden="true" />
+                  </a>
+                )}
               </div>
             </li>
           ))}
