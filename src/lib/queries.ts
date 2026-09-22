@@ -352,6 +352,20 @@ export interface WalletListResult {
  * and "is this wallet's signature verified" isn't essential to a read-only
  * peek at someone else's portfolio.
  */
+/** Cheapest possible "does this account have at least one wallet" check —
+ * used right after sign-in to decide whether to land on Dashboard (there's
+ * already something to show) or Wallets (nothing tracked yet, so Wallets'
+ * own add-a-wallet CTA is more useful than an empty Dashboard). A plain
+ * count-only existence check, not getWalletsWithTotals — that joins
+ * holdings/tags and computes grand totals, all wasted work just to answer
+ * "any at all?". */
+export async function hasAnyWallet(): Promise<boolean> {
+  const db = await userDb();
+  const { count, error } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("active", true);
+  if (error) throw new Error(`Failed to check wallets: ${error.message}`);
+  return (count ?? 0) > 0;
+}
+
 export async function getWalletsWithTotals(opts?: { userId: string }): Promise<WalletListResult> {
   if (!opts && !(await getUser())) return { wallets: [], grand: aggregate([], {}) };
   const db = opts ? serviceDb() : await userDb();

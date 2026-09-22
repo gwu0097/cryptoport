@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { userAuth, siteUrl } from "@/lib/supabase";
 import { isSyntheticEmail } from "@/lib/walletDisplay";
 import { validatePassword } from "@/lib/password";
+import { hasAnyWallet } from "@/lib/queries";
 
 export type AuthFormState = { error?: string; success?: string } | undefined;
 
@@ -24,7 +25,11 @@ export async function signIn(_prevState: AuthFormState, formData: FormData): Pro
   // registered emails.
   if (error) return { error: "Invalid email or password." };
 
-  redirect("/wallets");
+  // Dashboard is a lens over data that already exists — reported directly:
+  // land there when there's something to show, otherwise Wallets' own
+  // add-a-wallet CTA is the more useful landing page than an empty
+  // Dashboard.
+  redirect((await hasAnyWallet()) ? "/dashboard" : "/wallets");
 }
 
 export async function signUp(_prevState: AuthFormState, formData: FormData): Promise<AuthFormState> {
