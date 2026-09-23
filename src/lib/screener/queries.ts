@@ -1,6 +1,7 @@
 import "server-only";
 import { serviceDb } from "@/lib/supabase";
 import { fetchAllRows } from "./pagination";
+import { latestDailyRun, type RunRow } from "./runSelection";
 
 export interface UniverseRow {
   assetId: string;
@@ -46,15 +47,15 @@ export interface UniverseSnapshotResult {
 export async function getLatestUniverseSnapshot(): Promise<UniverseSnapshotResult> {
   const db = serviceDb();
 
-  const { data: runRow, error: runError } = await db
+  // Same one-run-per-day rule as the screener (runSelection.ts).
+  const { data: recentRuns, error: runError } = await db
     .from("screener_runs")
-    .select("id, started_at, unmatched_count, notes")
+    .select("id, started_at, status, kind, unmatched_count, notes")
     .eq("kind", "live") // backfill runs also land in screener_runs now
-    .eq("status", "ok")
     .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(30);
   if (runError) throw new Error(`Failed to load latest screener_runs: ${runError.message}`);
+  const runRow = latestDailyRun((recentRuns ?? []) as (RunRow & { unmatched_count: number | null })[]);
   if (!runRow) return { runId: null, runStartedAt: null, rows: [], unmatchedCount: 0, conflictCount: 0 };
 
   const runId = runRow.id as string;
@@ -136,4 +137,178 @@ export async function getLatestUniverseSnapshot(): Promise<UniverseSnapshotResul
     unmatchedCount: (runRow.unmatched_count as number) ?? 0,
     conflictCount: conflictedAssetIds.size,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3b: the screener page's data — one run's scores, regime and gates.
+
+export type SetupTagValue = "LEADER" | "WATCH" | "SPECULATIVE" | "AVOID" | "NEUTRAL";
+export type TierValue = "pass" | "caution" | "high_risk";
+
+export interface ScreenerRow {
+  assetId: string;
+  geckoId: string;
+  name: string;
+  ticker: string;
+  sectorBucket: string | null;
+  marketCapUsd: number | null;
+  mom3w: number | null;
+  mom12w: number | null;
+  tier: TierValue;
+  rulesEvaluable: number;
+  firedRules: string[];
+  timingScore: number | null;
+  timingPercentile: number | null;
+  gradeRaw: string | null;
+  grade: string | null;
+  tercile: number | null;
+  tag: SetupTagValue | null;
+  confidence: "high" | "medium" | "low";
+  sizeBucket: string | null;
+  sourceConflict: boolean;
+}
+
+export interface RegimeRule {
+  rule: string;
+  fired: boolean | null;
+  inputs: Record<string, number | null>;
+}
+
+export interface ScreenerView {
+  run: { id: string; startedAt: string; trigger: string | null; configVersionId: string | null } | null;
+  /** Rated assets with both momentum legs: graded, tagged, ranked. */
+  graded: ScreenerRow[];
+  /** Rated assets with one momentum leg: scored and placed, never graded or tagged. */
+  insufficientHistory: ScreenerRow[];
+  /** Rated assets with no momentum leg at all. */
+  unscoredCount: number;
+  ratedCount: number;
+  unrated: { total: number; failedByGate: Record<string, number> };
+  regime: { label: string; rules: RegimeRule[]; computedAt: string } | null;
+  sizeCheck: { top_tercile_n: number; counts: Record<string, number>; dominant: string | null; share: number | null; flagged: boolean } | null;
+  /** Why this run has no scores, when it has none (still computing, or a failed step). */
+  scoresMissingReason: string | null;
+}
+
+/** The screener page's view of the latest day's run — the day's run picked
+ * by the one shared rule (runSelection.ts; SPEC "One run per UTC day"). If
+ * that run has no scores yet (derivations run ~1 minute after it turns ok)
+ * or its scoring step failed, the page says so; it never falls back to an
+ * earlier run, which would be a different snapshot shown as today's. */
+export async function getScreenerView(): Promise<ScreenerView> {
+  const db = serviceDb();
+  const empty: ScreenerView = {
+    run: null, graded: [], insufficientHistory: [], unscoredCount: 0, ratedCount: 0,
+    unrated: { total: 0, failedByGate: {} }, regime: null, sizeCheck: null, scoresMissingReason: null,
+  };
+
+  // Enough recent runs to cover the latest day even with several manual runs.
+  const { data: runs, error: runsError } = await db
+    .from("screener_runs")
+    .select("id, started_at, status, kind, notes")
+    .eq("kind", "live")
+    .order("started_at", { ascending: false })
+    .limit(30);
+  if (runsError) throw new Error(`Failed to load screener_runs: ${runsError.message}`);
+  const run = latestDailyRun((runs ?? []) as (RunRow & { notes: Record<string, unknown> | null })[]);
+  if (!run) return empty;
+
+  const notes = (run.notes ?? {}) as {
+    trigger?: string;
+    derivations?: { config_version_id?: string; scores?: { size_check?: ScreenerView["sizeCheck"] }; scores_error?: string; metrics_error?: string };
+  };
+  const view: ScreenerView = {
+    ...empty,
+    run: { id: run.id, startedAt: run.started_at, trigger: notes.trigger ?? null, configVersionId: notes.derivations?.config_version_id ?? null },
+    sizeCheck: notes.derivations?.scores?.size_check ?? null,
+  };
+
+  type MetricRow = { asset_id: string; rated: boolean; gate_status: Record<string, string>; sector_bucket: string | null; mom_3w: number | null; mom_12w: number | null; size_log_mcap: number | null };
+  const metrics: MetricRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("screener_asset_metrics")
+      .select("asset_id, rated, gate_status, sector_bucket, mom_3w, mom_12w, size_log_mcap")
+      .eq("run_id", run.id)
+      .order("asset_id")
+      .range(from, from + 999);
+    if (error) throw new Error(`Failed to load screener_asset_metrics: ${error.message}`);
+    metrics.push(...((data ?? []) as MetricRow[]));
+    if (!data || data.length < 1000) break;
+  }
+  const unrated = metrics.filter((m) => !m.rated);
+  const failedByGate: Record<string, number> = {};
+  for (const m of unrated) for (const [gate, result] of Object.entries(m.gate_status)) if (result === "fail") failedByGate[gate] = (failedByGate[gate] ?? 0) + 1;
+  view.unrated = { total: unrated.length, failedByGate };
+  view.ratedCount = metrics.length - unrated.length;
+
+  const { data: regime, error: regimeError } = await db
+    .from("screener_regime_snapshots")
+    .select("label, rules, computed_at")
+    .eq("run_id", run.id)
+    .maybeSingle();
+  if (regimeError) throw new Error(`Failed to load screener_regime_snapshots: ${regimeError.message}`);
+  if (regime) view.regime = { label: regime.label as string, rules: regime.rules as RegimeRule[], computedAt: regime.computed_at as string };
+
+  type ScoreRow = {
+    asset_id: string; quality_risk_tier: TierValue; quality_risk_rules: { rule: string; fired: boolean | null }[]; rules_evaluable: number;
+    timing_score: number | null; timing_percentile: number | null; timing_grade_raw: string | null; timing_grade: string | null;
+    momentum_tercile: number | null; setup_tag: SetupTagValue | null; confidence: ScreenerRow["confidence"]; size_bucket: string | null;
+    score_breakdown: { legs_used: number; insufficient_history?: boolean; source_conflict: boolean };
+    screener_assets: { gecko_id: string; name: string; ticker: string } | null;
+  };
+  const { data: scoreData, error: scoresError } = await db
+    .from("screener_asset_scores")
+    .select(
+      "asset_id, quality_risk_tier, quality_risk_rules, rules_evaluable, timing_score, timing_percentile, timing_grade_raw, timing_grade, momentum_tercile, setup_tag, confidence, size_bucket, score_breakdown, screener_assets(gecko_id, name, ticker)",
+    )
+    .eq("run_id", run.id);
+  if (scoresError) throw new Error(`Failed to load screener_asset_scores: ${scoresError.message}`);
+  const scores = (scoreData ?? []) as unknown as ScoreRow[];
+  if (scores.length === 0) {
+    const d = notes.derivations;
+    view.scoresMissingReason = d?.scores_error
+      ? `Scoring failed for this run: ${d.scores_error}`
+      : d?.metrics_error
+        ? `Metrics failed for this run, so nothing was scored: ${d.metrics_error}`
+        : d
+          ? "This run has no rated assets to score."
+          : "Scores for this run are still being computed (about a minute after the snapshot finishes). Reload shortly.";
+    return view;
+  }
+
+  const metricById = new Map(metrics.map((m) => [m.asset_id, m]));
+  const rows: ScreenerRow[] = scores
+    .filter((s) => s.screener_assets !== null)
+    .map((s) => {
+      const m = metricById.get(s.asset_id);
+      return {
+        assetId: s.asset_id,
+        geckoId: s.screener_assets!.gecko_id,
+        name: s.screener_assets!.name,
+        ticker: s.screener_assets!.ticker,
+        sectorBucket: m?.sector_bucket ?? null,
+        marketCapUsd: m?.size_log_mcap != null ? Math.exp(m.size_log_mcap) : null,
+        mom3w: m?.mom_3w ?? null,
+        mom12w: m?.mom_12w ?? null,
+        tier: s.quality_risk_tier,
+        rulesEvaluable: s.rules_evaluable,
+        firedRules: s.quality_risk_rules.filter((r) => r.fired === true).map((r) => r.rule),
+        timingScore: s.timing_score,
+        timingPercentile: s.timing_percentile,
+        gradeRaw: s.timing_grade_raw,
+        grade: s.timing_grade,
+        tercile: s.momentum_tercile,
+        tag: s.setup_tag,
+        confidence: s.confidence,
+        sizeBucket: s.size_bucket,
+        sourceConflict: s.score_breakdown.source_conflict,
+      };
+    });
+  view.graded = rows.filter((r) => r.tag !== null);
+  view.insufficientHistory = rows
+    .filter((r) => r.tag === null && r.timingScore !== null)
+    .sort((a, b) => (b.timingPercentile ?? 0) - (a.timingPercentile ?? 0));
+  view.unscoredCount = rows.filter((r) => r.timingScore === null).length;
+  return view;
 }

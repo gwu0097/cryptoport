@@ -183,8 +183,11 @@ Vercel Cron, `/api/cron/screener-snapshot` (distinct from the pre-existing unrel
   - **In**: HYPE, DRV, RUNE, DYDX (the protocol is the business), ARB, OP (sequencer revenue is the chain's own business).
   - The category gate can't see these cases, because DefiLlama files the app under a parent whose gecko_id is the L1. **Nothing is excluded automatically.** `scripts/diag/screener-l1l2-rated.mjs` lists rated assets CoinGecko tags L1/L2 for review; each run of it goes in `PHASE_3.md` (or the current phase report).
 
+### One run per UTC day — DECIDED 2026-09-23 (3b, and Phase 4 must use the same rule)
+A UTC day can have more than one live run: Vercel sometimes delivers a cron twice, and manual runs add more (2026-09-22 had five). **The day's run is the latest live run of that UTC day (by `started_at`) whose `status = 'ok'`.** A later run carries fresher data. Runs with status `running`, `error` or `partial`, and backfill runs, are never chosen. Implemented once, as the pure `pickRunPerUtcDay` / `latestDailyRun` in `src/lib/screener/runSelection.ts` (tested). 3b's page uses it, and **Phase 4's backtest must import the same function**, not re-derive the rule in a query. Consequence, stated honestly: the chosen run's derived rows (metrics/regime/scores) are written after the run turns `ok`. For about a minute after a run finishes, and permanently if a derivation step failed, the chosen run can have no scores. The page then says so, with the recorded `scores_error`. It does **not** silently fall back to an earlier run: an earlier run of the same day would be a different snapshot, presented as if it were today's.
+
 ### Read-only table view
-Built (`(app)/screener`), sortable, flags conflicts and backfilled rows. Not linked from nav — this is the Phase 1 spot-check surface, not the real screener UI (that needs Phase 3's grades/tiers/setup-tags to exist first).
+Built (Phase 1), sortable, flags conflicts and backfilled rows. **Moved to `/screener/universe` in 3b.** `/screener` is now the real screener (Phase 3b). Both stay URL-only (not in the sidebar) until Phase 4 validates something.
 
 ---
 

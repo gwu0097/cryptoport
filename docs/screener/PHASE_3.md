@@ -1,6 +1,8 @@
-# Phase 3a — tiers, Score B, grades, setup tags (compute + table)
+# Phase 3 — tiers, Score B, grades, setup tags
 
-Scope and the nine accepted decisions: `PHASE_3_PLAN.md`. 3a is committed, verified live and pushed. 3b (the UI) hasn't started yet.
+## 3a — compute + table
+
+Scope and the nine accepted decisions: `PHASE_3_PLAN.md`. 3a is committed, verified live and pushed (signed off 2026-09-23). 3b (the UI) is below.
 
 ## What I built
 
@@ -39,7 +41,7 @@ Scope and the nine accepted decisions: `PHASE_3_PLAN.md`. 3a is committed, verif
   - **Grades:** A 14, B 14, C 13, D 14, F 14.
   - **Size check:** top tercile is 8 small / 11 mid / 5 large; mid holds 46%, so not flagged. **Warnings:** none. **Plausibility warnings:** none.
   - **Scope:** NEAR, SOL, SUI, AVAX and APT are `out_of_scope` and unrated; HYPE, ARB and OP stay rated.
-  - **Independent check** (`screener-score-verify.mjs`, plain JS with no import of our scoring code or config; percentiles computed a different way): **72/72 rows match, 0 mismatches.**
+  - **Consistency check** (`screener-score-verify.mjs`): **72/72 rows match, 0 mismatches.** **Don't over-read this; it is only partly independent.** The script is plain JS with no import of our scoring code or config, and it computes percentiles by a different method (tie-averaged ranks, rescaled). That does catch arithmetic and wiring bugs, such as a wrong percentile, a wrong cutoff, or a row stored against the wrong asset. But I updated the verifier this session, right after rewriting `scores.ts`, and its **population and placement rules were mirrored from the implementation, not written from SPEC**. That covers: ranking among full-history assets only; placing a one-leg asset's leg, score and percentile against that set (mid-rank as one more member); and nulling grade, tercile and tag for one-leg assets. Where those rules were written down at all, SPEC's text was written in the same pass. The tier thresholds, grade cutoffs and tag grid were typed in from the decisions, but also by me, the same author. So a *misreading of the rules* would be shared by both sides and would not show up as a mismatch. A truly independent check would need someone other than the implementer to write the verifier from SPEC alone.
 - The earlier dry run on `8798244f` is superseded by this live run.
 
 **Insufficient history per run:** 3 on `c9161e62` (4 in the dry run on `8798244f`). Each run records it in `notes.derivations.scores.counts.insufficient_history`. The top of the graded list is now DRV, RHEA, RAY, BTW, ARB. STONK still shows a 0.993 percentile, but it sits in its own section with no grade or tag.
@@ -78,3 +80,36 @@ This table stays here as the review record. Re-run the diagnostic to catch the n
 
 - **3b (the UI):** show insufficient-history assets in their own section, and pick one run per UTC day explicitly (BACKLOG).
 - Carried over: measured dilution (~2026-12-21), unlock data (deferred), regime thresholds (~2026-10-20), stablecoin source switch (~2026-10-22).
+
+---
+
+## 3b — the screener page
+
+### What I built
+- **`/screener` is now the real screener.** The Phase 1 raw spot-check table moved to `/screener/universe`, and each page links to the other. Both stay out of the sidebar.
+  - **Banner (always shown):** "Unvalidated screen: grades are not yet backtested."
+  - **Run caption:** date, staleness, scheduled or manual, rated and unrated counts.
+  - **Regime panel:** the label, every rule's outcome (fired, no, or not evaluable), every input with "—" when missing, and "k of 4 rules · k of 7 inputs". It says plainly that a NEUTRAL built on missing inputs reflects missing history, and that the regime modifiers are 0.
+  - **Ranked table** (69 on the latest run), sortable and persisted (`cryptoport:screenerScoresSort`):
+    - rank (fixed by percentile, whatever the sort; ties share a rank), asset, setup tag, grade with "(raw X)" when High risk capped it, percentile, both momentum legs
+    - risk tier with "k/4" rules evaluable (hover shows the fired rules), confidence, sector, market cap
+    - a conflict ⚠ on the asset, as in the universe table
+  - **The caption says what "Pass" means today:** only the revenue-drop rule can be evaluated, so Pass mostly means "nothing we can check fired". The size-check warning appears only when the check fires.
+  - **Insufficient history, a separate panel:** "Placed at" instead of "Percentile", **no rank column**, no grade or tag, and a caption explaining why.
+  - **Unrated (610):** fail counts per kill filter.
+- **`runSelection.ts`** (pure, 4 tests): `pickRunPerUtcDay` / `latestDailyRun`, implementing SPEC's "One run per UTC day" (the day's latest `ok` live run). Both `/screener` and `/screener/universe` use it; Phase 4 must too.
+- **If the chosen run has no scores**, the page states why: still computing (about a minute after the snapshot), a scoring failure (with the recorded error), or a metrics failure. It **never falls back to an earlier run**.
+
+### What I verified
+- tsc and lint are clean, all 276 tests pass, and the schema preflight is OK.
+- **Rendered against the real database** (local dev server on port 3100; `/screener` returned 200 in about 0.7s warm; `/screener/universe` returned 200):
+  - It picks run `c9161e62` (today's latest ok run).
+  - Ranked 69: DRV, RHEA, RAY, BTW, ARB at the top.
+  - BNKR shows as High risk, grade C, NEUTRAL.
+  - Insufficient history: STONK placed at 99, PONS 85, INDEX 1, none ranked.
+  - The regime panel shows 2 of 4 rules and 4 of 7 inputs.
+- **Desktop layout checked in a browser.** **Phone width was not checked visually**: the browser window wouldn't resize. The table follows the app's mobile conventions (`overflow-x-auto`, secondary columns hidden below `sm`), but nobody has looked at it at 390px yet.
+
+### Open items
+- Phone-width visual check (above).
+- A sector filter / per-bucket view: not built. Percentiles are across all rated assets by decision, so a filter would only hide rows, and nothing asked for it yet.
