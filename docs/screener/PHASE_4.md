@@ -232,3 +232,10 @@ Full-sample numbers may be shown for continuity, labeled non-confirmatory. **No 
 | H3 | Momentum reverses on the rated universe: the mean rank IC of **each** leg, `mom_3w` and `mom_12w`, is **≤ 0**. This tests the reversal direction directly, not just the null. | a leg's 95% CI upper bound < 0 | a leg's 95% CI lower bound > 0 | inconclusive |
 
 **What a result does not do on its own:** "supported" for H1 or H3 does **not** flip Score B's sign or change any weight automatically. Any change to the ranking needs the user's explicit approval after reading the numbers (the SPEC open question on momentum-as-primary).
+
+---
+
+## After Phase 4 (2026-09-23)
+- The product is redefined as a verified research dataset with a risk filter, not a signal (SPEC, "Product"). `/screener` defaults to a research table; the momentum ranking is behind an experimental toggle.
+- Phase 5 is rescoped; "top N by grade" is rejected (SPEC, Phase 5 amendment).
+- **The one further experiment**, the weekly-horizon momentum test, is pre-registered in `PREREG_WEEKLY_HORIZON.md`, before any weekly number was computed. It is **not run**. There's no more factor testing on this year's monthly data.
