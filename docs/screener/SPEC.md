@@ -12,7 +12,7 @@
   - the kill filters;
   - the Quality & Risk tier (revenue collapse, dilution, unlocks);
   - momentum and beta shown as plain descriptive columns.
-- **Default view** (`/screener`): a research table of every rated asset, all columns sortable, **default sort: annualized revenue**, with an option to include unrated assets with the filters they failed. The regime panel stays (descriptive market context). The "Unvalidated" banner and the latest backtest's caption stay.
+- **Default view** (`/screener`, in the sidebar's Research group since 2026-09-23): a research table of every rated asset, all columns sortable, **default sort: annualized revenue**, with an option to include unrated assets with the filters they failed. The regime panel stays (descriptive market context). The "Unvalidated" banner and the latest backtest's caption stay.
 - **The Phase 3 momentum ranking** (grades, setup tags, ranked order, the insufficient-history section) is kept **only behind an "experimental" toggle**. It's not persisted, so every visit starts on the research table. It's kept, rather than deleted, so later backtests (H1–H3, the weekly-horizon test) can be run against it and compared. The daily cron keeps computing scores for the same reason.
 - **The daily job keeps running.** The point-in-time history it accumulates is the durable asset, and the pre-registered hypotheses can't be judged before ~2027-03 regardless.
 - **No new capability while the honest answer is "a good dataset and no signal".** No more factor testing on the 2025-12 → 2026-08 monthly data. The one further experiment is the pre-registered weekly-horizon test (`PREREG_WEEKLY_HORIZON.md`), run only as registered.
@@ -272,7 +272,7 @@ DefiLlama jitters `/chart` point timestamps by about a minute either side of the
 - **Production impact:** 2b's BTC reference for **CoinGecko-priced backfilled rows** requested a 00:00 grid, so those rows could pair with BTC from the wrong day, or with none. That's 6,300 of 236,007 backfilled rows, in 186 assets; **0 of today's 72 rated assets are affected**. Unrated assets' displayed momentum and beta could have been off. The next daily run uses the fixed labels.
 
 ### Read-only table view
-Built (Phase 1), sortable, flags conflicts and backfilled rows. **Moved to `/screener/universe` in 3b.** `/screener` is now the real screener (Phase 3b). Both stay URL-only (not in the sidebar) until Phase 4 validates something.
+Built (Phase 1), sortable, flags conflicts and backfilled rows. **Moved to `/screener/universe` in 3b.** `/screener` is now the real screener (Phase 3b). `/screener/universe` stays URL-only (linked from `/screener`'s footer). **`/screener` itself is in the sidebar (Research group) since 2026-09-23**: the URL-only restriction existed because grades were the default view, and the default is now the research table, which is defensible on its own (see "Product").
 
 ---
 

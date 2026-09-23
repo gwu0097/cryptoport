@@ -27,8 +27,9 @@ const GATE_LABEL: Record<string, string> = {
  * kill filters, risk tier, valuation and momentum as sortable columns); the
  * Phase 3 momentum ranking is behind an experimental toggle (ScreenerViews).
  * The market regime is shown with all its inputs.
- * URL-only (not in the sidebar) until Phase 4 validates something, and every
- * view carries the "unvalidated" banner. Public, like Trend Finder: market-
+ * In the sidebar (Research) since 2026-09-23: the URL-only restriction
+ * existed because grades were the default view; the research table is
+ * defensible on its own. The "unvalidated" banner stays on every view. Public, like Trend Finder: market-
  * wide research data, not personal holdings.
  */
 export default async function ScreenerPage() {

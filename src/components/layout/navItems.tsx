@@ -16,6 +16,7 @@ import {
   TrendingUp,
   BookOpen,
   Activity,
+  ListFilter,
   type LucideIcon,
 } from "lucide-react";
 import { CollapsibleNavItem } from "./RecentWalletsNav";
@@ -55,6 +56,10 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
       { href: "/watchlist", label: "Watchlist", icon: Star },
       { href: "/trend-finder", label: "Trend Finder", icon: TrendingUp },
       { href: "/compare", label: "Compare", icon: GitCompare },
+      // /screener/universe (the raw spot-check table) stays out of the nav;
+      // it's linked from /screener's footer. isActive's prefix match still
+      // highlights Screener while on it.
+      { href: "/screener", label: "Screener", icon: ListFilter },
       { href: "/signals", label: "Signals", icon: Activity },
       { href: "/encyclopedia", label: "Encyclopedia", icon: BookOpen },
     ],
