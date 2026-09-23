@@ -52,6 +52,7 @@ export const NON_EVM_CHAINS: NonEvmChain[] = [
   { id: "TON", slug: "ton", displayName: "TON" },
   { id: "APT", slug: "aptos", displayName: "Aptos" },
   { id: "ICP", slug: "internet-computer", displayName: "Internet Computer" },
+  { id: "AR", slug: "arweave", displayName: "Arweave" },
 ];
 
 export function findNonEvmChain(id: string): NonEvmChain | undefined {

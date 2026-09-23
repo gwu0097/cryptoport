@@ -129,3 +129,8 @@ test("resolveCoingeckoKey still returns null for manual_usd even with a coingeck
     null,
   );
 });
+
+test("resolveCoingeckoKey prices native AR (Arweave) through CoinGecko's 'arweave' id — AR isn't on Coinbase", () => {
+  assert.equal(resolveCoingeckoKey({ ticker: "AR", source: "auto", contract: null, chain: "arweave" }), "arweave");
+  assert.equal(resolveCoingeckoKey({ ticker: "WAR", source: "auto", contract: null, chain: "arweave" }), null, "only the native ticker");
+});

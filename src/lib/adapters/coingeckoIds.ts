@@ -39,6 +39,7 @@ export const NATIVE_ICON_CHAINS: Record<string, string> = {
   ton: "the-open-network",
   aptos: "aptos",
   "internet-computer": "internet-computer",
+  arweave: "arweave",
 };
 
 /** CoinGecko coin id for a chain's native token, for chains not covered by

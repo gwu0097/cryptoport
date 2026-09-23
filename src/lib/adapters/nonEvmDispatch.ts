@@ -12,6 +12,7 @@ import { fetchXrpHoldings, isXrpAddress } from "./xrp";
 import { fetchTonHoldings, isTonAddress } from "./ton";
 import { fetchAptosHoldings } from "./aptos";
 import { fetchIcpHoldings } from "./icp";
+import { fetchArweaveHoldings } from "./arweave";
 import type { AdapterHolding } from "./types";
 
 export interface AdapterFetchResult {
@@ -31,8 +32,9 @@ interface NonEvmDispatchEntry {
    * shares Substrate's generic SS58 prefix with dozens of chains (DOT's
    * prefix is unique enough to trust, TAO's isn't); APT and ICP are both
    * bare hex indistinguishable from other chains' addresses (and from
-   * each other/EVM in APT's case). A wallet's explicit chain label is the
-   * only reliable way to know which of these three to use. */
+   * each other/EVM in APT's case); AR's 43-char base64url overlaps every
+   * 43-char Solana address. A wallet's explicit chain label is the only
+   * reliable way to know which of these to use. */
   detect?: (address: string) => boolean;
 }
 
@@ -121,6 +123,11 @@ export const NON_EVM_DISPATCH: Record<string, NonEvmDispatchEntry> = {
   ICP: {
     fetch: simple(fetchIcpHoldings),
     // no detect — see NonEvmDispatchEntry's doc comment above.
+  },
+  AR: {
+    fetch: simple(fetchArweaveHoldings),
+    // no detect — every 43-character Solana address is also a valid
+    // Arweave address string (base58 ⊂ base64url), see arweave.ts.
   },
 };
 
