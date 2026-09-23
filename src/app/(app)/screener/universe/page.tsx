@@ -6,7 +6,7 @@ import { getLatestUniverseSnapshot } from "@/lib/screener/queries";
 import { formatStaleness } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Screener universe · CryptoPort" };
+export const metadata = { title: "Fundamentals universe · CryptoPort" };
 
 /**
  * Phase 1's spot-check surface: the raw universe of the latest run, to check
@@ -21,7 +21,7 @@ export default async function ScreenerUniversePage() {
   return (
     <>
       <PageHeader
-        title="Screener universe (raw spot-check)"
+        title="Fundamentals universe (raw spot-check)"
         subtitle="Covers revenue-generating app tokens only; BTC, ETH, L1s, and memecoins excluded by design."
       />
 
@@ -49,7 +49,7 @@ export default async function ScreenerUniversePage() {
 
       <p className="mt-4 text-xs text-fg-muted">
         <Link href="/screener" className="underline hover:text-fg">
-          Back to the screener
+          Back to Fundamentals
         </Link>{" "}
         · Research tool, not financial advice.
       </p>

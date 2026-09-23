@@ -8,7 +8,7 @@ import { getScreenerView, getLatestBacktestSummary } from "@/lib/screener/querie
 import { formatStaleness } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Screener · CryptoPort" };
+export const metadata = { title: "Fundamentals · CryptoPort" };
 
 const GATE_LABEL: Record<string, string> = {
   core_data: "missing price, market cap or revenue",
@@ -38,7 +38,7 @@ export default async function ScreenerPage() {
   return (
     <>
       <PageHeader
-        title="Screener"
+        title="Fundamentals"
         subtitle="A verified research dataset of revenue-generating tokens, with a risk filter. Not a signal: nothing here is ranked or recommended. BTC, ETH, L1s and memecoins are excluded by design."
       />
 

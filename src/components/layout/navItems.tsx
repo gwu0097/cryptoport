@@ -56,10 +56,11 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
       { href: "/watchlist", label: "Watchlist", icon: Star },
       { href: "/trend-finder", label: "Trend Finder", icon: TrendingUp },
       { href: "/compare", label: "Compare", icon: GitCompare },
-      // /screener/universe (the raw spot-check table) stays out of the nav;
-      // it's linked from /screener's footer. isActive's prefix match still
-      // highlights Screener while on it.
-      { href: "/screener", label: "Screener", icon: ListFilter },
+      // Labeled "Fundamentals" while the route stays /screener (SPEC,
+      // "Product": UI name vs internal name). /screener/universe (the raw
+      // spot-check table) stays out of the nav; it's linked from the page's
+      // footer, and isActive's prefix match still highlights this entry.
+      { href: "/screener", label: "Fundamentals", icon: ListFilter },
       { href: "/signals", label: "Signals", icon: Activity },
       { href: "/encyclopedia", label: "Encyclopedia", icon: BookOpen },
     ],

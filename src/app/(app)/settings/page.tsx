@@ -37,7 +37,7 @@ export default async function SettingsPage({
 
         <Panel
           title="Language & region"
-          description="Every time on the site is shown in this timezone. Data is still stored and computed in UTC (daily snapshots, the screener run, signal blocks) — only how times are displayed changes."
+          description="Every time on the site is shown in this timezone. Data is still stored and computed in UTC (daily snapshots, the Fundamentals run, signal blocks) — only how times are displayed changes."
         >
           {saved === "timezone" && (
             <p className="mb-4 rounded-lg border border-positive/30 bg-positive/10 px-4 py-3 text-sm text-positive">
