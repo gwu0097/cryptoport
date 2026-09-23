@@ -1,17 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatPt, formatPtAxis, formatSpan, signalRecency } from "./time.ts";
+import { formatTimeInZone, formatAxisInZone, formatSpan, signalRecency } from "./time.ts";
 
-test("formatPt shows Pacific time with the DST-correct zone name", () => {
+const LA = "America/Los_Angeles";
+
+test("formatTimeInZone shows the zone's DST-correct abbreviation", () => {
   // 2026-09-22 00:00 UTC = Sep 21, 5:00 PM PDT (DST in effect)
-  assert.equal(formatPt(Date.UTC(2026, 8, 22, 0, 0) / 1000), "Sep 21, 5:00 PM PDT");
+  assert.equal(formatTimeInZone(Date.UTC(2026, 8, 22, 0, 0) / 1000, LA), "Sep 21, 5:00 PM PDT");
+  assert.equal(formatTimeInZone(Date.UTC(2026, 8, 22, 0, 0) / 1000, "Asia/Tokyo"), "Sep 22, 9:00 AM GMT+9");
   // 2026-01-15 12:00 UTC = Jan 15, 4:00 AM PST (standard time)
-  assert.equal(formatPt(Date.UTC(2026, 0, 15, 12, 0) / 1000), "Jan 15, 4:00 AM PST");
+  assert.equal(formatTimeInZone(Date.UTC(2026, 0, 15, 12, 0) / 1000, LA), "Jan 15, 4:00 AM PST");
 });
 
-test("formatPtAxis: the date at PT midnight, else the time", () => {
-  assert.equal(formatPtAxis(Date.UTC(2026, 8, 22, 7, 0) / 1000), "Sep 22"); // 00:00 PDT
-  assert.equal(formatPtAxis(Date.UTC(2026, 8, 22, 12, 0) / 1000), "5:00 AM");
+test("formatAxisInZone: the date at local midnight, else the time", () => {
+  assert.equal(formatAxisInZone(Date.UTC(2026, 8, 22, 7, 0) / 1000, LA), "Sep 22"); // 00:00 PDT
+  assert.equal(formatAxisInZone(Date.UTC(2026, 8, 22, 12, 0) / 1000, LA), "5:00 AM");
+  assert.equal(formatAxisInZone(Date.UTC(2026, 8, 22, 0, 0) / 1000, "UTC"), "Sep 22");
 });
 
 test("formatSpan uses the two coarsest units", () => {

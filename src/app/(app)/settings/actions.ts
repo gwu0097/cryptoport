@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { userAuth } from "@/lib/supabase";
+import { revalidatePath } from "next/cache";
+import { userAuth, userDb } from "@/lib/supabase";
+import { isValidTimeZone } from "@/lib/timezone";
 import { requireUser } from "@/lib/auth";
 import { validatePassword } from "@/lib/password";
 
@@ -37,5 +39,24 @@ export async function updateAccountPassword(formData: FormData) {
   const { error } = await supabase.auth.updateUser({ password });
   if (error) throw new Error(`Failed to update password: ${error.message}`);
 
-  redirect("/settings?changed=1");
+  redirect("/profile?changed=1");
+}
+
+/** Settings → Language & region. "auto" clears the saved zone (back to the
+ * browser-detected one); anything else must be a real IANA zone. Every page
+ * shows times, so the whole layout is revalidated. */
+export async function saveTimeZone(formData: FormData) {
+  const user = await requireUser();
+  const value = requireString(formData, "timezone");
+  const timezone = value === "auto" ? null : value;
+  if (timezone !== null && !isValidTimeZone(timezone)) throw new Error(`Unknown time zone "${timezone}".`);
+
+  const db = await userDb();
+  const { error } = await db
+    .from("user_preferences")
+    .upsert({ user_id: user.id, timezone, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) throw new Error(`Failed to save time zone: ${error.message}`);
+
+  revalidatePath("/", "layout");
+  redirect("/settings?saved=timezone");
 }

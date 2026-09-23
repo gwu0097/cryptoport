@@ -1,32 +1,24 @@
-// Pure time formatting for the Signals page (see time.test.ts). Times show
-// in Pacific time — reported directly: "UTC is useless for me". The timezone
-// is always explicit (America/Los_Angeles, DST-aware -> PDT/PST), so server
-// and browser render the same thing regardless of where they run.
+// Pure time formatting for the Signals page (see time.test.ts). Every
+// function takes the display timezone explicitly (the user's setting — see
+// lib/timezone.ts); an implicit zone would silently render the server's UTC.
 
-const PT = "America/Los_Angeles";
-
-const ptFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: PT,
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZoneName: "short",
-});
-
-/** "Sep 22, 5:00 PM PDT" */
-export function formatPt(sec: number): string {
-  return ptFormatter.format(new Date(sec * 1000));
+/** "Sep 22, 5:00 PM PDT" in the given zone. */
+export function formatTimeInZone(sec: number, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(sec * 1000));
 }
 
-const ptAxisTime = new Intl.DateTimeFormat("en-US", { timeZone: PT, hour: "numeric", minute: "2-digit" });
-const ptAxisDay = new Intl.DateTimeFormat("en-US", { timeZone: PT, month: "short", day: "numeric" });
-
-/** Short label for a chart's time axis, in PT: the date at PT midnight, else the time. */
-export function formatPtAxis(sec: number): string {
+/** Short chart-axis label in the given zone: the date at local midnight, else the time. */
+export function formatAxisInZone(sec: number, timeZone: string): string {
   const d = new Date(sec * 1000);
-  const time = ptAxisTime.format(d);
-  return time === "12:00 AM" ? ptAxisDay.format(d) : time;
+  const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(d);
+  return time === "12:00 AM" ? new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(d) : time;
 }
 
 /** "45m", "3h 5m", "2d 4h" — the coarsest two units. */

@@ -1,25 +1,26 @@
+import { saveTimeZone } from "./actions";
 import { getUser } from "@/lib/auth";
-import { updateAccountPassword } from "./actions";
-import { unlinkWallet } from "./walletActions";
-import { getLinkedWallets } from "@/lib/queries";
-import { isSyntheticEmail, truncateAddress, walletDisplayName } from "@/lib/walletDisplay";
+import { getEffectiveTimeZone } from "@/lib/preferences";
+import { listTimeZones, timeZoneLabel } from "@/lib/timezone";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
-import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
-import { Field, inputClass, selectClass } from "@/components/ui/Field";
-import { LinkWalletModal } from "@/components/auth/LinkWalletModal";
-import { SignInPrompt } from "@/components/SignInPrompt";
+import { Field, selectClass } from "@/components/ui/Field";
 
+export const metadata = { title: "Settings · CryptoPort" };
+
+/**
+ * Settings = how the app behaves for you (theme, language & region). Account
+ * and sign-in details moved to Profile (the profile menu, top right).
+ */
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ changed?: string }>;
+  searchParams: Promise<{ saved?: string }>;
 }) {
-  const { changed } = await searchParams;
-  const user = await getUser();
-  const linkedWallets = await getLinkedWallets();
-  const walletOnly = user ? isSyntheticEmail(user.email ?? "") : false;
+  const { saved } = await searchParams;
+  const [user, zone] = await Promise.all([getUser(), getEffectiveTimeZone()]);
+  const zones = listTimeZones();
 
   return (
     <>
@@ -34,7 +35,43 @@ export default async function SettingsPage({
           </Field>
         </Panel>
 
-        <Panel title="Preferences">
+        <Panel
+          title="Language & region"
+          description="Every time on the site is shown in this timezone. Data is still stored and computed in UTC (daily snapshots, the screener run, signal blocks) — only how times are displayed changes."
+        >
+          {saved === "timezone" && (
+            <p className="mb-4 rounded-lg border border-positive/30 bg-positive/10 px-4 py-3 text-sm text-positive">
+              Time zone saved.
+            </p>
+          )}
+          {user ? (
+            <form action={saveTimeZone} className="mb-4 flex flex-wrap items-end gap-3">
+              <Field
+                label="Time zone"
+                hint={
+                  zone.saved
+                    ? `Currently showing ${timeZoneLabel(zone.tz)}.`
+                    : zone.detected
+                      ? `Automatic: your browser is on ${timeZoneLabel(zone.detected)}.`
+                      : "Automatic: detecting your browser's timezone…"
+                }
+              >
+                <select name="timezone" defaultValue={zone.saved ?? "auto"} className={selectClass}>
+                  <option value="auto">Automatic (detect from browser){zone.detected ? ` — ${zone.detected}` : ""}</option>
+                  {zones.map((z) => (
+                    <option key={z} value={z}>
+                      {z.replaceAll("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
+            </form>
+          ) : (
+            <p className="mb-4 text-sm text-fg-muted">
+              Showing times in {timeZoneLabel(zone.tz)} (detected from your browser). Log in to choose a different one.
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Language">
               <select disabled defaultValue="en" className={selectClass}>
@@ -47,89 +84,8 @@ export default async function SettingsPage({
               </select>
             </Field>
           </div>
-          <p className="mt-3 text-xs text-fg-muted">
-            More languages and currencies coming soon.
-          </p>
+          <p className="mt-3 text-xs text-fg-muted">More languages and currencies coming soon.</p>
         </Panel>
-
-        {!user ? (
-          <SignInPrompt message="Sign up or log in to manage your account." />
-        ) : (
-          <>
-            <Panel title="Account">
-              <p className="mb-4 text-sm text-fg-muted">
-                Signed in as{" "}
-                <span className="text-fg">{walletDisplayName(user) ?? user.email}</span>
-              </p>
-
-              {changed && (
-                <p className="mb-4 rounded-lg border border-positive/30 bg-positive/10 px-4 py-3 text-sm text-positive">
-                  Password updated.
-                </p>
-              )}
-
-              {walletOnly ? (
-                <p className="text-xs text-fg-muted">
-                  This account has no password — sign in with a linked wallet below instead.
-                </p>
-              ) : (
-                <form action={updateAccountPassword} className="flex flex-col gap-4">
-                  <Field label="New password" hint="At least 8 characters.">
-                    <input
-                      name="password"
-                      type="password"
-                      required
-                      minLength={8}
-                      autoComplete="new-password"
-                      className={inputClass}
-                    />
-                  </Field>
-
-                  <Field label="Confirm new password">
-                    <input
-                      name="confirmPassword"
-                      type="password"
-                      required
-                      minLength={8}
-                      autoComplete="new-password"
-                      className={inputClass}
-                    />
-                  </Field>
-
-                  <SubmitButton className="self-start" pendingLabel="Updating…">
-                    Update password
-                  </SubmitButton>
-                </form>
-              )}
-            </Panel>
-
-            <Panel title="Linked wallets" description="Sign in with any of these instead of your email.">
-              {linkedWallets.length > 0 && (
-                <ul className="mb-4 flex flex-col gap-2">
-                  {linkedWallets.map((wallet) => (
-                    <li
-                      key={wallet.id}
-                      className="flex items-center justify-between rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm"
-                    >
-                      <span>
-                        <span className="text-fg-muted">{wallet.chain === "ETH" ? "Ethereum" : "Solana"}</span>{" "}
-                        <span className="text-fg" title={wallet.address}>
-                          {truncateAddress(wallet.address)}
-                        </span>
-                      </span>
-                      <form action={unlinkWallet.bind(null, wallet.id)}>
-                        <ConfirmDeleteButton confirmMessage={`Unlink ${truncateAddress(wallet.address)}?`}>
-                          Unlink
-                        </ConfirmDeleteButton>
-                      </form>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <LinkWalletModal />
-            </Panel>
-          </>
-        )}
       </div>
     </>
   );

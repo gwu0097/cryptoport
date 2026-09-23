@@ -1368,6 +1368,21 @@ create table cryptoport.coin_categories (
 alter table cryptoport.coin_categories enable row level security;
 grant all on cryptoport.coin_categories to service_role;
 
+-- Per-user display preferences (2026-09-22). timezone: IANA name; null =
+-- Automatic (the browser-detected zone, sent in the cryptoport_tz cookie).
+-- Resolution: saved > detected > UTC (src/lib/preferences.ts). Only DISPLAY
+-- uses it — stored data and computation boundaries stay UTC.
+create table cryptoport.user_preferences (
+  user_id     uuid primary key references auth.users(id) on delete cascade default auth.uid(),
+  timezone    text,
+  updated_at  timestamptz not null default now()
+);
+alter table cryptoport.user_preferences enable row level security;
+grant all on cryptoport.user_preferences to service_role;
+grant select, insert, update, delete on cryptoport.user_preferences to authenticated;
+create policy "user_preferences: owner only" on cryptoport.user_preferences
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 -- ===========================================================================
 -- Crypto fundamentals screener (docs/screener/). Every table prefixed
 -- screener_; src/lib/screener/* is never imported by portfolio code. RLS

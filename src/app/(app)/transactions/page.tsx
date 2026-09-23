@@ -12,6 +12,7 @@ import { TransactionSyncButton } from "@/components/TransactionSyncButton";
 import { TransactionSyncAllButton } from "@/components/TransactionSyncAllButton";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { syncWalletTransactions, syncAllWalletTransactions } from "./actions";
+import { getEffectiveTimeZone } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Transactions · CryptoPort" };
@@ -149,7 +150,7 @@ export default async function TransactionsPage({
           </p>
         </Panel>
       ) : (
-        <TransactionsTable transactions={transactions} showWallet={!selectedWallet} />
+        <TransactionsTable transactions={transactions} showWallet={!selectedWallet} timeZone={(await getEffectiveTimeZone()).tz} />
       )}
     </>
   );

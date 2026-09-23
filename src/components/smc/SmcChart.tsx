@@ -12,7 +12,8 @@ import {
   type Time,
 } from "lightweight-charts";
 import type { Candle, RibbonPoint, Flip, Trigger } from "@/lib/smc/engine";
-import { formatPt, formatPtAxis } from "@/lib/smc/time";
+import { formatTimeInZone, formatAxisInZone } from "@/lib/smc/time";
+import { useTimeZone } from "@/components/timezone/TimeZoneProvider";
 
 const BULL = "#26a65b";
 const BEAR = "#e05a4f";
@@ -42,6 +43,7 @@ export function SmcChart({
   blockLabel: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const tz = useTimeZone();
 
   useEffect(() => {
     if (!container.current) return;
@@ -50,13 +52,13 @@ export function SmcChart({
       layout: { background: { color: "transparent" }, textColor: "#9ca3af", attributionLogo: true },
       grid: { vertLines: { color: "rgba(148,163,184,0.08)" }, horzLines: { color: "rgba(148,163,184,0.08)" } },
       rightPriceScale: { borderColor: "rgba(148,163,184,0.2)" },
-      // Pacific time on the axis and crosshair (the library defaults to UTC).
-      localization: { timeFormatter: (time: Time) => formatPt(time as number) },
+      // The user's timezone on the axis and crosshair (the library defaults to UTC).
+      localization: { timeFormatter: (time: Time) => formatTimeInZone(time as number, tz) },
       timeScale: {
         borderColor: "rgba(148,163,184,0.2)",
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: Time) => formatPtAxis(time as number),
+        tickMarkFormatter: (time: Time) => formatAxisInZone(time as number, tz),
       },
       crosshair: { mode: 0 },
     });
@@ -99,7 +101,7 @@ export function SmcChart({
 
     chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - INITIAL_VISIBLE), to: candles.length + 3 });
     return () => chart.remove();
-  }, [candles, ribbon, flips, trigger, blockLabel]);
+  }, [candles, ribbon, flips, trigger, blockLabel, tz]);
 
   return <div ref={container} className="h-[480px] w-full" />;
 }

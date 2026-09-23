@@ -35,9 +35,12 @@ function DirectionCell({ direction }: { direction: TransactionRow["direction"] }
 export function TransactionsTable({
   transactions,
   showWallet,
+  timeZone,
 }: {
   transactions: TransactionRow[];
   showWallet: boolean;
+  /** The user's display timezone (see lib/preferences.ts). */
+  timeZone: string;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-surface">
@@ -57,7 +60,7 @@ export function TransactionsTable({
         <tbody>
           {transactions.map((tx) => (
             <tr key={`${tx.id}`} className={trClass}>
-              <td className={`${tdClass} whitespace-nowrap text-fg-muted`}>{formatDateTime(tx.occurred_at)}</td>
+              <td className={`${tdClass} whitespace-nowrap text-fg-muted`}>{formatDateTime(tx.occurred_at, timeZone)}</td>
               {showWallet && (
                 <td className={tdClass}>
                   <Link href={`/wallets/${tx.wallet_id}`} className="text-fg hover:text-accent">

@@ -96,7 +96,7 @@ export async function completeWalletLink(signatureHex: string): Promise<WalletLi
 
     const walletId = await ensureTrackedWalletForCurrentUser(chain, address);
 
-    revalidatePath("/settings");
+    revalidatePath("/profile");
     revalidatePath("/wallets");
     revalidatePath(`/wallets/${walletId}`);
     return { ok: true, walletId };
@@ -128,5 +128,5 @@ export async function unlinkWallet(linkedWalletId: string): Promise<void> {
   const { error } = await db.from("linked_wallets").delete().eq("id", linkedWalletId);
   if (error) throw new Error(`Failed to unlink wallet: ${error.message}`);
 
-  revalidatePath("/settings");
+  revalidatePath("/profile");
 }

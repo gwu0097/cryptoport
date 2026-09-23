@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { Plug, Search, LogOut } from "lucide-react";
-import { signOut } from "@/app/(auth)/actions";
+import { Plug, Search } from "lucide-react";
 import { buttonClass } from "@/components/ui/Button";
 import { MobileNav } from "./MobileNav";
+import { ProfileMenu } from "./ProfileMenu";
 
 export function TopBar({ userEmail, isAdmin }: { userEmail: string | null; isAdmin: boolean }) {
   return (
@@ -43,17 +43,7 @@ export function TopBar({ userEmail, isAdmin }: { userEmail: string | null; isAdm
       </form>
 
       {userEmail ? (
-        <form action={signOut} className="flex shrink-0 items-center gap-2">
-          <span className="hidden text-sm text-fg-muted sm:inline">{userEmail}</span>
-          <button
-            type="submit"
-            aria-label="Log out"
-            title="Log out"
-            className="grid size-9 place-items-center rounded-lg border border-border text-fg-muted hover:bg-surface-raised hover:text-fg"
-          >
-            <LogOut className="size-4" aria-hidden="true" />
-          </button>
-        </form>
+        <ProfileMenu userEmail={userEmail} />
       ) : (
         // Every page renders for a guest now — this is the one place in the
         // persistent chrome that says how to get an account, for anyone

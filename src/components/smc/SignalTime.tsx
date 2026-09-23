@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatPt, formatSpan, signalRecency, type Recency } from "@/lib/smc/time";
+import { formatTimeInZone, formatSpan, signalRecency, type Recency } from "@/lib/smc/time";
+import { useTimeZone } from "@/components/timezone/TimeZoneProvider";
 
 /** Current time in seconds, ticking every 30s — null during server render
  * and the first client render, so the absolute time (identical on both)
@@ -27,7 +28,7 @@ const RECENCY_CLASS: Record<Recency, string> = {
   older: "opacity-60",
 };
 
-/** A signal time in Pacific time plus "(x ago)", colored by side and styled
+/** A signal time in the user's timezone plus "(x ago)", colored by side and styled
  * by how recent it is in the chart's own bars. */
 export function SignalTime({
   sec,
@@ -41,25 +42,27 @@ export function SignalTime({
   price?: string;
 }) {
   const now = useNowSec();
+  const tz = useTimeZone();
   const recency = now === null ? null : signalRecency(sec, now, barSeconds);
   return (
     <span
       className={`${side === "BUY" ? "text-positive" : "text-negative"} ${recency ? RECENCY_CLASS[recency] : ""}`}
       title={recency === "within_bar" ? "Fired within the last bar" : undefined}
     >
-      {side === "BUY" ? "Buy" : "Sell"} · {formatPt(sec)}
+      {side === "BUY" ? "Buy" : "Sell"} · {formatTimeInZone(sec, tz)}
       {price ? ` @ ${price}` : ""}
       {now !== null && <span className="ml-1 opacity-80">({formatSpan(now - sec)} ago)</span>}
     </span>
   );
 }
 
-/** A future time in Pacific time plus "(in x)". */
+/** A future time in the user's timezone plus "(in x)". */
 export function UntilTime({ sec }: { sec: number }) {
   const now = useNowSec();
+  const tz = useTimeZone();
   return (
     <>
-      {formatPt(sec)}
+      {formatTimeInZone(sec, tz)}
       {now !== null && sec > now && <span className="ml-1 opacity-80">(in {formatSpan(sec - now)})</span>}
     </>
   );

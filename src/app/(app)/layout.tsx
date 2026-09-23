@@ -4,6 +4,8 @@ import { HideBalanceProvider } from "@/components/HideBalanceProvider";
 import { getUser } from "@/lib/auth";
 import { walletDisplayName } from "@/lib/walletDisplay";
 import { isAdminEmail } from "@/lib/adminEmail";
+import { getEffectiveTimeZone } from "@/lib/preferences";
+import { TimeZoneProvider } from "@/components/timezone/TimeZoneProvider";
 
 // Every real page of the app lives under this route group (invisible in
 // the URL — /wallets is still /wallets) so it can share one layout for the
@@ -25,13 +27,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // requireAdmin() on the /admin routes themselves is what actually
   // enforces access.
   const isAdmin = isAdminEmail(user?.email, process.env.ADMIN_EMAIL);
+  // The display timezone for every page (Settings → Language & region).
+  const zone = await getEffectiveTimeZone();
   return (
-    <JobPollerProvider>
-      <HideBalanceProvider>
-        <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null} isAdmin={isAdmin}>
-          {children}
-        </AppShell>
-      </HideBalanceProvider>
-    </JobPollerProvider>
+    <TimeZoneProvider tz={zone.tz} source={zone.source} detected={zone.detected}>
+      <JobPollerProvider>
+        <HideBalanceProvider>
+          <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null} isAdmin={isAdmin}>
+            {children}
+          </AppShell>
+        </HideBalanceProvider>
+      </JobPollerProvider>
+    </TimeZoneProvider>
   );
 }

@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { formatUsd, formatStaleness } from "@/lib/format";
+import { getEffectiveTimeZone } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · CryptoPort" };
@@ -18,6 +19,9 @@ export const metadata = { title: "Admin · CryptoPort" };
 export default async function AdminPage() {
   await requireAdmin();
   const users = await listAdminUsers();
+  // A signup DATE in the viewer's own timezone — this renders on the server, where a bare toLocaleDateString() meant UTC.
+  const { tz } = await getEffectiveTimeZone();
+  const signupDate = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "short", day: "numeric", year: "numeric" });
 
   return (
     <>
@@ -49,7 +53,7 @@ export default async function AdminPage() {
                       </Link>
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
-                      {new Date(u.createdAt).toLocaleDateString()}
+                      {signupDate.format(new Date(u.createdAt))}
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
                       {u.lastActiveAt ? formatStaleness(u.lastActiveAt) : "Never active"}

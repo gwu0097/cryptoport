@@ -116,19 +116,17 @@ export function formatDuration(ms: number | null): string {
   return `${minutes}m ${seconds}s`;
 }
 
-const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-/** An exact timestamp (a transaction's own occurred_at) — distinct from
- * formatStaleness, which is relative ("3h ago") and meant for "how fresh
- * is this cached data," not "when did this specific event happen." */
-export function formatDateTime(iso: string): string {
-  return dateTimeFormatter.format(new Date(iso));
+/** A moment in time, in the user's display timezone (required — the server
+ * runs in UTC, so an implicit zone silently showed UTC before). */
+export function formatDateTime(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
 }
 
 export function formatStaleness(lastRefreshAt: string | null): string {

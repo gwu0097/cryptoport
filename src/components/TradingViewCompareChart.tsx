@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import { guessTradingViewSymbol } from "@/lib/tradingViewSymbol";
+import { useTimeZone } from "@/components/timezone/TimeZoneProvider";
+import { tradingViewTimeZone } from "@/lib/timezone";
 
 /**
  * Embeds TradingView's free, keyless Advanced Chart widget with a compare
@@ -32,6 +34,8 @@ export function TradingViewCompareChart({
   height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const tz = useTimeZone();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -79,7 +83,8 @@ export function TradingViewCompareChart({
       symbol: guessTradingViewSymbol(baseTicker),
       compareSymbols,
       interval: "60",
-      timezone: "Etc/UTC",
+      // The user's display timezone, if TradingView's widget supports it (else UTC — see tradingViewTimeZone).
+      timezone: tradingViewTimeZone(tz),
       theme: "dark",
       style: "1",
       locale: "en",
@@ -88,7 +93,7 @@ export function TradingViewCompareChart({
       hide_legend: false,
     });
     container.appendChild(script);
-  }, [baseTicker, compareTicker, height]);
+  }, [baseTicker, compareTicker, height, tz]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
