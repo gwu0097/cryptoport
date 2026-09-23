@@ -37,17 +37,28 @@ const liveFees = (dataType: string): FieldSource => ({
   endpoint: `/overview/fees?dataType=${dataType}`,
 });
 
-export function buildLiveRunProvenance(fetchedAt: string): RunProvenance {
+/** A degraded live run (CoinGecko unavailable): price from DefiLlama's
+ * coins API, and the CoinGecko-only fields recorded as not fetched — they
+ * are null on every row of that run, and the manifest must say why rather
+ * than claim a source that wasn't called. */
+const DEFILLAMA_PRICES_CURRENT: FieldSource = { source: "defillama", endpoint: "coins.llama.fi /prices/current/coingecko:{gecko_id}" };
+const NOT_FETCHED_COINGECKO_DOWN: FieldSource = {
+  source: "none (not fetched: CoinGecko unavailable this run; degraded run)",
+  endpoint: "/coins/markets",
+};
+
+export function buildLiveRunProvenance(fetchedAt: string, opts: { degraded?: boolean } = {}): RunProvenance {
+  const cg = opts.degraded ? NOT_FETCHED_COINGECKO_DOWN : COINGECKO_MARKETS;
   return {
     fetched_at: fetchedAt,
     fields: {
-      price_usd: COINGECKO_MARKETS,
-      market_cap_usd: COINGECKO_MARKETS,
-      fdv_usd: COINGECKO_MARKETS,
-      circulating_supply: COINGECKO_MARKETS,
-      total_supply: COINGECKO_MARKETS,
-      max_supply: COINGECKO_MARKETS,
-      volume_24h_usd: COINGECKO_MARKETS,
+      price_usd: opts.degraded ? DEFILLAMA_PRICES_CURRENT : COINGECKO_MARKETS,
+      market_cap_usd: cg,
+      fdv_usd: cg,
+      circulating_supply: cg,
+      total_supply: cg,
+      max_supply: cg,
+      volume_24h_usd: cg,
       tvl_usd: { source: "defillama", endpoint: "/protocols" },
       fees_24h: liveFees("dailyFees"),
       fees_7d: liveFees("dailyFees"),

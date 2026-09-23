@@ -55,6 +55,7 @@ export const RUN_ARCHIVE_COLUMNS: readonly { name: string; type: ColumnType }[] 
   { name: "finished_at", type: "STRING" },
   { name: "kind", type: "STRING" },
   { name: "status", type: "STRING" },
+  { name: "degraded", type: "BOOLEAN" },
   { name: "provenance", type: "JSON" },
   { name: "notes", type: "JSON" },
 ];

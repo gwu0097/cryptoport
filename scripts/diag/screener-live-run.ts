@@ -4,7 +4,10 @@
 // scheduled run. Use to verify a change end to end before pushing; it adds
 // a same-day live run (see BACKLOG: consumers pick one run per UTC day).
 //
-//   NODE_OPTIONS="--conditions=react-server" ~/.npm/_npx/<hash>/node_modules/.bin/tsx scripts/diag/screener-live-run.ts
+//   NODE_OPTIONS="--conditions=react-server" ~/.npm/_npx/<hash>/node_modules/.bin/tsx scripts/diag/screener-live-run.ts [--force-degraded]
+//
+// --force-degraded: take the CoinGecko-unavailable path without calling
+// CoinGecko (the run is flagged degraded, market cap/supply/volume null).
 process.loadEnvFile(`${__dirname}/../../.env.local`);
 // Env is loaded before the imports below run (dynamic import): the
 // Supabase module reads process.env at load time.
@@ -14,7 +17,8 @@ async function main() {
   const { runScreenerDerivations } = await import("../../src/lib/screener/derive");
 
   const t0 = Date.now();
-  const snap = await runScreenerSnapshot();
+  const forced = process.argv.includes("--force-degraded");
+  const snap = await runScreenerSnapshot(undefined, forced ? { forceDegraded: "forced by scripts/diag/screener-live-run.ts --force-degraded (test of the degraded path)" } : {});
   const t1 = Date.now();
   console.log("snapshot:", JSON.stringify({ ...snap, gapDates: snap.gapDates.length }), `${((t1 - t0) / 1000).toFixed(1)}s`);
   const derivations = await runScreenerDerivations(snap.runId);

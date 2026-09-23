@@ -23,17 +23,23 @@ export interface Reading {
   /** Backfilled only: this row's price came from CoinGecko's market_chart
    * (a 00:00 UTC daily point) instead of DefiLlama's /chart. */
   price_from_coingecko?: boolean;
+  /** Live only: from a DEGRADED run (CoinGecko unavailable — market cap/
+   * supply null, price from DefiLlama). */
+  degraded?: boolean;
 }
 
-/** date (YYYY-MM-DD) -> that day's latest reading, only readings observed at
- * or before `asOf` (point-in-time: a run never sees later data). */
+/** date (YYYY-MM-DD) -> that day's reading, only readings observed at or
+ * before `asOf` (point-in-time: a run never sees later data). Same rule as
+ * runSelection.ts: a complete reading beats a degraded one; then the latest
+ * wins. */
 export function dailyReadings(readings: readonly Reading[], asOf: string): Map<string, Reading> {
   const byDay = new Map<string, Reading>();
   for (const r of readings) {
     if (r.observed_at > asOf) continue;
     const day = r.observed_at.slice(0, 10);
     const cur = byDay.get(day);
-    if (!cur || r.observed_at > cur.observed_at) byDay.set(day, r);
+    const wins = !cur || (!!r.degraded !== !!cur.degraded ? !r.degraded : r.observed_at > cur.observed_at);
+    if (wins) byDay.set(day, r);
   }
   return byDay;
 }

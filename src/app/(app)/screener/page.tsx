@@ -65,6 +65,21 @@ export default async function ScreenerPage() {
             {view.unrated.total} unrated. Data is refreshed once a day; the day&rsquo;s latest successful run is shown.
           </p>
 
+          {view.run.degraded && (
+            <div className="mb-4 flex items-start gap-2 rounded-xl border border-negative/40 bg-negative/10 p-4 text-sm text-fg">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
+              <p>
+                <span className="font-semibold">Degraded day: CoinGecko was unavailable for this run.</span>{" "}
+                <span className="text-fg-muted">
+                  The snapshot was still written from DefiLlama (price, fees, revenue, TVL) so the history stays
+                  continuous, but market cap, supply and volume are missing, so no asset can be rated today
+                  {view.run.degraded.pricesMissing > 0 ? `, and ${view.run.degraded.pricesMissing} assets also had no DefiLlama price` : ""}.
+                  Degraded days are excluded from backtests. Error: {view.run.degraded.error}
+                </span>
+              </p>
+            </div>
+          )}
+
           {view.regime ? (
             <div className="mb-4">
               <RegimePanel label={view.regime.label} rules={view.regime.rules} />

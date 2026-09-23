@@ -1,12 +1,14 @@
 import "server-only";
 import { serviceDb } from "@/lib/supabase";
-import { fetchMarketsByIds } from "@/lib/adapters/coingecko";
+import { fetchMarketsByIds, type MarketDataRow } from "@/lib/adapters/coingecko";
+import { fetchPricesAt } from "./adapters/defillamaPrices";
 import { fetchProtocols, fetchFeesOverview, fetchParentProtocols } from "./adapters/defillama";
 import { resolveGroups, aggregateGroupTotals, dominantCategory } from "./aggregate";
 import { SCREENER_CONFIG } from "./config";
 import { buildLiveRunProvenance } from "./provenance";
 import { diffUnmatched, type UnmatchedEntry, type OpenUnmatchedRow } from "./unmatched";
 import { fetchAllRows } from "./pagination";
+import { findGapDates, type RunRow } from "./runSelection";
 
 const BTC_GECKO_ID = "bitcoin";
 
@@ -27,6 +29,8 @@ const GAP_CHECK_DAYS = 14;
 
 export interface SnapshotRunResult {
   runId: string;
+  /** CoinGecko was unavailable: written from DefiLlama only (see degradedMarkets). */
+  degraded: boolean;
   universeSize: number;
   matchedCount: number;
   unmatchedCount: number;
@@ -43,26 +47,84 @@ export interface SnapshotRunResult {
  * gap shows up in that run's own `notes` immediately. */
 async function detectGaps(): Promise<string[]> {
   const db = serviceDb();
-  const since = new Date();
+  const now = new Date();
+  const since = new Date(now);
   since.setUTCDate(since.getUTCDate() - GAP_CHECK_DAYS);
 
   const { data, error } = await db
     .from("screener_runs")
-    .select("started_at, status")
+    .select("id, started_at, status, kind, degraded")
     .gte("started_at", since.toISOString())
     .eq("kind", "live") // a backfill run on a missed day must not mask the gap
     .eq("status", "ok");
   if (error) throw new Error(`Failed to check screener_runs for gap detection: ${error.message}`);
+  // A degraded run (status ok) covers its day — see findGapDates.
+  return findGapDates((data ?? []) as RunRow[], now, GAP_CHECK_DAYS);
+}
 
-  const successDates = new Set((data as { started_at: string }[]).map((r) => r.started_at.slice(0, 10)));
-  const gaps: string[] = [];
-  for (let i = 1; i < GAP_CHECK_DAYS; i++) {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-    if (!successDates.has(dateStr)) gaps.push(dateStr);
+// DefiLlama /prices/current takes its coin list in the URL path. Live-
+// verified 2026-09-23: 200 coingecko:{id} keys (4.2 KB URL) -> 200, 250
+// (5.3 KB) -> 400, 500+ -> 414. 100 per call is ~2 KB, half the known-good
+// size, 7 calls for the current universe (each throttled 1.5s by fetchPricesAt).
+const DEGRADED_PRICE_CHUNK = 100;
+
+export interface Degradation {
+  reason: "coingecko_unavailable";
+  error: string;
+  price_source: string;
+  fields_null: string[];
+  /** Resolved gecko_ids with no screener_assets row, so no name/ticker to
+   * write without CoinGecko: mostly the ids CoinGecko has never had market
+   * data for (the open no_coingecko_market_data intervals — 149 on
+   * 2026-09-23), plus any genuinely new one, which waits for the next
+   * complete run. */
+  groups_skipped_not_in_assets: number;
+  /** Known assets DefiLlama had no current price for (price null that day). */
+  prices_missing: number;
+}
+
+/** When CoinGecko is unavailable (its /coins/markets call threw after the
+ * shared retries and key failover), the day's snapshot is still written —
+ * decided 2026-09-23: a partial day beats a missing one, because a missed
+ * day of point-in-time history can never be recovered. Stand-in market rows
+ * for every ALREADY-KNOWN asset: name/ticker from screener_assets, price
+ * from DefiLlama's coins API (bitcoin included, so the BTC reference is from
+ * the same response), and market cap / FDV / supply / volume null. Nulls
+ * flow through as designed: core_data fails without market cap, so nothing
+ * is rated that day, while fees/revenue/TVL history stays continuous. */
+async function degradedMarkets(geckoIds: string[], error: string): Promise<{ markets: Map<string, MarketDataRow>; degradation: Degradation }> {
+  const db = serviceDb();
+  const known = new Map<string, { name: string; ticker: string }>();
+  for (const batch of chunk(geckoIds, ID_CHUNK)) {
+    const { data, error: readError } = await db.from("screener_assets").select("gecko_id, name, ticker").in("gecko_id", batch);
+    if (readError) throw new Error(`Failed to read screener_assets for a degraded run: ${readError.message}`);
+    for (const r of data ?? []) known.set(r.gecko_id as string, { name: r.name as string, ticker: r.ticker as string });
   }
-  return gaps;
+  const priceIds = [...new Set([...known.keys(), BTC_GECKO_ID])];
+  const prices = new Map<string, number>();
+  for (const batch of chunk(priceIds, DEGRADED_PRICE_CHUNK)) {
+    for (const [id, p] of await fetchPricesAt(batch)) prices.set(id, p);
+  }
+  const markets = new Map<string, MarketDataRow>();
+  for (const id of priceIds) {
+    const k = known.get(id) ?? { name: "Bitcoin", ticker: "btc" };
+    markets.set(id, {
+      id, name: k.name, symbol: k.ticker, imageUrl: null, price: prices.get(id) ?? null,
+      change1h: null, change24h: null, change7d: null,
+      marketCap: null, fdv: null, circulatingSupply: null, totalSupply: null, maxSupply: null, volume24h: null,
+    });
+  }
+  return {
+    markets,
+    degradation: {
+      reason: "coingecko_unavailable",
+      error,
+      price_source: "defillama coins.llama.fi /prices/current (coingecko:{gecko_id})",
+      fields_null: ["market_cap_usd", "fdv_usd", "circulating_supply", "total_supply", "max_supply", "volume_24h_usd"],
+      groups_skipped_not_in_assets: geckoIds.filter((id) => id !== BTC_GECKO_ID && !known.has(id)).length,
+      prices_missing: [...known.keys()].filter((id) => !prices.has(id)).length,
+    },
+  };
 }
 
 // PostgREST `in.(...)` filters go in the URL — keep each request's id list
@@ -75,6 +137,7 @@ const ID_CHUNK = 100;
 async function recordUnmatchedChanges(
   runId: string,
   current: UnmatchedEntry[],
+  ignoreKinds: UnmatchedEntry["kind"][] = [],
 ): Promise<{ opened: number; resolved: number; reason_updated: number; open_total: number }> {
   const db = serviceDb();
   const open = await fetchAllRows<OpenUnmatchedRow>(async (cursor, limit) =>
@@ -86,7 +149,7 @@ async function recordUnmatchedChanges(
       .order("id")
       .limit(limit),
   );
-  const diff = diffUnmatched(open, current);
+  const diff = diffUnmatched(open, current, ignoreKinds);
   const now = new Date().toISOString();
 
   for (let i = 0; i < diff.toOpen.length; i += 500) {
@@ -154,7 +217,15 @@ export interface SnapshotInvocation {
   cronScheduleHeader: string | null;
 }
 
-export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Promise<SnapshotRunResult> {
+export async function runScreenerSnapshot(
+  invocation?: SnapshotInvocation,
+  /** Test-only: take the degraded path without calling CoinGecko, with this
+   * text as the recorded error. The cron route never passes it; it exists
+   * because CoinGecko serves an invalid Demo key as the public tier (live-
+   * checked 2026-09-23), so an outage can't be simulated from outside. Used
+   * by scripts/diag/screener-live-run.ts --force-degraded. */
+  opts: { forceDegraded?: string } = {},
+): Promise<SnapshotRunResult> {
   const db = serviceDb();
   const startedAt = new Date().toISOString();
   const invocationNotes = invocation
@@ -213,12 +284,26 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
     // as it gets. (BTC is also a universe asset itself — DefiLlama lists a
     // `bitcoin` protocol — hence the Set: it's fetched once either way.)
     const geckoIds = [...new Set([...groups.keys(), BTC_GECKO_ID])];
-    const marketRows = await fetchMarketsByIds(geckoIds);
-    const marketByGeckoId = new Map(marketRows.map((r) => [r.id, r]));
+    let marketByGeckoId: Map<string, MarketDataRow>;
+    let degradation: Degradation | null = null;
+    try {
+      if (opts.forceDegraded) throw new Error(opts.forceDegraded);
+      marketByGeckoId = new Map((await fetchMarketsByIds(geckoIds)).map((r) => [r.id, r]));
+    } catch (e) {
+      console.warn(`[screener] CoinGecko unavailable for run ${runId}; writing a degraded snapshot: ${(e as Error).message}`);
+      ({ markets: marketByGeckoId, degradation } = await degradedMarkets(geckoIds, (e as Error).message));
+    }
     const btcMarket = marketByGeckoId.get(BTC_GECKO_ID);
     const referencePrices =
       btcMarket?.price != null
-        ? { [BTC_GECKO_ID]: { price_usd: btcMarket.price, source: "coingecko /coins/markets (same response as the asset prices)" } }
+        ? {
+            [BTC_GECKO_ID]: {
+              price_usd: btcMarket.price,
+              source: degradation
+                ? "defillama /prices/current (degraded run; same response as the asset prices)"
+                : "coingecko /coins/markets (same response as the asset prices)",
+            },
+          }
         : {};
 
     const observedAt = new Date().toISOString();
@@ -228,7 +313,7 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
     // has provenance for the rows it did write.
     const { error: provenanceError } = await db
       .from("screener_runs")
-      .update({ provenance: buildLiveRunProvenance(observedAt) })
+      .update({ provenance: buildLiveRunProvenance(observedAt, { degraded: degradation !== null }) })
       .eq("id", runId);
     if (provenanceError) throw new Error(`Failed to write screener_runs.provenance(${runId}): ${provenanceError.message}`);
 
@@ -240,6 +325,10 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
     const prepared = [];
     for (const group of groups.values()) {
       const market = marketByGeckoId.get(group.geckoId);
+      // A degraded run never asked CoinGecko, so a missing row there means
+      // "not yet a known asset", not "CoinGecko has no market data" (counted
+      // in the degradation note instead).
+      if (!market && degradation) continue;
       if (!market) {
         unmatched.push({
           kind: "no_coingecko_market_data",
@@ -342,7 +431,7 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
     }
     const matchedCount = prepared.length;
 
-    const unmatchedChanges = await recordUnmatchedChanges(runId, unmatched);
+    const unmatchedChanges = await recordUnmatchedChanges(runId, unmatched, degradation ? ["no_coingecko_market_data"] : []);
 
     const gapDates = await detectGaps();
 
@@ -351,6 +440,7 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
       .update({
         finished_at: new Date().toISOString(),
         status: "ok",
+        degraded: degradation !== null,
         universe_size: groups.size,
         matched_count: matchedCount,
         unmatched_count: unmatched.length,
@@ -360,6 +450,7 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
           gap_dates: gapDates,
           unmatched_changes: unmatchedChanges,
           reference_prices: referencePrices,
+          ...(degradation ? { degradation } : {}),
         },
       })
       .eq("id", runId);
@@ -367,6 +458,7 @@ export async function runScreenerSnapshot(invocation?: SnapshotInvocation): Prom
 
     return {
       runId,
+      degraded: degradation !== null,
       universeSize: groups.size,
       matchedCount,
       unmatchedCount: unmatched.length,

@@ -34,14 +34,23 @@ export interface UnmatchedDiff {
 
 const key = (kind: string, identifier: string) => `${kind}\u0000${identifier}`;
 
-export function diffUnmatched(open: readonly OpenUnmatchedRow[], current: readonly UnmatchedEntry[]): UnmatchedDiff {
+/** `ignoreKinds`: kinds this run couldn't observe (a degraded run never
+ * asked CoinGecko, so it can't know which ids lack market data). Their open
+ * rows are left exactly as they are — neither resolved nor re-opened. */
+export function diffUnmatched(
+  open: readonly OpenUnmatchedRow[],
+  current: readonly UnmatchedEntry[],
+  ignoreKinds: readonly UnmatchedKind[] = [],
+): UnmatchedDiff {
+  const ignored = new Set<string>(ignoreKinds);
   const currentByKey = new Map<string, UnmatchedEntry>();
-  for (const e of current) currentByKey.set(key(e.kind, e.identifier), e);
+  for (const e of current) if (!ignored.has(e.kind)) currentByKey.set(key(e.kind, e.identifier), e);
 
   const openKeys = new Set<string>();
   const toResolveIds: string[] = [];
   const reasonUpdates: { id: string; reason: string }[] = [];
   for (const row of open) {
+    if (ignored.has(row.kind)) continue;
     const k = key(row.kind, row.identifier);
     openKeys.add(k);
     const now = currentByKey.get(k);

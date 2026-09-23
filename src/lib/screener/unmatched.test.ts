@@ -34,3 +34,16 @@ test("duplicate entries in one run collapse to one open row", () => {
   const e = { kind: "no_fee_data" as const, identifier: "x", reason: "r" };
   assert.equal(diffUnmatched([], [e, e]).toOpen.length, 1);
 });
+
+test("a degraded run leaves open rows of a kind it couldn't observe untouched, and opens none of that kind", () => {
+  const withCg = [...open, { id: "9", kind: "no_coingecko_market_data", identifier: "delisted", reason: "r" }];
+  const current = [
+    { kind: "no_fee_data" as const, identifier: "a", reason: "r" },
+    { kind: "no_gecko_id" as const, identifier: "b", reason: "old" },
+    { kind: "no_fee_data" as const, identifier: "gone", reason: "r" },
+    { kind: "no_coingecko_market_data" as const, identifier: "new-one", reason: "r" },
+  ];
+  const d = diffUnmatched(withCg, current, ["no_coingecko_market_data"]);
+  assert.deepEqual(d.toResolveIds, [], "the open CoinGecko-kind row is not resolved");
+  assert.deepEqual(d.toOpen, [], "no CoinGecko-kind row is opened");
+});

@@ -111,5 +111,5 @@ This table stays here as the review record. Re-run the diagnostic to catch the n
 - **Desktop layout checked in a browser.** **Phone width was not checked visually**: the browser window wouldn't resize. The table follows the app's mobile conventions (`overflow-x-auto`, secondary columns hidden below `sm`), but nobody has looked at it at 390px yet.
 
 ### Open items
-- Phone-width visual check (above).
+- **Phone width: unverified, deliberately deferred** (2026-09-23). `/screener` is URL-only and used on desktop. It follows the mobile conventions but hasn't been looked at on a phone.
 - A sector filter / per-bucket view: not built. Percentiles are across all rated assets by decision, so a filter would only hide rows, and nothing asked for it yet.

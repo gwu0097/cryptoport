@@ -50,7 +50,7 @@ export async function getLatestUniverseSnapshot(): Promise<UniverseSnapshotResul
   // Same one-run-per-day rule as the screener (runSelection.ts).
   const { data: recentRuns, error: runError } = await db
     .from("screener_runs")
-    .select("id, started_at, status, kind, unmatched_count, notes")
+    .select("id, started_at, status, kind, degraded, unmatched_count, notes")
     .eq("kind", "live") // backfill runs also land in screener_runs now
     .order("started_at", { ascending: false })
     .limit(30);
@@ -175,7 +175,14 @@ export interface RegimeRule {
 }
 
 export interface ScreenerView {
-  run: { id: string; startedAt: string; trigger: string | null; configVersionId: string | null } | null;
+  run: {
+    id: string;
+    startedAt: string;
+    trigger: string | null;
+    configVersionId: string | null;
+    /** CoinGecko was unavailable: market cap/supply/volume null, nothing rated. */
+    degraded: { error: string; pricesMissing: number } | null;
+  } | null;
   /** Rated assets with both momentum legs: graded, tagged, ranked. */
   graded: ScreenerRow[];
   /** Rated assets with one momentum leg: scored and placed, never graded or tagged. */
@@ -205,7 +212,7 @@ export async function getScreenerView(): Promise<ScreenerView> {
   // Enough recent runs to cover the latest day even with several manual runs.
   const { data: runs, error: runsError } = await db
     .from("screener_runs")
-    .select("id, started_at, status, kind, notes")
+    .select("id, started_at, status, kind, degraded, notes")
     .eq("kind", "live")
     .order("started_at", { ascending: false })
     .limit(30);
@@ -216,10 +223,17 @@ export async function getScreenerView(): Promise<ScreenerView> {
   const notes = (run.notes ?? {}) as {
     trigger?: string;
     derivations?: { config_version_id?: string; scores?: { size_check?: ScreenerView["sizeCheck"] }; scores_error?: string; metrics_error?: string };
+    degradation?: { error: string; prices_missing: number };
   };
   const view: ScreenerView = {
     ...empty,
-    run: { id: run.id, startedAt: run.started_at, trigger: notes.trigger ?? null, configVersionId: notes.derivations?.config_version_id ?? null },
+    run: {
+      id: run.id,
+      startedAt: run.started_at,
+      trigger: notes.trigger ?? null,
+      configVersionId: notes.derivations?.config_version_id ?? null,
+      degraded: run.degraded ? { error: notes.degradation?.error ?? "unknown", pricesMissing: notes.degradation?.prices_missing ?? 0 } : null,
+    },
     sizeCheck: notes.derivations?.scores?.size_check ?? null,
   };
 
@@ -267,7 +281,9 @@ export async function getScreenerView(): Promise<ScreenerView> {
   const scores = (scoreData ?? []) as unknown as ScoreRow[];
   if (scores.length === 0) {
     const d = notes.derivations;
-    view.scoresMissingReason = d?.scores_error
+    view.scoresMissingReason = run.degraded
+      ? "Nothing is rated for this day: CoinGecko was unavailable, so market cap, supply and volume weren't recorded (see the notice above)."
+      : d?.scores_error
       ? `Scoring failed for this run: ${d.scores_error}`
       : d?.metrics_error
         ? `Metrics failed for this run, so nothing was scored: ${d.metrics_error}`

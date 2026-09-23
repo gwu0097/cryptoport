@@ -47,7 +47,7 @@ export async function ensureConfigVersion(): Promise<string> {
   return again.data.id as string;
 }
 
-type HistoryRow = Reading & { id: string; asset_id: string; provenance_override?: { price_usd?: { source?: string } } | null };
+export type HistoryRow = Reading & { id: string; asset_id: string; provenance_override?: { price_usd?: { source?: string } } | null };
 
 const HISTORY_SELECT =
   "id, asset_id, observed_at, is_backfilled, run_id, price_usd, market_cap_usd, circulating_supply, revenue_30d, provenance_override";
@@ -56,7 +56,7 @@ const HISTORY_SELECT =
  * the last ~95 days in full (beta 90d, momentum 84d, dilution 90d, revenue
  * t/-30/-60/-90), plus the two older revenue checkpoints (t-120, t-150)
  * as narrow date windows instead of reading ~155 days of rows. */
-async function loadHistoryReadings(asOf: string): Promise<{ rows: HistoryRow[]; ms: number }> {
+export async function loadHistoryReadings(asOf: string): Promise<{ rows: HistoryRow[]; ms: number }> {
   const t0 = Date.now();
   const db = serviceDb();
   const tol = SCREENER_CONFIG.history.lookbackToleranceDays;
@@ -82,6 +82,17 @@ async function loadHistoryReadings(asOf: string): Promise<{ rows: HistoryRow[]; 
     );
   }
   for (const r of rows) r.price_from_coingecko = r.is_backfilled && r.provenance_override?.price_usd?.source === "coingecko";
+  // Readings from degraded runs (CoinGecko unavailable) lose to a complete
+  // reading of the same day in dailyReadings — same rule as runSelection.ts.
+  const { data: degradedRuns, error: degradedError } = await db
+    .from("screener_runs")
+    .select("id")
+    .eq("kind", "live")
+    .eq("degraded", true)
+    .gte("started_at", ranges[ranges.length - 1][0]);
+  if (degradedError) throw new Error(`Failed to read degraded runs: ${degradedError.message}`);
+  const degradedIds = new Set((degradedRuns ?? []).map((r) => r.id as string));
+  for (const r of rows) r.degraded = degradedIds.has(r.run_id);
   return { rows, ms: Date.now() - t0 };
 }
 

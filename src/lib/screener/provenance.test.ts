@@ -41,3 +41,13 @@ test("a row override beats the manifest for that field only", () => {
 test("a field the run never wrote has no provenance (null), not a guessed one", () => {
   assert.equal(resolveFieldProvenance("fdv_usd", buildBackfillRunProvenance("t"), null, ctx), null);
 });
+
+test("a degraded run's manifest names DefiLlama for price and records the CoinGecko fields as not fetched", () => {
+  const m = buildLiveRunProvenance("2026-09-23T07:00:00Z", { degraded: true });
+  assert.equal(m.fields.price_usd.source, "defillama");
+  for (const f of ["market_cap_usd", "fdv_usd", "circulating_supply", "total_supply", "max_supply", "volume_24h_usd"]) {
+    assert.match(m.fields[f].source, /not fetched/, f);
+  }
+  assert.equal(m.fields.fees_30d.source, "defillama", "DefiLlama fields are unaffected");
+  assert.deepEqual(Object.keys(m.fields).sort(), Object.keys(buildLiveRunProvenance("t").fields).sort(), "same field set as a complete run");
+});

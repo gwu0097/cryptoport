@@ -1430,7 +1430,14 @@ create table cryptoport.screener_runs (
   notes          jsonb,
   kind           text not null default 'live'
                    constraint screener_runs_kind_check check (kind in ('live', 'backfill')),
-  provenance     jsonb
+  provenance     jsonb,
+  -- Added 2026-09-23. true = CoinGecko was unavailable, so the live snapshot
+  -- was written from DefiLlama only (price, fees, revenue, TVL) with market
+  -- cap / FDV / supply / volume null — nothing is rated that day, but the
+  -- day isn't lost. status stays 'ok'. Details in notes.degradation. A
+  -- complete run beats a degraded one for the same UTC day (runSelection.ts);
+  -- Phase 4 excludes days whose run is degraded.
+  degraded       boolean not null default false
 );
 
 -- Append-only, point-in-time. A field's provenance = its run's manifest

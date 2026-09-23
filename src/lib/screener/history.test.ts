@@ -171,3 +171,11 @@ test("computeHistoryMetrics: measured dilution needs LIVE supply at both ends; i
   assert.equal(m.dilution_rate, null, "no live supply 90 days back -> measured stays null (tier can't fire)");
   assert.ok(m.dilution_rate_implied! > 0.4 && m.dilution_rate_implied! < 0.5, "10% over ~90 days annualizes to ~47%");
 });
+
+test("dailyReadings: a complete reading beats a later degraded one on the same day; a degraded one still fills an otherwise empty day", () => {
+  const complete = r("2026-09-23", { observed_at: "2026-09-23T07:58:00.000Z", is_backfilled: false, run_id: "ok", market_cap_usd: 100 });
+  const degraded = r("2026-09-23", { observed_at: "2026-09-23T16:00:00.000Z", is_backfilled: false, run_id: "deg", market_cap_usd: null, degraded: true });
+  assert.equal(dailyReadings([complete, degraded], "2026-09-24T00:00:00Z").get("2026-09-23")!.run_id, "ok");
+  assert.equal(dailyReadings([degraded, complete], "2026-09-24T00:00:00Z").get("2026-09-23")!.run_id, "ok", "order-independent");
+  assert.equal(dailyReadings([degraded], "2026-09-24T00:00:00Z").get("2026-09-23")!.run_id, "deg");
+});

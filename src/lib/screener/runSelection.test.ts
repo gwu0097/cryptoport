@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickRunPerUtcDay, latestDailyRun } from "./runSelection.ts";
+import { pickRunPerUtcDay, latestDailyRun, findGapDates } from "./runSelection.ts";
 
 const run = (id: string, started_at: string, status = "ok", kind = "live") => ({ id, started_at, status, kind });
 
@@ -37,4 +37,29 @@ test("latestDailyRun: the most recent day's run, or null with no ok live run", (
   assert.equal(latestDailyRun([run("a", "2026-09-22T23:00:00Z"), run("b", "2026-09-23T07:58:00Z")])!.id, "b");
   assert.equal(latestDailyRun([run("x", "2026-09-23T07:58:00Z", "error")]), null);
   assert.equal(latestDailyRun([]), null);
+});
+
+test("a complete ok run beats a LATER degraded one; a degraded run represents a day only when nothing complete exists", () => {
+  const days = pickRunPerUtcDay([
+    { ...run("complete", "2026-09-23T07:58:00Z"), degraded: false },
+    { ...run("degraded-later", "2026-09-23T16:00:00Z"), degraded: true },
+    { ...run("degraded-only", "2026-09-24T07:58:00Z"), degraded: true },
+  ]);
+  assert.equal(days.get("2026-09-23")!.id, "complete");
+  assert.equal(days.get("2026-09-24")!.id, "degraded-only");
+  assert.equal(days.get("2026-09-24")!.degraded, true, "the caller can see it's degraded (Phase 4 excludes it)");
+});
+
+test("findGapDates: a day covered only by a DEGRADED ok run is not a gap; an errored-only day is", () => {
+  const now = new Date("2026-09-25T12:00:00Z");
+  const gaps = findGapDates(
+    [
+      { ...run("deg", "2026-09-24T07:58:00Z"), degraded: true },
+      run("err", "2026-09-23T07:58:00Z", "error"),
+      run("ok", "2026-09-22T07:58:00Z"),
+    ],
+    now,
+    4,
+  );
+  assert.deepEqual(gaps, ["2026-09-23"]);
 });

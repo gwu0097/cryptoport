@@ -44,7 +44,7 @@ test("parquet round trip is lossless: doubles, nulls, booleans, JSON arrays/obje
 test("runs file round trip keeps notes/provenance as objects", async () => {
   const dir = mkdtempSync(join(tmpdir(), "screener-archive-test-"));
   try {
-    const runs = [{ id: "r", started_at: "s", finished_at: null, kind: "live", status: "ok", provenance: { fetched_at: "t", fields: {} }, notes: { gap_dates: ["2026-09-21"] } }];
+    const runs = [{ id: "r", started_at: "s", finished_at: null, kind: "live", status: "ok", degraded: true, provenance: { fetched_at: "t", fields: {} }, notes: { gap_dates: ["2026-09-21"] } }];
     const file = join(dir, "r.parquet");
     parquetWriteFile({ filename: file, columnData: toColumnData(runs, RUN_ARCHIVE_COLUMNS) as never });
     const back = (await parquetReadObjects({ file: await asyncBufferFromFile(file) })) as Record<string, unknown>[];
