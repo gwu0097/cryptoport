@@ -226,6 +226,22 @@ A backfilled `screener_asset_snapshots` row is labeled with one date, but its va
 
 So a ratio **within** one row that mixes price with market cap (implied supply, dilution) mixes moments. Measured: market cap ÷ the stored price has 0.65% daily noise; ÷ the 00:00 price, 0.000%. Anything pairing a backfilled row with another series must use the value's real moment, not `observed_at` (the pairing code does: `pairBtc` by the run's grid). A latent hazard to keep in mind: `dailyReadings` orders a day's readings by `observed_at`, so a backfilled 12:00 label would "beat" a live 07:00 reading if both ever existed on one day. They don't today: the backfill ends the day before live history began.
 
+### OPEN QUESTION AGAINST THE DESIGN: momentum as the primary ranking is unsupported by our own data (raised 2026-09-23, Phase 4 sign-off)
+**Where it came from:** Score B (3-week and 12-week momentum vs BTC) was made the primary ranking because published research found cross-sectional momentum works in crypto (Liu, Tsyvinski & Wu). The Quality & Risk layer was demoted to a tier on the same premise.
+
+**What our own backtest found** (run `d7cf95ae`; `PHASE_4.md` 4b):
+- On the universe the screener actually rates (1 year, 9 periods), Score B's rank IC with the next 30 days' return vs BTC is about 0 (−0.024, CI [−0.10, +0.05]).
+- On a wider 3-year universe (36 periods), it's **significantly negative in-sample**: −0.051, CI [−0.093, −0.009]; `mom_12w` is −0.053. That's reversal, not continuation.
+- It fades to about 0 in the held-back third, so **no sign flip is justified**.
+- **But the premise for momentum-as-primary is not supported by our own data.**
+
+**What's open:**
+- Whether the screener should rank at all before something passes a test.
+- If it should, by what.
+- Whether the difference from the published result is structural. Our universe is ~60–80 revenue-generating tokens, not a broad coin universe. We rebalance monthly, against BTC, not weekly. And momentum is ~ one feature among many, not a traded strategy.
+
+**Until this is resolved,** the ranking stays but is presented as unvalidated: the banner, and a caption under it with the latest backtest's conclusion. Nothing downstream (Phase 5's "finalists", any weight) may treat the grade order as evidence of merit. The pre-registered hypotheses H1–H3 (`PHASE_4.md`) test this question on post-registration data only.
+
 ### Phase 4 — standing rules (2026-09-23; full plan and definitions in `PHASE_4_PLAN.md`)
 - **The backtest never gets its own scoring implementation.** At each formation date it scores through the production path (`computeAssetMetrics`, `computeHistoryMetrics`, `scoreRun`, `config.ts`), the same functions the daily cron runs. A separate implementation would validate code we don't run. The same applies to the pieces around scoring: the per-day reading rule (`dailyReadings`), run selection (`pickRunPerUtcDay`), and BTC pairing (`pairBtc` with `loadBtcReference`, which takes a longer window for the backtest instead of being re-implemented).
 - **Prediction before results:** the expected outcome is written into `PHASE_4.md` and stored in `screener_backtest_runs.prediction` when the run's row is inserted, before any result exists.
@@ -435,7 +451,7 @@ Equal-weight average of the available standardized components:
 - **Score breakdown** showing each component's contribution
 - **Size check:** if the top-ranked list is dominated by one size bucket, flag it.
 
-Until Phase 4 validates the grades, every view shows the banner: **"Unvalidated screen: grades are not yet backtested."**
+Until Phase 4 validates the grades, every view shows the banner: **"Unvalidated screen: grades are not yet backtested."** *(Amended 2026-09-23: after Phase 4 the wording is "Unvalidated screen: grades have not passed a backtest.", with a caption under it carrying the latest backtest run's date, id and one-line conclusion, read from `screener_backtest_runs.notes`.)*
 
 Deliverable: `PHASE_3.md` with the full ranked list, setup-tag counts, and the top 15 with breakdowns. Stop.
 

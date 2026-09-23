@@ -328,3 +328,20 @@ export async function getScreenerView(): Promise<ScreenerView> {
   view.unscoredCount = rows.filter((r) => r.timingScore === null).length;
   return view;
 }
+
+/** The latest completed Phase 4 backtest's one-line conclusion
+ * (screener_backtest_runs.notes), for the caption under the "Unvalidated"
+ * banner. Read from the DB, not hard-coded, so a later run replaces it
+ * instead of leaving a stale claim on the page. */
+export async function getLatestBacktestSummary(): Promise<{ id: string; finishedAt: string; summary: string } | null> {
+  const { data, error } = await serviceDb()
+    .from("screener_backtest_runs")
+    .select("id, finished_at, notes")
+    .eq("status", "ok")
+    .not("notes", "is", null)
+    .order("finished_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load screener_backtest_runs: ${error.message}`);
+  return data ? { id: data.id as string, finishedAt: data.finished_at as string, summary: data.notes as string } : null;
+}

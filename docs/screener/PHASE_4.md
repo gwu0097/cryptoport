@@ -210,3 +210,25 @@ A **separate agent with a fresh context** got only the plan's Definitions sectio
 6. **Nothing in production changes from this phase.** Weight > 0 needs your explicit approval after reading these numbers, and the evidence doesn't support it.
 
 **4b stops here.**
+
+---
+
+## Pre-registered hypotheses for the next backtest run (written 2026-09-23, before any post-registration data exists)
+
+Recorded here, and committed with a timestamp, so they can't be fitted to later data. The next run's `screener_backtest_runs.prediction` must be this section, verbatim.
+
+**What counts as a test.** These hypotheses were *formed from* the 2025-12 → 2026-08 backfilled panels, so those panels can't confirm them. **Only formation dates after 2026-09-23** count:
+- live snapshot days, chosen by `pickRunPerUtcDay`, degraded days excluded;
+- the production rated universe;
+- 30-day forward return vs BTC;
+- the definitions in `PHASE_4_PLAN.md` plus the 4b clarifications.
+
+Full-sample numbers may be shown for continuity, labeled non-confirmatory. **No verdict before 6 post-registration periods** (about 2027-03 at one 30-day period per month); until then each hypothesis is reported as "insufficient data".
+
+| # | Hypothesis | Supported if | Refuted if | Otherwise |
+|---|---|---|---|---|
+| H1 | Score B's mean rank IC on the rated universe is **≤ 0** | 95% CI upper bound < 0 | 95% CI lower bound > 0 | inconclusive |
+| H2 | LEADER ∪ WATCH mean return minus SPECULATIVE mean return is **> 0** (periods with a non-empty SPECULATIVE group; n reported) | 95% CI lower bound > 0 | 95% CI upper bound < 0 | inconclusive |
+| H3 | Momentum reverses on the rated universe: the mean rank IC of **each** leg, `mom_3w` and `mom_12w`, is **≤ 0**. This tests the reversal direction directly, not just the null. | a leg's 95% CI upper bound < 0 | a leg's 95% CI lower bound > 0 | inconclusive |
+
+**What a result does not do on its own:** "supported" for H1 or H3 does **not** flip Score B's sign or change any weight automatically. Any change to the ranking needs the user's explicit approval after reading the numbers (the SPEC open question on momentum-as-primary).

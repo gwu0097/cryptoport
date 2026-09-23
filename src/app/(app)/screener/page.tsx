@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { RegimePanel } from "@/components/screener/RegimePanel";
 import { ScreenerScoresTable } from "@/components/screener/ScreenerScoresTable";
-import { getScreenerView } from "@/lib/screener/queries";
+import { getScreenerView, getLatestBacktestSummary } from "@/lib/screener/queries";
 import { formatStaleness } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ const GATE_LABEL: Record<string, string> = {
  * wide research data, not personal holdings.
  */
 export default async function ScreenerPage() {
-  const view = await getScreenerView();
+  const [view, backtest] = await Promise.all([getScreenerView(), getLatestBacktestSummary()]);
 
   return (
     <>
@@ -42,11 +42,15 @@ export default async function ScreenerPage() {
       <div className="mb-4 flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm text-fg">
         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
         <p>
-          <span className="font-semibold">Unvalidated screen: grades are not yet backtested.</span>{" "}
+          <span className="font-semibold">Unvalidated screen: grades have not passed a backtest.</span>{" "}
           <span className="text-fg-muted">
-            Grades, terciles and tags are percentile cuts with starting thresholds. None has been tested for predictive
-            value yet (Phase 4).
+            Grades, terciles and tags are percentile cuts with starting thresholds, not predictions.
           </span>
+          {backtest && (
+            <span className="mt-1 block">
+              Backtest {backtest.finishedAt.slice(0, 10)} (run {backtest.id.slice(0, 8)}): {backtest.summary}
+            </span>
+          )}
         </p>
       </div>
 
