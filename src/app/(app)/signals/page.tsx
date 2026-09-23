@@ -62,9 +62,9 @@ export default async function SignalsPage({
 
       <Panel className="mb-4 border-warning/40">
         <p className="text-sm text-warning">
-          Visual reference only — not a trading strategy or a recommendation. This indicator has a documented negative
-          edge on BTC after realistic costs (profit factor 0.88 at 6bps round trip; a random-entry control beat it in 41%
-          of trials) and has never been validated on any other token.
+          Visual reference only — not a trading strategy or a recommendation. Figures from an external backtest
+          (methodology unrecorded); not reproduced in this app: profit factor 0.88 on BTC at 6bps round trip, and a
+          random-entry control beat it in 41% of trials. Never validated on any other token.
         </p>
       </Panel>
 
