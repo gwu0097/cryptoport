@@ -20,6 +20,14 @@ export function ScreenerViews({
   view: Pick<ScreenerView, "research" | "graded" | "insufficientHistory" | "unscoredCount" | "sizeCheck" | "scoresMissingReason" | "ratedCount">;
 }) {
   const [experimental, setExperimental] = useState(false);
+  // How concentrated the top grade is — shown in the experimental caption
+  // so a run of identical "LEADER / A / Pass 1/4" rows reads as what it is
+  // (a percentile band plus a mostly-unevaluable tier), not as discrimination.
+  const aRows = view.graded.filter((r) => r.grade === "A");
+  const topGrade = {
+    count: aRows.length,
+    passLowCoverage: aRows.filter((r) => r.tier === "pass" && r.rulesEvaluable <= 1).length,
+  };
 
   return (
     <>
@@ -72,6 +80,15 @@ export function ScreenerViews({
                 percentiles vs BTC; percentile and grade are among these assets. Setup = risk tier × momentum third.
                 High risk caps the grade at C (the raw grade is shown next to it). The Phase 4 backtest found no
                 predictive value for this order.
+                {topGrade.count > 0 && (
+                  <span className="mt-1 block">
+                    {topGrade.count} of {view.graded.length} ranked assets share the top grade (A). Grades are fixed
+                    percentile bands (the top 20% always get an A), so an A only says an asset is in the top fifth, not
+                    how it compares with the other A&rsquo;s.
+                    {topGrade.passLowCoverage > 0 &&
+                      ` ${topGrade.passLowCoverage === topGrade.count ? "All" : topGrade.passLowCoverage} of them ${topGrade.passLowCoverage === 1 ? "is" : "are"} "Pass" with at most 1 of 4 risk rules evaluable, so the tier doesn't separate them either.`}
+                  </span>
+                )}
                 {view.sizeCheck?.flagged && (
                   <span className="mt-1 block text-warning">
                     Size check: {Math.round((view.sizeCheck.share ?? 0) * 100)}% of the top third is {view.sizeCheck.dominant}

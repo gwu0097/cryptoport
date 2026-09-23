@@ -3,13 +3,17 @@
 import { AlertTriangle } from "lucide-react";
 import type { ScreenerRow, SetupTagValue, TierValue } from "@/lib/screener/queries";
 import { formatCompactUsd, formatPercent } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { usePersistedState } from "@/components/usePersistedState";
 
-type SortKey = "percentile" | "name" | "tag" | "grade" | "mom3w" | "mom12w" | "tier" | "confidence" | "sector" | "marketCap";
+type SortKey = "rank" | "percentile" | "name" | "tag" | "grade" | "mom3w" | "mom12w" | "tier" | "confidence" | "sector" | "marketCap";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
-const DEFAULT_SORT: Sort = { key: "percentile", dir: "desc" };
+// Graded view: rank ascending (1, 2, 3…) so the numbering reads in order on
+// load. The insufficient-history view has no rank; it defaults to its placed
+// percentile, highest first.
+const DEFAULT_SORT_GRADED: Sort = { key: "rank", dir: "asc" };
+const DEFAULT_SORT_INSUFFICIENT: Sort = { key: "percentile", dir: "desc" };
 
 const TAG_ORDER: Record<SetupTagValue, number> = { LEADER: 5, SPECULATIVE: 4, NEUTRAL: 3, WATCH: 2, AVOID: 1 };
 const TIER_ORDER: Record<TierValue, number> = { pass: 3, caution: 2, high_risk: 1 };
@@ -18,6 +22,7 @@ const GRADE_ORDER: Record<string, number> = { A: 5, B: 4, C: 3, D: 2, F: 1 };
 
 function sortValue(row: ScreenerRow, key: SortKey): number | string {
   switch (key) {
+    case "rank": // resolved against rankOf in the comparator (rank isn't a row field)
     case "percentile":
       return row.timingPercentile ?? -Infinity;
     case "name":
@@ -75,23 +80,22 @@ function MomCell({ value }: { value: number | null }) {
  * Percentile is Score B's percentile among graded (full-history) assets.
  */
 export function ScreenerScoresTable({ rows, variant }: { rows: ScreenerRow[]; variant: "graded" | "insufficient" }) {
-  const [sort, setSort] = usePersistedState<Sort>(
-    variant === "graded" ? "cryptoport:screenerScoresSort" : "cryptoport:screenerInsufficientSort",
-    DEFAULT_SORT,
-  );
-  const { key: sortKey, dir: sortDir } = sort;
   const graded = variant === "graded";
+  // ".v2": the graded key's default changed from percentile to rank; a new
+  // key so a previously saved sort (e.g. by grade) doesn't override it once.
+  const [rawSort, setSort] = usePersistedState<Sort>(
+    graded ? "cryptoport:screenerScoresSort.v2" : "cryptoport:screenerInsufficientSort",
+    graded ? DEFAULT_SORT_GRADED : DEFAULT_SORT_INSUFFICIENT,
+  );
+  const sort = !graded && rawSort.key === "rank" ? DEFAULT_SORT_INSUFFICIENT : rawSort;
+  const { key: sortKey, dir: sortDir } = sort;
 
   function toggleSort(key: SortKey) {
-    setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+    // Rank reads naturally 1 → n; every other column starts highest-first.
+    const firstDir = key === "rank" ? "asc" : "desc";
+    setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: firstDir });
   }
 
-  const sorted = [...rows].sort((a, b) => {
-    const av = sortValue(a, sortKey);
-    const bv = sortValue(b, sortKey);
-    const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
-    return sortDir === "desc" ? -cmp : cmp;
-  });
   // Rank = position by Score B percentile (ties share a rank), fixed however
   // the table is sorted. Insufficient-history rows are never ranked.
   const rankOf = new Map<string, number>();
@@ -99,6 +103,19 @@ export function ScreenerScoresTable({ rows, variant }: { rows: ScreenerRow[]; va
     const byPct = [...rows].sort((a, b) => (b.timingPercentile ?? -1) - (a.timingPercentile ?? -1));
     byPct.forEach((r, i) => rankOf.set(r.assetId, i > 0 && r.timingPercentile === byPct[i - 1].timingPercentile ? rankOf.get(byPct[i - 1].assetId)! : i + 1));
   }
+  const valueOf = (r: ScreenerRow, key: SortKey) => (key === "rank" ? (rankOf.get(r.assetId) ?? Infinity) : sortValue(r, key));
+
+  const sorted = [...rows].sort((a, b) => {
+    const av = valueOf(a, sortKey);
+    const bv = valueOf(b, sortKey);
+    const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+    const primary = sortDir === "desc" ? -cmp : cmp;
+    if (primary !== 0) return primary;
+    // Tie-break (always the same direction): rank ascending, so e.g. sorting
+    // by Grade lists the A's as 1, 2, 3… instead of in arbitrary order.
+    const tie = graded ? (rankOf.get(a.assetId) ?? Infinity) - (rankOf.get(b.assetId) ?? Infinity) : (b.timingPercentile ?? -1) - (a.timingPercentile ?? -1);
+    return tie !== 0 ? tie : a.name.localeCompare(b.name);
+  });
   const header = (label: string, key: SortKey, className = "") => (
     <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />
   );
@@ -108,7 +125,7 @@ export function ScreenerScoresTable({ rows, variant }: { rows: ScreenerRow[]; va
       <table className={tableClass}>
         <thead>
           <tr className={theadRowClass}>
-            {graded && <th className={thClass}>Rank</th>}
+            {graded && header("Rank", "rank")}
             {header("Asset", "name")}
             {graded && header("Setup", "tag")}
             {graded && header("Grade", "grade")}
