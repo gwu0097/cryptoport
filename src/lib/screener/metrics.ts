@@ -85,7 +85,10 @@ export function computeAssetMetrics(
   config: ScreenerConfig = SCREENER_CONFIG,
   history: HistoryMetrics = NO_HISTORY,
 ): AssetMetrics {
-  const sectorBucket = sectorBucketFor(s.sector, config);
+  // A per-asset scope override (config.scopeOverrides) wins over the
+  // category mapping — see the config for why the category can't catch it.
+  const scopeOverride = (config.scopeOverrides as Record<string, { bucket: SectorBucket }>)[s.gecko_id];
+  const sectorBucket = scopeOverride ? scopeOverride.bucket : sectorBucketFor(s.sector, config);
   const feesAnn = annualize(s.fees_30d);
   const revAnn = annualize(s.revenue_30d);
   const holdersRevAnn = annualize(s.holders_revenue_30d);

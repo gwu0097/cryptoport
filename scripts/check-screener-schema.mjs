@@ -24,7 +24,7 @@ const declared = new Map();
 for (const m of sql.matchAll(/create table cryptoport\.(screener_\w+)\s*\(([\s\S]*?)\n\);/g)) {
   const cols = m[2]
     .split("\n")
-    .map((l) => l.trim().match(/^([a-z_][a-z0-9_]*)\s+(uuid|text|int|integer|boolean|jsonb|double precision|timestamptz|text\[\]|numeric)/i))
+    .map((l) => l.trim().match(/^([a-z_][a-z0-9_]*)\s+(uuid|text|smallint|int|integer|boolean|jsonb|double precision|timestamptz|text\[\]|numeric)/i))
     .filter(Boolean)
     .map((x) => x[1]);
   declared.set(m[1], cols);

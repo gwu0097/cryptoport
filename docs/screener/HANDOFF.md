@@ -12,7 +12,8 @@ Most of the "open decisions" below are now resolved; `SPEC.md`'s amendments and 
 - **Decision 1 (holder mechanisms): filled and source-verified** in `src/lib/screener/config.ts`.
 - **Decision 3 (scoring runs): deferred to Phase 3.** Phase 2 metrics hang off the snapshot run plus the config version.
 - **Decision 6: done.** **Decision 7:** replaced by a plain `(observed_at)` index.
-- **Still open:** decision 2 (Phase 5 finalist definition), decision 4 (the scheduled-cron proof: check the first 07:00 UTC run after 2026-09-22), and Phase 2b.
+- **Still open:** decision 2 (Phase 5 finalist definition).
+- **Closed 2026-09-23:** decision 3 (scores reuse `screener_runs` via `run_id` — `PHASE_3_PLAN.md`), decision 4 (first scheduled run `8798244f` at 07:58:43 UTC, `vercel-cron`; the project is on Vercel Hobby, where crons fire anywhere within the hour — see SPEC's Cron section). Phase 2b shipped; Phase 3a built (`PHASE_3.md`).
 
 ## Read in this order
 

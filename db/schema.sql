@@ -1578,6 +1578,35 @@ create table cryptoport.screener_asset_metrics (
   primary key (run_id, asset_id)
 );
 
+-- Phase 3 (2026-09-23). One row per RATED asset per live run: Quality &
+-- Risk tier (every rule's outcome + input in quality_risk_rules — a null
+-- input doesn't fire), Score B (mean of the momentum legs' percentile ranks
+-- across all rated assets) and its percentile, raw and displayed grade (High
+-- risk caps the displayed grade at C), momentum tercile, setup tag,
+-- confidence, and market-cap size bucket. Scores are null (never 0) for an
+-- asset with neither momentum leg. Derived; kept 90 days, then archived and
+-- deleted by scripts/screener-archive.ts, like metrics. The run-level size
+-- check lives in the run's notes.derivations.scores.
+create table cryptoport.screener_asset_scores (
+  run_id              uuid not null references cryptoport.screener_runs(id),
+  asset_id            uuid not null references cryptoport.screener_assets(id) on delete cascade,
+  config_version_id   uuid not null references cryptoport.screener_scoring_config_versions(id),
+  computed_at         timestamptz not null default now(),
+  quality_risk_tier   text not null check (quality_risk_tier in ('pass','caution','high_risk')),
+  quality_risk_rules  jsonb not null,
+  rules_evaluable     smallint not null,
+  timing_score        double precision,
+  timing_percentile   double precision,
+  timing_grade_raw    text check (timing_grade_raw in ('A','B','C','D','F')),
+  timing_grade        text check (timing_grade in ('A','B','C','D','F')),
+  momentum_tercile    smallint check (momentum_tercile in (1,2,3)),
+  setup_tag           text check (setup_tag in ('LEADER','WATCH','SPECULATIVE','AVOID','NEUTRAL')),
+  confidence          text not null check (confidence in ('high','medium','low')),
+  size_bucket         text check (size_bucket in ('small','mid','large')),
+  score_breakdown     jsonb not null,
+  primary key (run_id, asset_id)
+);
+
 -- Duplicate guard for the live path (the backfilled path has its own,
 -- above): one live row per asset per run.
 create unique index screener_asset_snapshots_live_run_asset_uidx
@@ -1592,6 +1621,7 @@ alter table cryptoport.screener_unmatched enable row level security;
 alter table cryptoport.screener_scoring_config_versions enable row level security;
 alter table cryptoport.screener_regime_snapshots enable row level security;
 alter table cryptoport.screener_asset_metrics enable row level security;
+alter table cryptoport.screener_asset_scores enable row level security;
 
 -- Legacy, dropped in step B:
 --   screener_asset_snapshots.provenance jsonb not null default '{}'::jsonb

@@ -79,8 +79,30 @@ export const METRICS_ARCHIVE_COLUMNS: readonly { name: string; type: ColumnType 
   { name: "gate_status", type: "JSON" },
 ];
 
+/** screener_asset_scores (Phase 3) — derived like metrics (recomputable
+ * from metrics + the versioned config), same 90-day retention. */
+export const SCORES_ARCHIVE_COLUMNS: readonly { name: string; type: ColumnType }[] = [
+  { name: "run_id", type: "STRING" },
+  { name: "asset_id", type: "STRING" },
+  { name: "config_version_id", type: "STRING" },
+  { name: "computed_at", type: "STRING" },
+  { name: "quality_risk_tier", type: "STRING" },
+  { name: "quality_risk_rules", type: "JSON" },
+  { name: "rules_evaluable", type: "DOUBLE" },
+  { name: "timing_score", type: "DOUBLE" },
+  { name: "timing_percentile", type: "DOUBLE" },
+  { name: "timing_grade_raw", type: "STRING" },
+  { name: "timing_grade", type: "STRING" },
+  { name: "momentum_tercile", type: "DOUBLE" },
+  { name: "setup_tag", type: "STRING" },
+  { name: "confidence", type: "STRING" },
+  { name: "size_bucket", type: "STRING" },
+  { name: "score_breakdown", type: "JSON" },
+];
+
 export const SNAPSHOT_SELECT = SNAPSHOT_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
 export const METRICS_SELECT = METRICS_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
+export const SCORES_SELECT = SCORES_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
 export const RUN_SELECT = RUN_ARCHIVE_COLUMNS.map((c) => c.name).join(", ");
 
 type Row = Record<string, unknown>;

@@ -85,3 +85,18 @@ test("collapsing-revenue gate: fails below -60% vs the prior 90 days, passes abo
   assert.equal(computeAssetMetrics(snap(), undefined, h(null)).gate_status.collapsing_revenue, "not_evaluable");
   assert.equal(computeAssetMetrics(snap(), undefined, h(-0.3)).rev_90d_change, -0.3, "history fields are carried onto the row");
 });
+
+test("a scope override makes an asset out of scope whatever its DefiLlama category (NEAR: an L1 on app revenue)", () => {
+  const near = computeAssetMetrics(snap({ gecko_id: "near", sector: "Bridge" }));
+  assert.equal(near.sector_bucket, "out_of_scope");
+  assert.equal(near.gate_status.out_of_scope, "fail");
+  assert.equal(near.rated, false);
+  assert.equal(computeAssetMetrics(snap({ sector: "Bridge" })).sector_bucket, "oracles_infra", "same category, no override");
+  // The 2026-09-23 scope rule: chain tokens rated on bridge/app revenue are out; chains whose protocol is the business stay in.
+  for (const id of ["solana", "sui", "avalanche-2", "aptos"]) {
+    assert.equal(computeAssetMetrics(snap({ gecko_id: id, sector: "Canonical Bridge" })).rated, false, id);
+  }
+  for (const [id, sector] of [["hyperliquid", "Derivatives"], ["arbitrum", "Foundation"], ["optimism", "Services"], ["thorchain", "Dexs"]]) {
+    assert.notEqual(computeAssetMetrics(snap({ gecko_id: id, sector })).sector_bucket, "out_of_scope", id);
+  }
+});

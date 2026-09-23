@@ -30,6 +30,22 @@ export interface CandidateFactor {
   note: string;
 }
 
+/** A per-asset scope decision the category-based gate can't make on its own. */
+export interface ScopeOverride {
+  bucket: "out_of_scope";
+  reason: string;
+  decided_at: string;
+}
+
+/** Score B's regime modifier for one label: adjusted score = base −
+ * betaPenalty × (beta percentile − 0.5), so a positive penalty pushes
+ * high-beta assets down in that regime. An untested weight like any other:
+ * non-zero only with an evidence_ref (enforced by validateConfig). */
+export interface RegimeModifier {
+  betaPenalty: number;
+  evidence_ref: string | null;
+}
+
 export interface HolderValueMechanism {
   status: "active" | "paused" | "conditional";
   mechanism: string;
@@ -131,6 +147,95 @@ export const SCREENER_CONFIG = {
     },
   },
 
+  /** Per-gecko_id scope decisions, applied before the category mapping.
+   * Why a list at all: DefiLlama files app/bridge revenue under a parent
+   * protocol whose gecko_id is an L1 token, so the category-based gate never
+   * sees "Chain" and the L1 gets valued on one app's revenue against the
+   * whole chain's market cap — a category error, not a threshold question.
+   * The rule deciding each entry (SPEC, "Scope rule"): does the revenue
+   * DefiLlama attributes represent the token's own core business, or an
+   * app/bridge filed under the chain? The latter is out of scope. A chain
+   * whose protocol IS the business (HYPE, DRV, RUNE, DYDX) or an L2's own
+   * sequencer revenue (ARB, OP) stays in. scripts/diag/screener-l1l2-rated.mjs
+   * lists rated assets CoinGecko tags L1/L2 for review (it excludes nothing
+   * on its own). */
+  scopeOverrides: {
+    near: {
+      bucket: "out_of_scope",
+      reason: "L1 token rated on NEAR Intents (Bridge) + NEAR Perps revenue, filed by DefiLlama under the parent NEAR Protocol",
+      decided_at: "2026-09-23",
+    },
+    solana: {
+      bucket: "out_of_scope",
+      reason: "L1 token rated on canonical-bridge revenue (DefiLlama category Canonical Bridge) against the whole chain's market cap",
+      decided_at: "2026-09-23",
+    },
+    sui: {
+      bucket: "out_of_scope",
+      reason: "L1 token rated on canonical-bridge revenue (DefiLlama category Canonical Bridge) against the whole chain's market cap",
+      decided_at: "2026-09-23",
+    },
+    "avalanche-2": {
+      bucket: "out_of_scope",
+      reason: "L1 token rated on canonical-bridge revenue (DefiLlama category Canonical Bridge) against the whole chain's market cap",
+      decided_at: "2026-09-23",
+    },
+    aptos: {
+      bucket: "out_of_scope",
+      reason: "L1 token rated on canonical-bridge revenue (DefiLlama category Canonical Bridge) against the whole chain's market cap",
+      decided_at: "2026-09-23",
+    },
+  } satisfies Record<string, ScopeOverride>,
+
+  /** Phase 3 scoring (decided 2026-09-23). Every number here is an
+   * unvalidated starting value until Phase 4.
+   * - Score B = mean of the two momentum legs' percentile ranks, each ranked
+   *   across ALL rated assets (not per sector — with ~74 rated and two
+   *   buckets at exactly 4, per-sector ranks would mostly fall back anyway).
+   *   Ranks, not z-scores: momentum is heavy-tailed (p90 mom_12w ≈ +95%) and
+   *   ranks need no winsorizing. Both legs missing: unscored (null), never 0.
+   * - One leg missing = "insufficient history" (revised 2026-09-23; the
+   *   original one-leg fallback was withdrawn): averaging two percentile
+   *   ranks compresses variance, so a one-leg score keeps the full 0-1 range
+   *   and lands at the extremes by construction (STONK ranked #1 on a single
+   *   +1118% leg). Such an asset gets its score and a percentile placed
+   *   against the full-history distribution, but no grade, tercile or tag,
+   *   and is shown separately. Percentiles, grades and terciles are ranked
+   *   among full-history (both-leg) assets only. No shrinkage constant.
+   * - Grade = the Score B percentile against these cutoffs; High risk caps
+   *   the displayed grade at C (the raw grade is stored too).
+   * - Confidence: high = both legs + no source conflict on the asset's
+   *   price/market cap; medium = one of those missing; low = both.
+   *   (One-leg assets are ungraded anyway; their confidence is still stored.) Tier-rule
+   *   coverage is shown separately, not folded in (dilution/unlock rules
+   *   can't be evaluated for anyone until ~2026-12-21, so it'd make every
+   *   asset "medium" and carry no information).
+   * - Size check: flag the run when one market-cap bucket holds more than
+   *   this share of the top momentum tercile. */
+  scoring: {
+    validated: false,
+    momentumLegs: ["mom_3w", "mom_12w"],
+    gradeCutoffs: [
+      { grade: "A", minPercentile: 0.8 },
+      { grade: "B", minPercentile: 0.6 },
+      { grade: "C", minPercentile: 0.4 },
+      { grade: "D", minPercentile: 0.2 },
+      { grade: "F", minPercentile: 0 },
+    ],
+    highRiskGradeCap: "C",
+    /** All 0 until Phase 4 evidence (decided 2026-09-23). Inert in practice
+     * until ~2026-10-20 anyway: the label can only be NEUTRAL before then. */
+    regimeModifiers: {
+      RISK_OFF: { betaPenalty: 0, evidence_ref: null },
+      BTC_LED: { betaPenalty: 0, evidence_ref: null },
+      ROTATION: { betaPenalty: 0, evidence_ref: null },
+      FROTH: { betaPenalty: 0, evidence_ref: null },
+      NEUTRAL: { betaPenalty: 0, evidence_ref: null },
+    } satisfies Record<string, RegimeModifier>,
+    sizeBuckets: { midFromUsd: 100_000_000, largeFromUsd: 1_000_000_000 },
+    sizeCheckTopTercileShareAbove: 0.6,
+  },
+
   /** Buckets where market cap / TVL is economically meaningful. */
   mcTvlBuckets: ["lending", "liquid_staking", "yield"] satisfies SectorBucket[],
 
@@ -222,7 +327,15 @@ export function sectorBucketFor(category: string | null, config: ScreenerConfig 
 
 /** Throws on a config that breaks a structural rule — called before a config
  * version is ever recorded, so an invalid config can't stamp a run. */
-export function validateConfig(config: { candidateFactors: readonly CandidateFactor[] }): void {
+export function validateConfig(config: {
+  candidateFactors: readonly CandidateFactor[];
+  scoring?: { regimeModifiers: Record<string, RegimeModifier> };
+}): void {
+  for (const [label, m] of Object.entries(config.scoring?.regimeModifiers ?? {})) {
+    if (m.betaPenalty !== 0 && !m.evidence_ref) {
+      throw new Error(`Regime modifier "${label}" has betaPenalty ${m.betaPenalty} without an evidence_ref (Phase 4 result required)`);
+    }
+  }
   for (const f of config.candidateFactors) {
     if (f.status === "active" && !f.evidence_ref) {
       throw new Error(`Candidate factor "${f.factor}" is active without an evidence_ref (Phase 4 result required)`);

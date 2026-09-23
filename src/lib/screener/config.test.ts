@@ -45,3 +45,13 @@ test("every holder mechanism cites at least one source and a real as_of date", (
     assert.match(m.as_of, /^\d{4}-\d{2}-\d{2}$/, id);
   }
 });
+
+test("a regime modifier can't be non-zero without an evidence_ref; the shipped ones are all 0", () => {
+  const withModifier = (betaPenalty: number, evidence_ref: string | null) => ({
+    candidateFactors: [],
+    scoring: { regimeModifiers: { RISK_OFF: { betaPenalty, evidence_ref } } },
+  });
+  assert.throws(() => validateConfig(withModifier(0.3, null)), /evidence_ref/);
+  assert.doesNotThrow(() => validateConfig(withModifier(0.3, "backtest-1")));
+  assert.ok(Object.values(SCREENER_CONFIG.scoring.regimeModifiers).every((m) => m.betaPenalty === 0));
+});

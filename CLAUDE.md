@@ -343,6 +343,16 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
 ## Process
 
 - Push directly to `main` — no PR intermediate step.
+- **Held work goes on a local `hold/<name>` branch, never on `main`.** A
+  hold is any commit that must not deploy yet (waiting on DDL, on checking
+  a cron run, ...). Keep the shared checkout on `main`; release by
+  `git merge --ff-only hold/<name>` into `main` once the gate passes, then
+  push. **A general "go ahead and push" never releases a named hold.**
+  When a push is requested while a hold exists, name the held commits,
+  restate what each hold is waiting for, and ask. (2026-09-23: screener 2b
+  was "held" on `main` pending the first 07:00 cron check; an unrelated
+  "go ahead and push it" for `/signals` shipped it along, and the cron
+  tested 2b instead of 2a on its own. Nobody noticed until the morning.)
 - Verification gate: `npx tsc --noEmit`, `npm run lint`, `npm test`. For
   any push touching screener code, also `node scripts/check-screener-schema.mjs`
   — push deploys, so DDL the user hasn't run yet means the next cron writes to
@@ -351,13 +361,22 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   `npm run build` will always fail locally at "Collecting page data" due to
   a permanent, unrelated local `.env.local` gap (`NEXT_PUBLIC_SUPABASE_ANON_KEY`
   empty) — known and non-blocking, not something to chase.
-- `diag_*.mjs` untracked scratch scripts in the repo root are the
-  established way to inspect/verify real DB state directly. Read-only ones
-  can stay; delete anything destructive right after use. A diag script
+- Diagnostic scripts inspect/verify real DB state directly. **New ones go
+  in `scripts/diag/` (committed), not the repo root** — keep a read-only
+  one there if it's reusable (take run ids etc. as arguments, not
+  hard-coded), delete a one-off after use, and never leave a destructive
+  one anywhere (untracked root-level scripts are how a bulk-delete dedup
+  script lingered after its job was done). The older untracked
+  `diag_*.mjs` files in the root predate this rule. A diag script
   that needs real TS module resolution (importing a `server-only` `.ts`
-  file directly, not just plain JS) needs `.ts` instead of `.mjs`, run via
-  `NODE_OPTIONS="--conditions=react-server" npx --no-install tsx
-  diag_whatever.ts` — but never name one ending in `_test.ts`/`-test.ts`/
+  file directly, not just plain JS) needs `.ts` instead of `.mjs`. If it
+  only imports relative `.ts` files, plain `node file.ts` works (Node strips
+  types); if it goes through the `@/...` alias, it needs tsx, which is NOT a
+  project dependency (`npx --no-install tsx` fails) — use a cached copy
+  (`ls ~/.npm/_npx/*/node_modules/.bin/tsx`) with
+  `NODE_OPTIONS="--conditions=react-server"`, and load `.env.local` before a
+  dynamic `import()` of anything touching `src/lib/supabase.ts` (see
+  `scripts/diag/screener-score-run.ts`) — but never name one ending in `_test.ts`/`-test.ts`/
   `.test.ts`: Node's test runner auto-discovers that exact suffix pattern
   and tries to run it as a test file, breaking `npm test` (real bug hit
   this session — `diag_full_sync_test.ts` got picked up and reported as a

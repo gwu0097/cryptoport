@@ -10,9 +10,12 @@ import { computeHistoryMetrics, shiftDate, type Reading, type BtcReference } fro
 import { fetchAllRows } from "./pagination";
 import { checkPlausibility, type PlausibilityWarning } from "./plausibility";
 import { fetchPerpContexts } from "./adapters/hyperliquid";
+import { scoreRun, type ScoreInput, type RunScores } from "./scores";
+import type { RegimeLabel } from "./regime";
 
-// Phase 2a: everything derived from a finished live snapshot run — per-asset
-// metrics + kill-filter gates, and the market regime — stamped with the
+// Everything derived from a finished live snapshot run — per-asset metrics +
+// kill-filter gates (2a/2b), the market regime (2a), and tiers/Score B/
+// grades/setup tags (Phase 3) — stamped with the
 // config version that produced them. Runs after runScreenerSnapshot in the
 // same cron invocation; each step is isolated so a failure here never
 // affects the snapshot itself (point-in-time rows are the irreplaceable
@@ -362,7 +365,67 @@ export async function computeRegime(runId: string, configVersionId: string): Pro
   return { label, evaluable: rules.filter((r) => r.fired !== null).length };
 }
 
-/** Both Phase 2a steps for a finished live run, each isolated; the outcome
+/** Phase 3: tier, Score B, grades and setup tags for one run's rated
+ * assets, from its already-written metrics (so it can also re-score an
+ * existing run). Replaces the run's previous scores wholesale — a config
+ * change can change which assets are rated, and an upsert would leave a
+ * no-longer-rated asset's old row behind. */
+export async function computeRunScores(
+  runId: string,
+  configVersionId: string,
+  regimeLabel: RegimeLabel | null,
+): Promise<Omit<RunScores, "scores"> & { write_ms: number }> {
+  const db = serviceDb();
+  const { data: metrics, error: metricsError } = await db
+    .from("screener_asset_metrics")
+    .select("asset_id, mom_3w, mom_12w, beta_btc, rev_90d_change, dilution_rate")
+    .eq("run_id", runId)
+    .eq("rated", true);
+  if (metricsError) throw new Error(`Failed to read metrics for run ${runId}: ${metricsError.message}`);
+  const ids = (metrics ?? []).map((m) => m.asset_id as string);
+
+  const mcap = new Map<string, number | null>();
+  const conflicted = new Set<string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const batch = ids.slice(i, i + 100);
+    const [snaps, conflicts] = await Promise.all([
+      db.from("screener_asset_snapshots").select("asset_id, market_cap_usd").eq("run_id", runId).eq("is_backfilled", false).in("asset_id", batch),
+      db.from("screener_field_conflicts").select("asset_id").eq("run_id", runId).in("field_name", ["price_usd", "market_cap_usd"]).in("asset_id", batch),
+    ]);
+    if (snaps.error) throw new Error(`Failed to read snapshots for scoring: ${snaps.error.message}`);
+    if (conflicts.error) throw new Error(`Failed to read conflicts for scoring: ${conflicts.error.message}`);
+    for (const r of snaps.data ?? []) mcap.set(r.asset_id as string, r.market_cap_usd as number | null);
+    for (const r of conflicts.data ?? []) conflicted.add(r.asset_id as string);
+  }
+
+  const inputs: ScoreInput[] = (metrics ?? []).map((m) => ({
+    asset_id: m.asset_id as string,
+    mom_3w: m.mom_3w as number | null,
+    mom_12w: m.mom_12w as number | null,
+    beta_btc: m.beta_btc as number | null,
+    rev_90d_change: m.rev_90d_change as number | null,
+    dilution_rate: m.dilution_rate as number | null,
+    unlocks_90d_pct_circulating: null, // no unlock source yet (screener_manual_unlocks deferred)
+    market_cap_usd: mcap.get(m.asset_id as string) ?? null,
+    has_source_conflict: conflicted.has(m.asset_id as string),
+  }));
+  const { scores, ...summary } = scoreRun(inputs, regimeLabel);
+  if (summary.warnings.length > 0) console.warn(`[screener] run ${runId} scoring warnings: ${JSON.stringify(summary.warnings)}`);
+
+  const t0 = Date.now();
+  const { error: deleteError } = await db.from("screener_asset_scores").delete().eq("run_id", runId);
+  if (deleteError) throw new Error(`Failed to clear previous scores for run ${runId}: ${deleteError.message}`);
+  const computedAt = new Date().toISOString();
+  for (let i = 0; i < scores.length; i += WRITE_CHUNK) {
+    const { error } = await db
+      .from("screener_asset_scores")
+      .insert(scores.slice(i, i + WRITE_CHUNK).map((s) => ({ ...s, run_id: runId, config_version_id: configVersionId, computed_at: computedAt })));
+    if (error) throw new Error(`Failed to write screener_asset_scores: ${error.message}`);
+  }
+  return { ...summary, write_ms: Date.now() - t0 };
+}
+
+/** Every derivation step for a finished live run, each isolated; the outcome
  * of each is merged into the run's own notes (success or error). */
 export async function runScreenerDerivations(runId: string): Promise<Record<string, unknown>> {
   const outcome: Record<string, unknown> = {};
@@ -379,10 +442,24 @@ export async function runScreenerDerivations(runId: string): Promise<Record<stri
     } catch (e) {
       outcome.metrics_error = (e as Error).message;
     }
+    let regimeLabel: RegimeLabel | null = null;
     try {
-      outcome.regime = await computeRegime(runId, configVersionId);
+      const regime = await computeRegime(runId, configVersionId);
+      outcome.regime = regime;
+      regimeLabel = regime.label as RegimeLabel;
     } catch (e) {
       outcome.regime_error = (e as Error).message;
+    }
+    // Scores read this run's metrics — without them there's nothing (or
+    // only a stale set) to score. A failed regime just means no modifier.
+    if (outcome.metrics) {
+      try {
+        outcome.scores = await computeRunScores(runId, configVersionId, regimeLabel);
+      } catch (e) {
+        outcome.scores_error = (e as Error).message;
+      }
+    } else {
+      outcome.scores_error = "skipped: metrics step failed";
     }
   }
 
