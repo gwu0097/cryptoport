@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatPercent, formatUsdSigned, stripCitations } from "./format.ts";
+import {
+  formatPrice, formatPercent, formatUsdSigned, stripCitations } from "./format.ts";
 
 test("formatPercent adds an explicit + sign for a positive value", () => {
   assert.equal(formatPercent(1.8), "+1.80%");
@@ -51,4 +52,10 @@ test("stripCitations doesn't leave a stray space before punctuation", () => {
 
 test("stripCitations leaves text with no citation markers untouched", () => {
   assert.equal(stripCitations("No unlock cliff was found for this window."), "No unlock cliff was found for this window.");
+});
+
+test("formatPrice keeps sub-dollar precision and 2 decimals from $1 up", () => {
+  assert.equal(formatPrice(97.2081), "$97.21");
+  assert.equal(formatPrice(0.041234), "$0.04123");
+  assert.equal(formatPrice(0.00001234), "$0.00001234");
 });

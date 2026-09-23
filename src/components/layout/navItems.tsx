@@ -15,6 +15,7 @@ import {
   Star,
   TrendingUp,
   BookOpen,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { CollapsibleNavItem } from "./RecentWalletsNav";
@@ -54,6 +55,7 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
       { href: "/watchlist", label: "Watchlist", icon: Star },
       { href: "/trend-finder", label: "Trend Finder", icon: TrendingUp },
       { href: "/compare", label: "Compare", icon: GitCompare },
+      { href: "/signals", label: "Signals", icon: Activity },
       { href: "/encyclopedia", label: "Encyclopedia", icon: BookOpen },
     ],
   },

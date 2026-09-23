@@ -8,6 +8,19 @@ export function formatUsd(value: number): string {
   return usdFormatter.format(value);
 }
 
+const priceSmallFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumSignificantDigits: 4,
+});
+
+/** A per-unit price where sub-dollar precision matters (signal trigger
+ * levels, small-cap tokens): 2 decimals from $1 up, 4 significant digits
+ * below — $0.04123, not formatUsd's "$0.04". */
+export function formatPrice(value: number): string {
+  return Math.abs(value) >= 1 ? usdFormatter.format(value) : priceSmallFormatter.format(value);
+}
+
 const compactUsdFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
