@@ -36,6 +36,10 @@ export interface Candle {
   h: number;
   l: number;
   c: number;
+  /** Hyperliquid's trade count for the candle. 0 on the pre-launch 1D candles
+   * Hyperliquid returns back to 2020 — imported history, not venue trades
+   * (the backtest excludes them; prereg §4). Optional: tests omit it. */
+  n?: number;
 }
 
 export interface Block {

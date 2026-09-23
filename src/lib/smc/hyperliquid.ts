@@ -35,11 +35,32 @@ export const fetchPerpNames = cache(async (): Promise<string[]> => {
 });
 
 export async function fetchCandles(coin: string, interval: "1h" | "4h" | "1d", startMs: number, endMs: number): Promise<Candle[]> {
-  const rows = await info<{ t: number; o: string; h: string; l: string; c: string }[]>({
+  const rows = await info<{ t: number; o: string; h: string; l: string; c: string; n?: number }[]>({
     type: "candleSnapshot",
     req: { coin, interval, startTime: startMs, endTime: endMs },
   });
   return rows
-    .map((r) => ({ t: Math.floor(r.t / 1000), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c) }))
+    .map((r) => ({ t: Math.floor(r.t / 1000), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c), n: r.n }))
     .filter((c) => [c.o, c.h, c.l, c.c].every(Number.isFinite));
+}
+
+/** Hourly funding rates for a perp since `startMs`, all pages (the endpoint
+ * returns at most 500 rows per call, oldest first). A long PAYS a positive
+ * rate. Used by the backtest (prereg §4: actual funding over each holding
+ * period). `pauseMs` spaces the pages under Hyperliquid's per-minute weight. */
+export async function fetchFundingHistory(
+  coin: string,
+  startMs: number,
+  pauseMs = 2500,
+): Promise<{ time: number; rate: number }[]> {
+  const out: { time: number; rate: number }[] = [];
+  let cursor = startMs;
+  for (;;) {
+    const page = await info<{ time: number; fundingRate: string }[]>({ type: "fundingHistory", coin, startTime: cursor });
+    for (const r of page) out.push({ time: Math.floor(r.time / 1000), rate: Number(r.fundingRate) });
+    if (page.length < 500) break;
+    cursor = page[page.length - 1].time + 1;
+    await new Promise((r) => setTimeout(r, pauseMs));
+  }
+  return out;
 }
