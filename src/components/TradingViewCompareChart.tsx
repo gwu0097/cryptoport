@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { guessTradingViewSymbol } from "@/lib/tradingViewSymbol";
 import { useTimeZone } from "@/components/timezone/TimeZoneProvider";
 import { tradingViewTimeZone } from "@/lib/timezone";
@@ -10,10 +10,10 @@ import { tradingViewTimeZone } from "@/lib/timezone";
  * overlay — the two tickers' price action normalized to % change on one
  * chart, so you can see whether a "lagging" peer actually moved early or
  * is genuinely behind, rather than trusting a single correlation/24h-change
- * number. Symbols are a best guess (see guessTradingViewSymbol's own doc
- * comment on why, not an assumption) — `allow_symbol_change` in the widget
- * config below lets either side be corrected by hand directly inside the
- * chart if the guess is wrong or unlisted on Binance.
+ * number. Each ticker's exchange is resolved first (/api/tv-symbol: Binance
+ * if it lists the USDT pair, else MEXC, else the Binance guess — see
+ * adapters/exchangeListings.ts); `allow_symbol_change` in the widget config
+ * still lets either side be corrected by hand inside the chart.
  *
  * The widget reads its JSON config once, at the moment its script tag is
  * injected — it doesn't react to prop changes on its own the way a normal
@@ -36,10 +36,35 @@ export function TradingViewCompareChart({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const tz = useTimeZone();
+  // ticker -> resolved TradingView symbol; null until /api/tv-symbol answers
+  // (on failure the Binance guesses are used, same as before this existed).
+  // Tagged with the pair it was resolved for, so a stale answer for the
+  // previous pair is never used (no synchronous reset inside the effect).
+  const pairKey = `${baseTicker}|${compareTicker}`;
+  const [resolved, setResolved] = useState<{ key: string; map: Record<string, string> } | null>(null);
+  const symbols = resolved?.key === pairKey ? resolved.map : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = `${baseTicker}|${compareTicker}`;
+    const tickers = [...new Set([baseTicker, compareTicker, "BTC"].map((t) => t.toUpperCase()))];
+    const fallback = Object.fromEntries(tickers.map((t) => [t, guessTradingViewSymbol(t)]));
+    fetch(`/api/tv-symbol?${tickers.map((t) => `t=${encodeURIComponent(t)}`).join("&")}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((body: Record<string, { symbol: string }>) => {
+        if (!cancelled)
+          setResolved({ key, map: { ...fallback, ...Object.fromEntries(Object.entries(body).map(([t, v]) => [t, v.symbol])) } });
+      })
+      .catch(() => !cancelled && setResolved({ key, map: fallback }));
+    return () => {
+      cancelled = true;
+    };
+  }, [baseTicker, compareTicker]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || !symbols) return;
+    const sym = (t: string) => symbols[t.toUpperCase()] ?? guessTradingViewSymbol(t);
     container.innerHTML = "";
 
     const widgetDiv = document.createElement("div");
@@ -54,7 +79,7 @@ export function TradingViewCompareChart({
     script.async = true;
 
     const compareSymbols: { symbol: string; position: string; linestyle?: number }[] = [
-      { symbol: guessTradingViewSymbol(compareTicker), position: "SameScale" },
+      { symbol: sym(compareTicker), position: "SameScale" },
     ];
     // BTC as a always-on baseline, dashed to read as "the market," not a
     // third thing being compared — skipped when either side already IS
@@ -65,7 +90,7 @@ export function TradingViewCompareChart({
     // config — if the embed silently ignores the field, BTC still shows as
     // a solid third line, which is still a real, useful baseline.
     if (baseTicker.toUpperCase() !== "BTC" && compareTicker.toUpperCase() !== "BTC") {
-      compareSymbols.push({ symbol: guessTradingViewSymbol("BTC"), position: "SameScale", linestyle: 2 });
+      compareSymbols.push({ symbol: sym("BTC"), position: "SameScale", linestyle: 2 });
     }
 
     // autosize:true was reported (with a screenshot) to render a cramped
@@ -80,7 +105,7 @@ export function TradingViewCompareChart({
       autosize: false,
       width: "100%",
       height,
-      symbol: guessTradingViewSymbol(baseTicker),
+      symbol: sym(baseTicker),
       compareSymbols,
       interval: "60",
       // The user's display timezone, if TradingView's widget supports it (else UTC — see tradingViewTimeZone).
@@ -93,15 +118,15 @@ export function TradingViewCompareChart({
       hide_legend: false,
     });
     container.appendChild(script);
-  }, [baseTicker, compareTicker, height, tz]);
+  }, [baseTicker, compareTicker, height, tz, symbols]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="tradingview-widget-container" ref={containerRef} style={{ height }} />
       <p className="border-t border-border bg-surface-raised px-3 py-1.5 text-[11px] text-fg-muted">
-        Best-guess Binance listing for each ticker — use the chart&rsquo;s own symbol search (top-left) to correct
-        either side if it&rsquo;s wrong or unlisted. BTC is overlaid (dashed, if the chart honors that) as a market
-        baseline.
+        Each ticker&rsquo;s USDT pair on Binance if listed there, otherwise MEXC — use the chart&rsquo;s own symbol
+        search (top-left) to correct either side if it&rsquo;s the wrong token or unlisted. BTC is overlaid (dashed, if
+        the chart honors that) as a market baseline.
       </p>
     </div>
   );

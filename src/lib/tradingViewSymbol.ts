@@ -1,13 +1,16 @@
-/** Best-guess TradingView symbol for a bare ticker. TradingView's own
- * symbol-search API (which would let this resolve the *correct* exchange
- * listing per ticker) is undocumented and returns a hard 403 for
- * non-browser requests — live-verified this session, not assumed; not
- * something to build on. Binance has by far the widest crypto listing
- * coverage of the major exchanges, so it's used as a default guess rather
- * than trying to solve exchange resolution server-side — the embedded
- * widget's own `allow_symbol_change` (see TradingViewCompareChart.tsx)
- * is what makes a wrong or unlisted guess correctable by hand instead of
- * a dead end. */
+/** TradingView symbol for a ticker on an exchange's USDT spot pair. */
+export function tradingViewSymbolFor(exchange: TradingViewExchange, ticker: string): string {
+  return `${exchange}:${ticker.toUpperCase()}USDT`;
+}
+
+export type TradingViewExchange = "BINANCE" | "MEXC";
+
+/** The fallback when no listing was confirmed (or before one resolves):
+ * Binance, the widest-coverage major exchange. TradingView's own symbol
+ * search returns a hard 403 to non-browser requests (live-verified), so
+ * which exchange actually lists a ticker is resolved against the exchanges'
+ * own public APIs instead — see adapters/exchangeListings.ts. The embedded
+ * widget's allow_symbol_change still lets a wrong pick be corrected by hand. */
 export function guessTradingViewSymbol(ticker: string): string {
-  return `BINANCE:${ticker.toUpperCase()}USDT`;
+  return tradingViewSymbolFor("BINANCE", ticker);
 }
