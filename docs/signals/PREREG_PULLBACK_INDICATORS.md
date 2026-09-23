@@ -137,3 +137,14 @@ Notation: `x` is the forming bar's close; S(k) is the sum of the last k complete
 5. **Universe approved:** the 37 watchlist perps + BTC.
 6. **1H is low-power by construction.** Only ~208 days of 1H candles exist, so the holdout third is ~70 days. **Every 1H verdict is labeled "low-power", whatever the outcome.**
 7. Data depth as found (§4).
+
+### Amendment 2 — 2026-09-23, data rule clarified BEFORE any backtest has run
+**What §4 said:** "only candles with a trade count `n > 0`". Its stated purpose was to exclude the **imported pre-launch history** Hyperliquid returns with `n = 0` (e.g. BTC 1D back to 2020).
+
+**What the fetched data showed** (the first 23 of 114 candle files, checked before any backtest):
+- **Leading** `n = 0` runs exist as expected: UNI 1D, ZEC 1D and ZEC 4H each start with exactly 999 imported candles.
+- **Mid-series** `n = 0` candles also exist on thin perps: VVV 4H has 105, VVV 1D has 1. These are **genuine venue no-trade periods**, not imports: each is flat at the previous close (o = h = l = c) between normal trading candles (e.g. VVV 4H 2025-04-08 20:00, o=h=l=c=1.9666, between candles with 107 and 488 trades).
+
+**Rule as run:** drop only the **leading** run of `n = 0` candles (imported history), and **keep mid-series `n = 0` candles**. Dropping those would delete real hours and misalign the bar counts every indicator depends on. That follows §4's intent rather than its literal wording, recorded here before any result exists.
+
+**Known optimism, reported not hidden:** a fill at the open of a no-trade candle is at a stale, carried-forward price nobody traded. The report counts, per indicator × timeframe, the fills that land on `n = 0` candles. The 30 bps stress case partly covers thin-token execution.
