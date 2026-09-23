@@ -2,41 +2,48 @@ import "server-only";
 import { userDb } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { mapWithConcurrency } from "@/lib/adapters/http";
-import { computeSmc, TIMEFRAMES, BLOCK_MULTIPLIER, type ChartTimeframe, type Candle, type SmcResult } from "./engine";
+import { formatPrice } from "@/lib/format";
+import { viewFor, type IndicatorView, type SignalMark } from "@/lib/signals/view";
+import type { IndicatorId } from "@/lib/signals/rules";
+import type { NextTrigger } from "@/lib/signals/triggers";
+import { TIMEFRAMES, BLOCK_MULTIPLIER, type ChartTimeframe, type Candle } from "./engine";
 import { fetchCandles, fetchPerpNames } from "./hyperliquid";
 
 const DAY_MS = 86_400_000;
 
-export interface SmcChartData {
+export interface IndicatorChartData {
   coin: string;
   tf: ChartTimeframe;
   candles: Candle[];
-  result: SmcResult;
+  view: IndicatorView;
   computedAt: string;
 }
 
 // The watchlist table only needs each token's CURRENT state, not a chart's
-// worth of history: RMA(8) forgets its seed at (7/8)^n, so 150 blocks leaves
-// ~1e-9 of it — indistinguishable from TradingView's long-converged values.
-// That's ~450 candles per token instead of up to ~2,400 (4H chart history):
-// fetching full chart history for every watchlist token tripped Hyperliquid's
-// per-minute request-weight limit (HTTP 429) on the first 4H load in prod.
+// worth of history. SMC: RMA(8) forgets its seed at (7/8)^n, so 150 blocks
+// leaves ~1e-9 of it. The bar-close indicators: SMA(200) + ~400 bars of
+// position history (EMA(50)'s seed is gone long before). ~450-600 candles per
+// token instead of up to ~2,400 (4H chart history): fetching full chart
+// history for every watchlist token tripped Hyperliquid's per-minute
+// request-weight limit (HTTP 429) on the first 4H load in prod.
 const STATE_BLOCKS = 150;
+const STATE_BARS = 600;
 
-async function computeFor(coin: string, tf: ChartTimeframe, lookbackMs: number): Promise<SmcChartData> {
+function stateLookbackMs(ind: IndicatorId, tf: ChartTimeframe): number {
+  const bars = ind === "smc" ? STATE_BLOCKS * BLOCK_MULTIPLIER : STATE_BARS;
+  return bars * TIMEFRAMES[tf].candleSeconds * 1000;
+}
+
+async function computeFor(ind: IndicatorId, coin: string, tf: ChartTimeframe, lookbackMs: number): Promise<IndicatorChartData> {
   const now = Date.now();
   const candles = await fetchCandles(coin, TIMEFRAMES[tf].interval, now - lookbackMs, now);
-  return { coin, tf, candles, result: computeSmc(candles, tf, Math.floor(now / 1000)), computedAt: new Date(now).toISOString() };
+  const view = viewFor(ind, candles, tf, Math.floor(now / 1000), formatPrice);
+  return { coin, tf, candles, view, computedAt: new Date(now).toISOString() };
 }
 
 /** Full chart history (one call) for the chart view. */
-export async function getSmcChart(coin: string, tf: ChartTimeframe): Promise<SmcChartData> {
-  return computeFor(coin, tf, TIMEFRAMES[tf].historyDays * DAY_MS);
-}
-
-/** Just enough history for an exact current state + trigger (the watchlist table). */
-export async function getSmcState(coin: string, tf: ChartTimeframe): Promise<SmcChartData> {
-  return computeFor(coin, tf, STATE_BLOCKS * BLOCK_MULTIPLIER * TIMEFRAMES[tf].candleSeconds * 1000);
+export async function getIndicatorChart(ind: IndicatorId, coin: string, tf: ChartTimeframe): Promise<IndicatorChartData> {
+  return computeFor(ind, coin, tf, TIMEFRAMES[tf].historyDays * DAY_MS);
 }
 
 /** A watchlist ticker's Hyperliquid perp name: the same symbol, or the
@@ -54,22 +61,21 @@ export interface WatchlistSignalRow {
   name: string;
   imageUrl: string | null;
   coin: string | null; // Hyperliquid perp name; null = not listed there
-  bull: boolean | null;
-  lastFlipSide: "BUY" | "SELL" | null;
-  lastFlipTime: number | null;
-  lastPrice: number | null;
-  triggerPrice: number | null;
-  triggerFlipTo: "BUY" | "SELL" | null;
-  triggerDecidedAt: number | null; // when the forming block closes
+  state: IndicatorView["state"];
+  lastSignal: SignalMark | null;
+  lastPrice: number | null; // the forming candle's latest close
+  trigger: NextTrigger | null;
+  decidedAt: number | null; // when the forming bar/block closes
+  venueBars: number | null;
   error: string | null;
 }
 
-/** Signal state for the tokens in one of the signed-in user's watchlists (or
- * all of them, deduped by ticker), at one timeframe. null = signed out.
+/** One indicator's signal state for the tokens in one of the signed-in user's
+ * watchlists (or all of them, deduped by ticker), at one timeframe. null = signed out.
  * Deliberately reads only tickers (no market-data merge), so this page makes
  * no CoinGecko calls. `watchlistId` must already be validated as the user's
  * (RLS would return nothing for anyone else's anyway). */
-export async function getWatchlistSignals(tf: ChartTimeframe, watchlistId?: string): Promise<WatchlistSignalRow[] | null> {
+export async function getWatchlistSignals(ind: IndicatorId, tf: ChartTimeframe, watchlistId?: string): Promise<WatchlistSignalRow[] | null> {
   if (!(await getUser())) return null;
   const db = await userDb();
   const query = db.from("watchlist_items").select("ticker, name, image_url");
@@ -86,19 +92,18 @@ export async function getWatchlistSignals(tf: ChartTimeframe, watchlistId?: stri
 
   return mapWithConcurrency(items, 4, async (item): Promise<WatchlistSignalRow> => {
     const coin = perpNameFor(item.ticker, perps);
-    const empty = { ticker: item.ticker.toUpperCase(), name: item.name, imageUrl: item.image_url, coin, bull: null, lastFlipSide: null, lastFlipTime: null, lastPrice: null, triggerPrice: null, triggerFlipTo: null, triggerDecidedAt: null };
+    const empty = { ticker: item.ticker.toUpperCase(), name: item.name, imageUrl: item.image_url, coin, state: null, lastSignal: null, lastPrice: null, trigger: null, decidedAt: null, venueBars: null };
     if (!coin) return { ...empty, error: null };
     try {
-      const { candles, result } = await getSmcState(coin, tf);
+      const { candles, view } = await computeFor(ind, coin, tf, stateLookbackMs(ind, tf));
       return {
         ...empty,
-        bull: result.state?.bull ?? null,
-        lastFlipSide: result.state?.lastFlip?.side ?? null,
-        lastFlipTime: result.state?.lastFlip?.time ?? null,
+        state: view.state,
+        lastSignal: view.signals.at(-1) ?? null,
         lastPrice: candles.at(-1)?.c ?? null,
-        triggerPrice: result.trigger?.price ?? null,
-        triggerFlipTo: result.trigger?.flipTo ?? null,
-        triggerDecidedAt: result.trigger?.formingBlockEnd ?? null,
+        trigger: view.trigger,
+        decidedAt: view.decidedAt,
+        venueBars: view.venueBars,
         error: null,
       };
     } catch (e) {

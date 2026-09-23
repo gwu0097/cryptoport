@@ -3,9 +3,9 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { SmcChart } from "@/components/smc/SmcChart";
+import { SignalsChart } from "@/components/smc/SignalsChart";
 import { WatchlistSignalsTable } from "@/components/smc/WatchlistSignalsTable";
-import { getSmcChart, getWatchlistSignals } from "@/lib/smc/signals";
+import { getIndicatorChart, getWatchlistSignals } from "@/lib/smc/signals";
 import { fetchPerpNames } from "@/lib/smc/hyperliquid";
 import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
 import { formatPrice } from "@/lib/format";
@@ -13,7 +13,9 @@ import { getWatchlists } from "@/lib/queries";
 import { SignalsWatchlistFilter } from "@/components/smc/SignalsWatchlistFilter";
 import { SignalTime, UntilTime } from "@/components/smc/SignalTime";
 import { IndicatorSelect } from "@/components/smc/IndicatorSelect";
-import { INDICATORS, DEFAULT_INDICATOR } from "@/lib/smc/indicators";
+import { INDICATORS, indicatorById } from "@/lib/smc/indicators";
+import { TriggerText } from "@/components/smc/TriggerText";
+import type { IndicatorId } from "@/lib/signals/rules";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Signals · CryptoPort" };
@@ -32,12 +34,17 @@ function SectionFallback({ text }: { text: string }) {
   );
 }
 
+/** What has to close past a trigger: SMC decides per 3× block, the others per bar. */
+const closeUnitFor = (ind: IndicatorId, tf: ChartTimeframe) => (ind === "smc" ? `${TIMEFRAMES[tf].blockLabel} block` : `${tf} bar`);
+
 /**
- * SMC signals — a read-only port of the user's TradingView indicator (SMC Bot
- * Replica v4.2) computed on Hyperliquid's own candles, the venue trading
- * would eventually use (BACKLOG: "SMC signal engine"; trading is a later,
- * separately planned phase). Public market data — no login needed for the
- * chart; the watchlist table is per-user.
+ * Signals — read-only indicators computed on Hyperliquid's own candles, the
+ * venue trading would eventually use: a port of the user's TradingView SMC
+ * Bot Replica v4.2, plus four standard bar-close indicators (RSI(2),
+ * Bollinger, MA pullback, Donchian) whose pre-registered backtest is
+ * deferred. Each indicator is shown on its own; none has a measured edge.
+ * Public market data — no login needed for the chart; the watchlist table
+ * is per-user. No CoinGecko calls anywhere on this page.
  */
 export default async function SignalsPage({
   searchParams,
@@ -54,18 +61,15 @@ export default async function SignalsPage({
   // Never trusts ?list= blindly: a stale id (deleted list) falls back to "All".
   const selectedList = params.list ? watchlists.find((w) => w.id === params.list) : undefined;
   const listQuery = selectedList ? `&list=${encodeURIComponent(selectedList.id)}` : "";
-  const indicator = INDICATORS.find((i) => i.id === params.ind) ?? DEFAULT_INDICATOR;
+  const indicator = indicatorById(params.ind);
+  const closeUnit = closeUnitFor(indicator.id, tf);
 
   return (
     <>
       <PageHeader title="Signals" subtitle={`${indicator.description} Computed on Hyperliquid perps.`} />
 
       <Panel className="mb-4 border-warning/40">
-        <p className="text-sm text-warning">
-          Visual reference only — not a trading strategy or a recommendation. Figures from an external backtest
-          (methodology unrecorded); not reproduced in this app: profit factor 0.88 on BTC at 6bps round trip, and a
-          random-entry control beat it in 41% of trials. Never validated on any other token.
-        </p>
+        <p className="text-sm text-warning">{indicator.banner}</p>
       </Panel>
 
       <Panel className="mb-4">
@@ -113,8 +117,8 @@ export default async function SignalsPage({
       </Panel>
 
       {coin ? (
-        <Suspense key={`chart:${coin}:${tf}`} fallback={<SectionFallback text={`Loading ${coin} ${tf} candles from Hyperliquid…`} />}>
-          <ChartSection coin={coin} tf={tf} />
+        <Suspense key={`chart:${indicator.id}:${coin}:${tf}`} fallback={<SectionFallback text={`Loading ${coin} ${tf} candles from Hyperliquid…`} />}>
+          <ChartSection ind={indicator.id} label={indicator.label} coin={coin} tf={tf} />
         </Suspense>
       ) : (
         <Panel className="mb-6 text-center">
@@ -125,8 +129,14 @@ export default async function SignalsPage({
         </Panel>
       )}
 
-      <Suspense key={`watchlist:${tf}:${selectedList?.id ?? "all"}`} fallback={<SectionFallback text={`Computing ${tf} signals for your watchlist…`} />}>
+      <Suspense
+        key={`watchlist:${indicator.id}:${tf}:${selectedList?.id ?? "all"}`}
+        fallback={<SectionFallback text={`Computing ${indicator.label} ${tf} signals for your watchlist…`} />}
+      >
         <WatchlistSection
+          ind={indicator.id}
+          label={indicator.label}
+          closeUnit={closeUnit}
           tf={tf}
           listId={selectedList?.id}
           filter={
@@ -143,19 +153,17 @@ export default async function SignalsPage({
       </Suspense>
 
       <p className="mt-4 text-xs text-fg-muted">
-        Computed from Hyperliquid candles on each page load. Blocks are epoch-aligned ({TIMEFRAMES[tf].blockLabel} for{" "}
-        {tf}); only completed blocks count, and the ribbon shows the last completed block (Delay = 1), so a printed
-        signal never moves. The trigger price is exact: the forming block&rsquo;s close alone decides the next state.
-        Research tool, not financial advice.
+        {indicator.label}: computed from Hyperliquid candles on each page load. {indicator.method} Research tool, not
+        financial advice.
       </p>
     </>
   );
 }
 
-async function ChartSection({ coin, tf }: { coin: string; tf: ChartTimeframe }) {
+async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label: string; coin: string; tf: ChartTimeframe }) {
   let data;
   try {
-    data = await getSmcChart(coin, tf);
+    data = await getIndicatorChart(ind, coin, tf);
   } catch (e) {
     const rateLimited = (e as Error).message.includes("429");
     return (
@@ -168,62 +176,86 @@ async function ChartSection({ coin, tf }: { coin: string; tf: ChartTimeframe }) 
       </Panel>
     );
   }
-  const { candles, result } = data;
+  const { candles, view } = data;
   const last = candles.at(-1);
-  const { state, trigger } = result;
-  const distance = trigger && last ? ((trigger.price - last.c) / last.c) * 100 : null;
-  const blockLabel = TIMEFRAMES[tf].blockLabel;
+  const { state, trigger } = view;
+  const lastSignal = view.signals.at(-1);
+  const distance = trigger?.kind === "price" && last ? ((trigger.price - last.c) / last.c) * 100 : null;
+  const title = ind === "smc" ? `${coin} · ${tf} (${TIMEFRAMES[tf].blockLabel} blocks) · ${label}` : `${coin} · ${tf} · ${label}`;
 
   return (
-    <Panel className="mb-6" title={`${coin} · ${tf} (${blockLabel} blocks)`}>
+    <Panel className="mb-6" title={title}>
       <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <span>
           State:{" "}
           {state ? (
-            <span className={state.bull ? "font-medium text-positive" : "font-medium text-negative"}>{state.bull ? "Bull" : "Bear"}</span>
+            <span className={state.up ? "font-medium text-positive" : "font-medium text-negative"}>{state.label}</span>
           ) : (
-            <span className="text-fg-muted">— (not enough completed blocks)</span>
+            <span className="text-fg-muted">
+              — (not enough Hyperliquid history: {view.venueBars} {ind === "smc" ? "completed blocks" : `${tf} bars`})
+            </span>
           )}
         </span>
-        {state?.lastFlip && (
+        {lastSignal && (
           <span className="text-fg-muted">
             Last signal:{" "}
-            <SignalTime
-              sec={state.lastFlip.time}
-              side={state.lastFlip.side}
-              barSeconds={TIMEFRAMES[tf].candleSeconds}
-              price={formatPrice(state.lastFlip.price)}
-            />
+            <SignalTime sec={lastSignal.time} side={lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} price={formatPrice(lastSignal.price)} />
           </span>
         )}
         {trigger && (
           <span className="text-fg-muted">
-            Next:{" "}
-            <span className={trigger.flipTo === "BUY" ? "text-positive" : "text-negative"}>
-              {trigger.flipTo === "BUY" ? "Buy" : "Sell"} if this {blockLabel} block closes {trigger.flipIfClose}{" "}
-              {formatPrice(trigger.price)}
-            </span>{" "}
-            (decided <UntilTime sec={trigger.formingBlockEnd} />
-            {last && distance !== null ? `; last ${formatPrice(last.c)}, ${distance > 0 ? "+" : ""}${distance.toFixed(1)}% away` : ""})
+            Next: <TriggerText trigger={trigger} closeUnit={view.closeUnit} />
+            {view.decidedAt !== null && (
+              <>
+                {" "}
+                (decided <UntilTime sec={view.decidedAt} />
+                {last && distance !== null ? `; last ${formatPrice(last.c)}, ${distance > 0 ? "+" : ""}${distance.toFixed(1)}% away` : ""})
+              </>
+            )}
           </span>
         )}
       </div>
-      <SmcChart candles={candles} ribbon={result.ribbon} flips={result.flips} trigger={trigger} blockLabel={blockLabel} />
+      <p className="mb-3 text-xs text-fg-muted">
+        Current values (last completed {ind === "smc" ? "block" : "bar"}):{" "}
+        {view.readout.map((r, i) => (
+          <span key={r.label}>
+            {i > 0 && " · "}
+            {r.label} {r.value === null ? "—" : r.label === "RSI(2)" ? r.value.toFixed(1) : r.label === "%B" ? r.value.toFixed(2) : formatPrice(r.value)}
+          </span>
+        ))}
+      </p>
+      <SignalsChart candles={candles} overlays={view.overlays} signals={view.signals} trigger={trigger} closeUnit={view.closeUnit} />
     </Panel>
   );
 }
 
-async function WatchlistSection({ tf, listId, filter }: { tf: ChartTimeframe; listId?: string; filter: React.ReactNode }) {
-  const rows = await getWatchlistSignals(tf, listId);
+async function WatchlistSection({
+  ind,
+  label,
+  closeUnit,
+  tf,
+  listId,
+  filter,
+}: {
+  ind: IndicatorId;
+  label: string;
+  closeUnit: string;
+  tf: ChartTimeframe;
+  listId?: string;
+  filter: React.ReactNode;
+}) {
+  const rows = await getWatchlistSignals(ind, tf, listId);
   return (
     <Panel
       title={
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span>Your watchlist · {tf}</span>
+          <span>
+            Your watchlist · {label} · {tf}
+          </span>
           {filter}
         </div>
       }
-      description="Each watchlist token's current state and the price its forming block has to close past to flip. Sorted by distance to that trigger by default."
+      description={`Each watchlist token's current ${label} state and what the forming ${closeUnit} has to close at for the next signal. Sorted by distance to an exact trigger by default; rows with no exact trigger sort last.`}
     >
       {rows === null ? (
         <p className="text-sm text-fg-muted">Log in and add tokens to a watchlist to see their signals here.</p>
@@ -232,7 +264,7 @@ async function WatchlistSection({ tf, listId, filter }: { tf: ChartTimeframe; li
           {listId ? "This watchlist is empty" : "Your watchlists are empty"} — add tokens on the Watchlist page.
         </p>
       ) : (
-        <WatchlistSignalsTable rows={rows} tf={tf} listQuery={listId ? `&list=${encodeURIComponent(listId)}` : ""} />
+        <WatchlistSignalsTable rows={rows} ind={ind} tf={tf} closeUnit={closeUnit} listQuery={listId ? `&list=${encodeURIComponent(listId)}` : ""} />
       )}
     </Panel>
   );

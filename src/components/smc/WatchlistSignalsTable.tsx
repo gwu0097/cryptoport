@@ -5,19 +5,20 @@ import { SortableHeader } from "@/components/ui/SortableHeader";
 import { TokenIcon } from "@/components/TokenIcon";
 import { usePersistedState } from "@/components/usePersistedState";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
-import { formatPrice } from "@/lib/format";
 import type { WatchlistSignalRow } from "@/lib/smc/signals";
+import { triggerFiresAt } from "@/lib/signals/triggers";
 import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
 import { SignalTime } from "./SignalTime";
+import { TriggerText } from "./TriggerText";
 
-type SortKey = "ticker" | "state" | "lastFlip" | "distance";
+type SortKey = "ticker" | "state" | "lastSignal" | "distance";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
-/** Distance from the last price to the trigger, as a % of the last price —
- * how far the forming block's close would have to be from here to flip. */
+/** Distance from the last price to an exact trigger price, as a % of the last
+ * price. null when there's no exact trigger (blocked / values only). */
 function distancePct(r: WatchlistSignalRow): number | null {
-  if (r.triggerPrice === null || r.lastPrice === null || r.lastPrice <= 0) return null;
-  return ((r.triggerPrice - r.lastPrice) / r.lastPrice) * 100;
+  if (r.trigger?.kind !== "price" || r.lastPrice === null || r.lastPrice <= 0) return null;
+  return ((r.trigger.price - r.lastPrice) / r.lastPrice) * 100;
 }
 
 function sortValue(r: WatchlistSignalRow, key: SortKey): number | string {
@@ -25,9 +26,9 @@ function sortValue(r: WatchlistSignalRow, key: SortKey): number | string {
     case "ticker":
       return r.ticker.toLowerCase();
     case "state":
-      return r.bull === null ? -1 : r.bull ? 1 : 0;
-    case "lastFlip":
-      return r.lastFlipTime ?? -Infinity;
+      return r.state === null ? -1 : r.state.up ? 1 : 0;
+    case "lastSignal":
+      return r.lastSignal?.time ?? -Infinity;
     case "distance": {
       const d = distancePct(r);
       return d === null ? Infinity : Math.abs(d);
@@ -35,16 +36,27 @@ function sortValue(r: WatchlistSignalRow, key: SortKey): number | string {
   }
 }
 
-/** The forming block would flip the state if it closed at the last price —
- * i.e. price is already past the trigger (above it for a Buy, below for a
- * Sell). Shown explicitly: a bare "+0.4%" doesn't say which side it's on. */
-function flipsAtCurrentPrice(r: WatchlistSignalRow): boolean {
-  if (r.triggerPrice === null || r.lastPrice === null || !r.triggerFlipTo) return false;
-  return r.triggerFlipTo === "BUY" ? r.lastPrice > r.triggerPrice : r.lastPrice < r.triggerPrice;
+/** The forming bar/block would fire the trigger if it closed at the last
+ * price (both bounds, incl. an SMA(200) floor). Shown explicitly: a bare
+ * "+0.4%" doesn't say which side it's on. */
+function firesAtCurrentPrice(r: WatchlistSignalRow): boolean {
+  return r.trigger !== null && r.lastPrice !== null && triggerFiresAt(r.trigger, r.lastPrice);
 }
 
-export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: WatchlistSignalRow[]; tf: ChartTimeframe; listQuery: string }) {
-  const [sort, setSort] = usePersistedState<Sort>("cryptoport:smcWatchlistSort", { key: "distance", dir: "asc" });
+export function WatchlistSignalsTable({
+  rows,
+  ind,
+  tf,
+  closeUnit,
+  listQuery,
+}: {
+  rows: WatchlistSignalRow[];
+  ind: string;
+  tf: ChartTimeframe;
+  closeUnit: string;
+  listQuery: string;
+}) {
+  const [sort, setSort] = usePersistedState<Sort>("cryptoport:signalsWatchlistSort", { key: "distance", dir: "asc" });
   const toggleSort = (key: SortKey) =>
     setSort(key === sort.key ? { key, dir: sort.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
 
@@ -65,8 +77,8 @@ export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: Watchlist
             <tr className={theadRowClass}>
               <SortableHeader label="Token" sortKeyValue="ticker" sortKey={sort.key} sortDir={sort.dir} onSort={toggleSort} />
               <SortableHeader label="State" sortKeyValue="state" sortKey={sort.key} sortDir={sort.dir} onSort={toggleSort} />
-              <SortableHeader label="Last signal" sortKeyValue="lastFlip" sortKey={sort.key} sortDir={sort.dir} onSort={toggleSort} className={hideOnMobileClass} />
-              <th className={thClass}>Next flip if block closes…</th>
+              <SortableHeader label="Last signal" sortKeyValue="lastSignal" sortKey={sort.key} sortDir={sort.dir} onSort={toggleSort} className={hideOnMobileClass} />
+              <th className={thClass}>Next signal if this {closeUnit} closes…</th>
               <SortableHeader label="Distance" sortKeyValue="distance" sortKey={sort.key} sortDir={sort.dir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -78,7 +90,10 @@ export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: Watchlist
                   <td className={tdClass}>
                     <div className="flex items-center gap-2">
                       <TokenIcon ticker={r.ticker} url={r.imageUrl} />
-                      <Link href={`/signals?coin=${encodeURIComponent(r.coin!)}&tf=${tf}${listQuery}`} className="font-medium text-fg hover:text-accent">
+                      <Link
+                        href={`/signals?ind=${ind}&coin=${encodeURIComponent(r.coin!)}&tf=${tf}${listQuery}`}
+                        className="font-medium text-fg hover:text-accent"
+                      >
                         {r.coin}
                       </Link>
                       {r.coin !== r.ticker && <span className="text-xs text-fg-muted">(per 1,000 {r.ticker})</span>}
@@ -89,33 +104,26 @@ export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: Watchlist
                       <span className="text-warning" title={r.error}>
                         {r.error.includes("429") ? "rate-limited, reload" : "error"}
                       </span>
-                    ) : r.bull === null ? (
-                      <span className="text-fg-muted">—</span>
+                    ) : r.state === null ? (
+                      <span className="text-fg-muted" title="Not enough Hyperliquid history at this timeframe for every input (e.g. SMA(200)) to be defined">
+                        — {r.venueBars !== null ? `(${r.venueBars} bars)` : ""}
+                      </span>
                     ) : (
-                      <span className={r.bull ? "text-positive" : "text-negative"}>{r.bull ? "Bull" : "Bear"}</span>
+                      <span className={r.state.up ? "text-positive" : "text-negative"}>{r.state.label}</span>
                     )}
                   </td>
                   <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    {r.lastFlipSide && r.lastFlipTime !== null ? (
-                      <SignalTime sec={r.lastFlipTime} side={r.lastFlipSide} barSeconds={TIMEFRAMES[tf].candleSeconds} />
-                    ) : (
-                      "—"
-                    )}
+                    {r.lastSignal ? <SignalTime sec={r.lastSignal.time} side={r.lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} /> : "—"}
                   </td>
-                  <td className={tdClass}>
-                    {r.triggerPrice !== null && r.triggerFlipTo ? (
-                      <span className={r.triggerFlipTo === "BUY" ? "text-positive" : "text-negative"}>
-                        {r.triggerFlipTo === "BUY" ? "above" : "below"} {formatPrice(r.triggerPrice)} → {r.triggerFlipTo === "BUY" ? "Buy" : "Sell"}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
+                  <td className={`${tdClass} max-w-md`}>{r.trigger ? <TriggerText trigger={r.trigger} /> : "—"}</td>
                   <td className={`${tdClass} tabular-nums`}>
                     {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(1)}%`}
-                    {flipsAtCurrentPrice(r) && (
-                      <span className="ml-2 rounded bg-warning/15 px-1.5 py-0.5 text-xs text-warning" title="Price is already past the trigger — if the block closed now, it would flip">
-                        flips at current price
+                    {firesAtCurrentPrice(r) && (
+                      <span
+                        className="ml-2 rounded bg-warning/15 px-1.5 py-0.5 text-xs text-warning"
+                        title={`Price is already past the trigger — if the ${closeUnit} closed now, it would fire`}
+                      >
+                        fires at current price
                       </span>
                     )}
                   </td>
