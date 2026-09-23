@@ -128,4 +128,12 @@ Notation: `x` is the forming bar's close; S(k) is the sum of the last k complete
 - No new daily storage; indicators are computed on page load.
 
 ## 9. Amendments
-*(none yet)*
+
+### Amendment 1 — 2026-09-23, user sign-off at Checkpoint A (recorded before any indicator is implemented or backtested)
+1. **Harness approved as proposed in §4**: one harness for all five indicators, SMC v4.2 re-measured in it. Its banner meanwhile says its figures are external and unreproduced (commit `77789d2`).
+2. **Verdicts come from the POOLED result only: 15 primary tests** (5 indicators × 3 timeframes), not 570. Per-token results are **description only** and never drive a banner or a verdict. §5's 570 per-token count stays reported, as a reminder of how many things were looked at.
+3. **Primary cost model** (decides verdicts): 13 bps round trip + actual Hyperliquid funding. **Stress case: 30 bps round trip + actual funding**, reported for every test. **Cost-sensitive flag:** an indicator × timeframe whose pooled verdict or holdout profit-factor side (above/below 1) differs between 13 bps and 30 bps is labeled **"cost-sensitive"**, because thin tokens pay more than 2 bps slippage. The 6 bps no-funding sensitivity stays as the comparison with the spec's external SMC figure; it decides nothing.
+4. **Random control approved:** 1,000 trials, matched count and holding-time distribution, same costs and funding.
+5. **Universe approved:** the 37 watchlist perps + BTC.
+6. **1H is low-power by construction.** Only ~208 days of 1H candles exist, so the holdout third is ~70 days. **Every 1H verdict is labeled "low-power", whatever the outcome.**
+7. Data depth as found (§4).
