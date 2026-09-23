@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, RefreshCw, Trash } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, RefreshCw, Search, Trash, X } from "lucide-react";
 import type { WalletWithTotal } from "@/lib/queries";
 import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
 import { formatStaleness, formatUsd, formatDuration } from "@/lib/format";
@@ -16,7 +16,7 @@ import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { usePersistedState } from "./usePersistedState";
 import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
-import { filterWalletsByTags } from "@/lib/walletTagFilter";
+import { filterWallets } from "@/lib/walletTagFilter";
 import { deleteWallet, syncExchangeHoldings, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
 /** The per-row sync icon-button — its own component (not inlined in the
@@ -242,7 +242,7 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
   const { key: sortKey, dir: sortDir } = isValidSort(rawSort) ? rawSort : DEFAULT_SORT;
   // Shared with SyncAllWalletsButton (see WalletsFilterProvider's own doc
   // comment) — "Sync all" only syncs whatever's currently filtered here.
-  const { tagFilter, setTagFilter } = useWalletsFilter();
+  const { tagFilter, setTagFilter, searchQuery, setSearchQuery } = useWalletsFilter();
 
   function toggleSort(key: SortKey) {
     const dir = key === sortKey ? (sortDir === "desc" ? "asc" : "desc") : "desc";
@@ -253,7 +253,8 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
     setTagFilter(tagFilter.includes(name) ? tagFilter.filter((t) => t !== name) : [...tagFilter, name]);
   }
 
-  const filtered = filterWalletsByTags(wallets, tagFilter);
+  const filtered = filterWallets(wallets, { tags: tagFilter, query: searchQuery });
+  const isFiltered = tagFilter.length > 0 || searchQuery.trim() !== "";
 
   const sorted = [...filtered].sort((a, b) => {
     const av = sortValue(a, sortKey);
@@ -275,44 +276,75 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
           single "sort by tag" column couldn't express at all. AND semantics:
           selecting more tags narrows the result (see the `filtered` calc
           above). */}
-      {tagNames.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border p-4">
-          <span className="text-xs text-fg-muted">Filter by tag:</span>
-          {tagNames.map((name) => {
-            const active = tagFilter.includes(name);
-            return (
-              <button
-                key={name}
-                type="button"
-                onClick={() => toggleTagFilter(name)}
-                aria-pressed={active}
-                className={`rounded-full border px-2.5 py-1 text-xs transition ${
-                  active
-                    ? "border-accent bg-accent text-accent-fg"
-                    : "border-border bg-surface-raised text-fg-muted hover:text-fg"
-                }`}
-              >
-                {name}
-              </button>
-            );
-          })}
-          {tagFilter.length > 0 && (
+      <div className="flex flex-col gap-3 border-b border-border p-4">
+        {/* Search: name, chain, address, notes, tags — whitespace-separated
+            terms narrow (AND), like the tag filter. Not persisted (see
+            WalletsFilterProvider). */}
+        <div className="relative max-w-md">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-muted" aria-hidden="true" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearchQuery("");
+            }}
+            placeholder="Search wallets by name, address, chain, tag or notes"
+            aria-label="Search wallets"
+            className="w-full rounded-lg border border-border bg-surface-raised py-1.5 pl-8 pr-8 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+          />
+          {searchQuery && (
             <button
               type="button"
-              onClick={() => setTagFilter([])}
-              className="text-xs text-fg-muted underline hover:text-fg"
+              onClick={() => setSearchQuery("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
             >
-              Clear
+              <X className="size-4" aria-hidden="true" />
             </button>
           )}
-          {tagFilter.length > 0 && (
-            <span className="w-full text-xs text-fg-muted">
-              Showing {sorted.length} of {wallets.length} wallet{wallets.length === 1 ? "" : "s"} ·{" "}
-              {formatUsd(filtered.reduce((sum, w) => sum + w.total, 0))}
-            </span>
-          )}
         </div>
-      )}
+
+        {/* Filter, not sort — a wallet's tags span independent dimensions
+            (ownership: personal/business; storage: hard/soft wallet), which a
+            single "sort by tag" column couldn't express at all. AND semantics:
+            selecting more tags narrows the result (see the `filtered` calc
+            above). */}
+        {tagNames.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-fg-muted">Filter by tag:</span>
+            {tagNames.map((name) => {
+              const active = tagFilter.includes(name);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => toggleTagFilter(name)}
+                  aria-pressed={active}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                    active
+                      ? "border-accent bg-accent text-accent-fg"
+                      : "border-border bg-surface-raised text-fg-muted hover:text-fg"
+                  }`}
+                >
+                  {name}
+                </button>
+              );
+            })}
+            {tagFilter.length > 0 && (
+              <button type="button" onClick={() => setTagFilter([])} className="text-xs text-fg-muted underline hover:text-fg">
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+        {isFiltered && (
+          <span className="text-xs text-fg-muted">
+            Showing {sorted.length} of {wallets.length} wallet{wallets.length === 1 ? "" : "s"} ·{" "}
+            {formatUsd(filtered.reduce((sum, w) => sum + w.total, 0))}
+          </span>
+        )}
+      </div>
 
       {/* overflow-x-auto, not the Panel's own overflow-hidden — the Panel
           wrapping this table clips to keep its rounded corners, which on a
@@ -358,7 +390,8 @@ export function WalletsTable({ wallets, tagNames }: { wallets: WalletWithTotal[]
         {sorted.length === 0 ? (
           <tr>
             <td colSpan={8} className={`${tdClass} text-center text-fg-muted`}>
-              No wallets match the selected tags.
+              {searchQuery.trim() ? "No wallets match your search" : "No wallets match the selected tags"}
+              {searchQuery.trim() && tagFilter.length > 0 ? " and tags" : ""}.
             </td>
           </tr>
         ) : (

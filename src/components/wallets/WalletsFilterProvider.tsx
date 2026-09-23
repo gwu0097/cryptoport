@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { usePersistedState } from "../usePersistedState";
 
 const TAG_FILTER_STORAGE_KEY = "cryptoport:walletsTagFilter";
@@ -8,18 +8,24 @@ const TAG_FILTER_STORAGE_KEY = "cryptoport:walletsTagFilter";
 interface WalletsFilterValue {
   tagFilter: string[];
   setTagFilter: (tags: string[]) => void;
+  /** The search box. Deliberately NOT persisted (unlike the tag filter):
+   * coming back to a list silently narrowed by a half-remembered search
+   * would hide wallets for no visible reason. */
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
 }
 
 // Static, never mutated — the fallback for a consumer rendered with no
 // provider above it (see useWalletsFilter's own doc comment on why that's
 // a real, intentional case here, not a wiring bug).
-const NO_FILTER: WalletsFilterValue = { tagFilter: [], setTagFilter: () => {} };
+const NO_FILTER: WalletsFilterValue = { tagFilter: [], setTagFilter: () => {}, searchQuery: "", setSearchQuery: () => {} };
 
 const WalletsFilterContext = createContext<WalletsFilterValue | null>(null);
 
 /**
- * Shares the wallets-list tag filter between WalletsTable (which rows show)
- * and SyncAllWalletsButton (which wallets "Sync all" actually syncs) — the
+ * Shares the wallets-list filter (tags + search) between WalletsTable (which
+ * rows show), SyncAllWalletsButton (which wallets "Sync all" actually syncs)
+ * and WalletsTotalValue (the header total) — the
  * two live far apart in the DOM (the button sits in wallets/page.tsx's
  * PageHeader, the table below it), both as children of the same Server
  * Component page, so a small Context is the natural way to share one piece
@@ -31,7 +37,10 @@ const WalletsFilterContext = createContext<WalletsFilterValue | null>(null);
  */
 export function WalletsFilterProvider({ children }: { children: ReactNode }) {
   const [tagFilter, setTagFilter] = usePersistedState<string[]>(TAG_FILTER_STORAGE_KEY, []);
-  return <WalletsFilterContext.Provider value={{ tagFilter, setTagFilter }}>{children}</WalletsFilterContext.Provider>;
+  const [searchQuery, setSearchQuery] = useState("");
+  return (
+    <WalletsFilterContext.Provider value={{ tagFilter, setTagFilter, searchQuery, setSearchQuery }}>{children}</WalletsFilterContext.Provider>
+  );
 }
 
 /**

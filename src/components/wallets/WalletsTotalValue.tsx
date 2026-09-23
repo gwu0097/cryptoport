@@ -2,9 +2,13 @@
 
 import { TotalValuePanel } from "../TotalValuePanel";
 import { useWalletsFilter } from "./WalletsFilterProvider";
-import { filterWalletsByTags } from "@/lib/walletTagFilter";
+import { filterWallets } from "@/lib/walletTagFilter";
 
 interface WalletForTotal {
+  name: string;
+  chain: string;
+  address: string | null;
+  notes: string | null;
   tags: { name: string }[];
   total: number;
   unpricedCount: number;
@@ -31,8 +35,8 @@ export function WalletsTotalValue({
   grandTotal: number;
   grandUnpricedCount: number;
 }) {
-  const { tagFilter } = useWalletsFilter();
-  const filtered = tagFilter.length > 0 ? filterWalletsByTags(wallets, tagFilter) : null;
+  const { tagFilter, searchQuery } = useWalletsFilter();
+  const filtered = tagFilter.length > 0 || searchQuery.trim() !== "" ? filterWallets(wallets, { tags: tagFilter, query: searchQuery }) : null;
   const total = filtered ? filtered.reduce((sum, w) => sum + w.total, 0) : grandTotal;
   const unpricedCount = filtered ? filtered.reduce((sum, w) => sum + w.unpricedCount, 0) : grandUnpricedCount;
 

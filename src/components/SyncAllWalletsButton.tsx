@@ -2,7 +2,7 @@
 
 import { RefreshCw } from "lucide-react";
 import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
-import { filterWalletsByTags } from "@/lib/walletTagFilter";
+import { filterWallets } from "@/lib/walletTagFilter";
 import { useJob } from "./jobs/useJob";
 import { useNow } from "./jobs/useJobStatus";
 import { JobButton } from "./jobs/JobButton";
@@ -10,6 +10,10 @@ import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
 
 interface SyncAllWallet {
   id: string;
+  name: string;
+  chain: string;
+  address: string | null;
+  notes: string | null;
   tags: { name: string }[];
   provider: string | null;
   last_refresh_status: string | null;
@@ -19,8 +23,8 @@ interface SyncAllWallet {
 }
 
 /**
- * "Sync all wallets" — scoped to whatever the Wallets list's tag filter is
- * currently showing (see WalletsFilterProvider — the same filter state
+ * "Sync all wallets" — scoped to whatever the Wallets list's filter (tags +
+ * search) is currently showing (see WalletsFilterProvider — the same filter state
  * WalletsTable's own rows use), not literally every wallet every time. A
  * real request from actual use: many long-term-holding wallets don't
  * change often enough to be worth re-syncing on every "Sync all" click, so
@@ -41,8 +45,9 @@ export function SyncAllWalletsButton({
   wallets: SyncAllWallet[];
   syncAll: (walletIds: string[]) => Promise<JobStartResult>;
 }) {
-  const { tagFilter } = useWalletsFilter();
-  const filtered = filterWalletsByTags(wallets, tagFilter);
+  const { tagFilter, searchQuery } = useWalletsFilter();
+  const filtered = filterWallets(wallets, { tags: tagFilter, query: searchQuery });
+  const isFiltered = tagFilter.length > 0 || searchQuery.trim() !== "";
 
   // A connected exchange (provider set) reports its own sync via
   // exchange_sync_status/exchange_sync_started_at, not last_refresh_status/
@@ -72,7 +77,7 @@ export function SyncAllWalletsButton({
     start: () => syncAll(filtered.map((w) => w.id)),
   });
 
-  const label = tagFilter.length === 0 ? "Sync all" : `Sync filtered (${filtered.length})`;
+  const label = isFiltered ? `Sync filtered (${filtered.length})` : "Sync all";
 
   return (
     <div className="flex flex-col items-end gap-1">
