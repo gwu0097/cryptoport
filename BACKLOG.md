@@ -61,6 +61,14 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ---
 
+### Run the pullback indicator backtest per `docs/signals/PREREG_PULLBACK_INDICATORS.md`
+**Raised**: 2026-09-23. **Status**: deferred. The Signals page shipped the four indicators (RSI(2), Bollinger, MA pullback, Donchian) plus SMC first, as a discretionary visual aid; every banner says "Not backtested — visual reference only".
+
+- **Pre-registered and ready:** rules, cost model (13 bps + actual funding; 30 bps stress; cost-sensitive flag), random-entry control, held-back third, **pooled** verdict per indicator × timeframe (15 tests), 1H labeled low-power, and Amendments 1–2. The code exists: `src/lib/signals/harness.ts`, `rules.ts`, `ta.ts`, and `scripts/signals-fetch-data.ts` + `signals-backtest.ts` (it refuses uncommitted code). Zero CoinGecko calls.
+- **Idea to decide before running: a fixed ~15-token sample** instead of all 37 watchlist perps + BTC. The verdict is **pooled** (Amendment 1), so it's a property of the rule on a representative set, not of each token. Tokens added to the watchlist later inherit it instead of needing their own test, and the fetch shrinks a lot. Funding history is the slow part (hourly, 500 rows per call, ~26 calls/min; about 58 calls for a 3-year-old perp). The full universe was estimated at ~1.5 hours. The sample must be **fixed in a dated amendment before the run** and chosen on criteria, not results (e.g. a mix of majors, DeFi and newer perps with enough 4H history).
+- **Already cached (kept):** full candles + funding for **kPEPE, PONS, ZEC, VVV, PUMP, TAO, UNI**, and candles only for **JTO**, in `~/cryptoport-archive/signals/data/`. The fetch script skips existing files.
+- **What a backtest would and wouldn't measure:** every pullback rule's **SMA(200) filter** (RSI(2), Bollinger, MA pullback) already restricts entries to uptrends. So a backtest measures these setups **in the conditions they're designed for**, not in bear markets; a flat or negative result in a bear-heavy window would say little. Donchian (no trend filter) is the trend-following control.
+
 ## General cryptoport features
 
 ### Trend Finder — peers weren't anchored to what the token does — FIXED 2026-09-22

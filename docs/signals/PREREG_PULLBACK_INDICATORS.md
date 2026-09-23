@@ -1,4 +1,4 @@
-# Pre-registration: pullback / trend indicators on the Signals page — WITHDRAWN 2026-09-23 (not run; see §10)
+# Pre-registration: pullback / trend indicators on the Signals page — DEFERRED 2026-09-23 (not run yet; see §10)
 
 **Registered 2026-09-23, before any of these indicators has been implemented or backtested.** The indicator rules and parameters in §2 were set by the user; they're fixed here and **won't change after results are seen**. The harness method in §4 is a proposal pending the user's sign-off at Checkpoint A. If it changes, the change is recorded in §9 (amendments), dated, **before any backtest runs**.
 
@@ -149,11 +149,12 @@ Notation: `x` is the forming bar's close; S(k) is the sum of the last k complete
 
 **Known optimism, reported not hidden:** a fill at the open of a no-trade candle is at a stale, carried-forward price nobody traded. The report counts, per indicator × timeframe, the fills that land on `n = 0` candles. The 30 bps stress case partly covers thin-token execution.
 
-## 10. WITHDRAWN — 2026-09-23. The backtest was not run.
-**Status: withdrawn, not pending. No result is coming.**
+## 10. DEFERRED — 2026-09-23. The backtest has not run yet.
+**Status: deferred, not withdrawn.** The user changed the order: **the page ships first**, as a **discretionary visual aid** (not a trading system), and the backtest runs later. **Until it does, none of the five indicators, SMC v4.2 included, has a measured edge in this app.** SMC's banner shows figures from an external backtest (methodology unrecorded) that this app hasn't reproduced. Every banner reads "Not backtested — visual reference only".
 
-**Why:** the user redirected the work. The Signals page is a **visual aid for discretionary trading, not a trading system**, so it doesn't need a measured verdict. The data fetch was stopped partway (7 of 38 tokens, funding history only partly downloaded). **No indicator was backtested under this registration, and none of the five, SMC v4.2 included, has a measured edge in this app.** SMC's banner shows figures from an external backtest (methodology unrecorded) that this app has never reproduced.
+**Everything above stays the plan for when it resumes, unchanged:** the §2 rules and parameters, the §3 execution convention, the §4 cost model, random control, held-back third and pooled verdict, and Amendments 1–2. Any change before it runs (e.g. a smaller fixed token sample; see BACKLOG) must be a new, dated amendment committed **before** the run.
 
-**What remains, and is kept:** the tested code built for it: `src/lib/signals/ta.ts` (primitives), `rules.ts` (the indicator rules, also used by the page), `harness.ts` (the one harness), plus `scripts/signals-fetch-data.ts` and `scripts/signals-backtest.ts`. If a verdict is ever wanted, it needs a **new** registration. This one's §2 rules and Amendments 1–2 could be reused, but the universe and data would be re-fetched, and nothing would run before the new registration is committed.
-
-**What the page says instead:** every indicator's banner reads "Not backtested — visual reference only". No verdict, edge or consensus is shown for any of them.
+**State when deferred:**
+- The data fetch was stopped partway. **Kept for the resume:** full candles (1H/4H/1D) plus funding for 7 tokens (kPEPE, PONS, ZEC, VVV, PUMP, TAO, UNI) and candles only for JTO, in `~/cryptoport-archive/signals/data/`. `scripts/signals-fetch-data.ts` skips files that already exist.
+- **Code kept:** `src/lib/signals/ta.ts`, `rules.ts` (it also drives the page) and `harness.ts`, all tested; `scripts/signals-backtest.ts` is ready.
+- **Nothing has been backtested.**
