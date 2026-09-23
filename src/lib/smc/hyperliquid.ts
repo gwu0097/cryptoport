@@ -12,12 +12,17 @@ import type { Candle } from "./engine";
 // handles it).
 const INFO_URL = "https://api.hyperliquid.xyz/info";
 
+// Hyperliquid rate-limits /info by request weight per minute per IP, and a
+// candleSnapshot's weight grows with the candles it returns. A 429 is
+// usually cleared within seconds, so back off longer than the default.
+const RETRY = { attempts: 4, baseDelayMs: 2000 };
+
 async function info<T>(body: unknown): Promise<T> {
-  const res = await fetchWithRetry(INFO_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await fetchWithRetry(
+    INFO_URL,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+    RETRY,
+  );
   if (!res.ok) throw new Error(`Hyperliquid info ${JSON.stringify(body).slice(0, 60)} failed: HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }

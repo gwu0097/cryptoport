@@ -2,7 +2,7 @@ import "server-only";
 import { userDb } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { mapWithConcurrency } from "@/lib/adapters/http";
-import { computeSmc, TIMEFRAMES, type ChartTimeframe, type Candle, type SmcResult } from "./engine";
+import { computeSmc, TIMEFRAMES, BLOCK_MULTIPLIER, type ChartTimeframe, type Candle, type SmcResult } from "./engine";
 import { fetchCandles, fetchPerpNames } from "./hyperliquid";
 
 const DAY_MS = 86_400_000;
@@ -15,10 +15,28 @@ export interface SmcChartData {
   computedAt: string;
 }
 
-export async function getSmcChart(coin: string, tf: ChartTimeframe): Promise<SmcChartData> {
+// The watchlist table only needs each token's CURRENT state, not a chart's
+// worth of history: RMA(8) forgets its seed at (7/8)^n, so 150 blocks leaves
+// ~1e-9 of it — indistinguishable from TradingView's long-converged values.
+// That's ~450 candles per token instead of up to ~2,400 (4H chart history):
+// fetching full chart history for every watchlist token tripped Hyperliquid's
+// per-minute request-weight limit (HTTP 429) on the first 4H load in prod.
+const STATE_BLOCKS = 150;
+
+async function computeFor(coin: string, tf: ChartTimeframe, lookbackMs: number): Promise<SmcChartData> {
   const now = Date.now();
-  const candles = await fetchCandles(coin, TIMEFRAMES[tf].interval, now - TIMEFRAMES[tf].historyDays * DAY_MS, now);
+  const candles = await fetchCandles(coin, TIMEFRAMES[tf].interval, now - lookbackMs, now);
   return { coin, tf, candles, result: computeSmc(candles, tf, Math.floor(now / 1000)), computedAt: new Date(now).toISOString() };
+}
+
+/** Full chart history (one call) for the chart view. */
+export async function getSmcChart(coin: string, tf: ChartTimeframe): Promise<SmcChartData> {
+  return computeFor(coin, tf, TIMEFRAMES[tf].historyDays * DAY_MS);
+}
+
+/** Just enough history for an exact current state + trigger (the watchlist table). */
+export async function getSmcState(coin: string, tf: ChartTimeframe): Promise<SmcChartData> {
+  return computeFor(coin, tf, STATE_BLOCKS * BLOCK_MULTIPLIER * TIMEFRAMES[tf].candleSeconds * 1000);
 }
 
 /** A watchlist ticker's Hyperliquid perp name: the same symbol, or the
@@ -71,7 +89,7 @@ export async function getWatchlistSignals(tf: ChartTimeframe, watchlistId?: stri
     const empty = { ticker: item.ticker.toUpperCase(), name: item.name, imageUrl: item.image_url, coin, bull: null, lastFlipSide: null, lastFlipTime: null, lastPrice: null, triggerPrice: null, triggerFlipTo: null, triggerDecidedAt: null };
     if (!coin) return { ...empty, error: null };
     try {
-      const { candles, result } = await getSmcChart(coin, tf);
+      const { candles, result } = await getSmcState(coin, tf);
       return {
         ...empty,
         bull: result.state?.bull ?? null,

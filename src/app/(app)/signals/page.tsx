@@ -46,9 +46,11 @@ export default async function SignalsPage({
 }) {
   const params = await searchParams;
   const tf: ChartTimeframe = TF_OPTIONS.includes(params.tf as ChartTimeframe) ? (params.tf as ChartTimeframe) : "1H";
-  const [perps, watchlists] = await Promise.all([fetchPerpNames(), getWatchlists()]);
+  // A Hyperliquid failure (e.g. a rate limit) must never take the page down —
+  // the list only feeds the picker; the requested coin is still tried as typed.
+  const [perps, watchlists] = await Promise.all([fetchPerpNames().catch(() => [] as string[]), getWatchlists()]);
   const requested = (params.coin ?? "BTC").trim();
-  const coin = perps.find((p) => p.toLowerCase() === requested.toLowerCase()) ?? null;
+  const coin = perps.length > 0 ? (perps.find((p) => p.toLowerCase() === requested.toLowerCase()) ?? null) : requested;
   // Never trusts ?list= blindly: a stale id (deleted list) falls back to "All".
   const selectedList = params.list ? watchlists.find((w) => w.id === params.list) : undefined;
   const listQuery = selectedList ? `&list=${encodeURIComponent(selectedList.id)}` : "";
@@ -151,7 +153,22 @@ export default async function SignalsPage({
 }
 
 async function ChartSection({ coin, tf }: { coin: string; tf: ChartTimeframe }) {
-  const { candles, result } = await getSmcChart(coin, tf);
+  let data;
+  try {
+    data = await getSmcChart(coin, tf);
+  } catch (e) {
+    const rateLimited = (e as Error).message.includes("429");
+    return (
+      <Panel className="mb-6 text-center">
+        <p className="text-sm text-warning">
+          {rateLimited
+            ? "Hyperliquid is rate-limiting requests right now — try again in a minute."
+            : `Couldn't load ${coin} candles from Hyperliquid.`}
+        </p>
+      </Panel>
+    );
+  }
+  const { candles, result } = data;
   const last = candles.at(-1);
   const { state, trigger } = result;
   const distance = trigger && last ? ((trigger.price - last.c) / last.c) * 100 : null;

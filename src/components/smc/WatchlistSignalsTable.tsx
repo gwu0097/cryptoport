@@ -86,7 +86,9 @@ export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: Watchlist
                   </td>
                   <td className={tdClass}>
                     {r.error ? (
-                      <span className="text-warning" title={r.error}>error</span>
+                      <span className="text-warning" title={r.error}>
+                        {r.error.includes("429") ? "rate-limited, reload" : "error"}
+                      </span>
                     ) : r.bull === null ? (
                       <span className="text-fg-muted">—</span>
                     ) : (
