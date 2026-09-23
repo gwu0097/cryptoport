@@ -168,6 +168,38 @@ export interface ScreenerRow {
   sourceConflict: boolean;
 }
 
+/** One asset in the default research view: verified fundamentals, kill
+ * filters, risk tier, valuation and momentum as plain columns — no grade,
+ * tag or ranked order (those are behind the experimental toggle; SPEC:
+ * the screener is a verified research dataset with a risk filter, not a
+ * signal). */
+export interface ResearchRow {
+  assetId: string;
+  geckoId: string;
+  name: string;
+  ticker: string;
+  /** Passed every kill filter. */
+  rated: boolean;
+  /** Kill filters this asset failed (empty when rated). */
+  failedGates: string[];
+  sectorBucket: string | null;
+  revAnn: number | null;
+  feesAnn: number | null;
+  marketCapUsd: number | null;
+  psCirc: number | null;
+  pfCirc: number | null;
+  capture: number | null;
+  buybackYield: number | null;
+  mom3w: number | null;
+  mom12w: number | null;
+  betaBtc: number | null;
+  /** Quality & Risk tier — computed for rated assets only. */
+  tier: TierValue | null;
+  rulesEvaluable: number | null;
+  firedRules: string[];
+  sourceConflict: boolean;
+}
+
 export interface RegimeRule {
   rule: string;
   fired: boolean | null;
@@ -183,7 +215,9 @@ export interface ScreenerView {
     /** CoinGecko was unavailable: market cap/supply/volume null, nothing rated. */
     degraded: { error: string; pricesMissing: number } | null;
   } | null;
-  /** Rated assets with both momentum legs: graded, tagged, ranked. */
+  /** The default view: every asset in the run (filter on `rated`). */
+  research: ResearchRow[];
+  /** EXPERIMENTAL view — rated assets with both momentum legs: graded, tagged, ranked. */
   graded: ScreenerRow[];
   /** Rated assets with one momentum leg: scored and placed, never graded or tagged. */
   insufficientHistory: ScreenerRow[];
@@ -205,7 +239,7 @@ export interface ScreenerView {
 export async function getScreenerView(): Promise<ScreenerView> {
   const db = serviceDb();
   const empty: ScreenerView = {
-    run: null, graded: [], insufficientHistory: [], unscoredCount: 0, ratedCount: 0,
+    run: null, research: [], graded: [], insufficientHistory: [], unscoredCount: 0, ratedCount: 0,
     unrated: { total: 0, failedByGate: {} }, regime: null, sizeCheck: null, scoresMissingReason: null,
   };
 
@@ -237,17 +271,23 @@ export async function getScreenerView(): Promise<ScreenerView> {
     sizeCheck: notes.derivations?.scores?.size_check ?? null,
   };
 
-  type MetricRow = { asset_id: string; rated: boolean; gate_status: Record<string, string>; sector_bucket: string | null; mom_3w: number | null; mom_12w: number | null; size_log_mcap: number | null };
+  type MetricRow = {
+    asset_id: string; rated: boolean; gate_status: Record<string, string>; sector_bucket: string | null;
+    mom_3w: number | null; mom_12w: number | null; size_log_mcap: number | null; beta_btc: number | null;
+    fees_ann: number | null; rev_ann: number | null; ps_circ: number | null; pf_circ: number | null;
+    capture: number | null; buyback_yield: number | null;
+    screener_assets: { gecko_id: string; name: string; ticker: string } | null;
+  };
   const metrics: MetricRow[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db
       .from("screener_asset_metrics")
-      .select("asset_id, rated, gate_status, sector_bucket, mom_3w, mom_12w, size_log_mcap")
+      .select("asset_id, rated, gate_status, sector_bucket, mom_3w, mom_12w, size_log_mcap, beta_btc, fees_ann, rev_ann, ps_circ, pf_circ, capture, buyback_yield, screener_assets(gecko_id, name, ticker)")
       .eq("run_id", run.id)
       .order("asset_id")
       .range(from, from + 999);
     if (error) throw new Error(`Failed to load screener_asset_metrics: ${error.message}`);
-    metrics.push(...((data ?? []) as MetricRow[]));
+    metrics.push(...((data ?? []) as unknown as MetricRow[]));
     if (!data || data.length < 1000) break;
   }
   const unrated = metrics.filter((m) => !m.rated);
@@ -255,6 +295,35 @@ export async function getScreenerView(): Promise<ScreenerView> {
   for (const m of unrated) for (const [gate, result] of Object.entries(m.gate_status)) if (result === "fail") failedByGate[gate] = (failedByGate[gate] ?? 0) + 1;
   view.unrated = { total: unrated.length, failedByGate };
   view.ratedCount = metrics.length - unrated.length;
+
+  const { data: conflictRows, error: conflictError } = await db.from("screener_field_conflicts").select("asset_id").eq("run_id", run.id);
+  if (conflictError) throw new Error(`Failed to load screener_field_conflicts: ${conflictError.message}`);
+  const conflicted = new Set((conflictRows ?? []).map((c) => c.asset_id as string));
+  view.research = metrics
+    .filter((m) => m.screener_assets !== null)
+    .map((m) => ({
+      assetId: m.asset_id,
+      geckoId: m.screener_assets!.gecko_id,
+      name: m.screener_assets!.name,
+      ticker: m.screener_assets!.ticker,
+      rated: m.rated,
+      failedGates: Object.entries(m.gate_status).filter(([, r]) => r === "fail").map(([g]) => g),
+      sectorBucket: m.sector_bucket,
+      revAnn: m.rev_ann,
+      feesAnn: m.fees_ann,
+      marketCapUsd: m.size_log_mcap != null ? Math.exp(m.size_log_mcap) : null,
+      psCirc: m.ps_circ,
+      pfCirc: m.pf_circ,
+      capture: m.capture,
+      buybackYield: m.buyback_yield,
+      mom3w: m.mom_3w,
+      mom12w: m.mom_12w,
+      betaBtc: m.beta_btc,
+      tier: null,
+      rulesEvaluable: null,
+      firedRules: [],
+      sourceConflict: conflicted.has(m.asset_id),
+    }));
 
   const { data: regime, error: regimeError } = await db
     .from("screener_regime_snapshots")
@@ -293,6 +362,14 @@ export async function getScreenerView(): Promise<ScreenerView> {
     return view;
   }
 
+  const researchById = new Map(view.research.map((r) => [r.assetId, r]));
+  for (const sc of scores) {
+    const r = researchById.get(sc.asset_id);
+    if (!r) continue;
+    r.tier = sc.quality_risk_tier;
+    r.rulesEvaluable = sc.rules_evaluable;
+    r.firedRules = sc.quality_risk_rules.filter((x) => x.fired === true).map((x) => x.rule);
+  }
   const metricById = new Map(metrics.map((m) => [m.asset_id, m]));
   const rows: ScreenerRow[] = scores
     .filter((s) => s.screener_assets !== null)

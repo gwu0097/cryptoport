@@ -4,6 +4,21 @@
 
 ---
 
+## Product: what this is (DECIDED 2026-09-23, after Phase 4; supersedes the original framing below)
+**The screener is a verified research dataset of revenue-generating tokens, with a risk filter. It is not a signal.** It doesn't rank or recommend.
+- **Why:** the Phase 4 backtest found no predictive value for the momentum ranking. On the rated universe its IC is about 0; on a wider universe it's negative in-sample, i.e. reversal (see "OPEN QUESTION AGAINST THE DESIGN" below). The cheapness factors pointed the wrong way too. No factor passed the held-back third. A ranked list with letter grades would imply an order the evidence doesn't support, and a caption can't undo what an "A" implies.
+- **What's defensible without predictive proof**, and is the product:
+  - point-in-time, source-verified fundamentals (revenue, fees, market cap, P/S, P/F, value capture where documented);
+  - the kill filters;
+  - the Quality & Risk tier (revenue collapse, dilution, unlocks);
+  - momentum and beta shown as plain descriptive columns.
+- **Default view** (`/screener`): a research table of every rated asset, all columns sortable, **default sort: annualized revenue**, with an option to include unrated assets with the filters they failed. The regime panel stays (descriptive market context). The "Unvalidated" banner and the latest backtest's caption stay.
+- **The Phase 3 momentum ranking** (grades, setup tags, ranked order, the insufficient-history section) is kept **only behind an "experimental" toggle**. It's not persisted, so every visit starts on the research table. It's kept, rather than deleted, so later backtests (H1–H3, the weekly-horizon test) can be run against it and compared. The daily cron keeps computing scores for the same reason.
+- **The daily job keeps running.** The point-in-time history it accumulates is the durable asset, and the pre-registered hypotheses can't be judged before ~2027-03 regardless.
+- **No new capability while the honest answer is "a good dataset and no signal".** No more factor testing on the 2025-12 → 2026-08 monthly data. The one further experiment is the pre-registered weekly-horizon test (`PREREG_WEEKLY_HORIZON.md`), run only as registered.
+
+---
+
 ## Amendments (supersede the matching original section below)
 
 ### Placement — DECIDED
@@ -476,7 +491,7 @@ Deliverable: `PHASE_3.md` with the full ranked list, setup-tag counts, and the t
 
 Deliverable: `PHASE_4.md` with results tables and a recommendation: keep equal weights, adjust (with evidence), or drop a component. Stop.
 
-## Phase 5: Qualitative layer (LLM, finalists only)
+## Phase 5: Qualitative layer (LLM, finalists only) — RESCOPED 2026-09-23, see the amendment at the end of this section
 
 1. Finalists: the top N by Fundamental score (default 10), plus any assets I pin manually.
 2. Gather recent project announcements, governance posts, and news. Anchor every search prompt to project name, ticker, and a date window.
@@ -501,7 +516,15 @@ Deliverable: `PHASE_4.md` with results tables and a recommendation: keep equal w
 5. **Validator:** reject and retry any output containing a number that isn't in the input metrics or source snippets (dates excepted). Log rejections.
 6. Drop any catalyst that lacks a source URL.
 
-> **AMENDED**: "top N by Fundamental score" is dead terminology (no Fundamental score anymore) — should read "top N by Timing grade among Pass-tier assets" or similar, matching the new primary-ranking-is-momentum design. Not fully redefined here — a real decision Phase 5 needs to make explicitly when it's reached, not inferred silently.
+> **AMENDED 2026-09-23 — Phase 5 RESCOPED (or dropped); the original text above is superseded.**
+> - **"Top N by grade" (or by any ranking) is REJECTED**, which closes open decision 2. The Phase 4 backtest found no predictive value for the ranking. An LLM writing fluent write-ups of "finalists" chosen by that order would lend narrative credibility to noise: the "plausible-looking wrong number" problem in prose.
+> - **If Phase 5 happens at all** (only on the user's explicit request; not scheduled), it produces **research notes, never picks**:
+>   - **Which assets:** only ones the user picks, or all Pass-tier rated assets. Never a subset chosen by grade, tag, percentile or any other ordering.
+>   - **Inputs:** the verified fundamentals and filter/tier results, with provenance, plus dated, source-linked snippets. **No grade, setup tag or ranking is sent to the LLM**, and the regime label only as context.
+>   - **Output:** what the protocol does and how it earns revenue; value-capture mechanics (as documented); competitors; dated, sourced catalysts (confirmed vs speculative); risks and a bear case; "what could I be wrong about"; citations for every claim.
+>   - **Dropped from the original schema:** `why_mispriced` and anything else that implies a valuation call or a recommendation.
+>   - **It never ranks, scores, recommends, or says buy/sell/hold.** The number validator (principle #1: every number must come from the inputs) still applies.
+
 
 Deliverable: `PHASE_5.md` with 3 sample write-ups and validator stats. Stop.
 

@@ -3,7 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { RegimePanel } from "@/components/screener/RegimePanel";
-import { ScreenerScoresTable } from "@/components/screener/ScreenerScoresTable";
+import { ScreenerViews } from "@/components/screener/ScreenerViews";
 import { getScreenerView, getLatestBacktestSummary } from "@/lib/screener/queries";
 import { formatStaleness } from "@/lib/format";
 
@@ -21,10 +21,12 @@ const GATE_LABEL: Record<string, string> = {
 };
 
 /**
- * Phase 3b: the real screener. Shows the latest day's run, picked by the one
- * shared rule (SPEC "One run per UTC day": the day's latest ok live run).
- * Ranked by Score B (momentum vs BTC), with the Quality & Risk tier and the
- * setup tag next to each asset, and the market regime with all its inputs.
+ * The screener: the latest day's run, picked by the one shared rule (SPEC
+ * "One run per UTC day": the day's latest ok live run). Since Phase 4 (SPEC
+ * "Product") the default view is a research table (verified fundamentals,
+ * kill filters, risk tier, valuation and momentum as sortable columns); the
+ * Phase 3 momentum ranking is behind an experimental toggle (ScreenerViews).
+ * The market regime is shown with all its inputs.
  * URL-only (not in the sidebar) until Phase 4 validates something, and every
  * view carries the "unvalidated" banner. Public, like Trend Finder: market-
  * wide research data, not personal holdings.
@@ -36,7 +38,7 @@ export default async function ScreenerPage() {
     <>
       <PageHeader
         title="Screener"
-        subtitle="Revenue-generating tokens ranked by momentum vs BTC, with a risk tier and a setup tag. BTC, ETH, L1s and memecoins are excluded by design."
+        subtitle="A verified research dataset of revenue-generating tokens, with a risk filter. Not a signal: nothing here is ranked or recommended. BTC, ETH, L1s and memecoins are excluded by design."
       />
 
       <div className="mb-4 flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm text-fg">
@@ -94,60 +96,7 @@ export default async function ScreenerPage() {
             </Panel>
           )}
 
-          {view.scoresMissingReason ? (
-            <Panel className="mb-4">
-              <p className="text-sm text-fg-muted">{view.scoresMissingReason}</p>
-            </Panel>
-          ) : (
-            <>
-              <Panel
-                padding={false}
-                className="mb-4"
-                title={<span className="block px-5 pt-5">Ranked ({view.graded.length})</span>}
-                description={
-                  <span className="block px-5">
-                    Rated assets with a full momentum history. Score B is the mean of the 3-week and 12-week momentum
-                    percentiles vs BTC; percentile and grade are among these assets. Setup = risk tier × momentum third.
-                    High risk caps the grade at C (the raw grade is shown next to it). Risk tier: only the revenue-drop
-                    rule can be evaluated today (dilution needs 90 days of our own supply history, from ~2026-12-21; no
-                    unlock data yet), so &ldquo;Pass&rdquo; mostly means &ldquo;nothing we can check fired&rdquo;.
-                    {view.sizeCheck?.flagged && (
-                      <span className="mt-1 block text-warning">
-                        Size check: {Math.round((view.sizeCheck.share ?? 0) * 100)}% of the top third is{" "}
-                        {view.sizeCheck.dominant}-cap. The ranking may be picking up a size effect.
-                      </span>
-                    )}
-                  </span>
-                }
-              >
-                <ScreenerScoresTable rows={view.graded} variant="graded" />
-              </Panel>
-
-              {view.insufficientHistory.length > 0 && (
-                <Panel
-                  padding={false}
-                  className="mb-4"
-                  title={<span className="block px-5 pt-5">Insufficient history ({view.insufficientHistory.length})</span>}
-                  description={
-                    <span className="block px-5">
-                      Rated, but only one momentum leg exists (usually too new for 12 weeks of price history). A
-                      one-leg score isn&rsquo;t comparable to a two-leg average: it lands at the extremes by
-                      construction. So these are placed against the ranked distribution for reference, but never
-                      graded, tagged or ranked.
-                    </span>
-                  }
-                >
-                  <ScreenerScoresTable rows={view.insufficientHistory} variant="insufficient" />
-                </Panel>
-              )}
-              {view.unscoredCount > 0 && (
-                <p className="mb-4 text-sm text-fg-muted">
-                  {view.unscoredCount} rated asset{view.unscoredCount === 1 ? " has" : "s have"} no momentum history at
-                  all and {view.unscoredCount === 1 ? "is" : "are"} not scored.
-                </p>
-              )}
-            </>
-          )}
+          <ScreenerViews view={view} />
 
           <Panel title={`Unrated (${view.unrated.total})`} description="An asset is unrated when any kill filter fails. One asset can fail several.">
             <ul className="grid gap-1 text-sm sm:grid-cols-2">
