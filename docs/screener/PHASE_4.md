@@ -104,7 +104,7 @@ Nothing in this section is a test result. It's only what the coverage already sh
 
 **Run `d7cf95ae-a825-4eb0-98e5-821ba41e766e`** (`screener_backtest_runs`). The row was inserted at 2026-09-23 18:24:53 UTC with the prediction above, verbatim, and status `running`, **before** any number was computed. Code `1fcdcbb` (the runner refuses uncommitted code). Results: `~/cryptoport-archive/screener/backtest/results_d7cf95ae….json` and the row's `results` column.
 
-**Each window is separate evidence and is never pooled** (sign-off, 4b):
+**Each window is separate evidence and is never pooled** (sign-off, 4b). One correction, from the verifier: **the 2-year window is not independent of the 3-year window.** Its 24 periods are the last 24 of the 3-year window's 36, on the same deep universe (the rows are byte-identical). So there are **two** bodies of evidence here, not three: the 1-year rated universe, and the deep universe at two lengths.
 - **1 year** = the production rated universe, every factor.
 - **2 and 3 years** = a **different universe**: revenue floor only, no market cap or volume gates. It's a different population, with a 3.1–3.8% survivorship bound against 0.9%, and it tests momentum factors only.
 - **A factor validated only on the deep windows would be validated on a universe the screener doesn't rate.** It earns production weight only if it also survives in the 1-year window, or if we explicitly accept and document weighting on evidence from a different population.
@@ -166,11 +166,12 @@ A **separate agent with a fresh context** got only the plan's Definitions sectio
 1. **Tercile membership when ties straddle the ⌈n/3⌉ boundary.** The text says both "ties: average rank" and "positions after sorting, ties by gecko_id". Those conflict. Both sides used the **positional** reading. The rank-threshold alternative only moves Score B (discrete values): 1y spread +0.0935 → +0.0936, 3y −0.0392 → −0.0361. **No sign change and no CI crosses 0.** Clarified below.
 2. **Which BTC price is in `fwd_btc`.** It found within-date BTC differences of up to 4.8% in the 1-year panel and flagged it for checking. **Checked, and it's intended.** Each row pairs with BTC at its own reading's real moment:
    - The off-median rows on 2026-02-23 are 17 CoinGecko-fallback rows (all unrated) paired with **00:00 BTC ($67,641)**; BTC was **$64,545 at 21:32** (`/prices/historical`).
-   - The other groups are different backfill runs' evening grids (e.g. 29 rated rows on 2026-05-24).
+   - The other groups are different backfill runs' evening grids. Example: the 29 rated rows on 2026-05-24 whose BTC return differs from their peers' by ~0.8% (THORChain, Cetus, Velodrome, …) came from the backfill run on the **21:45** grid; their peers (Uniswap, Aave, …) from **21:32** (checked in the DB). So assets in one period are measured over 30-day windows about 13 minutes apart, each against BTC on its own grid. That's negligible, but true.
    - Under the alternative (one BTC per date), no conclusion changes. `mom_3w`'s 1y mean IC goes from −0.001 to +0.0004, a sign flip at essentially zero.
 3. **The formation-date start rule for the 2- and 3-year windows.** Those windows started at the **window-length boundary** (last date − 730 / − 1095), which the Definitions text never states. Only the "≥ 30 rated with both legs" rule is written. It never bound in those windows (minimum 81 / 38). A spec gap, clarified below; no effect on results.
-4. **Grids differ by a day between windows.** 1y data ends 2026-09-21 (the backfill); 2y and 3y end 2026-09-22 (the deep store). So their formation dates are one day apart, not nested. Harmless (they're separate evidence anyway), but true, and now stated.
-5. **"n" for the held-back third** could mean formation dates or periods with an IC. They're identical here (0 skipped periods in every window).
+4. **The 2-year window is nested in the 3-year window** (same rows on the same dates). That's not independent evidence (corrected above).
+5. **Grids differ by a day between windows.** 1y data ends 2026-09-21 (the backfill); 2y and 3y end 2026-09-22 (the deep store). So their formation dates are one day apart, not nested. Harmless (they're separate evidence anyway), but true, and now stated.
+6. **"n" for the held-back third** could mean formation dates or periods with an IC. They're identical here (0 skipped periods in every window).
 
 **Clarifications to the Definitions** (resolving the above for future runs; the text the verifier used stays as it was, in the evidence folder):
 - Terciles are **positional**: sort by the (direction-adjusted) factor descending, ties by gecko_id ascending; top = the first ⌈n/3⌉ rows, bottom = the last ⌈n/3⌉. The "average rank" wording applies to IC only.
