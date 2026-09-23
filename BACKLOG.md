@@ -44,6 +44,9 @@ Vercel cron delivery is best-effort: a run can be delivered twice, and manual ru
   (b) A keyless third tier (CoinGecko's public API): free, but rate-limited per IP, and unreliable from Vercel's shared serverless IPs.
   (c) Don't run large CoinGecko jobs until after 10-01 (see the backfill budget rule in SPEC).
 
+### Production `dilution_rate_implied` mixes moments for backfilled lookbacks — display only
+**Raised**: Phase 4a, 2026-09-23. **Status**: open, low priority (display only; never a tier input). A backfilled row's market cap is CoinGecko's 00:00 point but its DefiLlama price is from the backfill run's ~21:31 grid, so market cap ÷ price (implied supply) carries ~0.65% of daily noise that doesn't exist. `dilution_rate_implied` annualizes a 90-day ratio, so the noise is multiplied. The backtest avoids it (`price_at_mcap_moment` from the deep store's 00:00 prices). The production fix would pass a same-moment price for backfilled lookback readings, e.g. from the deep store or a stored 00:00 price. Revisit when implied dilution is used for anything but display, or retire the metric once measured dilution exists (~2026-12-21).
+
 ### DefiLlama `gecko_id` staleness — small, fixable, not urgent
 **Raised**: Phase 1 sign-off, item D/1 investigation (10-sample audit of unmatched protocols).
 **Status**: not started.

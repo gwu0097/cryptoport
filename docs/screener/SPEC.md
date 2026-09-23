@@ -14,8 +14,20 @@ Inside cryptoport, not csp-screener, not a new sibling app. `src/lib/screener/*`
 ### Non-negotiable principles — one addition
 Principle #6 ("store history point-in-time... store revisions as new rows") has one deliberate, narrow exception: a backfilled row's `price_usd` field can be corrected in place if the price-history *source* changes for a date that already has a row (see the DefiLlama price-source amendment below) — **this was considered and explicitly reverted** after it turned out to require thousands of sequential DB round-trips for marginal benefit (see `PHASE_1.md` item 6's own note). What's actually built: insert-only. A date that already has a row is never touched, even once a better source becomes available for it — DefiLlama's price only wins when constructing a genuinely new row (a date beyond CoinGecko's reach). If you want retroactive correction of already-backfilled dates, that needs a real (and efficient — batched, not per-row) implementation, not yet built.
 
-### Standing rule — verify data with a different tool than the one that wrote it
-A read-back through the same code/library that produced the data shares its assumptions and can pass while the data is wrong. Verify with an independent path. Precedents: (1) the archive's own hyparquet read-back fingerprint matched while every JSON column was double-encoded — only reading the file with DuckDB exposed it (`notes` came back as a JSON *string* of JSON); (2) grouped-protocol revenue was checked against DefiLlama's own parent page (`/summary/fees/{parent}`), not against our own summation. Applies to any new write path: exports, backfills, migrations, aggregations.
+### REQUIRED STEP — every new data store is spot-checked against a different source before it's trusted (promoted from a lesson, 2026-09-23)
+**A file's or table's own read-back never counts as verification.** It goes through the same code or library that wrote the data, shares its assumptions, and can pass while the data is wrong. Before any new data store is used for anything (a backfill, an export, an archive, a derived panel, a cache), spot-check a sample of it against a **different source**: another endpoint, another tool, or an independent recomputation. Record the check and its result next to the store.
+
+Three catches so far, all with a passing self-check at the time:
+1. The archive's hyparquet read-back matched while every JSON column was double-encoded; DuckDB exposed it.
+2. Grouped-protocol revenue was checked against DefiLlama's own parent page (`/summary/fees/{parent}`), not against our own summation.
+3. Phase 4's deep price store passed its own fingerprint read-back while about half its dates were a day off; `/prices/historical` at 00:00 exposed it. (See "DefiLlama `/chart` dates are grid steps".)
+
+### REQUIRED STEP — a date assigned to a fetched point is checked against the point's real timestamp (2026-09-23)
+**The common shape of two real bugs: the data's label disagreed with its actual timestamp.**
+1. The 2b beta bug: backfilled "daily" prices were really each backfill run's time-of-day, 21:31 not 00:00, so they were paired with BTC ~21.5 hours apart.
+2. The `/chart` grid-date bug: points jittered across midnight were labeled with the wrong day.
+
+**Rule:** any time we assign a date (or "same moment") to a fetched point, verify the point's **real returned timestamp**. Don't trust the requested grid position, the field name, or the API's own "daily" label. When two values in one row come from different sources, check that they're from the same moment before combining them (a ratio, a difference). If they aren't, the row's label is a convenience, not a fact.
 
 ### Standing rule — windowed calculations: flows vs. levels (decided 2026-09-22)
 Two incidents, one root cause: a window whose two endpoints aren't the same kind of reading.
@@ -204,6 +216,15 @@ A day of point-in-time history that isn't captured can never be recovered, which
   - The same day's earlier complete run still wins run selection, **and** the history reader: for all 682 assets the complete reading is chosen. Under plain latest-wins, all 682 would have taken the degraded one.
   - The gap detector's query counts the degraded run, and a day covered only by it is not a gap.
 - **Testing:** because an invalid key is served as the public tier, an outage can't be simulated from outside. `runScreenerSnapshot`'s test-only `forceDegraded` option (never passed by the cron route) and `scripts/diag/screener-live-run.ts --force-degraded` exercise the real path.
+
+### Backfilled rows: what each value's real moment is (verified 2026-09-23)
+A backfilled `screener_asset_snapshots` row is labeled with one date, but its values are **not from one moment**:
+- **`observed_at`** is a nominal **12:00 UTC label** for the date, not the moment of anything in the row.
+- **`price_usd`** (DefiLlama-priced rows): the backfill run's `/chart` grid, **the run's start time of day** (~21:31 for most). CoinGecko-fallback rows (`provenance_override` price source `coingecko`): **00:00**.
+- **`market_cap_usd` / `volume_24h_usd`**: CoinGecko's daily point, **00:00**.
+- **Fees/revenue**: flows, rolling sums of complete UTC days.
+
+So a ratio **within** one row that mixes price with market cap (implied supply, dilution) mixes moments. Measured: market cap ÷ the stored price has 0.65% daily noise; ÷ the 00:00 price, 0.000%. Anything pairing a backfilled row with another series must use the value's real moment, not `observed_at` (the pairing code does: `pairBtc` by the run's grid). A latent hazard to keep in mind: `dailyReadings` orders a day's readings by `observed_at`, so a backfilled 12:00 label would "beat" a live 07:00 reading if both ever existed on one day. They don't today: the backfill ends the day before live history began.
 
 ### Phase 4 — standing rules (2026-09-23; full plan and definitions in `PHASE_4_PLAN.md`)
 - **The backtest never gets its own scoring implementation.** At each formation date it scores through the production path (`computeAssetMetrics`, `computeHistoryMetrics`, `scoreRun`, `config.ts`), the same functions the daily cron runs. A separate implementation would validate code we don't run. The same applies to the pieces around scoring: the per-day reading rule (`dailyReadings`), run selection (`pickRunPerUtcDay`), and BTC pairing (`pairBtc` with `loadBtcReference`, which takes a longer window for the backtest instead of being re-implemented).

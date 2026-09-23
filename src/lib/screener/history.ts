@@ -26,6 +26,14 @@ export interface Reading {
   /** Live only: from a DEGRADED run (CoinGecko unavailable — market cap/
    * supply null, price from DefiLlama). */
   degraded?: boolean;
+  /** The price at the SAME moment as market_cap_usd, for implied supply
+   * (market cap ÷ price). A backfilled DefiLlama-priced row pairs a 00:00
+   * CoinGecko market cap with a ~21:31 DefiLlama price (verified 2026-09-23:
+   * mcap ÷ 00:00 price is flat day to day, mcap ÷ stored price has 0.65%
+   * daily noise). undefined = use price_usd (production today, where no
+   * same-moment price is stored); null = no same-moment price known, so
+   * implied supply is null rather than mixed-moment. */
+  price_at_mcap_moment?: number | null;
 }
 
 /** date (YYYY-MM-DD) -> that day's reading, only readings observed at or
@@ -216,7 +224,10 @@ export function computeHistoryMetrics(
   const measured0 = readingNear(liveOnly, shiftDate(endDate, -cfg.dilutionDays), cfg.dilutionToleranceDays, (r) => r.circulating_supply);
   const measured1 = readingNear(liveOnly, endDate, 0, (r) => r.circulating_supply);
   // Implied: market cap / price at both ends (display only — never a tier input).
-  const implied = (r: Reading) => (r.market_cap_usd !== null && r.price_usd !== null && r.price_usd > 0 ? r.market_cap_usd / r.price_usd : null);
+  const implied = (r: Reading) => {
+    const p = r.price_at_mcap_moment === undefined ? r.price_usd : r.price_at_mcap_moment;
+    return r.market_cap_usd !== null && p !== null && p > 0 ? r.market_cap_usd / p : null;
+  };
   const implied0 = readingNear(byDay, shiftDate(endDate, -cfg.dilutionDays), cfg.dilutionToleranceDays, implied);
   const implied1 = readingNear(byDay, endDate, 0, implied);
 

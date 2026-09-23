@@ -65,10 +65,26 @@ async function main() {
         .limit(limit) as never,
     );
     console.log(`loaded ${rows.length} backfilled rows in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    // Same-moment price for implied supply (market cap ÷ price). The stored
+    // market cap is CoinGecko's 00:00 point; a DefiLlama-priced row's price is
+    // from the backfill run's ~21:31 grid (verified 2026-09-23). So take the
+    // verified deep store's 00:00 price for that date, or null — never the
+    // mixed-moment stored price. A CoinGecko-priced row's own price is
+    // already the 00:00 point (verified), so it is its own same-moment price.
+    const { parquetReadObjects, asyncBufferFromFile } = await import("hyparquet/src/node.js");
+    const deep00 = new Map<string, number>();
+    for (const p of (await parquetReadObjects({ file: await asyncBufferFromFile(join(dir, "..", "deep", "deep_prices.parquet")) })) as {
+      gecko_id: string;
+      date: string;
+      price_usd: number;
+    }[])
+      deep00.set(`${p.gecko_id}|${p.date}`, p.price_usd);
+    const geckoOf = new Map((assetRows ?? []).map((a) => [a.id as string, a.gecko_id as string]));
     const byAsset = new Map<string, PanelReading[]>();
     const backfillRunIds = new Set<string>();
     for (const r of rows) {
       r.price_from_coingecko = r.provenance_override?.price_usd?.source === "coingecko";
+      r.price_at_mcap_moment = r.price_from_coingecko ? r.price_usd : (deep00.get(`${geckoOf.get(r.asset_id)}|${r.observed_at.slice(0, 10)}`) ?? null);
       backfillRunIds.add(r.run_id);
       if (!byAsset.has(r.asset_id)) byAsset.set(r.asset_id, []);
       byAsset.get(r.asset_id)!.push(r);

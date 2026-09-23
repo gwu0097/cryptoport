@@ -179,3 +179,17 @@ test("dailyReadings: a complete reading beats a later degraded one on the same d
   assert.equal(dailyReadings([degraded, complete], "2026-09-24T00:00:00Z").get("2026-09-23")!.run_id, "ok", "order-independent");
   assert.equal(dailyReadings([degraded], "2026-09-24T00:00:00Z").get("2026-09-23")!.run_id, "deg");
 });
+
+test("implied supply uses the same-moment price when given; null means unknown, not the mixed-moment stored price", () => {
+  const cfg = { lookbackToleranceDays: 2, betaDays: 90, betaMinPairs: 60, dilutionDays: 90, dilutionToleranceDays: 3 };
+  const asOf = "2026-09-22T23:00:00.000Z";
+  // Supply is really flat (100). The stored price is from a later moment than the market cap, so mcap/price drifts.
+  const at = (d: string, storedPrice: number, sameMoment: number | null | undefined) =>
+    r(d, { market_cap_usd: 100, price_usd: storedPrice, ...(sameMoment === undefined ? {} : { price_at_mcap_moment: sameMoment }) });
+  const mixed = computeHistoryMetrics([at("2026-06-24", 1, undefined), at("2026-09-22", 0.8, undefined)], asOf, noBtc, cfg);
+  assert.ok(mixed.dilution_rate_implied! > 1, "mixed moments invent dilution (100/0.8 vs 100/1)");
+  const same = computeHistoryMetrics([at("2026-06-24", 1, 1), at("2026-09-22", 0.8, 1)], asOf, noBtc, cfg);
+  assert.equal(same.dilution_rate_implied, 0, "same-moment price: flat supply, zero dilution");
+  const unknown = computeHistoryMetrics([at("2026-06-24", 1, 1), at("2026-09-22", 0.8, null)], asOf, noBtc, cfg);
+  assert.equal(unknown.dilution_rate_implied, null, "no same-moment price at one end: null, never the mixed value");
+});
