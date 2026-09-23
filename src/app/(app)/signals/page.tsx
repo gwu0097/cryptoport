@@ -9,6 +9,8 @@ import { getSmcChart, getWatchlistSignals } from "@/lib/smc/signals";
 import { fetchPerpNames } from "@/lib/smc/hyperliquid";
 import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
 import { formatPrice } from "@/lib/format";
+import { getWatchlists } from "@/lib/queries";
+import { SignalsWatchlistFilter } from "@/components/smc/SignalsWatchlistFilter";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Signals · CryptoPort" };
@@ -35,12 +37,19 @@ function SectionFallback({ text }: { text: string }) {
  * separately planned phase). Public market data — no login needed for the
  * chart; the watchlist table is per-user.
  */
-export default async function SignalsPage({ searchParams }: { searchParams: Promise<{ coin?: string; tf?: string }> }) {
+export default async function SignalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ coin?: string; tf?: string; list?: string }>;
+}) {
   const params = await searchParams;
   const tf: ChartTimeframe = TF_OPTIONS.includes(params.tf as ChartTimeframe) ? (params.tf as ChartTimeframe) : "1H";
-  const perps = await fetchPerpNames();
+  const [perps, watchlists] = await Promise.all([fetchPerpNames(), getWatchlists()]);
   const requested = (params.coin ?? "BTC").trim();
   const coin = perps.find((p) => p.toLowerCase() === requested.toLowerCase()) ?? null;
+  // Never trusts ?list= blindly: a stale id (deleted list) falls back to "All".
+  const selectedList = params.list ? watchlists.find((w) => w.id === params.list) : undefined;
+  const listQuery = selectedList ? `&list=${encodeURIComponent(selectedList.id)}` : "";
 
   return (
     <>
@@ -61,6 +70,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
         <div className="flex flex-wrap items-end gap-4">
           <form action="/signals" className="flex items-end gap-2">
             <input type="hidden" name="tf" value={tf} />
+            {selectedList && <input type="hidden" name="list" value={selectedList.id} />}
             <label className="text-xs text-fg-muted">
               Hyperliquid perp
               <input
@@ -84,7 +94,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
             {TF_OPTIONS.map((t) => (
               <Link
                 key={t}
-                href={`/signals?coin=${encodeURIComponent(coin ?? requested)}&tf=${t}`}
+                href={`/signals?coin=${encodeURIComponent(coin ?? requested)}&tf=${t}${listQuery}`}
                 className={`rounded-md px-3 py-1.5 text-sm ${t === tf ? "bg-accent text-accent-fg" : "border border-border text-fg-muted hover:text-fg"}`}
               >
                 {t}
@@ -107,8 +117,21 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
         </Panel>
       )}
 
-      <Suspense key={`watchlist:${tf}`} fallback={<SectionFallback text={`Computing ${tf} signals for your watchlist…`} />}>
-        <WatchlistSection tf={tf} />
+      <Suspense key={`watchlist:${tf}:${selectedList?.id ?? "all"}`} fallback={<SectionFallback text={`Computing ${tf} signals for your watchlist…`} />}>
+        <WatchlistSection
+          tf={tf}
+          listId={selectedList?.id}
+          filter={
+            watchlists.length > 0 ? (
+              <SignalsWatchlistFilter
+                watchlists={watchlists}
+                selected={selectedList?.id}
+                hasListParam={params.list !== undefined}
+                baseQuery={`coin=${encodeURIComponent(coin ?? requested)}&tf=${tf}`}
+              />
+            ) : null
+          }
+        />
       </Suspense>
 
       <p className="mt-4 text-xs text-fg-muted">
@@ -165,19 +188,26 @@ async function ChartSection({ coin, tf }: { coin: string; tf: ChartTimeframe }) 
   );
 }
 
-async function WatchlistSection({ tf }: { tf: ChartTimeframe }) {
-  const rows = await getWatchlistSignals(tf);
+async function WatchlistSection({ tf, listId, filter }: { tf: ChartTimeframe; listId?: string; filter: React.ReactNode }) {
+  const rows = await getWatchlistSignals(tf, listId);
   return (
     <Panel
-      title={`Your watchlist · ${tf}`}
+      title={
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span>Your watchlist · {tf}</span>
+          {filter}
+        </div>
+      }
       description="Each watchlist token's current state and the price its forming block has to close past to flip. Sorted by distance to that trigger by default."
     >
       {rows === null ? (
         <p className="text-sm text-fg-muted">Log in and add tokens to a watchlist to see their signals here.</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-fg-muted">Your watchlists are empty — add tokens on the Watchlist page.</p>
+        <p className="text-sm text-fg-muted">
+          {listId ? "This watchlist is empty" : "Your watchlists are empty"} — add tokens on the Watchlist page.
+        </p>
       ) : (
-        <WatchlistSignalsTable rows={rows} tf={tf} />
+        <WatchlistSignalsTable rows={rows} tf={tf} listQuery={listId ? `&list=${encodeURIComponent(listId)}` : ""} />
       )}
     </Panel>
   );

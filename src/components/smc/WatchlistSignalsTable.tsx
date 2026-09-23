@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { SortableHeader } from "@/components/ui/SortableHeader";
+import { TokenIcon } from "@/components/TokenIcon";
 import { usePersistedState } from "@/components/usePersistedState";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { formatPrice } from "@/lib/format";
@@ -35,7 +36,15 @@ function sortValue(r: WatchlistSignalRow, key: SortKey): number | string {
 
 const utc = (sec: number) => `${new Date(sec * 1000).toISOString().slice(5, 16).replace("T", " ")} UTC`;
 
-export function WatchlistSignalsTable({ rows, tf }: { rows: WatchlistSignalRow[]; tf: ChartTimeframe }) {
+/** The forming block would flip the state if it closed at the last price —
+ * i.e. price is already past the trigger (above it for a Buy, below for a
+ * Sell). Shown explicitly: a bare "+0.4%" doesn't say which side it's on. */
+function flipsAtCurrentPrice(r: WatchlistSignalRow): boolean {
+  if (r.triggerPrice === null || r.lastPrice === null || !r.triggerFlipTo) return false;
+  return r.triggerFlipTo === "BUY" ? r.lastPrice > r.triggerPrice : r.lastPrice < r.triggerPrice;
+}
+
+export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: WatchlistSignalRow[]; tf: ChartTimeframe; listQuery: string }) {
   const [sort, setSort] = usePersistedState<Sort>("cryptoport:smcWatchlistSort", { key: "distance", dir: "asc" });
   const toggleSort = (key: SortKey) =>
     setSort(key === sort.key ? { key, dir: sort.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -68,10 +77,13 @@ export function WatchlistSignalsTable({ rows, tf }: { rows: WatchlistSignalRow[]
               return (
                 <tr key={r.ticker} className={trClass}>
                   <td className={tdClass}>
-                    <Link href={`/signals?coin=${encodeURIComponent(r.coin!)}&tf=${tf}`} className="font-medium text-fg hover:text-accent">
-                      {r.coin}
-                    </Link>
-                    {r.coin !== r.ticker && <span className="ml-1 text-xs text-fg-muted">(per 1,000 {r.ticker})</span>}
+                    <div className="flex items-center gap-2">
+                      <TokenIcon ticker={r.ticker} url={r.imageUrl} />
+                      <Link href={`/signals?coin=${encodeURIComponent(r.coin!)}&tf=${tf}${listQuery}`} className="font-medium text-fg hover:text-accent">
+                        {r.coin}
+                      </Link>
+                      {r.coin !== r.ticker && <span className="text-xs text-fg-muted">(per 1,000 {r.ticker})</span>}
+                    </div>
                   </td>
                   <td className={tdClass}>
                     {r.error ? (
@@ -100,7 +112,14 @@ export function WatchlistSignalsTable({ rows, tf }: { rows: WatchlistSignalRow[]
                       "—"
                     )}
                   </td>
-                  <td className={`${tdClass} tabular-nums`}>{d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(1)}%`}</td>
+                  <td className={`${tdClass} tabular-nums`}>
+                    {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(1)}%`}
+                    {flipsAtCurrentPrice(r) && (
+                      <span className="ml-2 rounded bg-warning/15 px-1.5 py-0.5 text-xs text-warning" title="Price is already past the trigger — if the block closed now, it would flip">
+                        flips at current price
+                      </span>
+                    )}
+                  </td>
                 </tr>
               );
             })}

@@ -34,6 +34,7 @@ export function perpNameFor(ticker: string, perps: ReadonlySet<string>): string 
 export interface WatchlistSignalRow {
   ticker: string;
   name: string;
+  imageUrl: string | null;
   coin: string | null; // Hyperliquid perp name; null = not listed there
   bull: boolean | null;
   lastFlipSide: "BUY" | "SELL" | null;
@@ -45,16 +46,19 @@ export interface WatchlistSignalRow {
   error: string | null;
 }
 
-/** Signal state for every token across the signed-in user's watchlists, at
- * one timeframe. null = signed out. Deliberately reads only tickers (no
- * market-data merge), so this page makes no CoinGecko calls. */
-export async function getWatchlistSignals(tf: ChartTimeframe): Promise<WatchlistSignalRow[] | null> {
+/** Signal state for the tokens in one of the signed-in user's watchlists (or
+ * all of them, deduped by ticker), at one timeframe. null = signed out.
+ * Deliberately reads only tickers (no market-data merge), so this page makes
+ * no CoinGecko calls. `watchlistId` must already be validated as the user's
+ * (RLS would return nothing for anyone else's anyway). */
+export async function getWatchlistSignals(tf: ChartTimeframe, watchlistId?: string): Promise<WatchlistSignalRow[] | null> {
   if (!(await getUser())) return null;
   const db = await userDb();
-  const { data, error } = await db.from("watchlist_items").select("ticker, name");
+  const query = db.from("watchlist_items").select("ticker, name, image_url");
+  const { data, error } = await (watchlistId ? query.eq("watchlist_id", watchlistId) : query);
   if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
   const seen = new Set<string>();
-  const items = (data as { ticker: string; name: string }[]).filter((i) => {
+  const items = (data as { ticker: string; name: string; image_url: string | null }[]).filter((i) => {
     const k = i.ticker.toUpperCase();
     if (seen.has(k)) return false;
     seen.add(k);
@@ -64,7 +68,7 @@ export async function getWatchlistSignals(tf: ChartTimeframe): Promise<Watchlist
 
   return mapWithConcurrency(items, 4, async (item): Promise<WatchlistSignalRow> => {
     const coin = perpNameFor(item.ticker, perps);
-    const empty = { ticker: item.ticker.toUpperCase(), name: item.name, coin, bull: null, lastFlipSide: null, lastFlipTime: null, lastPrice: null, triggerPrice: null, triggerFlipTo: null, triggerDecidedAt: null };
+    const empty = { ticker: item.ticker.toUpperCase(), name: item.name, imageUrl: item.image_url, coin, bull: null, lastFlipSide: null, lastFlipTime: null, lastPrice: null, triggerPrice: null, triggerFlipTo: null, triggerDecidedAt: null };
     if (!coin) return { ...empty, error: null };
     try {
       const { candles, result } = await getSmcChart(coin, tf);
