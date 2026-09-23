@@ -11,12 +11,14 @@ import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
 import { formatPrice } from "@/lib/format";
 import { getWatchlists } from "@/lib/queries";
 import { SignalsWatchlistFilter } from "@/components/smc/SignalsWatchlistFilter";
+import { SignalTime, UntilTime } from "@/components/smc/SignalTime";
+import { IndicatorSelect } from "@/components/smc/IndicatorSelect";
+import { INDICATORS, DEFAULT_INDICATOR } from "@/lib/smc/indicators";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Signals · CryptoPort" };
 
 const TF_OPTIONS = Object.keys(TIMEFRAMES) as ChartTimeframe[];
-const utc = (sec: number) => `${new Date(sec * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 // loading.tsx only shows on a first visit to this route; switching token or
 // timeframe only changes search params, so each section gets its own keyed
@@ -40,7 +42,7 @@ function SectionFallback({ text }: { text: string }) {
 export default async function SignalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ coin?: string; tf?: string; list?: string }>;
+  searchParams: Promise<{ coin?: string; tf?: string; list?: string; ind?: string }>;
 }) {
   const params = await searchParams;
   const tf: ChartTimeframe = TF_OPTIONS.includes(params.tf as ChartTimeframe) ? (params.tf as ChartTimeframe) : "1H";
@@ -50,13 +52,11 @@ export default async function SignalsPage({
   // Never trusts ?list= blindly: a stale id (deleted list) falls back to "All".
   const selectedList = params.list ? watchlists.find((w) => w.id === params.list) : undefined;
   const listQuery = selectedList ? `&list=${encodeURIComponent(selectedList.id)}` : "";
+  const indicator = INDICATORS.find((i) => i.id === params.ind) ?? DEFAULT_INDICATOR;
 
   return (
     <>
-      <PageHeader
-        title="Signals"
-        subtitle="Your SMC v4.2 ribbon (RMA(8) on 3× blocks, non-repainting) on Hyperliquid perps."
-      />
+      <PageHeader title="Signals" subtitle={`${indicator.description} Computed on Hyperliquid perps.`} />
 
       <Panel className="mb-4 border-warning/40">
         <p className="text-sm text-warning">
@@ -68,7 +68,13 @@ export default async function SignalsPage({
 
       <Panel className="mb-4">
         <div className="flex flex-wrap items-end gap-4">
+          <IndicatorSelect
+            indicators={INDICATORS}
+            selected={indicator.id}
+            baseQuery={`coin=${encodeURIComponent(coin ?? requested)}&tf=${tf}${listQuery}`}
+          />
           <form action="/signals" className="flex items-end gap-2">
+            <input type="hidden" name="ind" value={indicator.id} />
             <input type="hidden" name="tf" value={tf} />
             {selectedList && <input type="hidden" name="list" value={selectedList.id} />}
             <label className="text-xs text-fg-muted">
@@ -94,7 +100,7 @@ export default async function SignalsPage({
             {TF_OPTIONS.map((t) => (
               <Link
                 key={t}
-                href={`/signals?coin=${encodeURIComponent(coin ?? requested)}&tf=${t}${listQuery}`}
+                href={`/signals?ind=${indicator.id}&coin=${encodeURIComponent(coin ?? requested)}&tf=${t}${listQuery}`}
                 className={`rounded-md px-3 py-1.5 text-sm ${t === tf ? "bg-accent text-accent-fg" : "border border-border text-fg-muted hover:text-fg"}`}
               >
                 {t}
@@ -127,7 +133,7 @@ export default async function SignalsPage({
                 watchlists={watchlists}
                 selected={selectedList?.id}
                 hasListParam={params.list !== undefined}
-                baseQuery={`coin=${encodeURIComponent(coin ?? requested)}&tf=${tf}`}
+                baseQuery={`ind=${indicator.id}&coin=${encodeURIComponent(coin ?? requested)}&tf=${tf}`}
               />
             ) : null
           }
@@ -165,10 +171,12 @@ async function ChartSection({ coin, tf }: { coin: string; tf: ChartTimeframe }) 
         {state?.lastFlip && (
           <span className="text-fg-muted">
             Last signal:{" "}
-            <span className={state.lastFlip.side === "BUY" ? "text-positive" : "text-negative"}>
-              {state.lastFlip.side === "BUY" ? "Buy" : "Sell"}
-            </span>{" "}
-            {utc(state.lastFlip.time)} @ {formatPrice(state.lastFlip.price)}
+            <SignalTime
+              sec={state.lastFlip.time}
+              side={state.lastFlip.side}
+              barSeconds={TIMEFRAMES[tf].candleSeconds}
+              price={formatPrice(state.lastFlip.price)}
+            />
           </span>
         )}
         {trigger && (
@@ -178,7 +186,7 @@ async function ChartSection({ coin, tf }: { coin: string; tf: ChartTimeframe }) 
               {trigger.flipTo === "BUY" ? "Buy" : "Sell"} if this {blockLabel} block closes {trigger.flipIfClose}{" "}
               {formatPrice(trigger.price)}
             </span>{" "}
-            (decided {utc(trigger.formingBlockEnd)}
+            (decided <UntilTime sec={trigger.formingBlockEnd} />
             {last && distance !== null ? `; last ${formatPrice(last.c)}, ${distance > 0 ? "+" : ""}${distance.toFixed(1)}% away` : ""})
           </span>
         )}

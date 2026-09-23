@@ -7,7 +7,8 @@ import { usePersistedState } from "@/components/usePersistedState";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { formatPrice } from "@/lib/format";
 import type { WatchlistSignalRow } from "@/lib/smc/signals";
-import type { ChartTimeframe } from "@/lib/smc/engine";
+import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
+import { SignalTime } from "./SignalTime";
 
 type SortKey = "ticker" | "state" | "lastFlip" | "distance";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
@@ -33,8 +34,6 @@ function sortValue(r: WatchlistSignalRow, key: SortKey): number | string {
     }
   }
 }
-
-const utc = (sec: number) => `${new Date(sec * 1000).toISOString().slice(5, 16).replace("T", " ")} UTC`;
 
 /** The forming block would flip the state if it closed at the last price —
  * i.e. price is already past the trigger (above it for a Buy, below for a
@@ -96,9 +95,7 @@ export function WatchlistSignalsTable({ rows, tf, listQuery }: { rows: Watchlist
                   </td>
                   <td className={`${tdClass} ${hideOnMobileClass}`}>
                     {r.lastFlipSide && r.lastFlipTime !== null ? (
-                      <span className={r.lastFlipSide === "BUY" ? "text-positive" : "text-negative"}>
-                        {r.lastFlipSide === "BUY" ? "Buy" : "Sell"} · {utc(r.lastFlipTime)}
-                      </span>
+                      <SignalTime sec={r.lastFlipTime} side={r.lastFlipSide} barSeconds={TIMEFRAMES[tf].candleSeconds} />
                     ) : (
                       "—"
                     )}

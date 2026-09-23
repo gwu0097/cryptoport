@@ -12,6 +12,7 @@ import {
   type Time,
 } from "lightweight-charts";
 import type { Candle, RibbonPoint, Flip, Trigger } from "@/lib/smc/engine";
+import { formatPt, formatPtAxis } from "@/lib/smc/time";
 
 const BULL = "#26a65b";
 const BEAR = "#e05a4f";
@@ -49,7 +50,14 @@ export function SmcChart({
       layout: { background: { color: "transparent" }, textColor: "#9ca3af", attributionLogo: true },
       grid: { vertLines: { color: "rgba(148,163,184,0.08)" }, horzLines: { color: "rgba(148,163,184,0.08)" } },
       rightPriceScale: { borderColor: "rgba(148,163,184,0.2)" },
-      timeScale: { borderColor: "rgba(148,163,184,0.2)", timeVisible: true, secondsVisible: false },
+      // Pacific time on the axis and crosshair (the library defaults to UTC).
+      localization: { timeFormatter: (time: Time) => formatPt(time as number) },
+      timeScale: {
+        borderColor: "rgba(148,163,184,0.2)",
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: Time) => formatPtAxis(time as number),
+      },
       crosshair: { mode: 0 },
     });
 
