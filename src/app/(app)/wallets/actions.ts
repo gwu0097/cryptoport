@@ -421,6 +421,24 @@ export async function createWallet(formData: FormData) {
   if (error) throw new Error(`Failed to create wallet: ${error.message}`);
   await replaceWalletTags(data.id, tagIds);
 
+  // A new auto wallet starts its first sync right away — having to click
+  // "Sync holdings" on a wallet you just created was reported as silly.
+  // Started here on the server, not via the ?autosync=1 client landing the
+  // sign-in flow uses (AutoSyncOnMount), so the wallet page's first render
+  // already shows "Syncing…" and the sync doesn't depend on that page
+  // mounting. syncWalletHoldings only claims the job and returns; the slow
+  // chain calls run in its after() (which Next runs even though this
+  // action ends in redirect() — node_modules/next/dist/docs/.../after.md).
+  // A failure to START never fails the creation: the wallet exists either
+  // way and the Sync button still works.
+  if (mode === "auto" && address) {
+    try {
+      await syncWalletHoldings(data.id);
+    } catch (e) {
+      console.warn(`[wallets] created ${data.id} but couldn't start its first sync: ${(e as Error).message}`);
+    }
+  }
+
   revalidatePath("/wallets");
   redirect(`/wallets/${data.id}`);
 }
