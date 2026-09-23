@@ -105,17 +105,20 @@ export async function loadHistoryReadings(asOf: string): Promise<{ rows: History
  *   snapshot job since 2b, from the same CoinGecko response as the assets);
  *   older runs get DefiLlama's BTC at their exact observed_at, written back
  *   into their notes so it's fetched only once. */
-async function loadBtcReference(
+export async function loadBtcReference(
   asOf: string,
   liveRuns: Map<string, string>,
   backfillRunIds: Set<string>,
+  /** How far back the BTC grids reach. 100 covers the daily run's windows;
+   * Phase 4's backtest passes a full year (it scores many past dates). */
+  daysBack = 100,
 ): Promise<{ btc: BtcReference; ms: number; backfilledRuns: number; grids: number }> {
   const t0 = Date.now();
   const db = serviceDb();
-  const firstDate = shiftDate(asOf.slice(0, 10), -100);
+  const firstDate = shiftDate(asOf.slice(0, 10), -daysBack);
   const chartFrom = async (timeOfDay: string) => {
     const start = Math.floor(new Date(`${firstDate}T${timeOfDay}Z`).getTime() / 1000);
-    const points = (await fetchChartPrices(["bitcoin"], start, 101)).get("bitcoin") ?? [];
+    const points = (await fetchChartPrices(["bitcoin"], start, daysBack + 1)).get("bitcoin") ?? [];
     return new Map(points.map((p) => [p.date, p.priceUsd]));
   };
 

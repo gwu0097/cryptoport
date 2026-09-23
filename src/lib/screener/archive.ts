@@ -155,3 +155,28 @@ export function archiveWindow(
   cutoff.setUTCDate(cutoff.getUTCDate() - afterDays);
   return { from: explicit?.from ?? null, to: cutoff.toISOString() };
 }
+
+/** Writes rows to a Parquet file via a `.partial` temp file, reads it back,
+ * and only renames it into place if the read-back content fingerprint
+ * matches what was written (throws otherwise). Returns the content SHA-256.
+ * Shared by the monthly archive and Phase 4's deep-history store. Node-only
+ * (fs + hyparquet); used by scripts, never by the app. */
+export async function writeParquetVerified(
+  path: string,
+  rows: readonly Row[],
+  columns: readonly { name: string; type: ColumnType }[],
+): Promise<string> {
+  const { parquetWriteFile } = await import("hyparquet-writer");
+  const { parquetReadObjects, asyncBufferFromFile } = await import("hyparquet/src/node.js");
+  const { renameSync } = await import("node:fs");
+  const tmp = `${path}.partial`;
+  parquetWriteFile({ filename: tmp, columnData: toColumnData(rows, columns) as never });
+  const readBack = (await parquetReadObjects({ file: await asyncBufferFromFile(tmp) })) as Row[];
+  const want = fingerprint(rows, columns);
+  const got = fingerprint(readBack, columns);
+  if (want.rows !== got.rows || want.sha256 !== got.sha256) {
+    throw new Error(`verification FAILED for ${path}: wrote ${want.rows} rows/${want.sha256}, file has ${got.rows} rows/${got.sha256}`);
+  }
+  renameSync(tmp, path);
+  return want.sha256;
+}

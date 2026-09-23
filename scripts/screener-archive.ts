@@ -24,10 +24,8 @@
 // This archive is the only copy of any live (point-in-time) row it removes
 // from Supabase — keep the archive dir on a backed-up disk.
 import { createClient } from "@supabase/supabase-js";
-import { parquetWriteFile } from "hyparquet-writer";
-import { parquetReadObjects, asyncBufferFromFile } from "hyparquet/src/node.js";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, appendFileSync } from "node:fs";
+import { mkdirSync, readFileSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -40,9 +38,8 @@ import {
   METRICS_ARCHIVE_AFTER_DAYS,
   SCORES_ARCHIVE_COLUMNS,
   SCORES_SELECT,
-  toColumnData,
-  fingerprint,
   archiveWindow,
+  writeParquetVerified,
 } from "../src/lib/screener/archive.ts";
 
 process.loadEnvFile(join(import.meta.dirname, "..", ".env.local"));
@@ -101,19 +98,6 @@ async function fetchRuns(ids: string[]): Promise<Row[]> {
   return runs;
 }
 
-async function writeAndVerify(path: string, rows: Row[], columns: typeof SNAPSHOT_ARCHIVE_COLUMNS): Promise<string> {
-  const tmp = `${path}.partial`;
-  parquetWriteFile({ filename: tmp, columnData: toColumnData(rows, columns) as never });
-  const readBack = (await parquetReadObjects({ file: await asyncBufferFromFile(tmp) })) as Row[];
-  const want = fingerprint(rows, columns);
-  const got = fingerprint(readBack, columns);
-  if (want.rows !== got.rows || want.sha256 !== got.sha256) {
-    throw new Error(`verification FAILED for ${path}: fetched ${want.rows} rows/${want.sha256}, file has ${got.rows} rows/${got.sha256}`);
-  }
-  renameSync(tmp, path);
-  return want.sha256;
-}
-
 type Window = { from: string | null; to: string };
 
 async function main() {
@@ -154,8 +138,8 @@ async function archiveSnapshots(w: Window, dir: string, doDelete: boolean) {
   const tag = `${(w.from ?? "start").slice(0, 10)}_${w.to.slice(0, 10)}_${new Date().toISOString().replace(/[:.]/g, "-")}`;
   const snapshotsPath = join(dir, `snapshots_${tag}.parquet`);
   const runsPath = join(dir, `runs_${tag}.parquet`);
-  const snapshotsSha = await writeAndVerify(snapshotsPath, rows, SNAPSHOT_ARCHIVE_COLUMNS);
-  const runsSha = await writeAndVerify(runsPath, runs, RUN_ARCHIVE_COLUMNS);
+  const snapshotsSha = await writeParquetVerified(snapshotsPath, rows, SNAPSHOT_ARCHIVE_COLUMNS);
+  const runsSha = await writeParquetVerified(runsPath, runs, RUN_ARCHIVE_COLUMNS);
   const fileSha = createHash("sha256").update(readFileSync(snapshotsPath)).digest("hex");
   console.log(`Verified: ${snapshotsPath} (${rows.length} rows, content ${snapshotsSha.slice(0, 12)}…)`);
   console.log(`Verified: ${runsPath} (${runs.length} runs, content ${runsSha.slice(0, 12)}…)`);
@@ -237,7 +221,7 @@ async function archivePerRun(t: PerRunTable, w: Window, dir: string, doDelete: b
 
   const tag = `${(w.from ?? "start").slice(0, 10)}_${w.to.slice(0, 10)}_${new Date().toISOString().replace(/[:.]/g, "-")}`;
   const path = join(dir, `${label}_${tag}.parquet`);
-  const sha = await writeAndVerify(path, rows as Row[], t.columns);
+  const sha = await writeParquetVerified(path, rows as Row[], t.columns);
   console.log(`[${label}] Verified: ${path} (${rows.length} rows, content ${sha.slice(0, 12)}…)`);
 
   let deleted = 0;

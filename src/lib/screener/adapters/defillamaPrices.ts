@@ -1,5 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "@/lib/adapters/http";
+import { chartGridDate } from "../chartGrid";
 
 // Distinct host from adapters/defillama.ts (api.llama.fi, protocols/fees) —
 // this is DefiLlama's separate coins/prices service, own rate-limit
@@ -87,7 +88,7 @@ export async function fetchChartPrices(
       const points = body.coins[`coingecko:${id}`]?.prices ?? [];
       const byDate = byAssetByDate.get(id)!;
       for (const p of points) {
-        byDate.set(new Date(p.timestamp * 1000).toISOString().slice(0, 10), p.price);
+        byDate.set(chartGridDate(p.timestamp, startEpochSeconds), p.price);
       }
     }
     remaining -= span;

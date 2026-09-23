@@ -1614,6 +1614,27 @@ create table cryptoport.screener_asset_scores (
   primary key (run_id, asset_id)
 );
 
+-- Phase 4 (2026-09-23). One row per backtest execution. Inserted with its
+-- prediction and status 'running' BEFORE any test runs, then updated with
+-- results — so the recorded prediction provably predates the results
+-- (created_at < finished_at). A candidate factor's evidence_ref points here
+-- ("screener_backtest_runs:<id>"). The backtest scores with the production
+-- code (config_version_id + code_commit identify exactly what ran).
+create table cryptoport.screener_backtest_runs (
+  id                 uuid primary key default gen_random_uuid(),
+  created_at         timestamptz not null default now(),
+  finished_at        timestamptz,
+  status             text not null default 'running' check (status in ('running','ok','error')),
+  config_version_id  uuid not null references cryptoport.screener_scoring_config_versions(id),
+  code_commit        text not null,
+  prediction         text not null,
+  params             jsonb not null,
+  coverage           jsonb,
+  results            jsonb,
+  independent_check  jsonb,
+  notes              text
+);
+
 -- Duplicate guard for the live path (the backfilled path has its own,
 -- above): one live row per asset per run.
 create unique index screener_asset_snapshots_live_run_asset_uidx
@@ -1629,6 +1650,7 @@ alter table cryptoport.screener_scoring_config_versions enable row level securit
 alter table cryptoport.screener_regime_snapshots enable row level security;
 alter table cryptoport.screener_asset_metrics enable row level security;
 alter table cryptoport.screener_asset_scores enable row level security;
+alter table cryptoport.screener_backtest_runs enable row level security;
 
 -- Legacy, dropped in step B:
 --   screener_asset_snapshots.provenance jsonb not null default '{}'::jsonb

@@ -205,6 +205,20 @@ A day of point-in-time history that isn't captured can never be recovered, which
   - The gap detector's query counts the degraded run, and a day covered only by it is not a gap.
 - **Testing:** because an invalid key is served as the public tier, an outage can't be simulated from outside. `runScreenerSnapshot`'s test-only `forceDegraded` option (never passed by the cron route) and `scripts/diag/screener-live-run.ts --force-degraded` exercise the real path.
 
+### Phase 4 — standing rules (2026-09-23; full plan and definitions in `PHASE_4_PLAN.md`)
+- **The backtest never gets its own scoring implementation.** At each formation date it scores through the production path (`computeAssetMetrics`, `computeHistoryMetrics`, `scoreRun`, `config.ts`), the same functions the daily cron runs. A separate implementation would validate code we don't run. The same applies to the pieces around scoring: the per-day reading rule (`dailyReadings`), run selection (`pickRunPerUtcDay`), and BTC pairing (`pairBtc` with `loadBtcReference`, which takes a longer window for the backtest instead of being re-implemented).
+- **Prediction before results:** the expected outcome is written into `PHASE_4.md` and stored in `screener_backtest_runs.prediction` when the run's row is inserted, before any result exists.
+- **Activation needs the held-back third:** a candidate factor goes active only if its training and holdout mean ICs share a sign **and** the holdout 95% CI excludes 0. This isn't relaxed for a strong in-sample result.
+- **No CoinGecko calls in Phase 4.**
+
+### DefiLlama `/chart` dates are grid steps, not timestamp dates (bug found and fixed 2026-09-23)
+DefiLlama jitters `/chart` point timestamps by about a minute either side of the requested grid. `fetchChartPrices` used to label each point with the **calendar date of its timestamp**. On a grid near midnight that crosses the date line: a 00:00 grid returned points at "12-23 23:59", "12-24 23:59", "12-26 00:00". So about half the points were labeled a day early, collided with the real previous day, and days dropped out (bitcoin had 1,024 of 1,215 days, and stored prices were off from the true 00:00 price by 2–10% on the shifted days).
+- **Found** by spot-checking Phase 4's deep store against a different endpoint (`/prices/historical` at 00:00). The file's own read-back check passed, because it used the same library that wrote the file (the "different tool" rule again).
+- **Fix:** points are labeled by their **grid step**, the nearest whole number of days from the requested start (`chartGridDate`, pure, tested with the real timestamps).
+- **After the fix:** 1,215 of 1,215 days, and 12/12 spot checks match `/prices/historical` exactly.
+- **Grids away from midnight label exactly as before**, so the backfill (~21:31 grid) is unaffected and its stored rows are unchanged.
+- **Production impact:** 2b's BTC reference for **CoinGecko-priced backfilled rows** requested a 00:00 grid, so those rows could pair with BTC from the wrong day, or with none. That's 6,300 of 236,007 backfilled rows, in 186 assets; **0 of today's 72 rated assets are affected**. Unrated assets' displayed momentum and beta could have been off. The next daily run uses the fixed labels.
+
 ### Read-only table view
 Built (Phase 1), sortable, flags conflicts and backfilled rows. **Moved to `/screener/universe` in 3b.** `/screener` is now the real screener (Phase 3b). Both stay URL-only (not in the sidebar) until Phase 4 validates something.
 
