@@ -193,7 +193,12 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
    data change now purges the cache on its own regardless of this
    window's length, so it's no longer covering for a gap. If a future
    Next version narrows `revalidatePath` to only invalidate its own path,
-   re-check this before trusting it again.
+   re-check this before trusting it again. **A literal path doesn't cover
+   dynamic sub-pages**: a Server Action's `revalidatePath("/wallets")`
+   refreshes the UI only "if viewing the affected path", so it never
+   refreshed `/wallets/<id>`, and a finished sync left that page stuck on
+   "Syncing…" (2026-09-23). `notifyJobsComplete()` now uses
+   `revalidatePath("/", "layout")` so whatever page is open refreshes.
 4. **A stored research artifact (an AI narrative explanation, an analysis)
    is reused forever until a user explicitly asks for a refresh — never
    TTL-expired into a silent recompute on a plain page load.** `token_

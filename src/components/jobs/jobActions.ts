@@ -18,21 +18,19 @@ import { revalidatePath } from "next/cache";
  * the purge every other open tab needs — the piece that was silently
  * missing before, not just a performance gap.
  *
- * Revalidates broadly (every page that could show synced/priced data)
- * rather than tracking exactly which job touched what — Next's own
- * revalidatePath still purges the *entire* client cache regardless of the
- * path argument given (confirmed still "temporary" per current docs), so
- * narrowing this list wouldn't actually narrow what gets purged today;
- * it's just future-proofing for whenever that becomes real per-path
- * scoping.
+ * Revalidates the ROOT LAYOUT (`revalidatePath("/", "layout")`), which
+ * covers every page under it, dynamic ones included. It used to list
+ * literal paths ("/wallets", "/assets", ...), and a Server Action's
+ * revalidatePath only "updates the UI immediately (if viewing the affected
+ * path)" (Next's revalidatePath docs): a literal "/wallets" does not cover
+ * "/wallets/<id>". So on a wallet's own page a sync that had finished never
+ * refreshed the view: the button stayed on "Syncing…" and the new holdings
+ * stayed hidden until a manual reload (reported 2026-09-23, a 1.2s Arweave
+ * sync stuck "syncing" for over a minute). The layout form refreshes
+ * whichever page the user is actually on. It isn't a wider purge than
+ * before: revalidatePath already purges the whole client Router Cache
+ * (still "temporary" per the docs).
  */
 export async function notifyJobsComplete(): Promise<void> {
-  revalidatePath("/wallets");
-  revalidatePath("/assets");
-  revalidatePath("/portfolio");
-  revalidatePath("/defi");
-  revalidatePath("/dashboard");
-  revalidatePath("/analytics");
-  revalidatePath("/watchlist");
-  revalidatePath("/transactions");
+  revalidatePath("/", "layout");
 }
