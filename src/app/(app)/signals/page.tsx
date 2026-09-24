@@ -11,7 +11,7 @@ import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
 import { formatPrice } from "@/lib/format";
 import { getWatchlists } from "@/lib/queries";
 import { SignalsWatchlistFilter } from "@/components/smc/SignalsWatchlistFilter";
-import { SignalTime, UntilTime } from "@/components/smc/SignalTime";
+import { SignalTime, UntilTime, AgoTime } from "@/components/smc/SignalTime";
 import { IndicatorSelect } from "@/components/smc/IndicatorSelect";
 import { INDICATORS, indicatorById } from "@/lib/smc/indicators";
 import { TriggerText } from "@/components/smc/TriggerText";
@@ -191,7 +191,7 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
   return (
     <Panel className="mb-6" title={title}>
       <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-        <RefreshControl computedAtSec={nowSec} decidedAtSec={view.decidedAt} autoRefresh />
+        <RefreshControl computedAtSec={nowSec} decidedAtSec={data.stale ? data.stale.retryAtSec : view.decidedAt} autoRefresh />
         <span>
           State:{" "}
           {state ? (
@@ -208,7 +208,7 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
             <SignalTime sec={lastSignal.time} side={lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} serverNowSec={nowSec} price={formatPrice(lastSignal.price)} />
           </span>
         )}
-        {trigger && (
+        {trigger && !data.stale && (
           <span className="text-fg-muted">
             Next: <TriggerText trigger={trigger} closeUnit={view.closeUnit} />
             {view.decidedAt !== null && (
@@ -221,6 +221,13 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
           </span>
         )}
       </div>
+      {data.stale && (
+        <p className="mb-3 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
+          Rate-limited by Hyperliquid — showing data from <AgoTime sec={data.stale.dataAsOfSec} serverNowSec={nowSec} />. The next
+          signal trigger is hidden (its bar has already closed). Retrying automatically at{" "}
+          <UntilTime sec={data.stale.retryAtSec} serverNowSec={nowSec} />.
+        </p>
+      )}
       <p className="mb-3 text-xs text-fg-muted">
         Current values (last completed {ind === "smc" ? "block" : "bar"}):{" "}
         {view.readout.map((r, i) => (
@@ -255,6 +262,8 @@ async function WatchlistSection({
 }) {
   const result = await getWatchlistSignals(ind, tf, listId);
   const rows = result?.rows ?? null;
+  const staleRows = rows?.filter((r) => r.staleAsOfSec !== null || r.error === "rate-limited") ?? [];
+  const oldestStale = Math.min(...staleRows.flatMap((r) => (r.staleAsOfSec !== null ? [r.staleAsOfSec] : [])));
   // The computation's own clock, so "(x ago)" and the stale flag are in the server HTML.
   const nowSec = result ? Math.floor(Date.parse(result.computedAt) / 1000) : 0;
   return (
@@ -268,8 +277,9 @@ async function WatchlistSection({
             {result && (
               <RefreshControl
                 computedAtSec={nowSec}
-                decidedAtSec={result.rows.find((r) => r.decidedAt !== null)?.decidedAt ?? null}
-                autoRefresh={autoRefresh}
+                decidedAtSec={result.retryAtSec ?? result.rows.find((r) => r.decidedAt !== null)?.decidedAt ?? null}
+                // A rate-limited table retries once when the budget frees, even alongside a chart.
+                autoRefresh={autoRefresh || result.retryAtSec !== null}
               />
             )}
             {filter}
@@ -285,7 +295,26 @@ async function WatchlistSection({
           {listId ? "This watchlist is empty" : "Your watchlists are empty"} — add tokens on the Watchlist page.
         </p>
       ) : (
+        <>
+          {staleRows.length > 0 && (
+            <p className="mb-3 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
+              Rate-limited by Hyperliquid — {staleRows.length} of {rows.length} tokens couldn&rsquo;t be updated
+              {Number.isFinite(oldestStale) && (
+                <>
+                  {" "}
+                  (showing data from as early as <AgoTime sec={oldestStale} serverNowSec={nowSec} />; their triggers are hidden)
+                </>
+              )}
+              .{result?.retryAtSec ? (
+                <>
+                  {" "}
+                  Retrying automatically at <UntilTime sec={result.retryAtSec} serverNowSec={nowSec} />.
+                </>
+              ) : null}
+            </p>
+          )}
         <WatchlistSignalsTable rows={rows} ind={ind} tf={tf} serverNowSec={nowSec} closeUnit={closeUnit} listQuery={listId ? `&list=${encodeURIComponent(listId)}` : ""} />
+        </>
       )}
     </Panel>
   );

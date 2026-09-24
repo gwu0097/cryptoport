@@ -8,7 +8,7 @@ import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass
 import type { WatchlistSignalRow } from "@/lib/smc/signals";
 import { triggerFiresAt } from "@/lib/signals/triggers";
 import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
-import { SignalTime } from "./SignalTime";
+import { SignalTime, AgoTime } from "./SignalTime";
 import { TriggerText } from "./TriggerText";
 import { stateToneClass } from "./stateTone";
 
@@ -105,7 +105,7 @@ export function WatchlistSignalsTable({
                   <td className={tdClass}>
                     {r.error ? (
                       <span className="text-warning" title={r.error}>
-                        {r.error.includes("429") ? "rate-limited, reload" : "error"}
+                        {r.error === "rate-limited" || r.error.includes("429") ? "rate-limited" : "error"}
                       </span>
                     ) : r.state === null ? (
                       <span className="text-fg-muted" title="Not enough Hyperliquid history at this timeframe for every input (e.g. SMA(200)) to be defined">
@@ -118,7 +118,17 @@ export function WatchlistSignalsTable({
                   <td className={`${tdClass} ${hideOnMobileClass}`}>
                     {r.lastSignal ? <SignalTime sec={r.lastSignal.time} side={r.lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} serverNowSec={serverNowSec} /> : "—"}
                   </td>
-                  <td className={`${tdClass} max-w-md`}>{r.trigger ? <TriggerText trigger={r.trigger} /> : "—"}</td>
+                  <td className={`${tdClass} max-w-md`}>
+                    {r.staleAsOfSec !== null ? (
+                      <span className="text-xs text-warning">
+                        rate-limited · data from <AgoTime sec={r.staleAsOfSec} serverNowSec={serverNowSec} /> · trigger hidden
+                      </span>
+                    ) : r.trigger ? (
+                      <TriggerText trigger={r.trigger} />
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className={`${tdClass} tabular-nums`}>
                     {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(1)}%`}
                     {firesAtCurrentPrice(r) && (

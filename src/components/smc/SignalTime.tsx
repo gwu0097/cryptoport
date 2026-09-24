@@ -68,3 +68,15 @@ export function UntilTime({ sec, serverNowSec }: { sec: number; serverNowSec: nu
     </>
   );
 }
+
+/** A past time in the user's timezone plus "(x ago)" — e.g. when stale data was fetched. */
+export function AgoTime({ sec, serverNowSec }: { sec: number; serverNowSec: number }) {
+  const now = useNowSec(serverNowSec);
+  const tz = useTimeZone();
+  return (
+    <>
+      {formatTimeInZone(sec, tz, now)}
+      <span className="ml-1 opacity-80">({formatSpan(now - sec)} ago)</span>
+    </>
+  );
+}
