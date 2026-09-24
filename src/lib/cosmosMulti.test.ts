@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -40,6 +40,7 @@ test("toTokenAmount is exact for 18-decimal amounts past Number.MAX_SAFE_INTEGER
 
 const chain: DirectoryChain = {
   name: "stride",
+  chainId: "stride-1",
   prettyName: "Stride",
   prefix: "stride",
   restUrls: [],
@@ -77,4 +78,37 @@ test("an unrecognized denom is listed (not hidden) with qty unknown, never a raw
   assert.equal(h.coingecko_id, null);
   assert.match(h.display_label!, /Unrecognized token on Stride/);
   assert.equal(h.contract.length, 68, "the full denom is kept as its identity");
+});
+
+test("Keplr's registry fills missing CoinGecko ids by exact denom (the stINJ / milkTIA / dATOM gap), without overriding known ones", () => {
+  assert.equal(keplrRegistryFile("stride-1"), "stride.json");
+  assert.equal(keplrRegistryFile("akashnet-2"), "akashnet.json");
+  assert.equal(keplrRegistryFile(null), null);
+  const enriched = withKeplrCurrencies(chain, {
+    currencies: [
+      { coinDenom: "stINJ", coinMinimalDenom: "stinj", coinDecimals: 18, coinGeckoId: "stride-staked-injective" },
+      { coinDenom: "STRD", coinMinimalDenom: "ustrd", coinDecimals: 6, coinGeckoId: "something-else" }, // known id kept
+      { coinDenom: "stTIA", coinMinimalDenom: "stutia", coinDecimals: 6, coinGeckoId: "stride-staked-tia", coinImageUrl: "sttia.png" }, // new
+      { coinDenom: "NOID", coinMinimalDenom: "unoid", coinDecimals: 6 },
+    ],
+  });
+  assert.equal(enriched.assets.get("stinj")!.coingeckoId, "stride-staked-injective");
+  assert.equal(enriched.assets.get("ustrd")!.coingeckoId, "stride");
+  assert.deepEqual(enriched.assets.get("stutia"), { denom: "stutia", symbol: "stTIA", decimals: 6, coingeckoId: "stride-staked-tia", usd: null, image: "sttia.png" });
+  assert.equal(chain.assets.get("stinj")!.coingeckoId, null, "the input chain isn't mutated");
+
+  const h = holdingsFromBalances(enriched, [
+    { denom: "stinj", amount: "36777000000000000000" },
+    { denom: "stutia", amount: "2000000" },
+    { denom: "unoid", amount: "5000000" },
+  ]);
+  const priced = withPrices(h, new Map([["stride-staked-injective", 12.3], ["stride-staked-tia", null]]));
+  assert.deepEqual(
+    priced.map((x) => [x.ticker, x.qty, x.usd_override === null ? null : Math.round(x.usd_override * 100) / 100]),
+    [
+      ["stINJ", 36.777, 452.36],
+      ["stTIA", 2, null], // id but no CoinGecko price: stays unpriced
+      ["NOID", 5, null], // known token, no id: unpriced by name
+    ],
+  );
 });

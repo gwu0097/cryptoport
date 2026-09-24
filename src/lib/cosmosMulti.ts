@@ -28,6 +28,7 @@ export interface DirectoryAsset {
 
 export interface DirectoryChain {
   name: string; // cosmos.directory chain name, e.g. "osmosis" — used as holding.chain
+  chainId: string | null; // e.g. "stride-1" — names the chain's Keplr registry file
   prettyName: string;
   prefix: string;
   restUrls: string[];
@@ -52,6 +53,7 @@ export interface CosmosHolding {
 
 type RawChain = {
   name?: string;
+  chain_id?: string;
   pretty_name?: string;
   bech32_prefix?: string;
   slip44?: number;
@@ -91,6 +93,7 @@ export function eligibleChains(raw: readonly RawChain[]): DirectoryChain[] {
     }
     out.push({
       name: c.name,
+      chainId: c.chain_id ?? null,
       prettyName: c.pretty_name ?? c.name,
       prefix: c.bech32_prefix,
       restUrls: [`https://rest.cosmos.directory/${c.name}`, ...listed.slice(0, 2)],
@@ -110,6 +113,55 @@ export function withRegistryApis(chain: DirectoryChain, chainJson: { apis?: { re
     .filter((u): u is string => !!u && !chain.restUrls.includes(u))
     .slice(0, 3);
   return { ...chain, restUrls: [...chain.restUrls, ...extra], needsRegistryApis: false };
+}
+
+/** Keplr's chain registry (chainapsis/keplr-chain-registry) names each file
+ * after the chain id without its version suffix: "stride-1" -> "stride". */
+export function keplrRegistryFile(chainId: string | null): string | null {
+  if (!chainId) return null;
+  return `${chainId.replace(/-\d+$/, "")}.json`;
+}
+
+type KeplrCurrency = { coinDenom?: string; coinMinimalDenom?: string; coinDecimals?: number; coinGeckoId?: string; coinImageUrl?: string };
+
+/**
+ * Fills gaps in a chain's token metadata from Keplr's own registry, matched
+ * by the exact denom (never by symbol). The Cosmos chain registry leaves out
+ * the CoinGecko id for many liquid-staking tokens that Keplr has: stINJ
+ * (stinj → stride-staked-injective), milkTIA on Osmosis, dATOM on Neutron —
+ * reported 2026-09-24 as ~$818 of this wallet showing unpriced vs Keplr.
+ * Only fills what's missing: an id the directory already has is kept.
+ */
+export function withKeplrCurrencies(chain: DirectoryChain, keplr: { currencies?: KeplrCurrency[] } | null): DirectoryChain {
+  const assets = new Map(chain.assets);
+  for (const c of keplr?.currencies ?? []) {
+    if (!c.coinMinimalDenom) continue;
+    const have = assets.get(c.coinMinimalDenom);
+    if (have) {
+      if (!have.coingeckoId && c.coinGeckoId) assets.set(have.denom, { ...have, coingeckoId: c.coinGeckoId, usd: null });
+      if (have.decimals === null && typeof c.coinDecimals === "number") assets.set(have.denom, { ...assets.get(have.denom)!, decimals: c.coinDecimals });
+    } else if (c.coinDenom && typeof c.coinDecimals === "number") {
+      assets.set(c.coinMinimalDenom, {
+        denom: c.coinMinimalDenom,
+        symbol: c.coinDenom,
+        decimals: c.coinDecimals,
+        coingeckoId: c.coinGeckoId || null,
+        usd: null,
+        image: c.coinImageUrl ?? null,
+      });
+    }
+  }
+  return { ...chain, assets };
+}
+
+/** Stamps a CoinGecko price (by id) onto holdings that have an id and an
+ * amount but no price yet; everything else is returned unchanged. */
+export function withPrices(holdings: readonly CosmosHolding[], usdById: ReadonlyMap<string, number | null>): CosmosHolding[] {
+  return holdings.map((h) => {
+    if (h.usd_override !== null || !h.coingecko_id || h.qty === null) return h;
+    const usd = usdById.get(h.coingecko_id) ?? null;
+    return usd === null ? h : { ...h, usd_override: h.qty * usd };
+  });
 }
 
 /** The same account on another coin-type-118 chain. Throws on a non-cosmos1 input. */

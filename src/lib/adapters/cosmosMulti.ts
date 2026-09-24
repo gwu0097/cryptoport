@@ -1,8 +1,19 @@
 import "server-only";
+import { Resolver } from "node:dns/promises";
 import { serviceDb } from "../supabase";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchMarketsByIds } from "./coingecko";
-import { eligibleChains, deriveAddress, holdingsFromBalances, withRegistryApis, type CosmosHolding, type DirectoryChain } from "../cosmosMulti";
+import {
+  eligibleChains,
+  deriveAddress,
+  holdingsFromBalances,
+  withRegistryApis,
+  withKeplrCurrencies,
+  withPrices,
+  keplrRegistryFile,
+  type CosmosHolding,
+  type DirectoryChain,
+} from "../cosmosMulti";
 
 // Network half of the Cosmos multi-chain wallet (pure logic + the why:
 // ../cosmosMulti.ts). A cosmos1… wallet's sync scans every live coin-type-118
@@ -13,6 +24,7 @@ import { eligibleChains, deriveAddress, holdingsFromBalances, withRegistryApis, 
 
 const DIRECTORY_URL = "https://chains.cosmos.directory/";
 const REGISTRY_RAW = "https://raw.githubusercontent.com/cosmos/chain-registry/master";
+const KEPLR_RAW = "https://raw.githubusercontent.com/chainapsis/keplr-chain-registry/main/cosmos";
 const CONCURRENCY = 12;
 const PER_REQUEST_TIMEOUT_MS = 6_000;
 // The sync runs in after() under the route's 300s maxDuration; stop starting
@@ -38,11 +50,40 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   });
 
   const started = Date.now();
-  const results = await mapWithConcurrency(chains, CONCURRENCY, (chain) => scanChain(chain, cosmosAddress, started));
-  const holdings = results.flatMap((r) => r.holdings);
+  const dnsCache = new Map<string, Promise<boolean>>();
+  const scanned = await mapWithConcurrency(chains, CONCURRENCY, (chain) => scanChain(chain, cosmosAddress, started, dnsCache));
+
+  // Tokens the Cosmos chain registry can't identify (no entry, or no
+  // CoinGecko id — e.g. stINJ, milkTIA, dATOM): fill from Keplr's registry
+  // by exact denom, only for chains that actually hold such tokens.
+  const results = await mapWithConcurrency(scanned, CONCURRENCY, async (r) => {
+    const gap = r.balances.some((b) => !r.chain.assets.get(b.denom)?.coingeckoId);
+    const file = keplrRegistryFile(r.chain.chainId);
+    if (r.unreachable || !gap || !file) return r;
+    try {
+      const k = await fetch(`${KEPLR_RAW}/${file}`, { cache: "no-store", signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) });
+      if (!k.ok) return r;
+      const chain = withKeplrCurrencies(r.chain, (await k.json()) as Parameters<typeof withKeplrCurrencies>[1]);
+      return { ...r, chain, holdings: holdingsFromBalances(chain, r.balances) };
+    } catch {
+      return r;
+    }
+  });
+  let holdings = results.flatMap((r) => r.holdings);
   const unreachable = results.filter((r) => r.unreachable).map((r) => r.chain.prettyName);
 
   const warnings: string[] = [];
+  // Identified tokens cosmos.directory had no price for: CoinGecko by id, in
+  // one batched call (shared 60s cache) — only when there are any.
+  const needPrice = [...new Set(holdings.filter((h) => h.coingecko_id && h.usd_override === null && h.qty !== null).map((h) => h.coingecko_id!))];
+  if (needPrice.length > 0) {
+    try {
+      const markets = await fetchMarketsByIds(needPrice);
+      holdings = withPrices(holdings, new Map(markets.map((m) => [m.id, m.price])));
+    } catch (e) {
+      warnings.push(`CoinGecko prices unavailable for ${needPrice.length} token(s): ${(e as Error).message}`);
+    }
+  }
   if (unreachable.length > 0) {
     warnings.push(
       `${unreachable.length} of ${chains.length} Cosmos chains couldn't be reached (their tokens may be missing): ${unreachable.slice(0, 12).join(", ")}${unreachable.length > 12 ? ", …" : ""}`,
@@ -53,24 +94,60 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   return { holdings, warnings };
 }
 
-async function scanChain(chain: DirectoryChain, cosmosAddress: string, started: number): Promise<{ chain: DirectoryChain; holdings: CosmosHolding[]; unreachable: boolean }> {
+type Balance = { denom: string; amount: string };
+
+// Many registry endpoints point at domains that no longer exist. fetch()
+// resolves hostnames with getaddrinfo on libuv's small thread pool (4
+// threads), and a lookup for a dead domain can hang for many seconds — even
+// after its request is aborted — so ~60 of them starved every other lookup
+// in the process (measured 2026-09-24: a plain lookup of
+// raw.githubusercontent.com took 24.6s mid-scan, and every Keplr registry
+// fetch timed out). Each host is checked first with c-ares (dns.Resolver:
+// asynchronous, off that pool, with its own short timeout); a host that
+// doesn't resolve is skipped, so only live hosts ever reach getaddrinfo.
+const resolver = new Resolver({ timeout: 2_000, tries: 1 });
+
+function hostResolves(url: string, cache: Map<string, Promise<boolean>>): Promise<boolean> {
+  const host = new URL(url).hostname;
+  let p = cache.get(host);
+  if (!p) {
+    p = resolver
+      .resolve4(host)
+      .then((a) => a.length > 0)
+      .catch(() => resolver.resolve6(host).then((a) => a.length > 0, () => false));
+    cache.set(host, p);
+  }
+  return p;
+}
+
+async function scanChain(
+  chain: DirectoryChain,
+  cosmosAddress: string,
+  started: number,
+  dnsCache: Map<string, Promise<boolean>>,
+): Promise<{ chain: DirectoryChain; balances: Balance[]; holdings: CosmosHolding[]; unreachable: boolean }> {
   const address = deriveAddress(cosmosAddress, chain.prefix);
   for (const base of chain.restUrls) {
     if (Date.now() - started > SCAN_DEADLINE_MS) break;
+    if (!(await hostResolves(base, dnsCache))) continue;
     try {
       const r = await fetch(`${base}/cosmos/bank/v1beta1/balances/${address}?pagination.limit=1000`, {
         cache: "no-store",
         signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
       });
-      if (!r.ok) continue;
-      const body = (await r.json()) as { balances?: { denom: string; amount: string }[] };
+      if (!r.ok) {
+        await r.body?.cancel(); // release the connection instead of leaving the body unread
+        continue;
+      }
+      const body = (await r.json()) as { balances?: Balance[] };
       if (!Array.isArray(body.balances)) continue;
-      return { chain, holdings: holdingsFromBalances(chain, body.balances), unreachable: false };
+      const balances = body.balances.filter((b) => /^\d+$/.test(b.amount) && !/^0+$/.test(b.amount));
+      return { chain, balances, holdings: holdingsFromBalances(chain, balances), unreachable: false };
     } catch {
       // timeout / network error: try the chain's next endpoint
     }
   }
-  return { chain, holdings: [], unreachable: true };
+  return { chain, balances: [], holdings: [], unreachable: true };
 }
 
 /**
