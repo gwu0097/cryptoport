@@ -1,5 +1,6 @@
 import { EVM_CHAINS } from "./adapters/evmChains.ts";
 import { NON_EVM_CHAINS, findNonEvmChain } from "./adapters/nonEvmChains.ts";
+import { COSMOS_CHAIN_NAMES } from "./adapters/cosmosChainNames.ts";
 
 /** Display name for a holding's `chain` (or a wallet's `chain`, for the
  * manual/no-sub-chain fallback case) — one map covering both vocabularies
@@ -9,6 +10,9 @@ import { NON_EVM_CHAINS, findNonEvmChain } from "./adapters/nonEvmChains.ts";
  * nonEvmChains.ts's single chain list rather than hand-listing both
  * vocabularies here — see that file's header for why this used to drift. */
 export const CHAIN_NAMES: Record<string, string> = {
+  // Cosmos multi-chain wallet chains (generated; see cosmosChainNames.ts) —
+  // first, so every hand-maintained name below wins on any overlap.
+  ...COSMOS_CHAIN_NAMES,
   ...Object.fromEntries(EVM_CHAINS.map((c) => [c.id, c.name])),
   ...Object.fromEntries(NON_EVM_CHAINS.flatMap((c) => [[c.id, c.displayName] as const, [c.slug, c.displayName] as const])),
   ETH: "Ethereum",

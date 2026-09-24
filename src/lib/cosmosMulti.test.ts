@@ -42,6 +42,7 @@ const chain: DirectoryChain = {
   name: "stride",
   chainId: "stride-1",
   prettyName: "Stride",
+  image: null,
   prefix: "stride",
   restUrls: [],
   needsRegistryApis: false,

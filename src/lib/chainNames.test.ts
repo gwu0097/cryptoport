@@ -50,3 +50,10 @@ test("chainDisplayName resolves both a wallet's uppercase chain and a holding's 
 test("chainDisplayName falls back to the raw id for an unrecognized chain", () => {
   assert.equal(chainDisplayName("somechain"), "somechain");
 });
+
+test("Cosmos multi-chain slugs get their registry names; hand-maintained names still win", () => {
+  assert.equal(chainDisplayName("osmosis"), "Osmosis");
+  assert.equal(chainDisplayName("cnhostables"), "CNHO Stables");
+  assert.equal(chainDisplayName("cosmoshub"), "Cosmos Hub");
+  assert.equal(chainDisplayName("not-a-chain"), "not-a-chain");
+});

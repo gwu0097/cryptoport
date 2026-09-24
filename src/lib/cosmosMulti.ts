@@ -30,6 +30,7 @@ export interface DirectoryChain {
   name: string; // cosmos.directory chain name, e.g. "osmosis" — used as holding.chain
   chainId: string | null; // e.g. "stride-1" — names the chain's Keplr registry file
   prettyName: string;
+  image: string | null; // the chain's logo (chain-registry), for its chain_icons row
   prefix: string;
   restUrls: string[];
   /** cosmos.directory listed no healthy REST endpoint for this chain — its
@@ -54,6 +55,7 @@ export interface CosmosHolding {
 type RawChain = {
   name?: string;
   chain_id?: string;
+  image?: string;
   pretty_name?: string;
   bech32_prefix?: string;
   slip44?: number;
@@ -95,6 +97,7 @@ export function eligibleChains(raw: readonly RawChain[]): DirectoryChain[] {
       name: c.name,
       chainId: c.chain_id ?? null,
       prettyName: c.pretty_name ?? c.name,
+      image: c.image ?? null,
       prefix: c.bech32_prefix,
       restUrls: [`https://rest.cosmos.directory/${c.name}`, ...listed.slice(0, 2)],
       needsRegistryApis: listed.length === 0,

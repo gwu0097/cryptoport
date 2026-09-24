@@ -70,6 +70,7 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
     }
   });
   let holdings = results.flatMap((r) => r.holdings);
+  await saveChainIcons(results.filter((r) => r.holdings.length > 0).map((r) => r.chain));
   const unreachable = results.filter((r) => r.unreachable).map((r) => r.chain.prettyName);
 
   const warnings: string[] = [];
@@ -95,6 +96,17 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
 }
 
 type Balance = { denom: string; amount: string };
+
+/** Each chain the wallet holds tokens on gets a chain_icons row (its
+ * chain-registry logo) so its group shows an icon — only rows that don't
+ * exist yet are added (a chain's existing icon, e.g. Cosmos Hub's CoinGecko
+ * one, is left alone). Cosmetic: a failure never fails the sync. */
+async function saveChainIcons(chains: readonly DirectoryChain[]): Promise<void> {
+  const rows = chains.filter((c) => c.image).map((c) => ({ chain_id: c.name, image_url: c.image! }));
+  if (rows.length === 0) return;
+  const { error } = await serviceDb().from("chain_icons").upsert(rows, { onConflict: "chain_id", ignoreDuplicates: true });
+  if (error) console.warn(`[cosmos] chain_icons upsert failed: ${error.message}`);
+}
 
 // Many registry endpoints point at domains that no longer exist. fetch()
 // resolves hostnames with getaddrinfo on libuv's small thread pool (4
