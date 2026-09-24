@@ -10,6 +10,8 @@
     "test": "node --conditions=react-server --test"
   },
   "dependencies": {
+    "@mysten/sui": "^2.31.3",
+    "@naviprotocol/lending": "^2.0.12",
     "@noble/curves": "^1.9.1",
     "@noble/hashes": "^2.4.0",
     "@polkadot/util": "^14.0.3",

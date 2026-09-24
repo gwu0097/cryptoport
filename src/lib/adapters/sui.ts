@@ -3,6 +3,7 @@ import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchTokenImages, fetchTokenPrices } from "./coingecko";
 import type { AdapterHolding } from "./types";
 import { stakesToHoldings, type SuiStakeGroup } from "../suiStakes";
+import { fetchNaviHoldings } from "./naviLending";
 
 // PublicNode's Sui endpoint — verified live (sui-rpc.publicnode.com, not
 // the mainnet full-node domain: that host's TLS handshake didn't complete
@@ -152,23 +153,36 @@ export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[
 }
 
 /**
- * A Sui wallet: every coin balance (fetchSuiHoldings) plus its native
- * staking — SUI delegated to validators via suix_getStakes, which never
+ * A Sui wallet: every coin balance (fetchSuiHoldings), its Navi lending
+ * positions (naviLending.ts — deposits live inside the protocol, not as
+ * coins), plus its native staking — SUI delegated to validators via suix_getStakes, which never
  * shows up as a coin balance (reported 2026-09-24: a Ledger wallet's 300 SUI
  * staked with ZKV + ~19 SUI rewards, ~$320, was missing). Validator names
  * come from suix_getLatestSuiSystemState. A staking lookup that fails is a
  * warning, never a reason to drop the wallet's real coin balances.
  */
 export async function fetchSuiWallet(address: string): Promise<{ holdings: AdapterHolding[]; warnings: string[] }> {
-  const holdings = await fetchSuiHoldings(address);
-  try {
-    const groups = await rpc<SuiStakeGroup[]>("suix_getStakes", [address]);
-    if (groups.length === 0) return { holdings, warnings: [] };
-    const system = await rpc<{ activeValidators: { suiAddress: string; name: string }[] }>("suix_getLatestSuiSystemState", []).catch(() => null);
-    const names = new Map((system?.activeValidators ?? []).map((v) => [v.suiAddress, v.name]));
-    const suiIcon = holdings.find((h) => h.chain === "sui" && h.contract === null)?.icon_url ?? null;
-    return { holdings: [...holdings, ...stakesToHoldings(groups, names, suiIcon)], warnings: [] };
-  } catch (e) {
-    return { holdings, warnings: [`Sui staking positions couldn't be loaded: ${(e as Error).message}`] };
-  }
+  // Coins, native stakes and Navi lending in parallel; only the coin scan is
+  // required — the other two degrade to a warning.
+  const [holdings, stakes, navi] = await Promise.all([
+    fetchSuiHoldings(address),
+    fetchSuiStakeHoldings(address).then(
+      (h) => ({ holdings: h, warnings: [] as string[] }),
+      (e: Error) => ({ holdings: [], warnings: [`Sui staking positions couldn't be loaded: ${e.message}`] }),
+    ),
+    fetchNaviHoldings(address).catch((e: Error) => ({ holdings: [], warnings: [`Navi lending positions couldn't be loaded: ${e.message}`] })),
+  ]);
+  const suiIcon = holdings.find((h) => h.chain === "sui" && h.contract === null)?.icon_url ?? null;
+  return {
+    holdings: [...holdings, ...stakes.holdings.map((h) => ({ ...h, icon_url: h.icon_url ?? suiIcon })), ...navi.holdings],
+    warnings: [...stakes.warnings, ...navi.warnings],
+  };
+}
+
+async function fetchSuiStakeHoldings(address: string): Promise<AdapterHolding[]> {
+  const groups = await rpc<SuiStakeGroup[]>("suix_getStakes", [address]);
+  if (groups.length === 0) return [];
+  const system = await rpc<{ activeValidators: { suiAddress: string; name: string }[] }>("suix_getLatestSuiSystemState", []).catch(() => null);
+  const names = new Map((system?.activeValidators ?? []).map((v) => [v.suiAddress, v.name]));
+  return stakesToHoldings(groups, names, null);
 }
