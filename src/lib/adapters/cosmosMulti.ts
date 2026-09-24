@@ -2,6 +2,7 @@ import "server-only";
 import { seiAccountIsLinked } from "./seiStaking";
 import { Resolver } from "node:dns/promises";
 import { serviceDb } from "../supabase";
+import { chainScope, type KeepScope } from "../carryForward";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchMarketsByIds } from "./coingecko";
 import {
@@ -36,7 +37,7 @@ const PER_REQUEST_TIMEOUT_MS = 6_000;
 // reported as unreachable, never silently treated as empty.
 const SCAN_DEADLINE_MS = 150_000;
 
-export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{ holdings: CosmosHolding[]; warnings: string[] }> {
+export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{ holdings: CosmosHolding[]; warnings: string[]; keep: KeepScope[] }> {
   const res = await fetchWithRetry(DIRECTORY_URL);
   if (!res.ok) throw new Error(`cosmos.directory chain list failed: HTTP ${res.status}`);
   const listed = eligibleChains(((await res.json()) as { chains: Parameters<typeof eligibleChains>[0] }).chains);
@@ -85,6 +86,15 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   }
   await saveChainIcons(results.filter((r) => r.holdings.length > 0).map((r) => r.chain));
   const unreachable = results.filter((r) => r.unreachable).map((r) => r.chain.prettyName);
+  // Rows these failures leave unanswered are kept from the last sync
+  // (carryForward.ts): every row of an unreachable chain, and the staking
+  // rows of a chain whose staking couldn't be read.
+  const keep: KeepScope[] = [
+    ...results.filter((r) => r.unreachable).map((r) => chainScope(r.chain.prettyName, r.chain.name)),
+    ...results
+      .filter((r) => !r.unreachable && r.staking === null)
+      .map((r): KeepScope => ({ label: `${r.chain.prettyName} staking`, owns: (h) => h.chain === r.chain.name && h.category === "defi" })),
+  ];
 
   // Identified tokens cosmos.directory had no price for: CoinGecko by id, in
   // one batched call (shared 60s cache) — only when there are any.
@@ -106,7 +116,7 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   if (noStaking.length > 0) warnings.push(`Staking couldn't be read on ${noStaking.length} chain(s): ${noStaking.slice(0, 8).join(", ")}${noStaking.length > 8 ? ", …" : ""}`);
   const unrecognized = holdings.filter((h) => h.coingecko_id === null && h.qty === null).length;
   if (unrecognized > 0) warnings.push(`${unrecognized} unrecognized token(s) listed without an amount or price`);
-  return { holdings, warnings };
+  return { holdings, warnings, keep };
 }
 
 type Balance = { denom: string; amount: string };

@@ -1,4 +1,5 @@
 import "server-only";
+import type { KeepScope } from "../carryForward";
 import { fetchJupiterHoldings } from "./jupiter";
 import { fetchSolDefiPositions } from "./solDefiPositions";
 import { fetchCosmosHoldings, isCosmosAddress } from "./cosmos";
@@ -22,6 +23,9 @@ export interface AdapterFetchResult {
    * (via its DeFi-position fetch); every other entry below always returns
    * an empty array, same as before this table existed. */
   warnings: string[];
+  /** Rows a partial failure left unanswered — the sync keeps them from the
+   * previous run instead of letting them vanish (carryForward.ts). */
+  keep?: KeepScope[];
 }
 
 interface NonEvmDispatchEntry {
@@ -68,7 +72,7 @@ export const NON_EVM_DISPATCH: Record<string, NonEvmDispatchEntry> = {
         fetchJupiterHoldings(address),
         fetchSolDefiPositions(address),
       ]);
-      return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings };
+      return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings, keep: positions.keep };
     },
     detect: (address) => SOLANA_ADDRESS_RE.test(address),
   },

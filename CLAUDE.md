@@ -124,6 +124,15 @@ comment for the full explanation and why the real fix (stamping
 `usd_override` from Jupiter's own per-mint price, matching the EVM
 pattern) is a design change, not a patch.
 
+**A failed part of a sync keeps its previous rows; it never deletes them.**
+A sync replaces all of a wallet's auto rows at once, so a soft-failing
+source that returns `[]` used to erase its own rows (385 staked AXS vanished
+on a CoinGecko 429, 2026-09-24). Every soft failure now also returns a
+`KeepScope` naming the rows it owns (`src/lib/carryForward.ts`); the sync
+re-saves those from the last run and says so in the status. A new adapter
+or soft-failing source must declare one, matching the protocol/chain it
+writes.
+
 **Staleness is also two independent things** — don't conflate them:
 global price freshness (`price_refresh_state`, one singleton row) vs.
 per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).

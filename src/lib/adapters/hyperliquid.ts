@@ -2,6 +2,7 @@ import "server-only";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
+import type { KeepScope } from "../carryForward";
 
 const BASE_URL = "https://api.hyperliquid.xyz/info";
 // Consumed by zerionDefi.ts's NATIVELY_COVERED_PROTOCOLS (unioned across
@@ -115,13 +116,28 @@ async function fetchVaultName(vaultAddress: string): Promise<string> {
  * Yield / Rewards: vault equity and unclaimed referral rebates were never
  * fetched at all before — both real money DeBank already shows.
  */
-export async function fetchHyperliquidHoldings(address: string): Promise<AdapterHolding[]> {
-  const [perps, spot, vaults, referral] = await Promise.all([
+export async function fetchHyperliquidHoldings(
+  address: string,
+): Promise<{ holdings: AdapterHolding[]; warnings: string[]; keep: KeepScope[] }> {
+  const [perps, spot, vaultsResult, referralResult] = await Promise.all([
     postInfo<ClearinghouseState>({ type: "clearinghouseState", user: address }),
     postInfo<SpotClearinghouseState>({ type: "spotClearinghouseState", user: address }),
-    postInfo<VaultEquity[]>({ type: "userVaultEquities", user: address }).catch(() => []),
-    postInfo<ReferralState>({ type: "referral", user: address }).catch(() => null),
+    // Optional extras: a failure is a warning and keeps their previous
+    // rows (carryForward.ts). It used to be swallowed, dropping vault
+    // equity from the wallet with no warning at all.
+    postInfo<VaultEquity[]>({ type: "userVaultEquities", user: address }).catch((e: Error) => e),
+    postInfo<ReferralState>({ type: "referral", user: address }).catch((e: Error) => e),
   ]);
+  const warnings: string[] = [];
+  const keep: KeepScope[] = [];
+  const extra = <T,>(r: T | Error, section: string, what: string): T | null => {
+    if (!(r instanceof Error)) return r;
+    warnings.push(`hyperliquid ${what}: ${r.message}`);
+    keep.push({ label: `hyperliquid ${what}`, owns: (h) => h.chain === "hyperliquid" && h.protocol_section === section });
+    return null;
+  };
+  const vaults = extra(vaultsResult, "Yield", "vaults") ?? [];
+  const referral = extra(referralResult, "Rewards", "referral rewards");
 
   const holdings: AdapterHolding[] = [];
 
@@ -261,5 +277,5 @@ export async function fetchHyperliquidHoldings(address: string): Promise<Adapter
     holding.icon_url = icons.get(iconTicker(holding).toUpperCase()) ?? null;
   }
 
-  return holdings;
+  return { holdings, warnings, keep };
 }

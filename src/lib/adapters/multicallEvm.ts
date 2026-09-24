@@ -12,6 +12,7 @@ import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
 import type { AdapterHolding } from "./types";
+import type { KeepScope } from "../carryForward";
 
 const TOKEN_USD_FLOOR = 5;
 // Multicall3 calldata/response size is bounded by the RPC node's own
@@ -227,6 +228,9 @@ export interface ChainHoldingsResult {
    * (a 429 that outlasted retries). Tokens can't be listed then — a live
    * price is the spam filter above — but the native balance still is. */
   priceError: string | null;
+  /** The (lowercase) contracts behind unverifiedCount — their previous rows
+   * are kept (see carryForward.ts) rather than dropped as if sold. */
+  unverifiedContracts: string[];
 }
 
 export async function fetchChainHoldings(chain: EvmChain, address: Address): Promise<ChainHoldingsResult> {
@@ -264,7 +268,8 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     )
   ).flat();
 
-  const unverified = balanceResults.filter((r) => r.status === "failure").length;
+  const unverifiedContracts = tokens.filter((_, i) => balanceResults[i].status === "failure").map((t) => t.contract.toLowerCase());
+  const unverified = unverifiedContracts.length;
 
   const held = tokens
     .map((t, i) => ({ token: t, result: balanceResults[i] }))
@@ -432,7 +437,7 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     });
   }
 
-  return { holdings, unverifiedCount: unverified, priceError };
+  return { holdings, unverifiedCount: unverified, priceError, unverifiedContracts };
 }
 
 export interface EvmChainsResult {
@@ -455,18 +460,19 @@ export interface EvmChainsResult {
      * because one unrelated chain had a flaky token check). */
     hard: boolean;
   }[];
+  /** Rows the failures above leave unanswered — kept from the last sync. */
+  keep: KeepScope[];
 }
 
 type ChainOutcome =
-  | { chainId: string; ok: true; holdings: AdapterHolding[]; unverifiedCount: number; priceError: string | null }
+  | ({ chainId: string; ok: true } & ChainHoldingsResult)
   | { chainId: string; ok: false; error: string };
 
 export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChainsResult> {
   const results: ChainOutcome[] = await Promise.all(
     EVM_CHAINS.map(async (chain): Promise<ChainOutcome> => {
       try {
-        const { holdings, unverifiedCount, priceError } = await fetchChainHoldings(chain, address);
-        return { chainId: chain.id, ok: true, holdings, unverifiedCount, priceError };
+        return { chainId: chain.id, ok: true, ...(await fetchChainHoldings(chain, address)) };
       } catch (e) {
         return { chainId: chain.id, ok: false, error: (e as Error).message };
       }
@@ -489,12 +495,29 @@ export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChain
       .filter((r) => r.ok && r.priceError !== null)
       .map((r) => ({
         chainId: r.chainId,
-        error: `token prices unavailable, tokens not listed this sync (${(r as { priceError: string }).priceError})`,
+        error: `token prices unavailable (${(r as { priceError: string }).priceError})`,
         hard: true,
       })),
   ];
 
-  return { holdings, failedChains };
+  // A chain's own rows are its plain balances (category "token"); staking
+  // adapters on the same chain (Axie on ron) have their own scopes in evm.ts.
+  const keep: KeepScope[] = [];
+  for (const r of results) {
+    const id = r.chainId;
+    if (!r.ok) {
+      keep.push({ label: `${id} balances`, owns: (h) => h.chain === id && h.category === "token" });
+      continue;
+    }
+    if (r.priceError !== null) {
+      keep.push({ label: `${id} tokens`, owns: (h) => h.chain === id && h.category === "token" && h.contract !== null });
+    } else if (r.unverifiedContracts.length > 0) {
+      const set = new Set(r.unverifiedContracts);
+      keep.push({ label: `${id} unverified tokens`, owns: (h) => h.chain === id && h.category === "token" && !!h.contract && set.has(h.contract.toLowerCase()) });
+    }
+  }
+
+  return { holdings, failedChains, keep };
 }
 
 interface EvmHoldingRow {

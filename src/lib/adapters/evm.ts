@@ -6,6 +6,7 @@ import { fetchAxieStaking } from "./axieStaking";
 import { fetchPolymarketHoldings } from "./polymarket";
 import { fetchSuperverseStaking } from "./superverseStaking";
 import type { AdapterHolding } from "./types";
+import { chainScope, protocolScope, type KeepScope } from "../carryForward";
 
 export interface EvmHoldingsResult {
   holdings: AdapterHolding[];
@@ -13,6 +14,9 @@ export interface EvmHoldingsResult {
    * moment, or Hyperliquid's API was briefly down) — the sync still saves
    * whatever it did get. Empty when everything succeeded. */
   warnings: string[];
+  /** Rows those failures left unanswered — the sync keeps them from the
+   * previous run (carryForward.ts). */
+  keep: KeepScope[];
 }
 
 /**
@@ -32,43 +36,39 @@ export interface EvmHoldingsResult {
  * syncWalletHoldings).
  */
 export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResult> {
-  const [chainsResult, hyperliquidResult, axieResult, polymarketResult, superverseResult] = await Promise.all([
+  // Every source but the chain scan is a soft failure: niche/narrow (most
+  // EVM wallets never touched Ronin staking, Polymarket or SuperVerse),
+  // same "one source's failure never discards another's correctly-fetched
+  // data" rule as solDefiPositions.ts. A failed source's previous rows are
+  // kept (its KeepScope, see carryForward.ts) instead of vanishing.
+  const soft = <T,>(name: string, scope: KeepScope, p: Promise<T[]>) =>
+    p.then(
+      (holdings) => ({ holdings, warnings: [] as string[], keep: [] as KeepScope[] }),
+      (e: Error) => ({ holdings: [] as T[], warnings: [`${name}: ${e.message}`], keep: [scope] }),
+    );
+  const [chainsResult, hyperliquidResult, ...others] = await Promise.all([
     fetchEvmChainsHoldings(address as Address),
-    fetchHyperliquidHoldings(address)
-      .then((holdings) => ({ holdings, error: null as string | null }))
-      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
-    // Soft failure only, unlike Hyperliquid below — niche/narrow (most EVM
-    // wallets have no Ronin activity at all), same "one source's failure
-    // never discards another's correctly-fetched data" treatment every
-    // Solana DeFi-position source already gets (see solDefiPositions.ts).
-    fetchAxieStaking(address as Address)
-      .then((holdings) => ({ holdings, error: null as string | null }))
-      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
-    // Soft failure too — same reasoning as Axie above, most EVM wallets
-    // have never touched Polymarket at all.
-    fetchPolymarketHoldings(address)
-      .then((holdings) => ({ holdings, error: null as string | null }))
-      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
-    // Soft failure too — most EVM wallets have never staked on SuperVerse.
-    fetchSuperverseStaking(address as Address)
-      .then((holdings) => ({ holdings, error: null as string | null }))
-      .catch((e: Error) => ({ holdings: [] as AdapterHolding[], error: e.message })),
+    fetchHyperliquidHoldings(address).then(
+      (r) => ({ ...r, error: null as string | null }),
+      (e: Error) => ({
+        holdings: [] as AdapterHolding[],
+        warnings: [`hyperliquid: ${e.message}`],
+        keep: [chainScope("hyperliquid", "hyperliquid")],
+        error: e.message,
+      }),
+    ),
+    soft("axie staking", protocolScope("axie staking", "Axie Staking"), fetchAxieStaking(address as Address)),
+    soft("polymarket", chainScope("polymarket", "polymarket"), fetchPolymarketHoldings(address)),
+    soft("superverse staking", protocolScope("superverse staking", "SuperVerse Staking"), fetchSuperverseStaking(address as Address)),
   ]);
 
-  const holdings = [
-    ...chainsResult.holdings,
-    ...hyperliquidResult.holdings,
-    ...axieResult.holdings,
-    ...polymarketResult.holdings,
-    ...superverseResult.holdings,
-  ];
+  const holdings = [...chainsResult.holdings, ...hyperliquidResult.holdings, ...others.flatMap((o) => o.holdings)];
   const warnings = [
     ...chainsResult.failedChains.map((f) => `${f.chainId}: ${f.error}`),
-    ...(hyperliquidResult.error ? [`hyperliquid: ${hyperliquidResult.error}`] : []),
-    ...(axieResult.error ? [`axie staking: ${axieResult.error}`] : []),
-    ...(polymarketResult.error ? [`polymarket: ${polymarketResult.error}`] : []),
-    ...(superverseResult.error ? [`superverse staking: ${superverseResult.error}`] : []),
+    ...hyperliquidResult.warnings,
+    ...others.flatMap((o) => o.warnings),
   ];
+  const keep = [...chainsResult.keep, ...hyperliquidResult.keep, ...others.flatMap((o) => o.keep)];
 
   // Nothing succeeded anywhere and something actually went wrong badly
   // enough to distrust the whole result (a whole chain's fetch threw, or
@@ -88,5 +88,5 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     throw new Error(`Every source failed: ${warnings.join("; ")}`);
   }
 
-  return { holdings, warnings };
+  return { holdings, warnings, keep };
 }

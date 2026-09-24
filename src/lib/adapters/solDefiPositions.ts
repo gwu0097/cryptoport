@@ -1,5 +1,6 @@
 import "server-only";
 import type { AdapterHolding } from "./types";
+import { protocolScope, type KeepScope } from "../carryForward";
 import { fetchJupiterPositions } from "./jupiterPositions";
 import { fetchKaminoPositions } from "./kaminoPositions";
 import { fetchWormholeStaking } from "./wormholeStaking";
@@ -15,6 +16,7 @@ import { fetchTokenInfo } from "./jupiter";
 export interface SolPositionsResult {
   holdings: AdapterHolding[];
   warnings: string[];
+  keep?: KeepScope[];
 }
 
 // Every SOL DeFi position source beyond plain token balances — shared by
@@ -25,30 +27,42 @@ export interface SolPositionsResult {
 // Hyperliquid split). Add a new protocol here as its own entry once it
 // has a verified adapter — this is the only place a new SOL DeFi source
 // needs wiring in.
-const SOURCES: { name: string; fetch: (address: string) => Promise<SolPositionsResult> }[] = [
-  { name: "jupiter positions", fetch: fetchJupiterPositions },
-  { name: "kamino", fetch: fetchKaminoPositions },
+// `keep`: the rows a source owns (by the protocol names it writes), kept
+// from the last sync when it fails — see carryForward.ts.
+const SOURCES: { name: string; keep: KeepScope; fetch: (address: string) => Promise<SolPositionsResult> }[] = [
+  {
+    name: "jupiter positions",
+    // "Jupiter <product>" (jupiterPositions.ts), but not Jupiter DAO below.
+    keep: { label: "jupiter positions", owns: (h) => !!h.protocol?.startsWith("Jupiter ") && h.protocol !== "Jupiter DAO" },
+    fetch: fetchJupiterPositions,
+  },
+  { name: "kamino", keep: protocolScope("kamino", "Kamino"), fetch: fetchKaminoPositions },
   {
     name: "wormhole",
+    keep: protocolScope("wormhole", "Wormhole Staking"),
     fetch: (address) => fetchWormholeStaking(address).then((holdings) => ({ holdings, warnings: [] })),
   },
-  { name: "meteora", fetch: fetchMeteoraPositions },
-  { name: "parcl", fetch: fetchParclPositions },
+  { name: "meteora", keep: protocolScope("meteora", "Meteora"), fetch: fetchMeteoraPositions },
+  { name: "parcl", keep: protocolScope("parcl", "Parcl"), fetch: fetchParclPositions },
   {
     name: "jupiter dao",
+    keep: protocolScope("jupiter dao", "Jupiter DAO"),
     fetch: (address) => fetchJupiterDaoStaking(address).then((holdings) => ({ holdings, warnings: [] })),
   },
   {
     name: "solana staking",
+    keep: protocolScope("solana staking", "Solana Staking"),
     fetch: (address) => fetchSolanaStaking(address).then((holdings) => ({ holdings, warnings: [] })),
   },
   {
     name: "skr staking",
+    keep: protocolScope("skr staking", "SKR Staking"),
     fetch: (address) => fetchSkrStaking(address).then((holdings) => ({ holdings, warnings: [] })),
   },
-  { name: "jito mev rewards", fetch: fetchJitoMevRewards },
+  { name: "jito mev rewards", keep: protocolScope("jito mev rewards", "Jito MEV Rewards"), fetch: fetchJitoMevRewards },
   {
     name: "lulo",
+    keep: protocolScope("lulo", "Lulo"),
     fetch: (address) => fetchLuloPositions(address).then((holdings) => ({ holdings, warnings: [] })),
   },
 ];
@@ -85,10 +99,11 @@ async function backfillDefiIcons(holdings: AdapterHolding[]): Promise<void> {
 
 export async function fetchSolDefiPositions(address: string): Promise<SolPositionsResult> {
   const results = await Promise.all(
-    SOURCES.map(({ name, fetch }) =>
+    SOURCES.map(({ name, keep, fetch }) =>
       fetch(address).catch((e: Error) => ({
         holdings: [] as AdapterHolding[],
         warnings: [`${name}: ${e.message}`],
+        keep: [keep],
       })),
     ),
   );
@@ -97,5 +112,6 @@ export async function fetchSolDefiPositions(address: string): Promise<SolPositio
   return {
     holdings,
     warnings: results.flatMap((r) => r.warnings),
+    keep: results.flatMap((r) => r.keep ?? []),
   };
 }

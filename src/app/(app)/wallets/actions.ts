@@ -21,6 +21,7 @@ import { NON_EVM_DISPATCH, type AdapterFetchResult } from "@/lib/adapters/nonEvm
 import { fetchSeiStakingHoldings } from "@/lib/adapters/seiStaking";
 import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
+import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
@@ -652,9 +653,20 @@ async function withSeiStaking(address: string, base: AdapterFetchResult): Promis
     const stakes = await fetchSeiStakingHoldings(address, unitUsd, native?.icon_url ?? null);
     return { holdings: [...base.holdings, ...stakes], warnings: base.warnings };
   } catch (e) {
-    return { ...base, warnings: [...base.warnings, `Sei staking positions couldn't be loaded: ${(e as Error).message}`] };
+    return {
+      ...base,
+      warnings: [...base.warnings, `Sei staking positions couldn't be loaded: ${(e as Error).message}`],
+      keep: [...(base.keep ?? []), protocolScope("sei staking", "Sei native staking")],
+    };
   }
 }
+
+// Every column sync_auto_holdings / sync_cosmos_holdings (schema.sql)
+// inserts — a kept row (carryForward.ts) is re-saved with all of them.
+const AUTO_KEEP_COLUMNS =
+  "ticker, qty, usd_override, contract, category, chain, icon_url, protocol, protocol_url, position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd, position_pnl_percent, display_label, protocol_section";
+const COSMOS_KEEP_COLUMNS =
+  "ticker, qty, usd_override, contract, category, chain, icon_url, coingecko_id, display_label, protocol, protocol_url, protocol_section";
 
 // Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
 // Hyperliquid for ETH, Jupiter for SOL, mempool.space/xpub-scan for BTC)
@@ -742,6 +754,9 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       // excluded), stored as auto_cosmos rows by their own RPC — see
       // adapters/cosmosMulti.ts. Null for every other chain.
       let cosmosHoldings: CosmosHolding[] | null = null;
+      // Rows a failed part of this sync owns — re-saved from the last sync
+      // below instead of vanishing (carryForward.ts).
+      let keep: KeepScope[] = [];
       let detectedScriptType: ScriptType | null = wallet.btc_script_type as ScriptType | null;
       let cardanoStakeAddress: string | null = wallet.cardano_stake_address;
 
@@ -757,13 +772,33 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
           wallet.cardano_stake_address,
         ));
       } else if (wallet.chain === "ATOM") {
-        ({ holdings: cosmosHoldings, warnings } = await fetchCosmosMultiHoldings(wallet.address!));
+        ({ holdings: cosmosHoldings, warnings, keep } = await fetchCosmosMultiHoldings(wallet.address!));
         holdings = []; // nothing here for the ticker-priced path below
       } else {
-        ({ holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address!));
+        ({ holdings, warnings, keep = [] } = await fetchAdapterHoldings(wallet.chain, wallet.address!));
       }
 
-      const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
+      let keptStatus = "";
+      if (keep.length > 0) {
+        const { data: previous, error: previousError } = await afterDb
+          .from("holdings")
+          .select(cosmosHoldings ? COSMOS_KEEP_COLUMNS : AUTO_KEEP_COLUMNS)
+          .eq("wallet_id", walletId)
+          .eq("source", cosmosHoldings ? "auto_cosmos" : "auto");
+        if (previousError) {
+          warnings = [...warnings, `previous rows couldn't be loaded to keep: ${previousError.message}`];
+        } else if (cosmosHoldings) {
+          const r = carryForward(cosmosHoldings, previous as unknown as CosmosHolding[], keep);
+          cosmosHoldings = r.holdings;
+          keptStatus = keptNote(r.kept);
+        } else {
+          const r = carryForward(holdings, previous as unknown as AdapterHolding[], keep);
+          holdings = r.holdings;
+          keptStatus = keptNote(r.kept);
+        }
+      }
+
+      const status = warnings.length === 0 ? "ok" : `partial — ${[...warnings, keptStatus].filter(Boolean).join("; ")}`;
       const { error: syncError } = await afterDb.rpc(cosmosHoldings ? "sync_cosmos_holdings" : "sync_auto_holdings", {
         p_wallet_id: walletId,
         p_holdings: cosmosHoldings ?? holdings,

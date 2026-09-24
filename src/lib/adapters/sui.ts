@@ -1,4 +1,5 @@
 import "server-only";
+import { protocolScope, type KeepScope } from "../carryForward";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchTokenImages, fetchTokenPrices } from "./coingecko";
 import type { AdapterHolding } from "./types";
@@ -161,21 +162,25 @@ export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[
  * come from suix_getLatestSuiSystemState. A staking lookup that fails is a
  * warning, never a reason to drop the wallet's real coin balances.
  */
-export async function fetchSuiWallet(address: string): Promise<{ holdings: AdapterHolding[]; warnings: string[] }> {
+export async function fetchSuiWallet(address: string): Promise<{ holdings: AdapterHolding[]; warnings: string[]; keep: KeepScope[] }> {
   // Coins, native stakes and Navi lending in parallel; only the coin scan is
   // required — the other two degrade to a warning.
   const [holdings, stakes, navi] = await Promise.all([
     fetchSuiHoldings(address),
     fetchSuiStakeHoldings(address).then(
-      (h) => ({ holdings: h, warnings: [] as string[] }),
-      (e: Error) => ({ holdings: [], warnings: [`Sui staking positions couldn't be loaded: ${e.message}`] }),
+      (h) => ({ holdings: h, warnings: [] as string[], keep: [] as KeepScope[] }),
+      (e: Error) => ({ holdings: [], warnings: [`Sui staking positions couldn't be loaded: ${e.message}`], keep: [protocolScope("sui staking", "Sui native staking")] }),
     ),
-    fetchNaviHoldings(address).catch((e: Error) => ({ holdings: [], warnings: [`Navi lending positions couldn't be loaded: ${e.message}`] })),
+    fetchNaviHoldings(address).then(
+      (r) => ({ ...r, keep: [] as KeepScope[] }),
+      (e: Error) => ({ holdings: [], warnings: [`Navi lending positions couldn't be loaded: ${e.message}`], keep: [protocolScope("navi", "Navi")] }),
+    ),
   ]);
   const suiIcon = holdings.find((h) => h.chain === "sui" && h.contract === null)?.icon_url ?? null;
   return {
     holdings: [...holdings, ...stakes.holdings.map((h) => ({ ...h, icon_url: h.icon_url ?? suiIcon })), ...navi.holdings],
     warnings: [...stakes.warnings, ...navi.warnings],
+    keep: [...stakes.keep, ...navi.keep],
   };
 }
 
