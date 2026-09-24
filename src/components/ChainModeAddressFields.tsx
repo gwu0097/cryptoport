@@ -33,10 +33,12 @@ function isAutoCapableChain(chain: string): boolean {
   return findNonEvmChain(upper) !== undefined || isEvmChainId(upper);
 }
 
-// Only BTC needs its own callout today — auto mode for every other chain
-// just scans a plain address, nothing to explain. Keyed by the same
-// uppercase id NON_EVM_CHAINS/wallets.chain use.
+// Chains whose auto mode needs explaining (BTC's xpub scan, Cosmos's
+// multi-chain scan and its Injective exception); every other chain just
+// scans a plain address. Keyed by the same uppercase id
+// NON_EVM_CHAINS/wallets.chain use.
 const CHAIN_ADDRESS_HINTS: Record<string, string> = {
+  ATOM: "Use your cosmos1… address: auto-sync pulls this account's tokens from every Cosmos chain that shares its key (Osmosis, Stride, Celestia, Neutron, …). Injective (INJ) isn't included — it uses a different key, so add your inj1… or 0x… address as its own INJ wallet.",
   BTC: "An xpub/ypub/zpub scans the whole HD wallet account, not just one address — use that instead of a single receive address unless you're sure that one address is where funds actually sit.",
 };
 

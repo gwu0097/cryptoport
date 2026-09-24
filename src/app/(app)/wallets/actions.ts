@@ -18,6 +18,8 @@ import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
 import { NON_EVM_DISPATCH, type AdapterFetchResult } from "@/lib/adapters/nonEvmDispatch";
+import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
+import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
@@ -717,6 +719,10 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
     try {
       let holdings: AdapterHolding[];
       let warnings: string[] = [];
+      // A Cosmos wallet's tokens across every coin-type-118 chain (Injective
+      // excluded), stored as auto_cosmos rows by their own RPC — see
+      // adapters/cosmosMulti.ts. Null for every other chain.
+      let cosmosHoldings: CosmosHolding[] | null = null;
       let detectedScriptType: ScriptType | null = wallet.btc_script_type as ScriptType | null;
       let cardanoStakeAddress: string | null = wallet.cardano_stake_address;
 
@@ -731,14 +737,17 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
           wallet.address!,
           wallet.cardano_stake_address,
         ));
+      } else if (wallet.chain === "ATOM") {
+        ({ holdings: cosmosHoldings, warnings } = await fetchCosmosMultiHoldings(wallet.address!));
+        holdings = []; // nothing here for the ticker-priced path below
       } else {
         ({ holdings, warnings } = await fetchAdapterHoldings(wallet.chain, wallet.address!));
       }
 
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
-      const { error: syncError } = await afterDb.rpc("sync_auto_holdings", {
+      const { error: syncError } = await afterDb.rpc(cosmosHoldings ? "sync_cosmos_holdings" : "sync_auto_holdings", {
         p_wallet_id: walletId,
-        p_holdings: holdings,
+        p_holdings: cosmosHoldings ?? holdings,
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);

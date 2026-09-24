@@ -38,7 +38,9 @@ export type WalletMode = "manual" | "auto";
  * regular multicall/adapter sync) so every sync's own delete-then-insert RPC
  * (sync_auto_holdings / sync_defi_holdings / sync_exchange_holdings) can
  * never clobber another's rows. */
-export type HoldingSource = "manual_qty" | "manual_usd" | "auto" | "auto_defi" | "auto_exchange";
+/** auto_cosmos: a Cosmos multi-chain wallet's tokens (adapters/cosmosMulti.ts) —
+ * priced only by their own coingecko_id, never by ticker (valuation.ts). */
+export type HoldingSource = "manual_qty" | "manual_usd" | "auto" | "auto_defi" | "auto_exchange" | "auto_cosmos";
 export type HoldingCategory = "token" | "defi";
 export type PriceSource = "coingecko" | "coinbase" | "jupiter";
 
@@ -183,6 +185,9 @@ export interface Holding {
    * as always). Null for every holding except one an adapter explicitly
    * labeled/sub-grouped (currently only hyperliquid.ts). */
   display_label: string | null;
+  /** The exact CoinGecko coin this holding is (manual coin-picker rows,
+   * auto_cosmos rows); null when not identified by id. */
+  coingecko_id?: string | null;
   protocol_section: string | null;
   /** Leveraged-position detail — see AdapterHolding's own doc comment for
    * why these are named fields rather than a generic blob, and why

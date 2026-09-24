@@ -31,7 +31,7 @@ export interface PriceRefreshState {
    * deriveJobStatus (lib/jobStatus.ts) the same way wallets.sync_started_at
    * does for a wallet sync. */
   startedAt: string | null;
-  /** Per-lane ("coingecko" | "coinbase" | "evm") live status/timing for the
+  /** Per-lane ("coingecko" | "coinbase" | "evm" | "cosmos") live status/timing for the
    * current or most recent refresh — see prices.ts's refreshPrices, which
    * writes this incrementally as each lane finishes rather than only once
    * at the very end. Null before the very first refresh this app has ever
@@ -318,13 +318,16 @@ function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "ticker"
  * did (this codebase's own "two is fine, three is the threshold" rule —
  * see CLAUDE.md's Architecture section). */
 function resolveChange24h(
-  holding: Pick<Holding, "contract" | "ticker">,
+  holding: Pick<Holding, "contract" | "ticker"> & Partial<Pick<Holding, "source" | "coingecko_id">>,
   priceStats: PriceStatsMap,
   contractStats: PriceStatsMap,
 ): number | null {
+  // A Cosmos token without a CoinGecko id has no verified identity, so a
+  // ticker-keyed change could be a different coin's (see valuation.ts).
+  const tickerOk = !(holding.source === "auto_cosmos" && !holding.coingecko_id);
   return (
     (holding.contract ? contractStats[holding.contract.toLowerCase()]?.change24h : undefined) ??
-    priceStats[holding.ticker]?.change24h ??
+    (tickerOk ? priceStats[holding.ticker]?.change24h : undefined) ??
     null
   );
 }

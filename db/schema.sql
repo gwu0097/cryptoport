@@ -1678,3 +1678,52 @@ create table cryptoport.signals_load_log (
 );
 alter table cryptoport.signals_load_log enable row level security;
 create index signals_load_log_at on cryptoport.signals_load_log (at);
+
+-- Cosmos multi-chain wallet sync (src/lib/adapters/cosmosMulti.ts): replaces
+-- one wallet's Cosmos rows atomically. Rows are source 'auto_cosmos' and
+-- carry their CoinGecko id, so they're priced only by that id (valuation.ts)
+-- and re-priced by Refresh prices. Also clears the wallet's old 'auto' rows
+-- (the native-ATOM-only row from before this feature).
+create or replace function cryptoport.sync_cosmos_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source in ('auto', 'auto_cosmos');
+
+  insert into cryptoport.holdings
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, coingecko_id, display_label)
+  select
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto_cosmos',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'coingecko_id',
+    h->>'display_label'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+grant execute on function cryptoport.sync_cosmos_holdings(uuid, jsonb, text) to authenticated;

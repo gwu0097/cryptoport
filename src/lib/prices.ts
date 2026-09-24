@@ -3,6 +3,7 @@ import { serviceDb } from "./supabase.ts";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange, CoinbaseDelistedError } from "./coinbase.ts";
 import { fetchTokenInfo } from "./adapters/jupiter.ts";
 import { refreshEvmHoldingPrices } from "./adapters/multicallEvm.ts";
+import { refreshCosmosHoldingPrices } from "./adapters/cosmosMulti.ts";
 import { fetchTokenPrices, fetchMarketStatsByIds } from "./adapters/coingecko.ts";
 import { EVM_CHAINS } from "./adapters/evmChains.ts";
 import { resolveCoingeckoKey } from "./priceKey.ts";
@@ -89,6 +90,8 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
   }[];
   const byTicker = new Map<string, typeof rows>();
   for (const row of rows) {
+    // Priced by their own CoinGecko id instead (refreshCosmosHoldingPrices).
+    if (row.source === "auto_cosmos") continue;
     if (!byTicker.has(row.ticker)) byTicker.set(row.ticker, []);
     byTicker.get(row.ticker)!.push(row);
   }
@@ -550,7 +553,7 @@ export async function refreshTickerPrices(tickers: HoldingTickerInfo[]): Promise
  * function's job is "make every known price fresh," however many
  * different mechanisms that takes.
  */
-type PhaseName = "coingecko" | "coinbase" | "evm";
+type PhaseName = "coingecko" | "coinbase" | "evm" | "cosmos";
 type PhaseState = { status: "running" | "done" | "error"; ms: number | null };
 
 /**
@@ -613,6 +616,7 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
     coingecko: { status: "running", ms: null },
     coinbase: { status: "running", ms: null },
     evm: { status: "running", ms: null },
+    cosmos: { status: "running", ms: null },
   };
   await persistPhases(phases);
 
@@ -637,10 +641,13 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
   // re-completing it, which read as broken rather than as one lane taking
   // a while. The phase only gets its one "done" write below, once the
   // whole thing (both steps) is actually finished.
-  const [coingecko, coinbaseAndJupiter, evmResults] = await Promise.all([
+  const [coingecko, coinbaseAndJupiter, evmResults, cosmosResults] = await Promise.all([
     tracked("coingecko", refreshCoinGeckoTickers(resolved)),
     refreshCoinbaseAndJupiter(residual, existingSources),
     tracked("evm", refreshEvmHoldingPrices()),
+    // Cosmos multi-chain tokens: re-priced by their own CoinGecko id, same
+    // idea as the EVM lane (adapters/cosmosMulti.ts).
+    tracked("cosmos", refreshCosmosHoldingPrices()),
   ]);
   // Small, second-stage Solana-miss follow-up plus the final result merge —
   // see mergeCoingeckoAndResidualResults' own doc comment. The phase only
@@ -651,5 +658,5 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
   phases.coinbase = { status: "done", ms: Date.now() - t0 };
   await persistPhases(phases);
 
-  return [...merged, ...evmResults];
+  return [...merged, ...evmResults, ...cosmosResults];
 }

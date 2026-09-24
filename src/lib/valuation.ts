@@ -61,6 +61,13 @@ export function valueHolding(
   if (holding.source === "manual_usd") {
     return { kind: "unpriced", reason: "no_usd_override" };
   }
+  // A Cosmos multi-chain token is priced only by its own CoinGecko id (its
+  // usd_override, stamped at sync / Refresh prices). Without one it is
+  // unpriced — never looked up by ticker, where a spam or look-alike token
+  // would borrow a real token's price (adapters/cosmosMulti.ts).
+  if (holding.source === "auto_cosmos") {
+    return { kind: "unpriced", reason: "no_price" };
+  }
 
   // manual_qty | auto
   const qty = parseNumeric(holding.qty);

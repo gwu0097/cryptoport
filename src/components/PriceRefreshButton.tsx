@@ -23,12 +23,13 @@ const PHASE_LABELS: Record<string, string> = {
   coingecko: "CoinGecko",
   coinbase: "Fallback",
   evm: "EVM holdings",
+  cosmos: "Cosmos holdings",
 };
 
 // Fixed order (not object insertion order, which JSONB round-tripping
 // doesn't guarantee) — matches the order refreshPrices actually starts
 // these lanes in.
-const PHASE_ORDER = ["coingecko", "coinbase", "evm"];
+const PHASE_ORDER = ["coingecko", "coinbase", "evm", "cosmos"];
 
 function formatMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
