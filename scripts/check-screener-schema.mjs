@@ -11,8 +11,19 @@
 // source of truth this checks the live DB (PostgREST's OpenAPI description)
 // against. Run it after handing over DDL and before `git push`.
 import { readFileSync } from "node:fs";
+import { checkSqlSchema } from "../src/lib/sqlSchemaCheck.ts";
 
 process.loadEnvFile(new URL("../.env.local", import.meta.url).pathname);
+
+// First: every table db/schema.sql declares must be in the cryptoport schema
+// (the only one the app's clients see — a public.* table is invisible to it;
+// see src/lib/sqlSchemaCheck.ts). Handover SQL gets the same check via
+// scripts/check-sql-schema.mts before it's pasted.
+const outside = checkSqlSchema(readFileSync(new URL("../db/schema.sql", import.meta.url), "utf8"));
+if (outside.length) {
+  for (const v of outside) console.error(`db/schema.sql:${v.line}: "${v.statement}" — ${v.table} is not in the cryptoport schema`);
+  process.exit(1);
+}
 
 const sql = readFileSync(new URL("../db/schema.sql", import.meta.url), "utf8")
   .split("\n")

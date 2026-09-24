@@ -344,6 +344,16 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   the chat response as a plain fenced code block**, never piped through a
   tool call (a tool call's output isn't visible/copyable to the user the
   same way) — they paste it into Supabase's SQL editor themselves.
+- **Every table lives in the `cryptoport` schema — never `public`, never
+  unqualified.** The Supabase clients are pinned to it (`serviceDb()` =
+  `.schema("cryptoport")`), so a table anywhere else is invisible to the
+  app; a new table also needs `grant all on cryptoport.<t> to service_role`.
+  Before pasting any handover SQL, write it to a scratch file and run
+  `node scripts/check-sql-schema.mts <file>` (exit 1 on any create/alter/
+  index/policy/grant/reference outside cryptoport); the screener preflight
+  runs the same check over `db/schema.sql`. (2026-09-24: `signals_load_log`
+  SQL was handed over as `public.` and the insert failed "Could not find the
+  table 'cryptoport.signals_load_log'".)
 
 ## Process
 
