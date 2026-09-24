@@ -135,7 +135,11 @@ export async function fetchJitoMevRewards(address: string): Promise<{ holdings: 
     category: "defi",
     chain: "solana-defi",
     icon_url: solIcon,
-    protocol: `Jito MEV Rewards: ${nameByVoter.get(voter)}`,
+    // MEV rewards accrue to the native stake accounts, so they sit with
+    // them (were "Jito MEV Rewards: <validator>" until 2026-09-25).
+    protocol: "Solana native staking",
+    protocol_section: "Rewards",
+    display_label: `Jito MEV rewards · ${nameByVoter.get(voter)}`,
     // Jito's own claim page — connect the wallet there and actually
     // harvest the MEV rewards, not just view them. User-specified
     // directly (the point of this link is a real action site).

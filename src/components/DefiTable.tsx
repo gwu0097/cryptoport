@@ -9,6 +9,7 @@ import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass
 import { TokenIcon } from "./TokenIcon";
 import { usePersistedState } from "./usePersistedState";
 import { groupBySection } from "@/lib/holdingSections";
+import { groupFamily, stakingLinks } from "@/lib/nativeStaking";
 import type { DefiSortKey, SortDirection } from "@/lib/sortKeys";
 
 // DefiSortKey lives in lib/sortKeys.ts, not here — a plain runtime constant
@@ -234,6 +235,10 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
               // the same underlying asset in practice), no separate
               // per-protocol icon source exists.
               const repHolding = group.wallets[0]?.positions[0];
+              // Native staking groups get where-to-unstake links instead of
+              // the plain protocol link (lib/nativeStaking.ts).
+              const family = groupFamily(group.wallets.flatMap((w) => w.positions));
+              const links = family ? stakingLinks(family, repHolding?.protocol_url ?? null) : null;
               return (
                 <Fragment key={group.protocol}>
                   <tr
@@ -251,12 +256,28 @@ export function DefiTable({ groups }: { groups: DefiProtocolGroup[] }) {
                     <td className={tdClass}>
                       <div className="flex items-center gap-2">
                         {repHolding && <TokenIcon ticker={repHolding.ticker} url={repHolding.icon_url} />}
+                        <div className="min-w-0">
                         <span className="font-medium text-fg">{group.protocol}</span>
+                        {links && (
+                          <div className="flex flex-wrap gap-x-3 text-xs">
+                            {links.manage ? (
+                              <a href={links.manage.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-accent hover:underline">
+                                {links.manage.label}
+                              </a>
+                            ) : (
+                              <span className="text-fg-muted">Manage in your wallet</span>
+                            )}
+                            <a href={links.guide.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-accent hover:underline">
+                              {links.guide.label}
+                            </a>
+                          </div>
+                        )}
+                        </div>
                         {/* Every position within one protocol group shares the
                             same protocol_url in practice (same adapter, same
                             product) — same "first holding stands in for the
                             group" reasoning already used for the icon above. */}
-                        {repHolding?.protocol_url && (
+                        {!links && repHolding?.protocol_url && (
                           <a
                             href={repHolding.protocol_url}
                             target="_blank"

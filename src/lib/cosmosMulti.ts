@@ -71,6 +71,13 @@ export interface CosmosStakingData {
  * priced exactly like that token's own balance row (its CoinGecko id), so a
  * chain whose token has no id stays unpriced, never ticker-priced.
  */
+/** A chain's page on Keplr's dashboard (stake, unstake, claim) — the
+ * chain-registry name, except Cosmos Hub. Not every chain has one (no Sei,
+ * no Archway on 2026-09-25): the adapter checks the page before using it. */
+export function keplrDashboardUrl(chainName: string): string {
+  return `https://wallet.keplr.app/chains/${chainName === "cosmoshub" ? "cosmos-hub" : chainName}`;
+}
+
 export function stakingHoldings(chain: DirectoryChain, data: CosmosStakingData, monikers: ReadonlyMap<string, string>): CosmosHolding[] {
   const asset = chain.stakingDenom ? chain.assets.get(chain.stakingDenom) : undefined;
   if (!asset || asset.decimals === null) return [];
@@ -86,7 +93,7 @@ export function stakingHoldings(chain: DirectoryChain, data: CosmosStakingData, 
     icon_url: asset.image,
     coingecko_id: asset.coingeckoId,
     display_label: label,
-    protocol: `${chain.prettyName} staking`,
+    protocol: `${chain.prettyName} native staking`,
     protocol_url: `https://www.mintscan.io/${chain.name}/validators/${validator}`,
     protocol_section: section,
   });

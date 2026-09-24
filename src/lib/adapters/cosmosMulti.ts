@@ -13,6 +13,7 @@ import {
   withKeplrCurrencies,
   withPrices,
   keplrRegistryFile,
+  keplrDashboardUrl,
   stakingHoldings,
   lockUnlinkedSei,
   type CosmosHolding,
@@ -84,6 +85,7 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
     if (linked === false) holdings = lockUnlinkedSei(holdings);
     if (linked === null) warnings.push("Couldn't check whether the Sei account is linked to an EVM address; Sei rows counted as usual");
   }
+  holdings = await withKeplrManageUrls(holdings);
   await saveChainIcons(results.filter((r) => r.holdings.length > 0).map((r) => r.chain));
   const unreachable = results.filter((r) => r.unreachable).map((r) => r.chain.prettyName);
   // Rows these failures leave unanswered are kept from the last sync
@@ -120,6 +122,26 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
 }
 
 type Balance = { denom: string; amount: string };
+
+/** Staking rows link to where you stake/unstake — the chain's Keplr
+ * Dashboard page — when Keplr has one (checked here, once per staked chain
+ * per sync: the page's title names the chain; an unsupported chain's page
+ * has none). Otherwise they keep the validator's Mintscan page. Best-effort:
+ * a failed check just keeps Mintscan. */
+async function withKeplrManageUrls(holdings: CosmosHolding[]): Promise<CosmosHolding[]> {
+  const staked = [...new Set(holdings.filter((h) => h.category === "defi").map((h) => h.chain))];
+  if (staked.length === 0) return holdings;
+  const ok = new Set<string>();
+  await mapWithConcurrency(staked, 6, async (name) => {
+    try {
+      const r = await fetch(keplrDashboardUrl(name), { cache: "no-store", signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) });
+      if (r.ok && /\| Keplr Dashboard<\/title>/.test(await r.text())) ok.add(name);
+    } catch {
+      // keep Mintscan
+    }
+  });
+  return holdings.map((h) => (h.category === "defi" && ok.has(h.chain) ? { ...h, protocol_url: keplrDashboardUrl(h.chain) } : h));
+}
 
 /** Each chain the wallet holds tokens on gets a chain_icons row (its
  * chain-registry logo) so its group shows an icon — only rows that don't

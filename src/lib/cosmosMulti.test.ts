@@ -134,7 +134,7 @@ test("staking: staked, rewards and unbonding rows per validator, priced by the s
       ["Unbonding", 40, 0.8, "Unbonding · Stakecito · available 2026-10-15"],
     ],
   );
-  assert.ok(h.every((x) => x.ticker === "STRD" && x.contract === "ustrd" && x.coingecko_id === "stride" && x.category === "defi" && x.protocol === "Stride staking"));
+  assert.ok(h.every((x) => x.ticker === "STRD" && x.contract === "ustrd" && x.coingecko_id === "stride" && x.category === "defi" && x.protocol === "Stride native staking"));
 });
 
 test("staking on a chain whose token the registry can't identify is skipped (no amount can be trusted)", () => {

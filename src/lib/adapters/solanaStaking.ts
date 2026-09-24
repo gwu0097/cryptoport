@@ -112,7 +112,11 @@ export async function fetchSolanaStaking(address: string): Promise<AdapterHoldin
     category: "defi",
     chain: "solana-defi",
     icon_url: solIcon,
-    protocol: `Solana Staking: ${nameByVoter.get(voter)}`,
+    // One protocol for all native stake (was "Solana Staking: <validator>"
+    // per validator until 2026-09-25); the validator is the row label.
+    protocol: "Solana native staking",
+    protocol_section: "Staked",
+    display_label: `Staked · ${nameByVoter.get(voter)}`,
     protocol_url: "https://app.marinade.finance/",
   }));
 }

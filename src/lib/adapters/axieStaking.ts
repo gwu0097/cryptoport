@@ -104,6 +104,8 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
       icon_url: icon,
       protocol: "Axie Staking",
       protocol_url: APP_URL,
+      protocol_section: "Staked",
+      display_label: "Staked AXS",
     });
   }
   if (rewardsRaw > BigInt(0)) {
@@ -116,8 +118,12 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
       category: "defi",
       chain: "ron",
       icon_url: icon,
-      protocol: "Axie Staking Rewards",
+      // One protocol with a Rewards section (was its own "Axie Staking
+      // Rewards" protocol until 2026-09-25).
+      protocol: "Axie Staking",
       protocol_url: APP_URL,
+      protocol_section: "Rewards",
+      display_label: "Pending rewards",
     });
   }
   return holdings;

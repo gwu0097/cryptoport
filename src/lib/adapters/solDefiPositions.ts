@@ -51,7 +51,10 @@ const SOURCES: { name: string; keep: KeepScope; fetch: (address: string) => Prom
   },
   {
     name: "solana staking",
-    keep: protocolScope("solana staking", "Solana Staking"),
+    keep: {
+      label: "solana staking",
+      owns: (h) => (h.protocol === "Solana native staking" && h.protocol_section === "Staked") || !!h.protocol?.startsWith("Solana Staking: "),
+    },
     fetch: (address) => fetchSolanaStaking(address).then((holdings) => ({ holdings, warnings: [] })),
   },
   {
@@ -59,7 +62,14 @@ const SOURCES: { name: string; keep: KeepScope; fetch: (address: string) => Prom
     keep: protocolScope("skr staking", "SKR Staking"),
     fetch: (address) => fetchSkrStaking(address).then((holdings) => ({ holdings, warnings: [] })),
   },
-  { name: "jito mev rewards", keep: protocolScope("jito mev rewards", "Jito MEV Rewards"), fetch: fetchJitoMevRewards },
+  {
+    name: "jito mev rewards",
+    keep: {
+      label: "jito mev rewards",
+      owns: (h) => !!h.display_label?.startsWith("Jito MEV rewards") || !!h.protocol?.startsWith("Jito MEV Rewards: "),
+    },
+    fetch: fetchJitoMevRewards,
+  },
   {
     name: "lulo",
     keep: protocolScope("lulo", "Lulo"),
