@@ -10,6 +10,7 @@ import { triggerFiresAt } from "@/lib/signals/triggers";
 import { TIMEFRAMES, type ChartTimeframe } from "@/lib/smc/engine";
 import { SignalTime } from "./SignalTime";
 import { TriggerText } from "./TriggerText";
+import { stateToneClass } from "./stateTone";
 
 type SortKey = "ticker" | "state" | "lastSignal" | "distance";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
@@ -111,7 +112,7 @@ export function WatchlistSignalsTable({
                         — {r.venueBars !== null ? `(${r.venueBars} bars)` : ""}
                       </span>
                     ) : (
-                      <span className={r.state.up ? "text-positive" : "text-negative"}>{r.state.label}</span>
+                      <span className={stateToneClass(r.state)}>{r.state.label}</span>
                     )}
                   </td>
                   <td className={`${tdClass} ${hideOnMobileClass}`}>

@@ -15,6 +15,7 @@ import { SignalTime, UntilTime } from "@/components/smc/SignalTime";
 import { IndicatorSelect } from "@/components/smc/IndicatorSelect";
 import { INDICATORS, indicatorById } from "@/lib/smc/indicators";
 import { TriggerText } from "@/components/smc/TriggerText";
+import { stateToneClass } from "@/components/smc/stateTone";
 import type { IndicatorId } from "@/lib/signals/rules";
 
 export const dynamic = "force-dynamic";
@@ -191,7 +192,7 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
         <span>
           State:{" "}
           {state ? (
-            <span className={state.up ? "font-medium text-positive" : "font-medium text-negative"}>{state.label}</span>
+            <span className={`font-medium ${stateToneClass(state)}`}>{state.label}</span>
           ) : (
             <span className="text-fg-muted">
               — (not enough Hyperliquid history: {view.venueBars} {ind === "smc" ? "completed blocks" : `${tf} bars`})
