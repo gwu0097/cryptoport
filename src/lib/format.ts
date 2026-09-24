@@ -129,9 +129,9 @@ export function formatDateTime(iso: string, timeZone: string): string {
   }).format(new Date(iso));
 }
 
-export function formatStaleness(lastRefreshAt: string | null): string {
+export function formatStaleness(lastRefreshAt: string | null, nowMs: number = Date.now()): string {
   if (!lastRefreshAt) return "never refreshed";
-  const diffMs = Date.now() - new Date(lastRefreshAt).getTime();
+  const diffMs = nowMs - new Date(lastRefreshAt).getTime();
   const minutes = Math.round(diffMs / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;

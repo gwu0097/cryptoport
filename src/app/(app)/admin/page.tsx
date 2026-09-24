@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { requireAdmin } from "@/lib/adminAuth";
 import { listAdminUsers } from "@/lib/adminQueries";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
-import { formatUsd, formatStaleness } from "@/lib/format";
+import { formatUsd } from "@/lib/format";
 import { getEffectiveTimeZone } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +58,7 @@ export default async function AdminPage() {
                       {signupDate.format(new Date(u.createdAt))}
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
-                      {u.lastActiveAt ? formatStaleness(u.lastActiveAt) : "Never active"}
+                      {u.lastActiveAt ? <AgeText at={u.lastActiveAt} serverNowSec={requestNowSec()} /> : "Never active"}
                     </td>
                     <td className={`${tdClass} text-fg-muted`}>{u.walletCount}</td>
                     <td className={`${tdClass} tabular-nums`}>{u.totalUsd > 0 ? formatUsd(u.totalUsd) : "—"}</td>

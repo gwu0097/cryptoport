@@ -1,9 +1,10 @@
 import Link from "next/link";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { ScreenerUniverseTable } from "@/components/screener/ScreenerUniverseTable";
 import { getLatestUniverseSnapshot } from "@/lib/screener/queries";
-import { formatStaleness } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Fundamentals universe · CryptoPort" };
@@ -37,7 +38,7 @@ export default async function ScreenerUniversePage() {
         <>
           <Panel className="mb-4">
             <p className="text-sm text-fg-muted">
-              Latest run: {formatStaleness(runStartedAt)} · {rows.length} matched assets · {unmatchedCount} unmatched
+              Latest run: <AgeText at={runStartedAt} serverNowSec={requestNowSec()} /> · {rows.length} matched assets · {unmatchedCount} unmatched
               (open intervals in `screener_unmatched`) · {conflictCount} source conflict{conflictCount === 1 ? "" : "s"} flagged.
             </p>
           </Panel>

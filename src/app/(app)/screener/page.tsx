@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { RegimePanel } from "@/components/screener/RegimePanel";
 import { ScreenerViews } from "@/components/screener/ScreenerViews";
 import { getScreenerView, getLatestBacktestSummary } from "@/lib/screener/queries";
-import { formatStaleness } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Fundamentals · CryptoPort" };
@@ -67,7 +68,7 @@ export default async function ScreenerPage() {
       ) : (
         <>
           <p className="mb-4 text-sm text-fg-muted">
-            Run of {view.run.startedAt.slice(0, 10)} (UTC), {formatStaleness(view.run.startedAt)}
+            Run of {view.run.startedAt.slice(0, 10)} (UTC), <AgeText at={view.run.startedAt} serverNowSec={requestNowSec()} />
             {view.run.trigger === "vercel-cron" ? " · scheduled" : " · manual"} · {view.ratedCount} rated ·{" "}
             {view.unrated.total} unrated. Data is refreshed once a day; the day&rsquo;s latest successful run is shown.
           </p>

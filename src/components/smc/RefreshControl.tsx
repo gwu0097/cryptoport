@@ -4,7 +4,7 @@ import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { formatSpan } from "@/lib/smc/time";
-import { useNowSec, clientAnchorMs } from "./SignalTime";
+import { useNowSec, clientAnchorMs } from "@/components/useServerNow";
 
 // Wait this long after a bar/block closes before re-fetching, so Hyperliquid
 // has published that candle's final close (the engines treat a candle as

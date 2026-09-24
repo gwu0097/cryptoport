@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getAdminTargetUser } from "@/lib/adminQueries";
 import { getWalletDetail } from "@/lib/queries";
@@ -8,7 +10,6 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
-import { formatStaleness } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export default async function AdminWalletDetailPage({
               <p className="text-sm text-fg">
                 {wallet.exchange_sync_status ?? "never synced"}
                 {wallet.exchange_synced_at && (
-                  <span className="text-fg-muted"> · last synced {formatStaleness(wallet.exchange_synced_at)}</span>
+                  <span className="text-fg-muted"> · last synced <AgeText at={wallet.exchange_synced_at} serverNowSec={requestNowSec()} /></span>
                 )}
               </p>
             </>
@@ -102,7 +103,7 @@ export default async function AdminWalletDetailPage({
             <p className="text-sm text-fg">
               {wallet.last_refresh_status ?? "never synced"}
               {wallet.last_refresh_at && (
-                <span className="text-fg-muted"> · last synced {formatStaleness(wallet.last_refresh_at)}</span>
+                <span className="text-fg-muted"> · last synced <AgeText at={wallet.last_refresh_at} serverNowSec={requestNowSec()} /></span>
               )}
             </p>
           )}
