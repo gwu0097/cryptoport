@@ -358,6 +358,17 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   was "held" on `main` pending the first 07:00 cron check; an unrelated
   "go ahead and push it" for `/signals` shipped it along, and the cron
   tested 2b instead of 2a on its own. Nobody noticed until the morning.)
+- **Never run a command that discards uncommitted changes** — `git reset
+  --hard`, `git checkout -- <path>`, `git restore`, `git clean`, `git stash
+  drop`, a branch switch that would overwrite — **without first running
+  `git status`, then `git stash push -u -m "<why>"`, then `git stash list`
+  to confirm the stash exists.** The working tree can hold the user's own
+  local-only edits (e.g. `next.config.ts`'s `allowedDevOrigins`, never
+  committed on purpose). 2026-09-24: moving a commit to a hold branch with
+  `git reset --hard` silently wiped that file; recovered only because its
+  diff happened to be in the session transcript. To move an unpushed commit
+  off `main`, `git branch hold/<name>` + `git reset --soft HEAD~1` + stash
+  is the non-destructive route.
 - Verification gate: `npx tsc --noEmit`, `npm run lint`, `npm test`. For
   any push touching screener code, also `node scripts/check-screener-schema.mjs`
   — push deploys, so DDL the user hasn't run yet means the next cron writes to
