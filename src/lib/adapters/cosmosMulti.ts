@@ -11,7 +11,9 @@ import {
   withKeplrCurrencies,
   withPrices,
   keplrRegistryFile,
+  stakingHoldings,
   type CosmosHolding,
+  type CosmosStakingData,
   type DirectoryChain,
 } from "../cosmosMulti";
 
@@ -57,14 +59,15 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   // CoinGecko id — e.g. stINJ, milkTIA, dATOM): fill from Keplr's registry
   // by exact denom, only for chains that actually hold such tokens.
   const results = await mapWithConcurrency(scanned, CONCURRENCY, async (r) => {
-    const gap = r.balances.some((b) => !r.chain.assets.get(b.denom)?.coingeckoId);
+    const stakingDenom = r.staking && (r.staking.delegations.length || r.staking.unbonding.length) ? r.chain.stakingDenom : null;
+    const gap = [...r.balances.map((b) => b.denom), ...(stakingDenom ? [stakingDenom] : [])].some((d) => !r.chain.assets.get(d)?.coingeckoId);
     const file = keplrRegistryFile(r.chain.chainId);
     if (r.unreachable || !gap || !file) return r;
     try {
       const k = await fetch(`${KEPLR_RAW}/${file}`, { cache: "no-store", signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) });
       if (!k.ok) return r;
       const chain = withKeplrCurrencies(r.chain, (await k.json()) as Parameters<typeof withKeplrCurrencies>[1]);
-      return { ...r, chain, holdings: holdingsFromBalances(chain, r.balances) };
+      return { ...r, chain, holdings: rowsFor(chain, r.balances, r.staking, r.monikers) };
     } catch {
       return r;
     }
@@ -90,6 +93,8 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
       `${unreachable.length} of ${chains.length} Cosmos chains couldn't be reached (their tokens may be missing): ${unreachable.slice(0, 12).join(", ")}${unreachable.length > 12 ? ", …" : ""}`,
     );
   }
+  const noStaking = results.filter((r) => !r.unreachable && r.staking === null).map((r) => r.chain.prettyName);
+  if (noStaking.length > 0) warnings.push(`Staking couldn't be read on ${noStaking.length} chain(s): ${noStaking.slice(0, 8).join(", ")}${noStaking.length > 8 ? ", …" : ""}`);
   const unrecognized = holdings.filter((h) => h.coingecko_id === null && h.qty === null).length;
   if (unrecognized > 0) warnings.push(`${unrecognized} unrecognized token(s) listed without an amount or price`);
   return { holdings, warnings };
@@ -132,12 +137,72 @@ function hostResolves(url: string, cache: Map<string, Promise<boolean>>): Promis
   return p;
 }
 
+type Scanned = {
+  chain: DirectoryChain;
+  balances: Balance[];
+  staking: CosmosStakingData | null; // null = couldn't be read on this chain
+  monikers: Map<string, string>;
+  holdings: CosmosHolding[];
+  unreachable: boolean;
+};
+
+const rowsFor = (chain: DirectoryChain, balances: Balance[], staking: CosmosStakingData | null, monikers: Map<string, string>) => [
+  ...holdingsFromBalances(chain, balances),
+  ...(staking ? stakingHoldings(chain, staking, monikers) : []),
+];
+
+async function getJson<T>(url: string): Promise<T> {
+  const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) });
+  if (!r.ok) {
+    await r.body?.cancel();
+    throw new Error(`HTTP ${r.status}`);
+  }
+  return (await r.json()) as T;
+}
+
+/** Delegations + unbonding for every reachable chain (unbonding even with no
+ * delegation left — exactly the state right after unstaking everything);
+ * rewards only where there are delegations. Same endpoint as the balances. */
+async function readStaking(base: string, address: string): Promise<{ staking: CosmosStakingData; monikers: Map<string, string> }> {
+  const [d, u] = await Promise.all([
+    getJson<{ delegation_responses?: { delegation: { validator_address: string }; balance: { denom: string; amount: string } }[] }>(
+      `${base}/cosmos/staking/v1beta1/delegations/${address}`,
+    ),
+    getJson<{ unbonding_responses?: { validator_address: string; entries: { balance: string; completion_time: string }[] }[] }>(
+      `${base}/cosmos/staking/v1beta1/delegators/${address}/unbonding_delegations`,
+    ),
+  ]);
+  const delegations = (d.delegation_responses ?? []).map((x) => ({ validator: x.delegation.validator_address, amount: x.balance.amount }));
+  const unbonding = (u.unbonding_responses ?? []).flatMap((x) =>
+    x.entries.map((e) => ({ validator: x.validator_address, amount: e.balance, completionTime: e.completion_time })),
+  );
+  let rewards: CosmosStakingData["rewards"] = [];
+  if (delegations.length > 0) {
+    const rw = await getJson<{ rewards?: { validator_address: string; reward: { denom: string; amount: string }[] }[] }>(
+      `${base}/cosmos/distribution/v1beta1/delegators/${address}/rewards`,
+    ).catch(() => null);
+    // Only the staking denom's rewards (stakingHoldings prices in that denom).
+    const denom = delegations.length ? d.delegation_responses![0].balance.denom : null;
+    rewards = (rw?.rewards ?? []).map((x) => ({ validator: x.validator_address, amount: x.reward.find((c) => c.denom === denom)?.amount ?? "0" }));
+  }
+  const monikers = new Map<string, string>();
+  const validators = [...new Set([...delegations, ...unbonding].map((x) => x.validator))];
+  await Promise.all(
+    validators.map(async (v) => {
+      const info = await getJson<{ validator?: { description?: { moniker?: string } } }>(`${base}/cosmos/staking/v1beta1/validators/${v}`).catch(() => null);
+      const m = info?.validator?.description?.moniker?.trim();
+      if (m) monikers.set(v, m);
+    }),
+  );
+  return { staking: { delegations, rewards, unbonding }, monikers };
+}
+
 async function scanChain(
   chain: DirectoryChain,
   cosmosAddress: string,
   started: number,
   dnsCache: Map<string, Promise<boolean>>,
-): Promise<{ chain: DirectoryChain; balances: Balance[]; holdings: CosmosHolding[]; unreachable: boolean }> {
+): Promise<Scanned> {
   const address = deriveAddress(cosmosAddress, chain.prefix);
   for (const base of chain.restUrls) {
     if (Date.now() - started > SCAN_DEADLINE_MS) break;
@@ -154,12 +219,13 @@ async function scanChain(
       const body = (await r.json()) as { balances?: Balance[] };
       if (!Array.isArray(body.balances)) continue;
       const balances = body.balances.filter((b) => /^\d+$/.test(b.amount) && !/^0+$/.test(b.amount));
-      return { chain, balances, holdings: holdingsFromBalances(chain, balances), unreachable: false };
+      const { staking, monikers } = await readStaking(base, address).catch(() => ({ staking: null, monikers: new Map<string, string>() }));
+      return { chain, balances, staking, monikers, holdings: rowsFor(chain, balances, staking, monikers), unreachable: false };
     } catch {
       // timeout / network error: try the chain's next endpoint
     }
   }
-  return { chain, balances: [], holdings: [], unreachable: true };
+  return { chain, balances: [], staking: null, monikers: new Map(), holdings: [], unreachable: true };
 }
 
 /**

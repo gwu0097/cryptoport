@@ -1684,6 +1684,8 @@ create index signals_load_log_at on cryptoport.signals_load_log (at);
 -- carry their CoinGecko id, so they're priced only by that id (valuation.ts)
 -- and re-priced by Refresh prices. Also clears the wallet's old 'auto' rows
 -- (the native-ATOM-only row from before this feature).
+-- v2 (2026-09-24): also stores protocol/protocol_url/protocol_section, for
+-- the per-chain staking rows ("Staked" / "Staking rewards" / "Unbonding").
 create or replace function cryptoport.sync_cosmos_holdings(
   p_wallet_id uuid,
   p_holdings jsonb,
@@ -1705,7 +1707,8 @@ begin
   where wallet_id = p_wallet_id and source in ('auto', 'auto_cosmos');
 
   insert into cryptoport.holdings
-    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, coingecko_id, display_label)
+    (wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, coingecko_id, display_label,
+     protocol, protocol_url, protocol_section)
   select
     p_wallet_id,
     h->>'ticker',
@@ -1717,7 +1720,10 @@ begin
     h->>'chain',
     h->>'icon_url',
     h->>'coingecko_id',
-    h->>'display_label'
+    h->>'display_label',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'protocol_section'
   from jsonb_array_elements(p_holdings) as h;
 
   update cryptoport.wallets

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -43,6 +43,7 @@ const chain: DirectoryChain = {
   chainId: "stride-1",
   prettyName: "Stride",
   image: null,
+  stakingDenom: "ustrd",
   prefix: "stride",
   restUrls: [],
   needsRegistryApis: false,
@@ -112,4 +113,30 @@ test("Keplr's registry fills missing CoinGecko ids by exact denom (the stINJ / m
       ["NOID", 5, null], // known token, no id: unpriced by name
     ],
   );
+});
+
+test("staking: staked, rewards and unbonding rows per validator, priced by the staking token's own id", () => {
+  const V = "stridevaloper1abcdefghijklmnop";
+  const h = stakingHoldings(
+    chain,
+    {
+      delegations: [{ validator: V, amount: "150000000" }],
+      rewards: [{ validator: V, amount: "2500000.123" }, { validator: V, amount: "0.4" }],
+      unbonding: [{ validator: V, amount: "40000000", completionTime: "2026-10-15T08:00:00Z" }],
+    },
+    new Map([[V, "Stakecito"]]),
+  );
+  assert.deepEqual(
+    h.map((x) => [x.protocol_section, x.qty, x.usd_override, x.display_label]),
+    [
+      ["Staked", 150, 3, "Staked · Stakecito"],
+      ["Rewards", 2.500000123, 0.05000000246, "Staking rewards · Stakecito"],
+      ["Unbonding", 40, 0.8, "Unbonding · Stakecito · available 2026-10-15"],
+    ],
+  );
+  assert.ok(h.every((x) => x.ticker === "STRD" && x.contract === "ustrd" && x.coingecko_id === "stride" && x.category === "defi" && x.protocol === "Stride staking"));
+});
+
+test("staking on a chain whose token the registry can't identify is skipped (no amount can be trusted)", () => {
+  assert.deepEqual(stakingHoldings({ ...chain, stakingDenom: "unknown" }, { delegations: [{ validator: "v", amount: "5" }], rewards: [], unbonding: [] }, new Map()), []);
 });

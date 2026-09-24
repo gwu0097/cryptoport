@@ -31,6 +31,7 @@ export interface DirectoryChain {
   chainId: string | null; // e.g. "stride-1" — names the chain's Keplr registry file
   prettyName: string;
   image: string | null; // the chain's logo (chain-registry), for its chain_icons row
+  stakingDenom: string | null; // the chain's native (staking) denom, e.g. "uatom"
   prefix: string;
   restUrls: string[];
   /** cosmos.directory listed no healthy REST endpoint for this chain — its
@@ -45,17 +46,71 @@ export interface CosmosHolding {
   qty: number | null;
   usd_override: number | null;
   contract: string; // the denom — the token's real identity on that chain
-  category: "token";
+  category: "token" | "defi";
   chain: string;
   icon_url: string | null;
   coingecko_id: string | null;
   display_label: string | null;
+  /** Staking rows only (stakingHoldings): grouped under "{chain} staking". */
+  protocol?: string;
+  protocol_url?: string;
+  protocol_section?: "Staked" | "Rewards" | "Unbonding";
+}
+
+export interface CosmosStakingData {
+  delegations: { validator: string; amount: string }[]; // base units
+  rewards: { validator: string; amount: string }[]; // DecCoin, may have decimals
+  unbonding: { validator: string; amount: string; completionTime: string }[];
+}
+
+/**
+ * A chain's native staking → holdings: per validator a "Staked", a "Staking
+ * rewards" and an "Unbonding" row (the last with the date it becomes
+ * spendable — unbonding keeps it out of the liquid balance for the chain's
+ * unbonding period, e.g. 21 days). Amounts are in the chain's staking denom;
+ * priced exactly like that token's own balance row (its CoinGecko id), so a
+ * chain whose token has no id stays unpriced, never ticker-priced.
+ */
+export function stakingHoldings(chain: DirectoryChain, data: CosmosStakingData, monikers: ReadonlyMap<string, string>): CosmosHolding[] {
+  const asset = chain.stakingDenom ? chain.assets.get(chain.stakingDenom) : undefined;
+  if (!asset || asset.decimals === null) return [];
+  const scale = 10 ** asset.decimals;
+  const name = (v: string) => monikers.get(v) ?? `${v.slice(0, 14)}…${v.slice(-4)}`;
+  const row = (validator: string, amount: number, section: "Staked" | "Rewards" | "Unbonding", label: string): CosmosHolding => ({
+    ticker: asset.symbol,
+    qty: amount,
+    usd_override: asset.coingeckoId && asset.usd !== null ? amount * asset.usd : null,
+    contract: asset.denom,
+    category: "defi",
+    chain: chain.name,
+    icon_url: asset.image,
+    coingecko_id: asset.coingeckoId,
+    display_label: label,
+    protocol: `${chain.prettyName} staking`,
+    protocol_url: `https://www.mintscan.io/${chain.name}/validators/${validator}`,
+    protocol_section: section,
+  });
+  const out: CosmosHolding[] = [];
+  for (const d of data.delegations) {
+    const q = Number(d.amount) / scale;
+    if (q > 0) out.push(row(d.validator, q, "Staked", `Staked · ${name(d.validator)}`));
+  }
+  for (const r of data.rewards) {
+    const q = Number(r.amount) / scale;
+    if (q * scale >= 1) out.push(row(r.validator, q, "Rewards", `Staking rewards · ${name(r.validator)}`));
+  }
+  for (const u of data.unbonding) {
+    const q = Number(u.amount) / scale;
+    if (q > 0) out.push(row(u.validator, q, "Unbonding", `Unbonding · ${name(u.validator)} · available ${u.completionTime.slice(0, 10)}`));
+  }
+  return out;
 }
 
 type RawChain = {
   name?: string;
   chain_id?: string;
   image?: string;
+  denom?: string;
   pretty_name?: string;
   bech32_prefix?: string;
   slip44?: number;
@@ -98,6 +153,7 @@ export function eligibleChains(raw: readonly RawChain[]): DirectoryChain[] {
       chainId: c.chain_id ?? null,
       prettyName: c.pretty_name ?? c.name,
       image: c.image ?? null,
+      stakingDenom: c.denom ?? null,
       prefix: c.bech32_prefix,
       restUrls: [`https://rest.cosmos.directory/${c.name}`, ...listed.slice(0, 2)],
       needsRegistryApis: listed.length === 0,
