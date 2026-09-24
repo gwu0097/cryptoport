@@ -47,12 +47,14 @@ export function WatchlistSignalsTable({
   rows,
   ind,
   tf,
+  serverNowSec,
   closeUnit,
   listQuery,
 }: {
   rows: WatchlistSignalRow[];
   ind: string;
   tf: ChartTimeframe;
+  serverNowSec: number;
   closeUnit: string;
   listQuery: string;
 }) {
@@ -113,7 +115,7 @@ export function WatchlistSignalsTable({
                     )}
                   </td>
                   <td className={`${tdClass} ${hideOnMobileClass}`}>
-                    {r.lastSignal ? <SignalTime sec={r.lastSignal.time} side={r.lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} /> : "—"}
+                    {r.lastSignal ? <SignalTime sec={r.lastSignal.time} side={r.lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} serverNowSec={serverNowSec} /> : "—"}
                   </td>
                   <td className={`${tdClass} max-w-md`}>{r.trigger ? <TriggerText trigger={r.trigger} /> : "—"}</td>
                   <td className={`${tdClass} tabular-nums`}>

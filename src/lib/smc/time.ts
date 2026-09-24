@@ -2,10 +2,16 @@
 // function takes the display timezone explicitly (the user's setting — see
 // lib/timezone.ts); an implicit zone would silently render the server's UTC.
 
-/** "Sep 22, 5:00 PM PDT" in the given zone. */
-export function formatTimeInZone(sec: number, timeZone: string): string {
+const yearIn = (sec: number, timeZone: string) =>
+  new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(new Date(sec * 1000));
+
+/** "Sep 22, 5:00 PM PDT" in the given zone — with the year ("Aug 9, 2025,
+ * 5:00 PM PDT") whenever it isn't `nowSec`'s year in that zone, so a signal
+ * from a past year can never read as recent. */
+export function formatTimeInZone(sec: number, timeZone: string, nowSec: number): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone,
+    year: yearIn(sec, timeZone) === yearIn(nowSec, timeZone) ? undefined : "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -21,9 +27,14 @@ export function formatAxisInZone(sec: number, timeZone: string): string {
   return time === "12:00 AM" ? new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(d) : time;
 }
 
-/** "45m", "3h 5m", "2d 4h" — the coarsest two units. */
+/** "45m", "3h 5m", "2d 4h", "1y 45d" — the coarsest two units. */
 export function formatSpan(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
+  const y = Math.floor(s / (365 * 86_400));
+  if (y > 0) {
+    const rd = Math.floor((s - y * 365 * 86_400) / 86_400);
+    return rd > 0 ? `${y}y ${rd}d` : `${y}y`;
+  }
   const d = Math.floor(s / 86_400);
   const h = Math.floor((s % 86_400) / 3_600);
   const m = Math.floor((s % 3_600) / 60);
@@ -32,12 +43,23 @@ export function formatSpan(seconds: number): string {
   return `${m}m`;
 }
 
-export type Recency = "within_bar" | "within_block" | "within_day" | "older";
+export type Recency = "within_bar" | "within_block" | "within_day" | "older" | "stale";
+
+/** A last signal at least this many of the chart's bars old is flagged stale
+ * (30h on 1H, 5d on 4H, 30d on 1D). */
+export const STALE_BARS = 30;
+
+/** Whole chart bars between a signal and now. */
+export function barsAgo(signalSec: number, nowSec: number, barSeconds: number): number {
+  return Math.max(0, Math.floor((nowSec - signalSec) / barSeconds));
+}
 
 /** How fresh a signal is, measured in the chart's own bars: within one bar
- * (flash — still actionable), within one block (3 bars), within a day, older. */
+ * (flash — still actionable), within one block (3 bars), within a day,
+ * older, or stale (≥ STALE_BARS bars — flagged so it can't pass as recent). */
 export function signalRecency(signalSec: number, nowSec: number, barSeconds: number): Recency {
   const age = nowSec - signalSec;
+  if (barsAgo(signalSec, nowSec, barSeconds) >= STALE_BARS) return "stale";
   if (age < barSeconds) return "within_bar";
   if (age < 3 * barSeconds) return "within_block";
   if (age < 86_400) return "within_day";

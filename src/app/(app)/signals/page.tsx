@@ -177,6 +177,8 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
     );
   }
   const { candles, view } = data;
+  // The render's own clock, so "(x ago)" and the stale flag are in the server HTML.
+  const nowSec = Math.floor(Date.parse(data.computedAt) / 1000);
   const last = candles.at(-1);
   const { state, trigger } = view;
   const lastSignal = view.signals.at(-1);
@@ -199,7 +201,7 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
         {lastSignal && (
           <span className="text-fg-muted">
             Last signal:{" "}
-            <SignalTime sec={lastSignal.time} side={lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} price={formatPrice(lastSignal.price)} />
+            <SignalTime sec={lastSignal.time} side={lastSignal.side} barSeconds={TIMEFRAMES[tf].candleSeconds} serverNowSec={nowSec} price={formatPrice(lastSignal.price)} />
           </span>
         )}
         {trigger && (
@@ -208,7 +210,7 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
             {view.decidedAt !== null && (
               <>
                 {" "}
-                (decided <UntilTime sec={view.decidedAt} />
+                (decided <UntilTime sec={view.decidedAt} serverNowSec={nowSec} />
                 {last && distance !== null ? `; last ${formatPrice(last.c)}, ${distance > 0 ? "+" : ""}${distance.toFixed(1)}% away` : ""})
               </>
             )}
@@ -244,7 +246,10 @@ async function WatchlistSection({
   listId?: string;
   filter: React.ReactNode;
 }) {
-  const rows = await getWatchlistSignals(ind, tf, listId);
+  const result = await getWatchlistSignals(ind, tf, listId);
+  const rows = result?.rows ?? null;
+  // The computation's own clock, so "(x ago)" and the stale flag are in the server HTML.
+  const nowSec = result ? Math.floor(Date.parse(result.computedAt) / 1000) : 0;
   return (
     <Panel
       title={
@@ -264,7 +269,7 @@ async function WatchlistSection({
           {listId ? "This watchlist is empty" : "Your watchlists are empty"} — add tokens on the Watchlist page.
         </p>
       ) : (
-        <WatchlistSignalsTable rows={rows} ind={ind} tf={tf} closeUnit={closeUnit} listQuery={listId ? `&list=${encodeURIComponent(listId)}` : ""} />
+        <WatchlistSignalsTable rows={rows} ind={ind} tf={tf} serverNowSec={nowSec} closeUnit={closeUnit} listQuery={listId ? `&list=${encodeURIComponent(listId)}` : ""} />
       )}
     </Panel>
   );

@@ -75,7 +75,11 @@ export interface WatchlistSignalRow {
  * Deliberately reads only tickers (no market-data merge), so this page makes
  * no CoinGecko calls. `watchlistId` must already be validated as the user's
  * (RLS would return nothing for anyone else's anyway). */
-export async function getWatchlistSignals(ind: IndicatorId, tf: ChartTimeframe, watchlistId?: string): Promise<WatchlistSignalRow[] | null> {
+export async function getWatchlistSignals(
+  ind: IndicatorId,
+  tf: ChartTimeframe,
+  watchlistId?: string,
+): Promise<{ rows: WatchlistSignalRow[]; computedAt: string } | null> {
   if (!(await getUser())) return null;
   const db = await userDb();
   const query = db.from("watchlist_items").select("ticker, name, image_url");
@@ -90,7 +94,8 @@ export async function getWatchlistSignals(ind: IndicatorId, tf: ChartTimeframe, 
   });
   const perps = new Set(await fetchPerpNames());
 
-  return mapWithConcurrency(items, 4, async (item): Promise<WatchlistSignalRow> => {
+  const computedAt = new Date().toISOString();
+  const rows = await mapWithConcurrency(items, 4, async (item): Promise<WatchlistSignalRow> => {
     const coin = perpNameFor(item.ticker, perps);
     const empty = { ticker: item.ticker.toUpperCase(), name: item.name, imageUrl: item.image_url, coin, state: null, lastSignal: null, lastPrice: null, trigger: null, decidedAt: null, venueBars: null };
     if (!coin) return { ...empty, error: null };
@@ -110,4 +115,5 @@ export async function getWatchlistSignals(ind: IndicatorId, tf: ChartTimeframe, 
       return { ...empty, error: (e as Error).message };
     }
   });
+  return { rows, computedAt };
 }

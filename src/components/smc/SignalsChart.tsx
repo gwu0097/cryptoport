@@ -56,7 +56,7 @@ export function SignalsChart({
       grid: { vertLines: { color: "rgba(148,163,184,0.08)" }, horzLines: { color: "rgba(148,163,184,0.08)" } },
       rightPriceScale: { borderColor: "rgba(148,163,184,0.2)" },
       // The user's timezone on the axis and crosshair (the library defaults to UTC).
-      localization: { timeFormatter: (time: Time) => formatTimeInZone(time as number, tz) },
+      localization: { timeFormatter: (time: Time) => formatTimeInZone(time as number, tz, Math.floor(Date.now() / 1000)) },
       timeScale: {
         borderColor: "rgba(148,163,184,0.2)",
         timeVisible: true,
