@@ -91,3 +91,35 @@ export async function fetchSeiStakingHoldings(address: string, unitUsd: number |
   );
   return seiStakingHoldings(data, monikers, unitUsd, icon);
 }
+
+const EVM_ADDR_ABI = parseAbi(["function getEvmAddr(string addr) view returns (address)"]);
+
+/** Whether a sei1… account is linked to an EVM address (Addr precompile
+ * getEvmAddr). false = the call reverts: never linked, so after SIP-3 it
+ * can't transact. null = couldn't be checked (callers must not guess). */
+export async function seiAccountIsLinked(seiAddress: string): Promise<boolean | null> {
+  try {
+    return await firstOk(EVM_RPCS, async (rpc) => {
+      const r = await fetch(rpc, {
+        method: "POST",
+        cache: "no-store",
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_call",
+          params: [{ to: ADDR_PRECOMPILE, data: encodeFunctionData({ abi: EVM_ADDR_ABI, functionName: "getEvmAddr", args: [seiAddress] }) }, "latest"],
+        }),
+      });
+      const j = (await r.json()) as { result?: `0x${string}`; error?: { message: string } };
+      if (j.error) {
+        if (/revert/i.test(j.error.message)) return false;
+        throw new Error(j.error.message);
+      }
+      return /^0x0{40}$/i.test(j.result ?? "") ? false : true;
+    });
+  } catch {
+    return null;
+  }
+}

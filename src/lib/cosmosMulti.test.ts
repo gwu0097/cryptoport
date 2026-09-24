@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -139,4 +139,22 @@ test("staking: staked, rewards and unbonding rows per validator, priced by the s
 
 test("staking on a chain whose token the registry can't identify is skipped (no amount can be trusted)", () => {
   assert.deepEqual(stakingHoldings({ ...chain, stakingDenom: "unknown" }, { delegations: [{ validator: "v", amount: "5" }], rewards: [], unbonding: [] }, new Map()), []);
+});
+
+test("an unlinked Sei account's rows stay listed but become unpriced, id-less and labeled; other chains untouched", () => {
+  const base = { qty: 1, contract: "usei", category: "defi" as const, icon_url: null };
+  const out = lockUnlinkedSei([
+    { ...base, ticker: "SEI", usd_override: 91.2, chain: "sei", coingecko_id: "sei-network", display_label: "Staked · MantiCore", protocol_section: "Staked" as const },
+    { ...base, ticker: "SEI", usd_override: 3, chain: "sei", coingecko_id: "sei-network", display_label: null, category: "token" as const },
+    { ...base, ticker: "ATOM", usd_override: 5, chain: "cosmoshub", coingecko_id: "cosmos", display_label: null },
+  ]);
+  assert.deepEqual(
+    out.map((h) => [h.chain, h.usd_override, h.coingecko_id, h.display_label]),
+    [
+      ["sei", null, null, "Staked · MantiCore — locked: Sei Cosmos account with no linked EVM address (SIP-3)"],
+      ["sei", null, null, "SEI — locked: Sei Cosmos account with no linked EVM address (SIP-3)"],
+      ["cosmoshub", 5, "cosmos", null],
+    ],
+  );
+  assert.equal(out[0].qty, 1, "amounts are kept");
 });

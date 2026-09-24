@@ -1,4 +1,5 @@
 import "server-only";
+import { seiAccountIsLinked } from "./seiStaking";
 import { Resolver } from "node:dns/promises";
 import { serviceDb } from "../supabase";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
@@ -12,6 +13,7 @@ import {
   withPrices,
   keplrRegistryFile,
   stakingHoldings,
+  lockUnlinkedSei,
   type CosmosHolding,
   type CosmosStakingData,
   type DirectoryChain,
@@ -73,10 +75,17 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
     }
   });
   let holdings = results.flatMap((r) => r.holdings);
+  const warnings: string[] = [];
+  // Sei is EVM-only since SIP-3: an account never linked to its 0x address
+  // can't move its SEI, so those rows are listed but not counted.
+  if (holdings.some((h) => h.chain === "sei")) {
+    const linked = await seiAccountIsLinked(deriveAddress(cosmosAddress, "sei"));
+    if (linked === false) holdings = lockUnlinkedSei(holdings);
+    if (linked === null) warnings.push("Couldn't check whether the Sei account is linked to an EVM address; Sei rows counted as usual");
+  }
   await saveChainIcons(results.filter((r) => r.holdings.length > 0).map((r) => r.chain));
   const unreachable = results.filter((r) => r.unreachable).map((r) => r.chain.prettyName);
 
-  const warnings: string[] = [];
   // Identified tokens cosmos.directory had no price for: CoinGecko by id, in
   // one batched call (shared 60s cache) — only when there are any.
   const needPrice = [...new Set(holdings.filter((h) => h.coingecko_id && h.usd_override === null && h.qty !== null).map((h) => h.coingecko_id!))];

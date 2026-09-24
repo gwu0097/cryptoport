@@ -281,3 +281,23 @@ export function holdingsFromBalances(chain: DirectoryChain, balances: readonly {
   }
   return out;
 }
+
+export const SEI_LOCKED_NOTE = "locked: Sei Cosmos account with no linked EVM address (SIP-3)";
+
+/**
+ * Sei went EVM-only (SIP-3): a sei1… account that was never linked to its
+ * 0x address can no longer send transactions, so its SEI — liquid, staked,
+ * rewards or unbonding — can't be moved (verified 2026-09-24 on a Ledger
+ * Cosmos-app account: 2,500 SEI staked, getEvmAddr reverts). Such rows stay
+ * listed for traceability but are unpriced (excluded from totals, hidden by
+ * "Hide unpriced") and lose their CoinGecko id so "Refresh prices" never
+ * re-prices them. If the account is ever linked, the next sync prices it
+ * normally again. Decided with the user: label + exclude, not delete.
+ */
+export function lockUnlinkedSei(holdings: readonly CosmosHolding[], seiChainName = "sei"): CosmosHolding[] {
+  return holdings.map((h) =>
+    h.chain !== seiChainName
+      ? h
+      : { ...h, usd_override: null, coingecko_id: null, display_label: `${h.display_label ?? h.ticker} — ${SEI_LOCKED_NOTE}` },
+  );
+}
