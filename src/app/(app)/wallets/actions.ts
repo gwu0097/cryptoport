@@ -18,6 +18,7 @@ import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
 import { NON_EVM_DISPATCH, type AdapterFetchResult } from "@/lib/adapters/nonEvmDispatch";
+import { fetchSeiStakingHoldings } from "@/lib/adapters/seiStaking";
 import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
@@ -628,13 +629,31 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
   // checked before the generic EVM check below (which would otherwise
   // also claim "SEI" — evmChains.ts has its own "sei" entry for the EVM
   // side of the same chain). Not in NON_EVM_DISPATCH for the same reason.
-  if (chain === "SEI" && address.startsWith("sei1")) {
-    return { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] };
+  if (chain === "SEI") {
+    const base: AdapterFetchResult = address.startsWith("sei1")
+      ? { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] }
+      : await fetchEvmHoldings(address);
+    return withSeiStaking(address, base);
   }
   if (isEvmChainId(chain)) return fetchEvmHoldings(address);
   const entry = NON_EVM_DISPATCH[chain];
   if (entry) return entry.fetch(address);
   throw new Error(`No sync adapter for chain "${chain}".`);
+}
+
+/** Adds a Sei wallet's native staking (delegations, rewards, unbonding —
+ * Cosmos-side, so neither balance scan sees it; adapters/seiStaking.ts).
+ * Priced at the same per-unit SEI price as the wallet's own native balance
+ * row when it has one. A staking lookup failure is a warning only. */
+async function withSeiStaking(address: string, base: AdapterFetchResult): Promise<AdapterFetchResult> {
+  const native = base.holdings.find((h) => h.chain === "sei" && h.contract === null && h.qty);
+  const unitUsd = native && native.usd_override !== null && native.qty ? native.usd_override / native.qty : null;
+  try {
+    const stakes = await fetchSeiStakingHoldings(address, unitUsd, native?.icon_url ?? null);
+    return { holdings: [...base.holdings, ...stakes], warnings: base.warnings };
+  } catch (e) {
+    return { ...base, warnings: [...base.warnings, `Sei staking positions couldn't be loaded: ${(e as Error).message}`] };
+  }
 }
 
 // Fetches fresh holdings from the wallet's adapter (Multicall3+CoinGecko+
