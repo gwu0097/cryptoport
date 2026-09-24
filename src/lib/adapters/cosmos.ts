@@ -2,6 +2,7 @@ import "server-only";
 import { bech32 } from "@scure/base";
 import { formatUnits } from "viem";
 import { fetchWithRetry } from "./http";
+import { toBech32Address } from "./cosmosAddress";
 import { fetchTokenImages } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
@@ -34,6 +35,9 @@ export interface CosmosChainConfig {
   /** holding.chain value — must have a matching entry in coingecko.ts's
    * NATIVE_ICON_CHAINS for its chain-group icon to resolve. */
   chainSlug: string;
+  /** Ethereum-style keys (eth_secp256k1): a wallet may be saved as its 0x
+   * address, converted to bech32 before any API call (cosmosAddress.ts). */
+  hexAccounts?: boolean;
 }
 
 export const COSMOS_CHAINS: CosmosChainConfig[] = [
@@ -58,6 +62,7 @@ export const COSMOS_CHAINS: CosmosChainConfig[] = [
     nativeCoingeckoId: "injective-protocol",
     nativeSymbol: "INJ",
     chainSlug: "injective",
+    hexAccounts: true,
   },
   // Sei is unusual: it's a Cosmos SDK chain with a full EVM execution
   // layer bolted on, so the SAME wallet.chain value ("SEI") is genuinely
@@ -114,7 +119,7 @@ export async function fetchCosmosHoldings(chainId: string, address: string): Pro
   const cfg = cosmosChainFor(chainId);
   if (!cfg) throw new Error(`Unknown Cosmos chain "${chainId}"`);
 
-  const res = await fetchWithRetry(`${cfg.lcd}/cosmos/bank/v1beta1/balances/${address}`);
+  const res = await fetchWithRetry(`${cfg.lcd}/cosmos/bank/v1beta1/balances/${toBech32Address(address, cfg.bech32Prefix, !!cfg.hexAccounts)}`);
   if (!res.ok) throw new Error(`${cfg.name} balances failed: HTTP ${res.status}`);
   const body: BalancesResponse = await res.json();
   const raw = body.balances.find((b) => b.denom === cfg.denom);

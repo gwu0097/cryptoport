@@ -1,5 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
+import { toBech32Address } from "./cosmosAddress";
 import type { AdapterTransaction } from "./types";
 
 // Injective's own public indexer — NOT the generic Cosmos SDK LCD
@@ -101,7 +102,10 @@ function nativeEffect(msg: Message, address: string): { net: number; counterpart
  * ticker/amount/counterparty left null rather than guessed at, same
  * pattern as Solana's multi-account swap legs.
  */
-export async function fetchInjectiveTransactions(address: string): Promise<AdapterTransaction[]> {
+export async function fetchInjectiveTransactions(walletAddress: string): Promise<AdapterTransaction[]> {
+  // The indexer and every message's from/to fields use the inj1… form; a
+  // wallet saved as its 0x address (Ledger) is the same account (cosmosAddress.ts).
+  const address = toBech32Address(walletAddress, "inj", true);
   const res = await fetchWithRetry(`${API_BASE}/accountTxs/${address}?limit=${PAGE_LIMIT}`);
   if (!res.ok) throw new Error(`Injective explorer accountTxs failed: HTTP ${res.status}`);
   const body: AccountTxsResponse = await res.json();
