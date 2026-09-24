@@ -299,8 +299,12 @@ export const EVM_CHAINS: EvmChain[] = [
     chainId: 1329,
     rpc: "https://sei-evm-rpc.publicnode.com",
     coingeckoPlatform: "sei-v2",
-    nativeCoingeckoId: "wrapped-sei",
-    nativeSymbol: "WSEI",
+    // The EVM side's gas coin IS SEI (same asset as the Cosmos side, see
+    // cosmos.ts) — was "wrapped-sei"/"WSEI", which labeled a plain SEI
+    // balance as the wrapped token and split it from staked SEI on the
+    // Assets page (reported 2026-09-24).
+    nativeCoingeckoId: "sei-network",
+    nativeSymbol: "SEI",
   },
   {
     id: "chiliz",
