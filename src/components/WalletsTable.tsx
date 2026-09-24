@@ -29,12 +29,18 @@ function WalletSyncButton({
   walletName,
   status,
   start,
+  queueRunning,
 }: {
   walletName: string;
   status: ReturnType<typeof deriveJobStatus>;
   start: () => Promise<JobStartResult>;
+  /** A running "Sync all" is syncing this wallet right now — spin even
+   * before the page's own copy of its status has refreshed to "syncing". */
+  queueRunning: boolean;
 }) {
-  const { busy, submit } = useJob({ status, start });
+  const job = useJob({ status, start });
+  const busy = job.busy || queueRunning;
+  const { submit } = job;
   return (
     <JobButton
       busy={busy}
@@ -163,6 +169,7 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
               walletName={wallet.name}
               status={jobStatus}
               start={wallet.provider ? () => syncExchangeHoldings(wallet.id) : () => syncWalletHoldings(wallet.id, false)}
+              queueRunning={queued?.state === "running"}
             />
           )}
         </div>
