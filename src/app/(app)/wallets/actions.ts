@@ -651,7 +651,7 @@ async function withSeiStaking(address: string, base: AdapterFetchResult): Promis
   const unitUsd = native && native.usd_override !== null && native.qty ? native.usd_override / native.qty : null;
   try {
     const stakes = await fetchSeiStakingHoldings(address, unitUsd, native?.icon_url ?? null);
-    return { holdings: [...base.holdings, ...stakes], warnings: base.warnings };
+    return { ...base, holdings: [...base.holdings, ...stakes] };
   } catch (e) {
     return {
       ...base,
