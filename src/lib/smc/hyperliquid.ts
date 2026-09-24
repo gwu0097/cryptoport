@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { fetchWithRetry } from "@/lib/adapters/http";
 import type { Candle } from "./engine";
+import type { LoadMeter } from "./loadLog";
 
 // Hyperliquid's public info API — free, no key. Signals are computed on the
 // venue the user intends to trade on (BACKLOG: "SMC signal engine"), so the
@@ -17,11 +18,18 @@ const INFO_URL = "https://api.hyperliquid.xyz/info";
 // usually cleared within seconds, so back off longer than the default.
 const RETRY = { attempts: 4, baseDelayMs: 2000 };
 
-async function info<T>(body: unknown): Promise<T> {
+async function info<T>(body: unknown, meter?: LoadMeter): Promise<T> {
   const res = await fetchWithRetry(
     INFO_URL,
     { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
-    RETRY,
+    {
+      ...RETRY,
+      // Count every 429 (each is still retried) for the load log.
+      stopOn: async (r) => {
+        if (meter && r.status === 429) meter.http429++;
+        return false;
+      },
+    },
   );
   if (!res.ok) throw new Error(`Hyperliquid info ${JSON.stringify(body).slice(0, 60)} failed: HTTP ${res.status}`);
   return res.json() as Promise<T>;
@@ -34,11 +42,19 @@ export const fetchPerpNames = cache(async (): Promise<string[]> => {
   return meta.universe.filter((u) => !u.isDelisted).map((u) => u.name);
 });
 
-export async function fetchCandles(coin: string, interval: "1h" | "4h" | "1d", startMs: number, endMs: number): Promise<Candle[]> {
-  const rows = await info<{ t: number; o: string; h: string; l: string; c: string; n?: number }[]>({
-    type: "candleSnapshot",
-    req: { coin, interval, startTime: startMs, endTime: endMs },
-  });
+export async function fetchCandles(
+  coin: string,
+  interval: "1h" | "4h" | "1d",
+  startMs: number,
+  endMs: number,
+  meter?: LoadMeter,
+): Promise<Candle[]> {
+  const rows = await info<{ t: number; o: string; h: string; l: string; c: string; n?: number }[]>(
+    { type: "candleSnapshot", req: { coin, interval, startTime: startMs, endTime: endMs } },
+    meter,
+  );
+  // Hyperliquid's /info weight for candleSnapshot: 20 + 1 per 60 candles returned.
+  if (meter) meter.weight += 20 + Math.ceil(rows.length / 60);
   return rows
     .map((r) => ({ t: Math.floor(r.t / 1000), o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c), n: r.n }))
     .filter((c) => [c.o, c.h, c.l, c.c].every(Number.isFinite));

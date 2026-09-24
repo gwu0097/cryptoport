@@ -8,6 +8,7 @@ import type { IndicatorId } from "@/lib/signals/rules";
 import type { NextTrigger } from "@/lib/signals/triggers";
 import { TIMEFRAMES, BLOCK_MULTIPLIER, type ChartTimeframe, type Candle } from "./engine";
 import { fetchCandles, fetchPerpNames } from "./hyperliquid";
+import { logSignalsLoad, newLoadMeter, type LoadMeter } from "./loadLog";
 
 const DAY_MS = 86_400_000;
 
@@ -34,16 +35,22 @@ function stateLookbackMs(ind: IndicatorId, tf: ChartTimeframe): number {
   return bars * TIMEFRAMES[tf].candleSeconds * 1000;
 }
 
-async function computeFor(ind: IndicatorId, coin: string, tf: ChartTimeframe, lookbackMs: number): Promise<IndicatorChartData> {
+async function computeFor(ind: IndicatorId, coin: string, tf: ChartTimeframe, lookbackMs: number, meter?: LoadMeter): Promise<IndicatorChartData> {
   const now = Date.now();
-  const candles = await fetchCandles(coin, TIMEFRAMES[tf].interval, now - lookbackMs, now);
+  const candles = await fetchCandles(coin, TIMEFRAMES[tf].interval, now - lookbackMs, now, meter);
   const view = viewFor(ind, candles, tf, Math.floor(now / 1000), formatPrice);
   return { coin, tf, candles, view, computedAt: new Date(now).toISOString() };
 }
 
 /** Full chart history (one call) for the chart view. */
 export async function getIndicatorChart(ind: IndicatorId, coin: string, tf: ChartTimeframe): Promise<IndicatorChartData> {
-  return computeFor(ind, coin, tf, TIMEFRAMES[tf].historyDays * DAY_MS);
+  const startedAtMs = Date.now();
+  const meter = newLoadMeter();
+  try {
+    return await computeFor(ind, coin, tf, TIMEFRAMES[tf].historyDays * DAY_MS, meter);
+  } finally {
+    logSignalsLoad({ section: "chart", ind, tf, coins: [coin], meter, startedAtMs });
+  }
 }
 
 /** A watchlist ticker's Hyperliquid perp name: the same symbol, or the
@@ -94,13 +101,15 @@ export async function getWatchlistSignals(
   });
   const perps = new Set(await fetchPerpNames());
 
+  const startedAtMs = Date.now();
+  const meter = newLoadMeter();
   const computedAt = new Date().toISOString();
   const rows = await mapWithConcurrency(items, 4, async (item): Promise<WatchlistSignalRow> => {
     const coin = perpNameFor(item.ticker, perps);
     const empty = { ticker: item.ticker.toUpperCase(), name: item.name, imageUrl: item.image_url, coin, state: null, lastSignal: null, lastPrice: null, trigger: null, decidedAt: null, venueBars: null };
     if (!coin) return { ...empty, error: null };
     try {
-      const { candles, view } = await computeFor(ind, coin, tf, stateLookbackMs(ind, tf));
+      const { candles, view } = await computeFor(ind, coin, tf, stateLookbackMs(ind, tf), meter);
       return {
         ...empty,
         state: view.state,
@@ -115,5 +124,7 @@ export async function getWatchlistSignals(
       return { ...empty, error: (e as Error).message };
     }
   });
+  const coins = rows.flatMap((r) => (r.coin ? [r.coin] : []));
+  if (coins.length > 0) logSignalsLoad({ section: "watchlist", ind, tf, coins, meter, startedAtMs });
   return { rows, computedAt };
 }

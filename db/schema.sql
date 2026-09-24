@@ -1659,3 +1659,22 @@ alter table cryptoport.screener_backtest_runs enable row level security;
 --     run_id uuid references cryptoport.screener_runs(id) on delete set null,
 --     kind text not null, identifier text not null, reason text,
 --     created_at timestamptz not null default now());
+
+-- Temporary measurement (2026-09-24, src/lib/smc/loadLog.ts): one row per
+-- /signals section load, replayed after a day to compare the in-memory vs
+-- shared candle-cache hit rate. Drop once that decision is made.
+create table cryptoport.signals_load_log (
+  id bigint generated always as identity primary key,
+  at timestamptz not null default now(),
+  instance_id text not null,
+  instance_started_at timestamptz not null,
+  section text not null check (section in ('chart', 'watchlist')),
+  ind text not null,
+  tf text not null,
+  coins text[] not null,
+  weight int not null,
+  http429 int not null default 0,
+  duration_ms int not null
+);
+alter table cryptoport.signals_load_log enable row level security;
+create index signals_load_log_at on cryptoport.signals_load_log (at);
