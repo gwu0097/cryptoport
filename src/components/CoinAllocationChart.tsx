@@ -103,7 +103,7 @@ function buildSlices(groups: AssetGroup[], total: number): Slice[] {
  * rest of this page's server-rendered tree — data still arrives as plain
  * props from the Server Component parent, nothing else changes.
  */
-export function CoinAllocationChart({ groups, total }: { groups: AssetGroup[]; total: number }) {
+export function CoinAllocationChart({ groups, total, className = "mb-4" }: { groups: AssetGroup[]; total: number; className?: string }) {
   const { hidden } = useHideBalance();
   const slices = buildSlices(groups, total);
   if (slices.length === 0) return null;
@@ -129,7 +129,7 @@ export function CoinAllocationChart({ groups, total }: { groups: AssetGroup[]; t
   ).list;
 
   return (
-    <Panel title="Coin allocation" className="mb-4">
+    <Panel title="Coin allocation" className={className}>
       <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-center">
         <div className="relative shrink-0">
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">

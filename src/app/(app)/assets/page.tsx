@@ -1,4 +1,6 @@
-import { getAssetsGroupedByTicker, getPriceRefreshState } from "@/lib/queries";
+import { getAssetsGroupedByTicker, getChainIconMap, getPriceRefreshState } from "@/lib/queries";
+import { chainAllocations } from "@/lib/chainAllocation";
+import { ChainAllocationPanel } from "@/components/ChainAllocationPanel";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
@@ -60,11 +62,15 @@ export default async function AssetsPage({
   const hideLow = hideLowParam !== "0";
   const initialSort = parseInitialSort(sort, dir);
 
-  const [{ groups, grand }, user, priceState] = await Promise.all([
+  const [{ groups, grand }, user, priceState, chainIcons] = await Promise.all([
     getAssetsGroupedByTicker(),
     getUser(),
     getPriceRefreshState(),
+    getChainIconMap(),
   ]);
+  // Value by chain split by asset type, from the same holdings (and so the
+  // same total) as the Coin allocation chart — see chainAllocation.ts.
+  const chains = chainAllocations(groups.flatMap((g) => g.holdings));
 
   // Same semantics as ChainGroupedHoldings: filter which contributing
   // holdings show in a group's breakdown table, but the group's own
@@ -117,7 +123,12 @@ export default async function AssetsPage({
         )
       ) : (
         <>
-          {user && <CoinAllocationChart groups={groups} total={grand.total} />}
+          {user && (
+            <div className="mb-4 grid gap-4 lg:grid-cols-2">
+              <CoinAllocationChart groups={groups} total={grand.total} className="" />
+              <ChainAllocationPanel chains={chains} total={grand.total} icons={chainIcons} />
+            </div>
+          )}
 
           <div className="mb-4 flex justify-end gap-4">
             <CheckboxLink
