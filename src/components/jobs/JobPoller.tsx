@@ -157,12 +157,17 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
       const anyRunningNow = flattenJobs(data).some((row) => deriveJobStatus(row, now).running);
       const wasRunning = lastAnyRunningRef.current;
-      // A locally-optimistic button (clicked, hasn't yet seen server
-      // confirmation) counts as "was running" too — covers a job that
-      // finished before this provider ever got a first poll in (see this
-      // component's own doc comment on the fast-job edge case).
+      // A locally-busy button (clicked, hasn't yet seen its own run finish
+      // in its server props) counts as "was running" too — covers a job
+      // that finished before any poll saw it running (see this component's
+      // own doc comment on the fast-job edge case). `||`, not `??`: this
+      // ref outlives each polling session, so after an earlier session
+      // ended on "nothing running" it's false, not null, and `??` ignored
+      // the busy button — a 1.5s DeFi sync then spun forever (2026-09-24).
+      // Re-notifies each tick while a button stays busy with nothing
+      // running server-side; the refresh clears that button, which stops it.
       const localBusy = [...jobsRef.current.values()].some((j) => j.busy);
-      const treatAsWasRunning = wasRunning ?? localBusy;
+      const treatAsWasRunning = wasRunning === true || localBusy;
 
       // Same "was running" edge case as above, applied per-lane: a lane
       // this provider has never observed before (prevStatus undefined) —
