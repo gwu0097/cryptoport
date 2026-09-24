@@ -1,12 +1,11 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
-import { SlowJobHint } from "@/components/jobs/SlowJobHint";
-import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
+import { RefreshCw, X } from "lucide-react";
 import { filterWallets } from "@/lib/walletTagFilter";
-import { useJob } from "./jobs/useJob";
-import { useNow } from "./jobs/useJobStatus";
-import { JobButton } from "./jobs/JobButton";
+import { syncLane } from "@/lib/syncLanes";
+import { isEvmChainId } from "@/lib/adapters/evmChains";
+import { Button } from "./ui/Button";
+import { useSyncQueue } from "./jobs/SyncQueue";
 import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
 
 interface SyncAllWallet {
@@ -17,88 +16,81 @@ interface SyncAllWallet {
   notes: string | null;
   tags: { name: string }[];
   provider: string | null;
-  last_refresh_status: string | null;
-  sync_started_at: string | null;
-  exchange_sync_status: string | null;
-  exchange_sync_started_at: string | null;
+  mode: string;
 }
 
 /**
  * "Sync all wallets" — scoped to whatever the Wallets list's filter (tags +
- * search) is currently showing (see WalletsFilterProvider — the same filter state
- * WalletsTable's own rows use), not literally every wallet every time. A
- * real request from actual use: many long-term-holding wallets don't
- * change often enough to be worth re-syncing on every "Sync all" click, so
- * filtering to e.g. "Main" tagged wallets first and clicking this only
- * syncs those. No filter selected (the default) still syncs everything,
- * same as before — filterWalletsByTags([], ...) is an identity no-op.
+ * search) is currently showing (see WalletsFilterProvider — the same filter
+ * state WalletsTable's own rows use). A real request from actual use: many
+ * long-term-holding wallets don't change often enough to re-sync on every
+ * click, so filtering to e.g. "Main" first syncs only those.
  *
- * Its own aggregate job, not a per-wallet one: `running` is true while
- * *any* wallet **in the filtered set** is in flight, and the change-
- * detection `startedAt` is the most recent sync_started_at among *those*
- * — deliberately not tracking wallets outside the current filter, since
- * this button no longer touches them.
+ * Runs through SyncQueueProvider: lanes by shared API, one wallet at a time
+ * per lane, lanes in parallel. Shows "Syncing n / total" while it runs (each
+ * row flips to its result as it lands), then a summary naming any wallet
+ * that only partly synced or failed, with its reason.
  */
-export function SyncAllWalletsButton({
-  wallets,
-  syncAll,
-}: {
-  wallets: SyncAllWallet[];
-  syncAll: (walletIds: string[]) => Promise<JobStartResult>;
-}) {
+export function SyncAllWalletsButton({ wallets }: { wallets: SyncAllWallet[] }) {
   const { tagFilter, searchQuery } = useWalletsFilter();
-  const filtered = filterWallets(wallets, { tags: tagFilter, query: searchQuery });
+  const { entries, active, start, dismiss } = useSyncQueue();
+  const filtered = filterWallets(wallets, { tags: tagFilter, query: searchQuery }).filter((w) => w.mode === "auto");
   const isFiltered = tagFilter.length > 0 || searchQuery.trim() !== "";
 
-  // A connected exchange (provider set) reports its own sync via
-  // exchange_sync_status/exchange_sync_started_at, not last_refresh_status/
-  // sync_started_at — different columns entirely, matching the same split
-  // syncAllWallets itself now dispatches on (syncExchangeHoldings vs
-  // syncWalletHoldings). Reading the wrong pair for an exchange wallet
-  // would leave this button reporting "not busy" while its exchange sync
-  // is still genuinely running in the background.
-  const walletsKey = filtered
-    .map((w) => (w.provider ? `${w.exchange_sync_status ?? ""}:${w.exchange_sync_started_at ?? ""}` : `${w.last_refresh_status ?? ""}:${w.sync_started_at ?? ""}`))
-    .join(",");
-  const now = useNow([walletsKey]) ?? 0;
-  let running = false;
-  let latestStartedAt: string | null = null;
-  for (const w of filtered) {
-    const status = w.provider ? w.exchange_sync_status : w.last_refresh_status;
-    const startedAt = w.provider ? w.exchange_sync_started_at : w.sync_started_at;
-    const s = deriveJobStatus({ status, started_at: startedAt }, now);
-    if (s.running) running = true;
-    if (startedAt && (!latestStartedAt || startedAt > latestStartedAt)) {
-      latestStartedAt = startedAt;
-    }
-  }
-
-  const { busy, submit, error } = useJob({
-    status: { running, stale: false, startedAt: latestStartedAt, outcome: null, detail: null },
-    start: () => syncAll(filtered.map((w) => w.id)),
-  });
+  const all = Object.entries(entries).map(([id, e]) => ({ id, ...e }));
+  const finished = all.filter((e) => e.state === "ok" || e.state === "partial" || e.state === "failed");
+  const problems = all.filter((e) => e.state === "partial" || e.state === "failed");
 
   const label = isFiltered ? `Sync filtered (${filtered.length})` : "Sync all";
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <JobButton
-        busy={busy}
-        submit={submit}
-        busyLabel={
-          <>
-            <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
-            Syncing…
-          </>
-        }
+      <Button
+        type="button"
         variant="secondary"
         size="sm"
+        disabled={active || filtered.length === 0}
+        onClick={() =>
+          start(
+            filtered.map((w) => ({
+              id: w.id,
+              name: w.name,
+              provider: w.provider,
+              lane: syncLane(w, isEvmChainId),
+            })),
+          )
+        }
       >
-        <RefreshCw className="size-3.5" aria-hidden="true" />
-        {label}
-      </JobButton>
-      <SlowJobHint busy={busy} />
-      {error && <p className="text-xs text-negative">{error}</p>}
+        <RefreshCw className={`size-3.5 ${active ? "animate-spin" : ""}`} aria-hidden="true" />
+        {active ? `Syncing ${finished.length} / ${all.length}…` : label}
+      </Button>
+      {active && (
+        <p className="max-w-xs text-right text-xs text-fg-muted">
+          Wallets that share an API sync one at a time. Keep this tab open until it finishes.
+        </p>
+      )}
+      {!active && all.length > 0 && (
+        <div className="max-w-sm text-right text-xs">
+          <p className="flex items-center justify-end gap-2 text-fg-muted">
+            {problems.length === 0
+              ? `All ${all.length} wallets synced.`
+              : `${all.length - problems.length} of ${all.length} synced fully.`}
+            <button type="button" onClick={dismiss} aria-label="Dismiss" className="hover:text-fg">
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
+          </p>
+          {problems.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {problems.map((e) => (
+                <li key={e.id} className={e.state === "failed" ? "text-negative" : "text-warning"} title={e.detail ?? undefined}>
+                  {e.name}: {e.state === "failed" ? "couldn't sync, try again later" : "partly synced"}
+                  {e.detail ? ` — ${e.detail.replace(/^(error|partial) ?[:—-]? ?/i, "").slice(0, 90)}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

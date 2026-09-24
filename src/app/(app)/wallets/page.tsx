@@ -11,7 +11,7 @@ import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
 import { WalletsFilterProvider } from "@/components/wallets/WalletsFilterProvider";
 import { WalletsTotalValue } from "@/components/wallets/WalletsTotalValue";
-import { refreshPricesAction, refreshTokenRegistryAction, syncAllWallets } from "./actions";
+import { refreshPricesAction, refreshTokenRegistryAction } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
 // runtime APIs or cookies to force dynamic rendering the old way) and Vercel
@@ -49,7 +49,7 @@ export default async function WalletsPage() {
               <Link href="/wallets/new" className={buttonClass("primary", "sm")}>
                 + Add wallet
               </Link>
-              <SyncAllWalletsButton wallets={wallets} syncAll={syncAllWallets} />
+              <SyncAllWalletsButton wallets={wallets} />
               <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
               <TokenRegistryRefreshButton tokenRegistryState={tokenRegistryState} refresh={refreshTokenRegistryAction} />
             </>

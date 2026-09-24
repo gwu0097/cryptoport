@@ -45,16 +45,16 @@ interface JobStatusResponse {
  * /api/job-status response — a wallet contributes up to four (holdings/
  * tx/defi/exchange), each independent per holdings.source's own "four
  * disjoint job columns on one row" doc comment. */
-function flattenJobs(data: JobStatusResponse): JobStatusRow[] {
-  const jobs: JobStatusRow[] = [];
+function flattenJobs(data: JobStatusResponse): (JobStatusRow & { key: string })[] {
+  const jobs: (JobStatusRow & { key: string })[] = [];
   for (const w of data.wallets) {
-    jobs.push({ status: w.last_refresh_status, started_at: w.sync_started_at });
-    jobs.push({ status: w.tx_sync_status, started_at: w.tx_sync_started_at });
-    jobs.push({ status: w.defi_sync_status, started_at: w.defi_sync_started_at });
-    jobs.push({ status: w.exchange_sync_status, started_at: w.exchange_sync_started_at });
+    jobs.push({ key: `${w.id}:holdings`, status: w.last_refresh_status, started_at: w.sync_started_at });
+    jobs.push({ key: `${w.id}:tx`, status: w.tx_sync_status, started_at: w.tx_sync_started_at });
+    jobs.push({ key: `${w.id}:defi`, status: w.defi_sync_status, started_at: w.defi_sync_started_at });
+    jobs.push({ key: `${w.id}:exchange`, status: w.exchange_sync_status, started_at: w.exchange_sync_started_at });
   }
-  if (data.priceRefresh) jobs.push(data.priceRefresh);
-  if (data.tokenRegistry) jobs.push(data.tokenRegistry);
+  if (data.priceRefresh) jobs.push({ key: "prices", ...data.priceRefresh });
+  if (data.tokenRegistry) jobs.push({ key: "tokenRegistry", ...data.tokenRegistry });
   return jobs;
 }
 
@@ -101,6 +101,11 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   // null = no poll has landed yet. Otherwise: was *any* job running as of
   // the last poll this provider actually saw.
   const lastAnyRunningRef = useRef<boolean | null>(null);
+  // Which jobs were running as of the last poll — so one wallet finishing
+  // refreshes the page right away, not only once every job is done (a
+  // Sync all used to leave an 8s wallet showing "Syncing…" for the ~3
+  // minutes the slowest one took, 2026-09-25).
+  const lastRunningKeysRef = useRef<Set<string>>(new Set());
   // Per-lane status as of the last poll (price_refresh_state.phases) —
   // separate from lastAnyRunningRef's single aggregate boolean, since a
   // price refresh's 3 lanes finish at genuinely different times and each
@@ -155,7 +160,10 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       }
 
       const now = Date.now();
-      const anyRunningNow = flattenJobs(data).some((row) => deriveJobStatus(row, now).running);
+      const runningKeys = new Set(flattenJobs(data).filter((row) => deriveJobStatus(row, now).running).map((row) => row.key));
+      const anyRunningNow = runningKeys.size > 0;
+      const someJobFinished = [...lastRunningKeysRef.current].some((k) => !runningKeys.has(k));
+      lastRunningKeysRef.current = runningKeys;
       const wasRunning = lastAnyRunningRef.current;
       // A locally-busy button (clicked, hasn't yet seen its own run finish
       // in its server props) counts as "was running" too — covers a job
@@ -198,7 +206,7 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       // tick (both can fire together, e.g. the last lane finishing) is
       // harmless — it's just a revalidatePath call.
       if (anyPhaseJustFinished) await notifyJobsComplete();
-      if (treatAsWasRunning && !anyRunningNow) await notifyJobsComplete();
+      if ((treatAsWasRunning && !anyRunningNow) || (someJobFinished && anyRunningNow)) await notifyJobsComplete();
     }
 
     void poll();

@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { JobPollerProvider } from "@/components/jobs/JobPoller";
+import { SyncQueueProvider } from "@/components/jobs/SyncQueue";
 import { HideBalanceProvider } from "@/components/HideBalanceProvider";
 import { getUser } from "@/lib/auth";
 import { walletDisplayName } from "@/lib/walletDisplay";
@@ -32,11 +33,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <TimeZoneProvider tz={zone.tz} source={zone.source} detected={zone.detected}>
       <JobPollerProvider>
+        <SyncQueueProvider>
         <HideBalanceProvider>
           <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null} isAdmin={isAdmin}>
             {children}
           </AppShell>
         </HideBalanceProvider>
+        </SyncQueueProvider>
       </JobPollerProvider>
     </TimeZoneProvider>
   );

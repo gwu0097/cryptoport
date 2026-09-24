@@ -981,90 +981,9 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
   return { started: true };
 }
 
-// Kicks off a sync for every active auto-mode wallet not already syncing —
-// each one still runs the same way a single "Sync" click does (marked
-// 'syncing' fast, real fetch work happens in its own after() background
-// task, see syncWalletHoldings above). The N claims below run via
-// Promise.all, not a sequential loop — a sequential `for (...) await
-// syncWalletHoldings(...)` was live-reported as leaving "Sync all" stuck
-// on its "Starting…" (isPending) state for 8+ seconds with more than a
-// couple of wallets, because that state is tied to this action's own
-// round-trip, and N sequential DB round-trips (one select + one CAS
-// update each) add up even though none of them waits on a real chain
-// sync. Parallel calls make this action's own round-trip roughly as fast
-// as a single wallet's claim, regardless of wallet count. All of the
-// after() background tasks these calls register then genuinely run
-// concurrently too — bounded by whichever single wallet is slowest (a
-// full BTC xpub scan, typically a few minutes), not by their sum —
-// comfortably inside this page's 300s maxDuration even with every wallet
-// syncing at once. No cross-wallet throttling: individual syncs already
-// retry through free-RPC flakiness on their own (see
-// fetchWithRetry/mapWithConcurrency), and this app's wallet count is
-// small enough that hammering a shared provider with a few more
-// concurrent callers hasn't been an issue in practice.
-// No pre-check for "already syncing" here anymore — syncWalletHoldings'
-// own compare-and-set claim decides that per wallet now, which is strictly
-// better than the plain-read check this used to do: that older check
-// would skip a wallet forever once its status said "syncing," even if
-// that run had gone stale (its after() killed by the platform's time
-// limit) — the CAS claim correctly re-attempts it instead.
-// walletIds — the currently tag-filtered subset from the Wallets list, not
-// always literally every wallet (see SyncAllWalletsButton's own doc
-// comment: many long-term-holding wallets don't need re-syncing on every
-// click, so the button only ever asks for whatever's currently filtered —
-// the full active list when no filter is selected). Still re-scoped to
-// mode="auto" here regardless of what's passed in, matching the pre-
-// filtering behavior — an id for a connected exchange wallet (a different
-// sync path entirely) or an inactive one is silently excluded, not an error.
-export async function syncAllWallets(walletIds: string[]): Promise<JobStartResult> {
-  await requireUser();
-  const db = await userDb();
-  // A connected exchange (Coinbase, Kraken, Gemini) also has mode "auto"
-  // like a normal wallet, but no address at all — it authenticates via
-  // exchange_connections instead (see coinbaseAdvancedTrade.ts's own doc
-  // comment) — and syncWalletHoldings unconditionally requires one. Real
-  // bug, caught live: routing every "auto" wallet through
-  // syncWalletHoldings made it throw "This wallet has no address set." for
-  // every connected exchange, crashing the whole batch. Fix isn't to skip
-  // exchanges — "Sync all" should still refresh them, just through their
-  // own real mechanism (syncExchangeHoldings) — so both kinds are fetched
-  // here and dispatched separately below, same split WalletsTable's own
-  // per-row button already makes (`wallet.mode !== "auto" || wallet.provider`).
-  const { data: wallets, error } = await db
-    .from("wallets")
-    .select("id, provider")
-    .eq("mode", "auto")
-    .eq("active", true)
-    .in("id", walletIds);
-  if (error) throw new Error(`Failed to load wallets: ${error.message}`);
-  if (wallets.length === 0) return { started: false, reason: "No auto-mode wallets to sync." };
-
-  // Count real claims, not just "every call resolved" — each wallet's own
-  // CAS claim can independently fail (already syncing from something
-  // else), and if every single one does, no new sync_started_at ever
-  // lands. Reporting {started: true} anyway would leave "Sync all" stuck
-  // busy forever: useJob's baseline never clears because the row it's
-  // watching never actually changes.
-  //
-  // Each call gets its own try/catch — same real bug as above: one
-  // wallet's own validation throwing synchronously (a missing address, a
-  // stale/revoked exchange key, ...) must never reject the whole
-  // Promise.all and take every other wallet's sync down with it. A wallet
-  // that can't be synced at all just doesn't count as started, same as one
-  // that's already mid-sync from something else.
-  const results = await Promise.all(
-    wallets.map(async (wallet): Promise<JobStartResult> => {
-      try {
-        return wallet.provider ? await syncExchangeHoldings(wallet.id) : await syncWalletHoldings(wallet.id, false);
-      } catch (e) {
-        return { started: false, reason: (e as Error).message };
-      }
-    }),
-  );
-  const claimedCount = results.filter((r) => r.started).length;
-  if (claimedCount === 0) return { started: false, reason: "All wallets are already syncing." };
-  return { started: true };
-}
+// "Sync all" is run from the browser as a queue now (components/jobs/
+// SyncQueue.tsx): one syncWalletHoldings/syncExchangeHoldings call per wallet,
+// wallets sharing an API one at a time, so each gets its own time budget.
 
 // Soft delete: wallets.active already exists for exactly this (the wallets
 // list already filters on it) — no schema change needed, and it keeps a

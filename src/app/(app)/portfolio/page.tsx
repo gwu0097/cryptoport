@@ -7,7 +7,7 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
-import { refreshPricesAction, syncAllWallets } from "../wallets/actions";
+import { refreshPricesAction } from "../wallets/actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Portfolio · CryptoPort" };
@@ -39,7 +39,7 @@ export default async function PortfolioPage({
           total={grand.total}
           actions={
             <div className="flex items-center gap-3">
-              <SyncAllWalletsButton wallets={wallets} syncAll={syncAllWallets} />
+              <SyncAllWalletsButton wallets={wallets} />
               <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
             </div>
           }

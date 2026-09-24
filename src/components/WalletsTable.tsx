@@ -16,6 +16,7 @@ import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { usePersistedState } from "./usePersistedState";
 import { useWalletsFilter } from "./wallets/WalletsFilterProvider";
+import { useQueueEntry } from "./jobs/SyncQueue";
 import { filterWallets } from "@/lib/walletTagFilter";
 import { deleteWallet, syncExchangeHoldings, syncWalletHoldings, updateWallet } from "@/app/(app)/wallets/actions";
 
@@ -65,6 +66,10 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
       ? { status: wallet.exchange_sync_status, started_at: wallet.exchange_sync_started_at }
       : { status: wallet.last_refresh_status, started_at: wallet.sync_started_at },
   );
+
+  // Its place in a running "Sync all" (SyncQueue.tsx): Queued until its
+  // lane reaches it, then Syncing even before the page's own status catches up.
+  const queued = useQueueEntry(wallet.id);
 
   return (
     <tr className={trClass}>
@@ -125,8 +130,10 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
       </td>
       <td className={`${tdClass} tabular-nums`}>{wallet.total > 0 ? formatUsd(wallet.total) : "—"}</td>
       <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
-        {jobStatus.running ? (
+        {jobStatus.running || queued?.state === "running" ? (
           <span className="text-fg">Syncing…</span>
+        ) : queued?.state === "queued" ? (
+          <span className="text-fg-muted">Queued</span>
         ) : (
           formatStaleness(wallet.provider ? wallet.exchange_synced_at : wallet.last_refresh_at)
         )}
