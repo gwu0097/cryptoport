@@ -689,6 +689,10 @@ export interface AssetGroup {
    * ticker-based search/lookup rather than showing nothing. */
   coingeckoId: string | null;
   holdings: AssetHoldingEntry[];
+  /** Set only by liquidStaking.ts's combined view: the staked tokens folded
+   * into this base-coin row (e.g. ["weETH", "stETH"]). Its totalQty is then
+   * a base-coin equivalent, shown with "≈". */
+  combinedTickers?: string[];
 }
 
 export interface AssetsByTickerResult {

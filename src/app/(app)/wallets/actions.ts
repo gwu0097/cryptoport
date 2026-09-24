@@ -24,6 +24,7 @@ import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
+import { refreshLiquidStakingTokens } from "@/lib/adapters/liquidStakingRegistry";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
@@ -35,11 +36,17 @@ async function runTokenRegistryRefresh(): Promise<void> {
   try {
     const results = await refreshTokenRegistry();
     const totalCount = results.reduce((sum, r) => sum + r.count, 0);
+    // Rides along (the Assets page's liquid staking combine view); a
+    // failure here is noted in the status, never fails the registry refresh.
+    const lst = await refreshLiquidStakingTokens().then(
+      (r) => `${r.tokens} liquid staking tokens`,
+      (e: Error) => `liquid staking tokens failed: ${e.message}`,
+    );
     const { error } = await serviceDb()
       .from("token_registry_state")
       .update({
         refreshed_at: new Date().toISOString(),
-        status: `ok (${totalCount} tokens across ${results.length} chains)`,
+        status: `ok (${totalCount} tokens across ${results.length} chains; ${lst})`,
       })
       .eq("id", 1);
     if (error) throw new Error(`Failed to record token registry refresh: ${error.message}`);

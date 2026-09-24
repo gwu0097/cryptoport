@@ -1,5 +1,7 @@
 import { getAssetsGroupedByTicker, getChainIconMap, getPriceRefreshState } from "@/lib/queries";
 import { chainAllocations } from "@/lib/chainAllocation";
+import { consolidateLiquidStaking, resolveBases } from "@/lib/liquidStaking";
+import { getLiquidStakingTokens } from "@/lib/adapters/liquidStakingRegistry";
 import { ChainAllocationPanel } from "@/components/ChainAllocationPanel";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
@@ -42,12 +44,19 @@ export const maxDuration = 300;
 
 const LOW_VALUE_USD = 10;
 
-function buildHref(hideUnpriced: boolean, hideLow: boolean): string {
+interface View {
+  hideUnpriced: boolean;
+  hideLow: boolean;
+  combineLst: boolean;
+}
+
+function buildHref({ hideUnpriced, hideLow, combineLst }: View): string {
   const params = new URLSearchParams();
-  // Both default to checked/true — only recorded in the URL when turned
+  // All default to checked/true — only recorded in the URL when turned
   // off, so a bare link (e.g. the sidebar) lands on the clean default view.
   if (!hideUnpriced) params.set("hideUnpriced", "0");
   if (!hideLow) params.set("hideLow", "0");
+  if (!combineLst) params.set("lst", "0");
   const qs = params.toString();
   return qs ? `/assets?${qs}` : "/assets";
 }
@@ -55,19 +64,26 @@ function buildHref(hideUnpriced: boolean, hideLow: boolean): string {
 export default async function AssetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ hideUnpriced?: string; hideLow?: string; sort?: string; dir?: string }>;
+  searchParams: Promise<{ hideUnpriced?: string; hideLow?: string; lst?: string; sort?: string; dir?: string }>;
 }) {
-  const { hideUnpriced: hideUnpricedParam, hideLow: hideLowParam, sort, dir } = await searchParams;
+  const { hideUnpriced: hideUnpricedParam, hideLow: hideLowParam, lst, sort, dir } = await searchParams;
   const hideUnpriced = hideUnpricedParam !== "0";
   const hideLow = hideLowParam !== "0";
+  const combineLst = lst !== "0";
+  const view: View = { hideUnpriced, hideLow, combineLst };
   const initialSort = parseInitialSort(sort, dir);
 
-  const [{ groups, grand }, user, priceState, chainIcons] = await Promise.all([
+  const [{ groups: tickerGroups, grand }, user, priceState, chainIcons, lstTokens] = await Promise.all([
     getAssetsGroupedByTicker(),
     getUser(),
     getPriceRefreshState(),
     getChainIconMap(),
+    getLiquidStakingTokens(),
   ]);
+  // Liquid staking tokens folded into their base coin (weETH → ETH), for
+  // the table and Coin allocation alike — see liquidStaking.ts. Totals are
+  // the same either way; only the grouping changes.
+  const groups = combineLst ? consolidateLiquidStaking(tickerGroups, resolveBases(tickerGroups, lstTokens)) : tickerGroups;
   // Value by chain split by asset type, from the same holdings (and so the
   // same total) as the Coin allocation chart — see chainAllocation.ts.
   const chains = chainAllocations(groups.flatMap((g) => g.holdings));
@@ -130,14 +146,19 @@ export default async function AssetsPage({
             </div>
           )}
 
-          <div className="mb-4 flex justify-end gap-4">
+          <div className="mb-4 flex flex-wrap justify-end gap-x-4 gap-y-2">
             <CheckboxLink
-              href={buildHref(!hideUnpriced, hideLow)}
+              href={buildHref({ ...view, combineLst: !combineLst })}
+              checked={combineLst}
+              label="Combine liquid staking tokens"
+            />
+            <CheckboxLink
+              href={buildHref({ ...view, hideUnpriced: !hideUnpriced })}
               checked={hideUnpriced}
               label="Hide unpriced"
             />
             <CheckboxLink
-              href={buildHref(hideUnpriced, !hideLow)}
+              href={buildHref({ ...view, hideLow: !hideLow })}
               checked={hideLow}
               label={`Hide low price tokens (< $${LOW_VALUE_USD})`}
             />

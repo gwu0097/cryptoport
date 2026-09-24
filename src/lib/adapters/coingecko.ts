@@ -493,6 +493,31 @@ async function fetchMarketsPage(extraQuery: string, page = 1, perPage = 250): Pr
  * Finder v3 — see trendPeers.ts. */
 export const fetchCategoryMembers = cache(async (categoryId: string): Promise<MarketDataRow[]> => fetchMarketsPage(`category=${categoryId}`));
 
+/** Every CoinGecko category's id and name — one call. */
+export async function fetchCategoryList(): Promise<{ id: string; name: string }[]> {
+  const res = await coingeckoFetch(`${API_BASE}/coins/categories/list`, MARKETS_FETCH_OPTS);
+  if (!res.ok) throw new Error(`CoinGecko coins/categories/list failed: HTTP ${res.status}`);
+  const body: { category_id: string; name: string }[] = await res.json();
+  return body.map((c) => ({ id: c.category_id, name: c.name }));
+}
+
+/** Every member (id + symbol) of one category, paged — unlike
+ * fetchCategoryMembers (one page), for a category that can pass 250 (the
+ * generic liquid staking one had 242 on 2026-09-24). Uncached: its only
+ * caller (liquidStakingRegistry.ts) stores the result in the DB. */
+export async function fetchAllCategoryMembers(categoryId: string): Promise<{ id: string; symbol: string }[]> {
+  const out: { id: string; symbol: string }[] = [];
+  for (let page = 1; page <= 8; page++) {
+    const url = `${API_BASE}/coins/markets?vs_currency=usd&category=${encodeURIComponent(categoryId)}&per_page=250&page=${page}`;
+    const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+    if (!res.ok) throw new Error(`CoinGecko coins/markets(category=${categoryId}) failed: HTTP ${res.status}`);
+    const rows: { id: string; symbol: string }[] = await res.json();
+    out.push(...rows.map((r) => ({ id: r.id, symbol: r.symbol })));
+    if (rows.length < 250) break;
+  }
+  return out;
+}
+
 /** Live display data for an explicit set of ids, chunked at
  * MARKETS_BATCH_SIZE (CoinGecko's own per-call ids= cap) rather than
  * passed through in one shot — Trend Finder v3's AI-resolved peer list

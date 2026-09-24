@@ -63,6 +63,13 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
 /** Green/red/muted, matching this app's existing warning/positive/negative
  * token colors elsewhere (e.g. HoldingsTable's "unpriced" warning text) —
  * no color at all for null, since that's "no data", not "flat". */
+/** A combined liquid staking row's qty is a base-coin equivalent (see
+ * liquidStaking.ts), so it gets "≈". */
+function groupQty(group: AssetGroup): string {
+  if (group.totalQty === null) return "—";
+  return `${group.combinedTickers ? "≈ " : ""}${formatQty(group.totalQty)}`;
+}
+
 function ChangeCell({ value }: { value: number | null }) {
   const className = value === null ? "text-fg-muted" : value > 0 ? "text-positive" : value < 0 ? "text-negative" : "text-fg-muted";
   return <span className={`${className} tabular-nums`}>{formatPercent(value)}</span>;
@@ -316,12 +323,17 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                         <TokenIcon ticker={group.ticker} url={group.iconUrl} />
                         <div>
                           <div className="font-medium text-fg">{group.ticker}</div>
+                          {group.combinedTickers && (
+                            <div className="max-w-48 truncate text-xs text-fg-muted" title={`Includes ${group.combinedTickers.join(", ")}`}>
+                              incl. {group.combinedTickers.join(", ")}
+                            </div>
+                          )}
                           {/* Qty has its own dedicated column at sm+ (hideOnMobileClass
                               below) — this is mobile-only (sm:hidden), tucked under
                               the ticker rather than added to the already-doubled-up
                               Price (24h%) or Value (share%) cells. */}
                           <div className="text-xs tabular-nums text-fg-muted sm:hidden">
-                            {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
+                            {groupQty(group)}
                           </div>
                         </div>
                       </div>
@@ -358,7 +370,7 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                       {formatCompactUsd(group.marketCap)}
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
-                      {group.totalQty !== null ? formatQty(group.totalQty) : "—"}
+                      {groupQty(group)}
                     </td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>{group.holdings.length}</td>
                     <td className={`${tdClass} tabular-nums`}>
@@ -427,12 +439,18 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                                   <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                                     {holding.chainName}
                                   </span>
+                                  {group.combinedTickers && holding.ticker.toUpperCase() !== group.tickerKey && (
+                                    <span className="ml-1 rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted sm:hidden">
+                                      {holding.ticker}
+                                    </span>
+                                  )}
                                   {holding.protocol && (
                                     <ProtocolTag protocol={holding.protocol} url={holding.protocol_url} />
                                   )}
                                 </td>
                                 <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
                                   {formatQty(holding.qty)}
+                                  {group.combinedTickers && <span className="ml-1 text-xs text-fg-muted">{holding.ticker}</span>}
                                 </td>
                                 <td className={`${tdClass} tabular-nums`}>
                                   {holding.valuation.kind === "priced" ? (

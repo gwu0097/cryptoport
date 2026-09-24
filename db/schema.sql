@@ -1733,3 +1733,17 @@ end;
 $$;
 
 grant execute on function cryptoport.sync_cosmos_holdings(uuid, jsonb, text) to authenticated;
+
+-- Liquid staking tokens (2026-09-24): every member of CoinGecko's liquid
+-- staking categories, refreshed weekly by the snapshot cron and by "Refresh
+-- token list" (adapters/liquidStakingRegistry.ts). Shared reference data,
+-- like token_registry: service_role only.
+create table cryptoport.liquid_staking_tokens (
+  coingecko_id text primary key,
+  symbol       text not null,
+  base_symbol  text,
+  categories   text[] not null,
+  updated_at   timestamptz not null default now()
+);
+alter table cryptoport.liquid_staking_tokens enable row level security;
+grant all on cryptoport.liquid_staking_tokens to service_role;
