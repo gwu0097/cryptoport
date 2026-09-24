@@ -223,6 +223,10 @@ export interface ChainHoldingsResult {
    * A nonzero count here means this chain's holdings may be
    * under-reported, and the caller should say so, not hide it. */
   unverifiedCount: number;
+  /** Set when CoinGecko couldn't be reached for this chain's token prices
+   * (a 429 that outlasted retries). Tokens can't be listed then — a live
+   * price is the spam filter above — but the native balance still is. */
+  priceError: string | null;
 }
 
 export async function fetchChainHoldings(chain: EvmChain, address: Address): Promise<ChainHoldingsResult> {
@@ -306,10 +310,16 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
   }
 
   const priceable = held.filter((x) => x.token.decimals !== null);
+  // A failed price call is "no answer", not "no price": it used to throw
+  // and take this chain's native balance down with it (2026-09-24).
+  let priceError: string | null = null;
   const prices = await fetchTokenPrices(
     chain.coingeckoPlatform,
     priceable.map((x) => x.token.contract),
-  );
+  ).catch((e: Error) => {
+    priceError = e.message;
+    return new Map<string, { usd: number; change24h: number | null; marketCap: number | null }>();
+  });
 
   const included: { token: RegistryToken; qty: number; usd: number; change24h: number | null; marketCap: number | null }[] = [];
   for (const { token, result } of priceable) {
@@ -338,23 +348,24 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
   }
 
   const nativeBalance = await nativeBalancePromise;
-  let native: { qty: number; usd: number } | null = null;
+  let native: { qty: number; usd: number | null } | null = null;
   if (nativeBalance > BigInt(0)) {
-    const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId);
-    if (nativePrice !== null) {
-      const qty = Number(formatUnits(nativeBalance, 18));
-      const usd = qty * nativePrice;
-      // TOKEN_USD_FLOOR deliberately does NOT apply here, unlike the ERC20
-      // check above — that floor exists to filter spam/copycat tokens with
-      // fake wash-traded liquidity, a risk that's structurally impossible
-      // for a chain's own native currency (there's exactly one RON per
-      // Ronin wallet, not an unbounded set of spoofable native-look-alikes).
-      // Real bug, caught live: a wallet's genuine 54 RON (~$2.89) balance
-      // was silently dropped by this floor, with no warning surfaced
-      // anywhere — a small real balance is exactly the "unknown/small
-      // still real data" case CLAUDE.md's Data Correctness rule protects.
-      native = { qty, usd };
-    }
+    // No price (none listed, or CoinGecko unreachable) keeps the balance,
+    // unpriced; Refresh prices' EVM lane fills it in. It used to drop the
+    // row entirely.
+    const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId).catch(() => null);
+    const qty = Number(formatUnits(nativeBalance, 18));
+    const usd = nativePrice === null ? null : qty * nativePrice;
+    // TOKEN_USD_FLOOR deliberately does NOT apply here, unlike the ERC20
+    // check above — that floor exists to filter spam/copycat tokens with
+    // fake wash-traded liquidity, a risk that's structurally impossible
+    // for a chain's own native currency (there's exactly one RON per
+    // Ronin wallet, not an unbounded set of spoofable native-look-alikes).
+    // Real bug, caught live: a wallet's genuine 54 RON (~$2.89) balance
+    // was silently dropped by this floor, with no warning surfaced
+    // anywhere — a small real balance is exactly the "unknown/small
+    // still real data" case CLAUDE.md's Data Correctness rule protects.
+    native = { qty, usd };
   }
 
   // Logos, batched: only for tokens actually ending up in `holdings` (not
@@ -421,7 +432,7 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     });
   }
 
-  return { holdings, unverifiedCount: unverified };
+  return { holdings, unverifiedCount: unverified, priceError };
 }
 
 export interface EvmChainsResult {
@@ -447,15 +458,15 @@ export interface EvmChainsResult {
 }
 
 type ChainOutcome =
-  | { chainId: string; ok: true; holdings: AdapterHolding[]; unverifiedCount: number }
+  | { chainId: string; ok: true; holdings: AdapterHolding[]; unverifiedCount: number; priceError: string | null }
   | { chainId: string; ok: false; error: string };
 
 export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChainsResult> {
   const results: ChainOutcome[] = await Promise.all(
     EVM_CHAINS.map(async (chain): Promise<ChainOutcome> => {
       try {
-        const { holdings, unverifiedCount } = await fetchChainHoldings(chain, address);
-        return { chainId: chain.id, ok: true, holdings, unverifiedCount };
+        const { holdings, unverifiedCount, priceError } = await fetchChainHoldings(chain, address);
+        return { chainId: chain.id, ok: true, holdings, unverifiedCount, priceError };
       } catch (e) {
         return { chainId: chain.id, ok: false, error: (e as Error).message };
       }
@@ -471,6 +482,15 @@ export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChain
         chainId: r.chainId,
         error: `${(r as { unverifiedCount: number }).unverifiedCount} balance check(s) unverified after retries`,
         hard: false,
+      })),
+    // hard: tokens on this chain weren't listed, so an otherwise-empty
+    // result mustn't overwrite the wallet's previous holdings (evm.ts).
+    ...results
+      .filter((r) => r.ok && r.priceError !== null)
+      .map((r) => ({
+        chainId: r.chainId,
+        error: `token prices unavailable, tokens not listed this sync (${(r as { priceError: string }).priceError})`,
+        hard: true,
       })),
   ];
 
