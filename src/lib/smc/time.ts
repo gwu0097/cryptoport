@@ -20,11 +20,27 @@ export function formatTimeInZone(sec: number, timeZone: string, nowSec: number):
   }).format(new Date(sec * 1000));
 }
 
-/** Short chart-axis label in the given zone: the date at local midnight, else the time. */
-export function formatAxisInZone(sec: number, timeZone: string): string {
+/** Lightweight Charts' tick kinds (its TickMarkType enum, by value — kept
+ * numeric so this file stays free of the charting library). */
+export const TICK = { Year: 0, Month: 1, DayOfMonth: 2, Time: 3, TimeWithSeconds: 4 } as const;
+
+/** A chart-axis label in the given zone, by timeframe. The library places
+ * ticks on UTC boundaries, so a "new day" tick lands at e.g. 5 PM in Los
+ * Angeles — labeling every tick with its local time made every gridline read
+ * "5:00 PM". So: 1D and 4H gridlines show local DATES (with the time only when
+ * zoomed in to intraday ticks); 1H gridlines show local TIMES, with the date
+ * added on the day/month-boundary ticks so the days stay tellable apart. */
+export function formatTickInZone(sec: number, timeZone: string, tickType: number, tf: "1H" | "4H" | "1D"): string {
   const d = new Date(sec * 1000);
-  const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(d);
-  return time === "12:00 AM" ? new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(d) : time;
+  const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone, ...o }).format(d);
+  // Month/Year ticks also sit on UTC boundaries (Sep 1 00:00 UTC is Aug 31
+  // in Los Angeles), so a bare month name would name the wrong month — they
+  // get the local date like any day tick; the year tick adds the year.
+  const date = fmt({ month: "short", day: "numeric" });
+  const time = fmt({ hour: "numeric" });
+  if (tickType === TICK.Year) return fmt({ month: "short", day: "numeric", year: "numeric" });
+  if (tickType === TICK.Month || tickType === TICK.DayOfMonth) return tf === "1H" ? `${date}, ${time}` : date;
+  return tf === "1H" ? fmt({ hour: "numeric", minute: "2-digit" }) : `${date}, ${time}`;
 }
 
 /** "45m", "3h 5m", "2d 4h", "1y 45d" — the coarsest two units. */

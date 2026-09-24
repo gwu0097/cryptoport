@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatTimeInZone, formatAxisInZone, formatSpan, signalRecency, barsAgo } from "./time.ts";
+import { formatTimeInZone, formatTickInZone, TICK, formatSpan, signalRecency, barsAgo } from "./time.ts";
 
 const LA = "America/Los_Angeles";
 
@@ -22,10 +22,23 @@ test("formatTimeInZone shows the year whenever it isn't the current year (in tha
   assert.equal(formatTimeInZone(Date.UTC(2026, 0, 1, 3, 0) / 1000, "UTC", NOW_2026), "Jan 1, 3:00 AM UTC");
 });
 
-test("formatAxisInZone: the date at local midnight, else the time", () => {
-  assert.equal(formatAxisInZone(Date.UTC(2026, 8, 22, 7, 0) / 1000, LA), "Sep 22"); // 00:00 PDT
-  assert.equal(formatAxisInZone(Date.UTC(2026, 8, 22, 12, 0) / 1000, LA), "5:00 AM");
-  assert.equal(formatAxisInZone(Date.UTC(2026, 8, 22, 0, 0) / 1000, "UTC"), "Sep 22");
+test("axis ticks: dates on 1D/4H, times on 1H — never every gridline reading 5:00 PM", () => {
+  const utcMidnight = Date.UTC(2026, 8, 22, 0, 0) / 1000; // = Sep 21, 5 PM PDT — where the library puts day ticks
+  assert.equal(formatTickInZone(utcMidnight, LA, TICK.DayOfMonth, "1D"), "Sep 21");
+  assert.equal(formatTickInZone(utcMidnight, LA, TICK.DayOfMonth, "4H"), "Sep 21");
+  assert.equal(formatTickInZone(utcMidnight, LA, TICK.DayOfMonth, "1H"), "Sep 21, 5 PM");
+  const eightUtc = Date.UTC(2026, 8, 22, 8, 0) / 1000; // 1 AM PDT
+  assert.equal(formatTickInZone(eightUtc, LA, TICK.Time, "1H"), "1:00 AM");
+  assert.equal(formatTickInZone(eightUtc, LA, TICK.Time, "4H"), "Sep 22, 1 AM");
+  assert.equal(formatTickInZone(utcMidnight, "UTC", TICK.DayOfMonth, "1D"), "Sep 22");
+  assert.equal(formatTickInZone(Date.UTC(2026, 0, 1) / 1000, "UTC", TICK.Year, "1D"), "Jan 1, 2026");
+  assert.equal(formatTickInZone(Date.UTC(2026, 8, 1) / 1000, "UTC", TICK.Month, "1D"), "Sep 1");
+  // A month tick at Sep 1 00:00 UTC is Aug 31 locally — never a bare "Sep" (wrong month) or "Aug 26" (reads as a date).
+  assert.equal(formatTickInZone(Date.UTC(2026, 8, 1) / 1000, LA, TICK.Month, "4H"), "Aug 31");
+  assert.equal(formatTickInZone(Date.UTC(2026, 0, 1) / 1000, LA, TICK.Year, "1D"), "Dec 31, 2025");
+  // consecutive daily ticks now differ
+  const labels = [0, 1, 2].map((k) => formatTickInZone(utcMidnight + k * 86_400, LA, TICK.DayOfMonth, "1D"));
+  assert.equal(new Set(labels).size, 3);
 });
 
 test("formatSpan uses the two coarsest units", () => {

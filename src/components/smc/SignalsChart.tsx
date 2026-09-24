@@ -11,10 +11,10 @@ import {
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
-import type { Candle } from "@/lib/smc/engine";
+import type { Candle, ChartTimeframe } from "@/lib/smc/engine";
 import type { OverlayLine, SignalMark } from "@/lib/signals/view";
 import type { NextTrigger } from "@/lib/signals/triggers";
-import { formatTimeInZone, formatAxisInZone } from "@/lib/smc/time";
+import { formatTimeInZone, formatTickInZone } from "@/lib/smc/time";
 import { useTimeZone } from "@/components/timezone/TimeZoneProvider";
 
 const BULL = "#26a65b";
@@ -38,12 +38,14 @@ export function SignalsChart({
   signals,
   trigger,
   closeUnit,
+  tf,
 }: {
   candles: Candle[];
   overlays: OverlayLine[];
   signals: SignalMark[];
   trigger: NextTrigger | null;
   closeUnit: string;
+  tf: ChartTimeframe;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const tz = useTimeZone();
@@ -61,7 +63,7 @@ export function SignalsChart({
         borderColor: "rgba(148,163,184,0.2)",
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: Time) => formatAxisInZone(time as number, tz),
+        tickMarkFormatter: (time: Time, tickType: number) => formatTickInZone(time as number, tz, tickType, tf),
       },
       crosshair: { mode: 0 },
     });
@@ -123,7 +125,7 @@ export function SignalsChart({
 
     chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - INITIAL_VISIBLE), to: candles.length + 3 });
     return () => chart.remove();
-  }, [candles, overlays, signals, trigger, closeUnit, tz]);
+  }, [candles, overlays, signals, trigger, closeUnit, tf, tz]);
 
   return <div ref={container} className="h-[480px] w-full" />;
 }

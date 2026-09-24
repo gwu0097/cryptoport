@@ -230,7 +230,7 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
           </span>
         ))}
       </p>
-      <SignalsChart candles={candles} overlays={view.overlays} signals={view.signals} trigger={trigger} closeUnit={view.closeUnit} />
+      <SignalsChart candles={candles} overlays={view.overlays} signals={view.signals} trigger={trigger} closeUnit={view.closeUnit} tf={tf} />
     </Panel>
   );
 }
