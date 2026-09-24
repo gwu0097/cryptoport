@@ -4,9 +4,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const MAX_RETRY_AFTER_MS = 30_000;
+
+/** How long to wait before retry number `attempt` (1-based): exponential
+ * backoff (base, x2, x4, ...) with ±20% jitter so concurrent callers don't
+ * retry in lockstep, and never sooner than the server's own Retry-After
+ * (seconds or an HTTP date; honored up to 30s). Pure — see http.test.ts. */
+export function retryDelayMs(attempt: number, baseDelayMs: number, retryAfter: string | null, rand = Math.random(), nowMs = Date.now()): number {
+  const backoff = baseDelayMs * 2 ** (attempt - 1) * (0.8 + 0.4 * rand);
+  let serverMs = 0;
+  if (retryAfter) {
+    const secs = Number(retryAfter);
+    serverMs = Number.isFinite(secs) ? secs * 1000 : Math.max(0, Date.parse(retryAfter) - nowMs) || 0;
+  }
+  return Math.round(Math.max(backoff, Math.min(serverMs, MAX_RETRY_AFTER_MS)));
+}
+
 /**
- * Fetches with retry on 429/503 (exponential backoff: baseDelayMs, then x2,
- * x4, ...). Rabby's total_balance/token_list rate-limits hard — 6 of 12
+ * Fetches with retry on 429/503 (exponential backoff with jitter:
+ * baseDelayMs, then x2, x4, ..., never sooner than a Retry-After header). Rabby's total_balance/token_list rate-limits hard — 6 of 12
  * wallets hit 429 at ~250ms call spacing during design — so callers using
  * this against Rabby should also space consecutive calls (see
  * `sequentialWithSpacing`); this only covers retrying a single call that
@@ -30,15 +46,18 @@ export async function fetchWithRetry(
   } = {},
 ): Promise<Response> {
   let lastError: Error | null = null;
+  let retryAfter: string | null = null;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (attempt > 0) {
-      await sleep(baseDelayMs * 2 ** (attempt - 1));
+      await sleep(retryDelayMs(attempt, baseDelayMs, retryAfter));
+      retryAfter = null;
     }
     try {
       const res = await fetch(url, { ...init, cache: "no-store" });
       if (res.status === 429 || res.status === 503) {
         if (stopOn && (await stopOn(res.clone()))) return res;
+        retryAfter = res.headers.get("retry-after");
         lastError = new Error(`HTTP ${res.status} from ${url}`);
         continue;
       }

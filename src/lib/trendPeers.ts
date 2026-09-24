@@ -325,6 +325,10 @@ export type TrendPeersResult =
       aiOtherCategory: PeerRow[];
       /** id -> the AI's specific reason for naming that token (both lists). */
       aiPeerReasons: Map<string, string>;
+      /** The OLDEST real CoinGecko fetch time among every price shown (seed,
+       * categories, members, AI peers) — the page's "priced X ago" caption,
+       * so a cached response never looks fresher than it is. */
+      pricedAtMs: number;
     };
 
 /**
@@ -351,11 +355,15 @@ export type TrendPeersResult =
 export async function findTrendPeers({
   coingeckoId,
   mcapFloor,
+  seed: knownSeed,
 }: {
   coingeckoId: string;
   mcapFloor: number;
+  /** The seed's info when the caller already fetched it (Encyclopedia's page
+   * shell) — saves a second /coins/markets call for the same coin. */
+  seed?: SeedInfo | null;
 }): Promise<TrendPeersResult> {
-  const seed = await fetchSeedInfo(coingeckoId);
+  const seed = knownSeed !== undefined ? knownSeed : await fetchSeedInfo(coingeckoId);
   if (!seed) return { status: "no-seed-data", seedId: coingeckoId };
 
   const [explanation, ctx] = await Promise.all([getTrendExplanation(coingeckoId), loadCategoryContext(coingeckoId)]);
@@ -378,10 +386,17 @@ export async function findTrendPeers({
   };
   const inBucket = (b: ReturnType<typeof bucket>) => aiPeerInfo.filter((p) => bucket(p) === b);
 
+  const pricedAtMs = Math.min(
+    seed.fetchedAtMs,
+    ...categories.map((c) => c.fetchedAtMs),
+    ...[...membersById.values(), ...aiPeerInfo].flatMap((p) => (p.fetchedAtMs !== undefined ? [p.fetchedAtMs] : [])),
+  );
+
   return {
     status: "ok",
     seed,
     explanation,
+    pricedAtMs,
     anchorCategoryNames,
     categories,
     categoryCheck,

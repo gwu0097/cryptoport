@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { ExternalLink, BookOpen } from "lucide-react";
 import { Panel } from "./ui/Panel";
 import { TokenIcon } from "./TokenIcon";
@@ -134,8 +136,11 @@ export async function TrendAnalysisSection({
   basePath,
   extraQuery,
   showHeader = true,
+  knownSeed,
 }: {
   id: string;
+  /** Already-fetched seed info (Encyclopedia) — skips findTrendPeers' own fetch of it. */
+  knownSeed?: SeedInfo | null;
   mcapFloor: number;
   matchedFromTicker?: string;
   basePath: string;
@@ -147,7 +152,7 @@ export async function TrendAnalysisSection({
    * regardless — that's real, tab-specific filtering, not identity. */
   showHeader?: boolean;
 }) {
-  const [result, user] = await Promise.all([findTrendPeers({ coingeckoId: id, mcapFloor }), getUser()]);
+  const [result, user] = await Promise.all([findTrendPeers({ coingeckoId: id, mcapFloor, seed: knownSeed }), getUser()]);
   const watchlists = user ? await getWatchlists() : null;
 
   if (result.status === "no-seed-data") {
@@ -171,6 +176,7 @@ export async function TrendAnalysisSection({
     aiDiscovered,
     aiOtherCategory,
     aiPeerReasons,
+    pricedAtMs,
   } = result;
   const explanationData = explanation.data;
   const categoryRows = peerRowsWithSeed(seed, categoryPeers);
@@ -232,6 +238,10 @@ export async function TrendAnalysisSection({
 
       <div className="mb-6">
         <McapFloorPicker id={id} mcapFloor={mcapFloor} basePath={basePath} extraQuery={extraQuery} />
+        <p className="mt-2 text-xs text-fg-muted">
+          Prices from CoinGecko, <AgeText at={pricedAtMs} serverNowSec={requestNowSec()} prefix="priced " /> — a view
+          reopened within 30 minutes keeps its original prices; reload for fresh ones.
+        </p>
       </div>
 
       <Panel

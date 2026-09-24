@@ -20,6 +20,14 @@ let active = 0;
 
 export const COINGECKO_HAS_KEY = KEYS.length > 0;
 
+// Per CoinGecko, only 200s deduct monthly credits, but EVERY request counts
+// toward the per-minute limit — so a retry that lands in the same minute
+// just burns rate-limit headroom. fetchWithRetry's generic default (retry
+// after 1s, then 2s) is too eager here; 4s base (then 8s), with jitter and
+// Retry-After honored, spreads retries out. Callers with their own spacing
+// (MARKETS_FETCH_OPTS: 6s base) still override it.
+const DEFAULT_RETRY = { attempts: 3, baseDelayMs: 4_000 };
+
 /** CoinGecko's own error code for the Demo plan's monthly call cap. */
 const QUOTA_EXHAUSTED_CODE = 10006;
 
@@ -39,7 +47,7 @@ export async function coingeckoFetch(
 ): Promise<Response> {
   for (;;) {
     const key = KEYS[active];
-    const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...opts, stopOn: isQuotaExhausted });
+    const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...DEFAULT_RETRY, ...opts, stopOn: isQuotaExhausted });
     if (res.status === 429 && active < KEYS.length - 1 && (await isQuotaExhausted(res.clone()))) {
       console.warn(`[coingecko] key #${active + 1} hit the monthly call cap — switching to key #${active + 2}`);
       active++;

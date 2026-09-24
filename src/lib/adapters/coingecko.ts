@@ -1,5 +1,7 @@
 import "server-only";
+import { cache } from "react";
 import { coingeckoFetch, COINGECKO_HAS_KEY } from "./coingeckoFetch";
+import { createTtlCache, type Fetched } from "../ttlCache";
 import { EVM_CHAINS } from "./evmChains";
 import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
@@ -358,6 +360,25 @@ export async function resolveTickerIcons(tickers: string[]): Promise<Map<string,
 // needed ~5-6s to clear reliably on CoinGecko's anonymous tier.
 const MARKETS_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
 
+// Price-bearing responses (/coins/markets, /coins/categories) are reused for
+// PRICE_TTL_MS across requests: repeat views of the same coin within a minute
+// share one response instead of each spending a credit (the primary key is
+// capped until 10-01; the backup is paying). Identical in-flight requests
+// share one fetch too. Every row carries `fetchedAtMs`, the time CoinGecko
+// actually answered, so pages caption its real age ("priced 40s ago") — a
+// cached price is never presented as live. Failed responses aren't cached.
+// Per request, React cache() also dedupes repeat calls with the same args.
+const PRICE_TTL_MS = 60_000;
+const priceCache = createTtlCache<unknown>(PRICE_TTL_MS);
+
+function cachedMarketsJson<T>(url: string, label: string): Promise<Fetched<T>> {
+  return priceCache.get(url, async () => {
+    const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+    if (!res.ok) throw new Error(`CoinGecko ${label} failed: HTTP ${res.status}`);
+    return res.json();
+  }) as Promise<Fetched<T>>;
+}
+
 export interface MarketDataRow {
   id: string;
   symbol: string;
@@ -381,6 +402,8 @@ export interface MarketDataRow {
   totalSupply: number | null;
   maxSupply: number | null;
   volume24h: number | null;
+  /** When CoinGecko actually returned this row (it may come from the 60s price cache). */
+  fetchedAtMs: number;
 }
 
 export interface CategoryStat {
@@ -388,29 +411,29 @@ export interface CategoryStat {
   name: string;
   marketCap: number | null;
   marketCapChange24h: number | null;
+  /** When CoinGecko actually returned this row (it may come from the 60s price cache). */
+  fetchedAtMs: number;
 }
 
 /**
  * Every CoinGecko category and its total market cap/24h change — one call,
  * ~765 rows. Trend Finder uses it to resolve the seed's functional category
  * names (categoryFilter.ts) to real category ids before fetching members.
- * Deliberately never cached — market_cap_change_24h is live financial data,
- * and rendering a stale figure is exactly the plausible-looking wrong number
- * the Data Correctness rule exists to prevent.
+ * market_cap_change_24h is live financial data: reused only within the 60s
+ * price cache, and every row carries its real fetch time for the caption.
  */
-export async function fetchCategoryStats(): Promise<CategoryStat[]> {
-  const url = `${API_BASE}/coins/categories`;
-  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
-  if (!res.ok) throw new Error(`CoinGecko coins/categories failed: HTTP ${res.status}`);
-  const body: { id: string; name: string; market_cap?: number | null; market_cap_change_24h?: number | null }[] =
-    await res.json();
+export const fetchCategoryStats = cache(async (): Promise<CategoryStat[]> => {
+  const { value: body, fetchedAtMs } = await cachedMarketsJson<
+    { id: string; name: string; market_cap?: number | null; market_cap_change_24h?: number | null }[]
+  >(`${API_BASE}/coins/categories`, "coins/categories");
   return body.map((c) => ({
     id: c.id,
     name: c.name,
     marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
     marketCapChange24h: typeof c.market_cap_change_24h === "number" ? c.market_cap_change_24h : null,
+    fetchedAtMs,
   }));
-}
+});
 
 interface MarketsResponseRow {
   id: string;
@@ -432,8 +455,9 @@ interface MarketsResponseRow {
 /** Shared response shape for every /coins/markets call in this file
  * (top-by-market-cap, single-id lookup) — same fields, same nullability
  * rules, just different query params per caller. */
-function parseMarketsRow(c: MarketsResponseRow): MarketDataRow {
+function parseMarketsRow(c: MarketsResponseRow, fetchedAtMs: number): MarketDataRow {
   return {
+    fetchedAtMs,
     id: c.id,
     symbol: c.symbol.toUpperCase(),
     name: c.name,
@@ -455,20 +479,16 @@ function parseMarketsRow(c: MarketsResponseRow): MarketDataRow {
 async function fetchMarketsPage(extraQuery: string, page = 1, perPage = 250): Promise<MarketDataRow[]> {
   const suffix = extraQuery ? `&${extraQuery}` : "";
   const url = `${API_BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=${page}&price_change_percentage=1h,24h,7d${suffix}`;
-  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
-  if (!res.ok) throw new Error(`CoinGecko coins/markets(${extraQuery || "top"}) failed: HTTP ${res.status}`);
-  const body: MarketsResponseRow[] = await res.json();
-  return body.map(parseMarketsRow);
+  const { value: body, fetchedAtMs } = await cachedMarketsJson<MarketsResponseRow[]>(url, `coins/markets(${extraQuery || "top"})`);
+  return body.map((row) => parseMarketsRow(row, fetchedAtMs));
 }
 
 /** Every coin in one CoinGecko category, with 1h/24h/7d change and market
- * cap — always fetched live (see fetchCategoryStats' own doc comment; the
- * same reasoning applies here, more so). Category membership is typically
+ * cap — live, reused only within the 60s price cache (see
+ * fetchCategoryStats' own doc comment). Category membership is typically
  * well under 250, so this is one call, not chunked. Revived for Trend
  * Finder v3 — see trendPeers.ts. */
-export async function fetchCategoryMembers(categoryId: string): Promise<MarketDataRow[]> {
-  return fetchMarketsPage(`category=${categoryId}`);
-}
+export const fetchCategoryMembers = cache(async (categoryId: string): Promise<MarketDataRow[]> => fetchMarketsPage(`category=${categoryId}`));
 
 /** Live display data for an explicit set of ids, chunked at
  * MARKETS_BATCH_SIZE (CoinGecko's own per-call ids= cap) rather than
@@ -480,12 +500,17 @@ export async function fetchCategoryMembers(categoryId: string): Promise<MarketDa
  * endpoint. Empty input short-circuits without a call. */
 export async function fetchMarketsByIds(ids: string[]): Promise<MarketDataRow[]> {
   if (ids.length === 0) return [];
+  return fetchMarketsByIdsKey([...new Set(ids)].sort().join(","));
+}
+
+// React cache() compares args by identity, so dedupe on a canonical string, not the array.
+const fetchMarketsByIdsKey = cache(async (idsCsv: string): Promise<MarketDataRow[]> => {
   const results: MarketDataRow[] = [];
-  for (const batch of chunk(ids, MARKETS_BATCH_SIZE)) {
+  for (const batch of chunk(idsCsv.split(","), MARKETS_BATCH_SIZE)) {
     results.push(...(await fetchMarketsPage(`ids=${batch.join(",")}`, 1, batch.length)));
   }
   return results;
-}
+});
 
 export interface SeedInfo {
   id: string;
@@ -498,48 +523,66 @@ export interface SeedInfo {
   change24h: number | null;
   change7d: number | null;
   marketCap: number | null;
+  /** When CoinGecko actually returned this row (it may come from the 60s price cache). */
+  fetchedAtMs: number;
 }
 
 /** A Trend Finder seed's own display info (name/symbol/image/rank) plus its
- * live price/1h/24h/7d change and market cap — one call, always live
- * (price-bearing data is never cached — see the Data Correctness rule).
+ * live price/1h/24h/7d change and market cap — one call, reused only
+ * within the 60s price cache (see PRICE_TTL_MS; `fetchedAtMs` drives the
+ * page's "priced X ago" caption).
  * Deliberately a small overlap with parseMarketsRow's own mapping rather
  * than sharing a helper for it — this is the only caller that also needs
  * name/marketCapRank, not worth threading an extra flag through the shared
  * path for. Null when CoinGecko has no market row for this id (a real
  * possibility for a very illiquid coin picked via /search). */
 export async function fetchSeedInfo(coingeckoId: string): Promise<SeedInfo | null> {
-  const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${coingeckoId}&price_change_percentage=1h,24h,7d`;
-  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
-  if (!res.ok) throw new Error(`CoinGecko coins/markets(ids=${coingeckoId}) failed: HTTP ${res.status}`);
-  const body: {
-    id: string;
-    symbol: string;
-    name: string;
-    image?: string;
-    market_cap_rank?: number | null;
-    current_price?: number;
-    price_change_percentage_1h_in_currency?: number;
-    price_change_percentage_24h_in_currency?: number;
-    price_change_percentage_7d_in_currency?: number;
-    market_cap?: number;
-  }[] = await res.json();
-  const c = body[0];
-  if (!c) return null;
-  return {
-    id: c.id,
-    symbol: c.symbol.toUpperCase(),
-    name: c.name,
-    imageUrl: c.image ?? null,
-    marketCapRank: typeof c.market_cap_rank === "number" ? c.market_cap_rank : null,
-    price: typeof c.current_price === "number" ? c.current_price : null,
-    change1h: typeof c.price_change_percentage_1h_in_currency === "number" ? c.price_change_percentage_1h_in_currency : null,
-    change24h:
-      typeof c.price_change_percentage_24h_in_currency === "number" ? c.price_change_percentage_24h_in_currency : null,
-    change7d: typeof c.price_change_percentage_7d_in_currency === "number" ? c.price_change_percentage_7d_in_currency : null,
-    marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
-  };
+  return (await fetchSeedInfos([coingeckoId])).get(coingeckoId) ?? null;
 }
+
+/** Several seeds in ONE /coins/markets call (Compare's two tokens). Keyed by
+ * the requested id; an id CoinGecko has no market row for is simply absent. */
+export async function fetchSeedInfos(coingeckoIds: string[]): Promise<Map<string, SeedInfo>> {
+  if (coingeckoIds.length === 0) return new Map();
+  return fetchSeedInfosKey([...new Set(coingeckoIds)].sort().join(","));
+}
+
+const fetchSeedInfosKey = cache(async (idsCsv: string): Promise<Map<string, SeedInfo>> => {
+  const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${idsCsv}&price_change_percentage=1h,24h,7d`;
+  const { value: body, fetchedAtMs } = await cachedMarketsJson<
+    {
+      id: string;
+      symbol: string;
+      name: string;
+      image?: string;
+      market_cap_rank?: number | null;
+      current_price?: number;
+      price_change_percentage_1h_in_currency?: number;
+      price_change_percentage_24h_in_currency?: number;
+      price_change_percentage_7d_in_currency?: number;
+      market_cap?: number;
+    }[]
+  >(url, `coins/markets(ids=${idsCsv})`);
+  return new Map(
+    body.map((c) => [
+      c.id,
+      {
+        id: c.id,
+        symbol: c.symbol.toUpperCase(),
+        name: c.name,
+        imageUrl: c.image ?? null,
+        marketCapRank: typeof c.market_cap_rank === "number" ? c.market_cap_rank : null,
+        price: typeof c.current_price === "number" ? c.current_price : null,
+        change1h: typeof c.price_change_percentage_1h_in_currency === "number" ? c.price_change_percentage_1h_in_currency : null,
+        change24h:
+          typeof c.price_change_percentage_24h_in_currency === "number" ? c.price_change_percentage_24h_in_currency : null,
+        change7d: typeof c.price_change_percentage_7d_in_currency === "number" ? c.price_change_percentage_7d_in_currency : null,
+        marketCap: typeof c.market_cap === "number" ? c.market_cap : null,
+        fetchedAtMs,
+      },
+    ]),
+  );
+});
 
 /** A coin's raw CoinGecko category names (function, chain ecosystems,
  * investor portfolios, indexes — all mixed; see categoryFilter.ts for which

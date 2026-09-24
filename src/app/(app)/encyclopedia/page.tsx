@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -196,7 +198,8 @@ async function EncyclopediaResults({
               </p>
               <p className="text-xs text-fg-muted">
                 {seed.marketCapRank !== null ? `Rank #${seed.marketCapRank}` : "Unranked"} ·{" "}
-                {seed.price !== null ? formatUsd(seed.price) : "—"} · 24h <ChangeText value={seed.change24h} />
+                {seed.price !== null ? formatUsd(seed.price) : "—"} · 24h <ChangeText value={seed.change24h} /> ·{" "}
+                <AgeText at={seed.fetchedAtMs} serverNowSec={requestNowSec()} prefix="priced " />
               </p>
               {matchedFromTicker && (
                 <p className="mt-0.5 text-xs text-warning">Matched from ticker &ldquo;{matchedFromTicker}&rdquo;</p>
@@ -229,6 +232,7 @@ async function EncyclopediaResults({
         {tab === "trend" && (
           <TrendAnalysisSection
             id={id}
+            knownSeed={seed}
             mcapFloor={mcapFloor}
             basePath="/encyclopedia"
             extraQuery="tab=trend"

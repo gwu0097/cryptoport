@@ -25,6 +25,8 @@ export interface PeerRow {
   change24h: number | null;
   change7d: number | null;
   marketCap: number | null;
+  /** When CoinGecko returned this row (it may come from the 60s price cache). */
+  fetchedAtMs?: number;
 }
 
 /**

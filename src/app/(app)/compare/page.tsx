@@ -1,4 +1,6 @@
 import { PageHeader } from "@/components/PageHeader";
+import { AgeText } from "@/components/AgeText";
+import { requestNowSec } from "@/lib/requestClock";
 import { Panel } from "@/components/ui/Panel";
 import { TokenIcon } from "@/components/TokenIcon";
 import { TradingViewCompareChart } from "@/components/TradingViewCompareChart";
@@ -6,7 +8,7 @@ import { CompareCoinPicker } from "@/components/CompareCoinPicker";
 import { CompareRecentSearches } from "@/components/CompareRecentSearches";
 import { CompareLastSearchRedirect } from "@/components/CompareLastSearchRedirect";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
-import { fetchSeedInfo, type SeedInfo } from "@/lib/adapters/coingecko";
+import { fetchSeedInfos, type SeedInfo } from "@/lib/adapters/coingecko";
 import { formatUsd, formatPercent } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +29,8 @@ function CoinSummary({ seed }: { seed: SeedInfo }) {
           {seed.name} <span className="text-fg-muted">({seed.symbol})</span>
         </p>
         <p className="text-xs text-fg-muted">
-          {seed.price !== null ? formatUsd(seed.price) : "—"} · 24h <ChangeCell value={seed.change24h} />
+          {seed.price !== null ? formatUsd(seed.price) : "—"} · 24h <ChangeCell value={seed.change24h} /> ·{" "}
+          <AgeText at={seed.fetchedAtMs} serverNowSec={requestNowSec()} prefix="priced " />
         </p>
       </div>
     </div>
@@ -49,10 +52,10 @@ export default async function ComparePage({
 }) {
   const { base, compare } = await searchParams;
 
-  const [baseInfo, compareInfo] = await Promise.all([
-    base ? fetchSeedInfo(base) : Promise.resolve(null),
-    compare ? fetchSeedInfo(compare) : Promise.resolve(null),
-  ]);
+  // Both tokens in ONE /coins/markets call.
+  const infos = await fetchSeedInfos([base, compare].filter((x): x is string => !!x));
+  const baseInfo = base ? (infos.get(base) ?? null) : null;
+  const compareInfo = compare ? (infos.get(compare) ?? null) : null;
 
   return (
     <>

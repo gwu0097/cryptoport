@@ -112,6 +112,7 @@ async function degradedMarkets(geckoIds: string[], error: string): Promise<{ mar
       id, name: k.name, symbol: k.ticker, imageUrl: null, price: prices.get(id) ?? null,
       change1h: null, change24h: null, change7d: null,
       marketCap: null, fdv: null, circulatingSupply: null, totalSupply: null, maxSupply: null, volume24h: null,
+      fetchedAtMs: Date.now(), // fetchPricesAt just ran, live
     });
   }
   return {
