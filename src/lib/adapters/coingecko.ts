@@ -370,6 +370,9 @@ const MARKETS_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
 // Per request, React cache() also dedupes repeat calls with the same args.
 const PRICE_TTL_MS = 60_000;
 const priceCache = createTtlCache<unknown>(PRICE_TTL_MS);
+const searchCache = createTtlCache<{
+  coins?: { id: string; symbol: string; name: string; thumb?: string; market_cap_rank?: number | null }[];
+}>(PRICE_TTL_MS);
 
 function cachedMarketsJson<T>(url: string, label: string): Promise<Fetched<T>> {
   return priceCache.get(url, async () => {
@@ -626,14 +629,22 @@ export interface CoinSearchResult {
  * every other lookup here needs a contract+chain or a known native-chain
  * symbol (see priceKey.ts's resolveCoingeckoKey, which deliberately never
  * guesses either).
+ *
+ * Reused for 60s across requests (same TTL cache as prices; identical
+ * in-flight searches share one call; failures aren't cached) and deduped per
+ * request: a Trend view re-resolves the same AI-named peers ("PUMP", "UNI")
+ * on every render, and a search result doesn't change within a minute. No
+ * prices in it, so no age caption is needed.
  */
-export async function searchCoins(query: string): Promise<CoinSearchResult[]> {
+export const searchCoins = cache(async (query: string): Promise<CoinSearchResult[]> => {
   const url = `${API_BASE}/search?query=${encodeURIComponent(query)}`;
-  const res = await coingeckoFetch(url);
-  if (!res.ok) throw new Error(`CoinGecko search failed: HTTP ${res.status}`);
-  const body: {
-    coins?: { id: string; symbol: string; name: string; thumb?: string; market_cap_rank?: number | null }[];
-  } = await res.json();
+  const { value: body } = await searchCache.get(url, async () => {
+    const res = await coingeckoFetch(url);
+    if (!res.ok) throw new Error(`CoinGecko search failed: HTTP ${res.status}`);
+    return (await res.json()) as {
+      coins?: { id: string; symbol: string; name: string; thumb?: string; market_cap_rank?: number | null }[];
+    };
+  });
   return (body.coins ?? []).map((c) => ({
     id: c.id,
     symbol: c.symbol.toUpperCase(),
@@ -641,7 +652,7 @@ export async function searchCoins(query: string): Promise<CoinSearchResult[]> {
     imageUrl: c.thumb || null,
     marketCapRank: typeof c.market_cap_rank === "number" ? c.market_cap_rank : null,
   }));
-}
+});
 
 export interface DailyPricePoint {
   /** UTC calendar date, YYYY-MM-DD — matches portfolio_snapshots' and
