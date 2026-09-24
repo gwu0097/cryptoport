@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { SlowJobHint } from "@/components/jobs/SlowJobHint";
 import { type JobStartResult } from "@/lib/jobStatus";
 import { formatStaleness, formatDuration } from "@/lib/format";
 import { useJob } from "./jobs/useJob";
@@ -74,6 +75,7 @@ export function SyncWalletButtons({
           </JobButton>
         )}
       </div>
+      <SlowJobHint busy={busy} lastDurationMs={lastSyncDurationMs} />
       {/* No "Syncing…" caption while busy — the button's own busyLabel
           already says that; reported directly as redundant. */}
       {!busy && (

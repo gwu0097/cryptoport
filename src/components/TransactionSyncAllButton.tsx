@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { SlowJobHint } from "@/components/jobs/SlowJobHint";
 import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
 import { useJob } from "./jobs/useJob";
 import { useNow } from "./jobs/useJobStatus";
@@ -54,6 +55,7 @@ export function TransactionSyncAllButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         Sync all
       </JobButton>
+      <SlowJobHint busy={busy} />
       {error && <p className="text-xs text-negative">{error}</p>}
     </div>
   );

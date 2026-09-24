@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { SlowJobHint } from "@/components/jobs/SlowJobHint";
 import { type JobStartResult } from "@/lib/jobStatus";
 import { formatStaleness } from "@/lib/format";
 import { useJob } from "./jobs/useJob";
@@ -42,6 +43,7 @@ export function SyncExchangeButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         Sync
       </JobButton>
+      <SlowJobHint busy={busy} />
       {!busy && (
         <p className={`max-w-xs text-right text-xs ${status.outcome === "error" ? "text-negative" : "text-fg-muted"}`}>
           {status.outcome === "error"

@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { SlowJobHint } from "@/components/jobs/SlowJobHint";
 import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
 import { filterWallets } from "@/lib/walletTagFilter";
 import { useJob } from "./jobs/useJob";
@@ -96,6 +97,7 @@ export function SyncAllWalletsButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         {label}
       </JobButton>
+      <SlowJobHint busy={busy} />
       {error && <p className="text-xs text-negative">{error}</p>}
     </div>
   );
