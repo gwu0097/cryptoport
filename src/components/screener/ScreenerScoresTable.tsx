@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
+import { TIER_LABEL, TIER_CLASS, RULE_LABEL } from "@/lib/screener/labels";
 import type { ScreenerRow, SetupTagValue, TierValue } from "@/lib/screener/queries";
 import { formatCompactUsd, formatPercent } from "@/lib/format";
 import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
@@ -54,14 +55,6 @@ const TAG_CLASS: Record<SetupTagValue, string> = {
   NEUTRAL: "border-border text-fg-muted",
 };
 
-const TIER_LABEL: Record<TierValue, string> = { pass: "Pass", caution: "Caution", high_risk: "High risk" };
-const TIER_CLASS: Record<TierValue, string> = { pass: "text-fg", caution: "text-warning", high_risk: "text-negative" };
-const RULE_LABEL: Record<string, string> = {
-  dilution_high: "dilution > 25%/yr",
-  unlocks_90d: "unlocks > 5% in 90d",
-  revenue_90d_drop: "revenue down > 40% vs prior 90d",
-  dilution_caution: "dilution > 10%/yr",
-};
 
 /** Momentum is a ratio (0.12 = +12% vs BTC); formatPercent takes percent units. */
 function MomCell({ value }: { value: number | null }) {

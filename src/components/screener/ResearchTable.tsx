@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { TIER_LABEL, TIER_CLASS, RULE_LABEL, GATE_LABEL } from "@/lib/screener/labels";
 import { AlertTriangle } from "lucide-react";
 import type { ResearchRow, TierValue } from "@/lib/screener/queries";
 import { formatCompactUsd, formatPercent } from "@/lib/format";
@@ -13,23 +15,6 @@ type Sort = { key: SortKey; dir: "asc" | "desc" };
 const DEFAULT_SORT: Sort = { key: "revenue", dir: "desc" };
 
 const TIER_ORDER: Record<TierValue, number> = { pass: 3, caution: 2, high_risk: 1 };
-const TIER_LABEL: Record<TierValue, string> = { pass: "Pass", caution: "Caution", high_risk: "High risk" };
-const TIER_CLASS: Record<TierValue, string> = { pass: "text-fg", caution: "text-warning", high_risk: "text-negative" };
-const RULE_LABEL: Record<string, string> = {
-  dilution_high: "dilution > 25%/yr",
-  unlocks_90d: "unlocks > 5% in 90d",
-  revenue_90d_drop: "revenue down > 40% vs prior 90d",
-  dilution_caution: "dilution > 10%/yr",
-};
-const GATE_LABEL: Record<string, string> = {
-  core_data: "missing data",
-  out_of_scope: "out of scope",
-  mcap_floor: "mcap < $10M",
-  liquidity: "volume < $2M",
-  revenue_floor: "revenue < $1M/yr",
-  unlock_overhang: "unlock overhang",
-  collapsing_revenue: "revenue collapse",
-};
 
 /** null = missing: always sorted last, whichever direction. */
 function sortValue(r: ResearchRow, key: SortKey): number | string | null {
@@ -133,8 +118,14 @@ export function ResearchTable({ rows }: { rows: ResearchRow[] }) {
                         aria-label="DefiLlama and CoinGecko disagree on this asset's market cap by more than the configured threshold"
                       />
                     )}
-                    <span className="font-medium text-fg">{r.ticker.toUpperCase()}</span>
-                    <span className="truncate text-fg-muted">{r.name}</span>
+                    <Link
+                      href={`/encyclopedia?id=${encodeURIComponent(r.geckoId)}&tab=fundamentals`}
+                      className="flex min-w-0 items-center gap-1.5 hover:text-accent"
+                      title={`Open ${r.name}'s Fundamentals in the Encyclopedia`}
+                    >
+                      <span className="font-medium text-fg">{r.ticker.toUpperCase()}</span>
+                      <span className="truncate text-fg-muted">{r.name}</span>
+                    </Link>
                   </div>
                   {!r.rated && <div className="text-xs text-fg-muted">Failed: {r.failedGates.map((g) => GATE_LABEL[g] ?? g).join(", ")}</div>}
                 </td>

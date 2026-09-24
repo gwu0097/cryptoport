@@ -231,6 +231,24 @@ export interface ScreenerView {
   scoresMissingReason: string | null;
 }
 
+export type LatestRun = RunRow & { notes: Record<string, unknown> | null };
+
+/** The latest day's representative live run — by the one shared rule
+ * (runSelection.ts; SPEC "One run per UTC day") — or null. Shared by
+ * /screener and the Encyclopedia's Fundamentals tab, so both always show
+ * the same run. */
+export async function loadLatestDailyRun(): Promise<LatestRun | null> {
+  // Enough recent runs to cover the latest day even with several manual runs.
+  const { data: runs, error } = await serviceDb()
+    .from("screener_runs")
+    .select("id, started_at, status, kind, degraded, notes")
+    .eq("kind", "live")
+    .order("started_at", { ascending: false })
+    .limit(30);
+  if (error) throw new Error(`Failed to load screener_runs: ${error.message}`);
+  return latestDailyRun((runs ?? []) as LatestRun[]);
+}
+
 /** The screener page's view of the latest day's run — the day's run picked
  * by the one shared rule (runSelection.ts; SPEC "One run per UTC day"). If
  * that run has no scores yet (derivations run ~1 minute after it turns ok)
@@ -243,15 +261,7 @@ export async function getScreenerView(): Promise<ScreenerView> {
     unrated: { total: 0, failedByGate: {} }, regime: null, sizeCheck: null, scoresMissingReason: null,
   };
 
-  // Enough recent runs to cover the latest day even with several manual runs.
-  const { data: runs, error: runsError } = await db
-    .from("screener_runs")
-    .select("id, started_at, status, kind, degraded, notes")
-    .eq("kind", "live")
-    .order("started_at", { ascending: false })
-    .limit(30);
-  if (runsError) throw new Error(`Failed to load screener_runs: ${runsError.message}`);
-  const run = latestDailyRun((runs ?? []) as (RunRow & { notes: Record<string, unknown> | null })[]);
+  const run = await loadLatestDailyRun();
   if (!run) return empty;
 
   const notes = (run.notes ?? {}) as {

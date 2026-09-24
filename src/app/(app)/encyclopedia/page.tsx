@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FundamentalsTab } from "@/components/encyclopedia/FundamentalsTab";
 import { AgeText } from "@/components/AgeText";
 import { requestNowSec } from "@/lib/requestClock";
 import { Suspense } from "react";
@@ -29,6 +30,7 @@ const TABS = [
   { key: "chart", label: "Chart" },
   { key: "trend", label: "Trend Finder" },
   { key: "ai", label: "AI Analysis" },
+  { key: "fundamentals", label: "Fundamentals" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
@@ -88,7 +90,7 @@ export default async function EncyclopediaPage({
   searchParams: Promise<{ id?: string; ticker?: string; tab?: string; mcap?: string }>;
 }) {
   const { id, ticker, tab: tabParam, mcap } = await searchParams;
-  const tab: Tab = tabParam === "trend" || tabParam === "ai" ? tabParam : "chart";
+  const tab: Tab = tabParam === "trend" || tabParam === "ai" || tabParam === "fundamentals" ? tabParam : "chart";
   const mcapFloor = mcap !== undefined && !Number.isNaN(Number(mcap)) ? Number(mcap) : DEFAULT_MCAP_FLOOR;
 
   return (
@@ -241,6 +243,8 @@ async function EncyclopediaResults({
         )}
 
         {tab === "ai" && <TokenAnalysisPanel coingeckoId={seed.id} ticker={seed.symbol} name={seed.name} />}
+
+        {tab === "fundamentals" && <FundamentalsTab geckoId={seed.id} name={seed.name} />}
       </Suspense>
     </>
   );

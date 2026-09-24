@@ -272,6 +272,19 @@ DefiLlama jitters `/chart` point timestamps by about a minute either side of the
 - **Grids away from midnight label exactly as before**, so the backfill (~21:31 grid) is unaffected and its stored rows are unchanged.
 - **Production impact:** 2b's BTC reference for **CoinGecko-priced backfilled rows** requested a 00:00 grid, so those rows could pair with BTC from the wrong day, or with none. That's 6,300 of 236,007 backfilled rows, in 186 assets; **0 of today's 72 rated assets are affected**. Unrated assets' displayed momentum and beta could have been off. The next daily run uses the fixed labels.
 
+### Encyclopedia "Fundamentals" tab (2026-09-24)
+Each coin's Fundamentals also appear as a tab in the Encyclopedia (`/encyclopedia?id=<gecko_id>&tab=fundamentals`, `src/components/encyclopedia/FundamentalsTab.tsx`), read through one function, `getAssetFundamentals` (`src/lib/screener/assetView.ts`). It's a read-only lens on the latest daily run (`loadLatestDailyRun`, the same run /screener shows) and the stored snapshot history (one point per UTC day via `dailyReadings`); it computes nothing new and makes no network call. The Placement rule's ban is on *portfolio* code importing `src/lib/screener`; the Encyclopedia is research and reads it only through that one function.
+- **The "Product" rule applies here too:** no grade, timing score, setup tag or rank on the tab.
+- **Every field is always shown; a missing value reads "N/A"** (user decision), including for rated/unrated status, tier rules without data, and coins outside the dataset.
+- `/screener`'s research table links each row to its tab.
+
+### Attribution audit (2026-09-24) — OPEN, fixes not yet decided
+Run before the tab exposed unrated assets per coin. Every stored sector was compared with the category on the asset's own DefiLlama fees entry; every multi-slug revenue sum was checked for slugs sharing one DefiLlama parent.
+- **Sector label wrong for 11 L1 chains:** BTC, SOL, AVAX, SUI, APT, TIA, ACA, CANTO, GLMR, METIS and G carry "Canonical Bridge" (from `/protocols`, where the slug names the chain's bridge listing); their fees entry is the chain itself (`category: "Chain"`). The *figures* are the chain's and check out: BTC fees 30d $6.77M vs blockchain.com $7.20M (a one-day window offset). The sector also feeds `sector_bucket`, which drives the `out_of_scope` filter (APT, AVAX, SUI, SOL currently fail it), so a fix can change who is rated.
+- **FLOW misattributed:** `flow` (the Flow L1 token) is mapped to `flowswap-v3` (a DEX, $25.8k fees/30d) as its primary slug, plus the `flow` chain ($339). Its figures are mostly another protocol's fees.
+- **Everything else consistent:** 176 of 177 multi-slug sums add only children of one DefiLlama parent. 32 other sector labels differ from the fees-entry category, all for multi-product protocols (HYPE: Derivatives vs Dexs; JUP: DEX Aggregator vs Lending), which is a labeling choice, not wrong figures.
+- All affected assets are currently **unrated**.
+
 ### Read-only table view
 Built (Phase 1), sortable, flags conflicts and backfilled rows. **Moved to `/screener/universe` in 3b.** `/screener` is now the real screener (Phase 3b). `/screener/universe` stays URL-only (linked from `/screener`'s footer). **`/screener` itself is in the sidebar (Research group) since 2026-09-23**: the URL-only restriction existed because grades were the default view, and the default is now the research table, which is defensible on its own (see "Product").
 
