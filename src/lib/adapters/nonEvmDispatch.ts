@@ -2,7 +2,7 @@ import "server-only";
 import { fetchJupiterHoldings } from "./jupiter";
 import { fetchSolDefiPositions } from "./solDefiPositions";
 import { fetchCosmosHoldings, isCosmosAddress } from "./cosmos";
-import { fetchSuiHoldings, isSuiAddress } from "./sui";
+import { fetchSuiWallet, isSuiAddress } from "./sui";
 import { fetchFilecoinHoldings, isFilecoinAddress } from "./filecoin";
 import { fetchBitcoinCashHoldings, isBitcoinCashAddress } from "./bitcoincash";
 import { fetchNearHoldings, isNearAccountId } from "./near";
@@ -81,7 +81,7 @@ export const NON_EVM_DISPATCH: Record<string, NonEvmDispatchEntry> = {
     detect: (address) => isCosmosAddress("INJ", address),
   },
   SUI: {
-    fetch: simple(fetchSuiHoldings),
+    fetch: fetchSuiWallet,
     detect: isSuiAddress,
   },
   FIL: {
