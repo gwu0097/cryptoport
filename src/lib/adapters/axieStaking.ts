@@ -80,9 +80,13 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
 
   if (stakedRaw === BigInt(0) && rewardsRaw === BigInt(0)) return []; // no position — a real $0, not an error
 
+  // A price/icon failure (CoinGecko 429) keeps the position, unpriced —
+  // it used to throw and drop 385 AXS from the wallet entirely
+  // (2026-09-24). Refresh prices' EVM lane (refreshEvmHoldingPrices)
+  // re-prices these rows later by (chain, contract, qty).
   const [prices, images] = await Promise.all([
-    fetchTokenPrices("ronin", [AXS_CONTRACT]),
-    fetchTokenImages([AXS_COINGECKO_ID]),
+    fetchTokenPrices("ronin", [AXS_CONTRACT]).catch(() => new Map<string, { usd: number }>()),
+    fetchTokenImages([AXS_COINGECKO_ID]).catch(() => new Map<string, string>()),
   ]);
   const price = prices.get(AXS_CONTRACT.toLowerCase());
   const icon = images.get(AXS_COINGECKO_ID) ?? null;

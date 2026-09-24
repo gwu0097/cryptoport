@@ -99,9 +99,10 @@ export async function fetchSuperverseStaking(address: Address): Promise<AdapterH
   const holdings: AdapterHolding[] = [];
 
   if (stakedRaw > BigInt(0)) {
+    // Price/icon failure keeps the position, unpriced (same as axieStaking.ts).
     const [prices, images] = await Promise.all([
-      fetchTokenPrices(ETH_CHAIN.coingeckoPlatform, [SUPER_CONTRACT]),
-      fetchTokenImages([SUPER_COINGECKO_ID]),
+      fetchTokenPrices(ETH_CHAIN.coingeckoPlatform, [SUPER_CONTRACT]).catch(() => new Map<string, { usd: number }>()),
+      fetchTokenImages([SUPER_COINGECKO_ID]).catch(() => new Map<string, string>()),
     ]);
     const price = prices.get(SUPER_CONTRACT.toLowerCase());
     const qty = Number(formatUnits(stakedRaw, 18));
@@ -119,7 +120,7 @@ export async function fetchSuperverseStaking(address: Address): Promise<AdapterH
   }
 
   if (availableRaw > BigInt(0)) {
-    const images = await fetchTokenImages([ETH_CHAIN.nativeCoingeckoId]);
+    const images = await fetchTokenImages([ETH_CHAIN.nativeCoingeckoId]).catch(() => new Map<string, string>());
     const qty = Number(formatUnits(availableRaw, 18));
     holdings.push({
       ticker: ETH_CHAIN.nativeSymbol,
