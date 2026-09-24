@@ -4,18 +4,35 @@ import { useEffect, useState } from "react";
 import { formatTimeInZone, formatSpan, signalRecency, barsAgo, type Recency } from "@/lib/smc/time";
 import { useTimeZone } from "@/components/timezone/TimeZoneProvider";
 
+// When THIS browser first saw each server render (keyed by the server's own
+// clock reading for it). "Now" is then the server's time plus time elapsed on
+// the browser's clock — never the browser's absolute clock — so a skewed
+// client clock can't shift "(x ago)", the countdowns, or the stale flag.
+const anchors = new Map<number, number>();
+
+/** Browser-clock ms when the render stamped `serverNowSec` was first shown here. */
+export function clientAnchorMs(serverNowSec: number): number {
+  let a = anchors.get(serverNowSec);
+  if (a === undefined) {
+    a = Date.now();
+    anchors.set(serverNowSec, a);
+  }
+  return a;
+}
+
 /** Current time in seconds, ticking every 30s. Starts at the SERVER's render
  * time (`serverNowSec`, passed down as a prop), so "(x ago)", the year and
  * the stale flag are in the server HTML and the first client render matches
- * it exactly (no hydration mismatch); the client clock takes over after. */
-function useNowSec(serverNowSec: number): number {
+ * it exactly (no hydration mismatch); then advances by browser-elapsed time. */
+export function useNowSec(serverNowSec: number): number {
   const [now, setNow] = useState(serverNowSec);
   useEffect(() => {
-    const tick = () => setNow(Math.floor(Date.now() / 1000));
+    const anchor = clientAnchorMs(serverNowSec);
+    const tick = () => setNow(serverNowSec + Math.floor((Date.now() - anchor) / 1000));
     tick();
     const id = setInterval(tick, 30_000);
     return () => clearInterval(id);
-  }, []);
+  }, [serverNowSec]);
   return now;
 }
 

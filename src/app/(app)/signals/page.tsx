@@ -16,6 +16,7 @@ import { IndicatorSelect } from "@/components/smc/IndicatorSelect";
 import { INDICATORS, indicatorById } from "@/lib/smc/indicators";
 import { TriggerText } from "@/components/smc/TriggerText";
 import { stateToneClass } from "@/components/smc/stateTone";
+import { RefreshControl } from "@/components/smc/RefreshControl";
 import type { IndicatorId } from "@/lib/signals/rules";
 
 export const dynamic = "force-dynamic";
@@ -139,6 +140,7 @@ export default async function SignalsPage({
           label={indicator.label}
           closeUnit={closeUnit}
           tf={tf}
+          autoRefresh={!coin}
           listId={selectedList?.id}
           filter={
             watchlists.length > 0 ? (
@@ -188,7 +190,8 @@ async function ChartSection({ ind, label, coin, tf }: { ind: IndicatorId; label:
 
   return (
     <Panel className="mb-6" title={title}>
-      <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+      <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+        <RefreshControl computedAtSec={nowSec} decidedAtSec={view.decidedAt} autoRefresh />
         <span>
           State:{" "}
           {state ? (
@@ -237,10 +240,13 @@ async function WatchlistSection({
   label,
   closeUnit,
   tf,
+  autoRefresh,
   listId,
   filter,
 }: {
   ind: IndicatorId;
+  /** Only when there's no chart section, which otherwise owns the auto-refresh. */
+  autoRefresh: boolean;
   label: string;
   closeUnit: string;
   tf: ChartTimeframe;
@@ -258,7 +264,16 @@ async function WatchlistSection({
           <span>
             Your watchlist · {label} · {tf}
           </span>
-          {filter}
+          <div className="flex flex-wrap items-center gap-3">
+            {result && (
+              <RefreshControl
+                computedAtSec={nowSec}
+                decidedAtSec={result.rows.find((r) => r.decidedAt !== null)?.decidedAt ?? null}
+                autoRefresh={autoRefresh}
+              />
+            )}
+            {filter}
+          </div>
         </div>
       }
       description={`Each watchlist token's current ${label} state and what the forming ${closeUnit} has to close at for the next signal. Sorted by distance to an exact trigger by default; rows with no exact trigger sort last.`}
