@@ -2,6 +2,7 @@ import "server-only";
 import { serviceDb } from "@/lib/supabase";
 import { loadLatestDailyRun, type TierValue } from "./queries";
 import { dailyReadings, type Reading } from "./history";
+import { sourceChanges } from "./sourceChanges";
 
 // One asset's Fundamentals, for the Encyclopedia's Fundamentals tab — a lens
 // over what the daily job already computed (latest daily run's snapshot,
@@ -60,6 +61,10 @@ export interface AssetFundamentals {
   conflicts: { field: string; sourceA: string; valueA: number | null; sourceB: string; valueB: number | null; pctDiff: number | null }[];
   /** One point per UTC day (the day's reading by the shared rule), oldest first. */
   history: { date: string; fees30d: number | null; revenue30d: number | null; holdersRevenue30d: number | null; marketCapUsd: number | null; isBackfilled: boolean }[];
+  /** Days where the set of DefiLlama sources summed into this asset changed
+   * (e.g. the 2026-09-24 FlowSwap exclusion from FLOW): a step in the chart
+   * there is an attribution change, not a change in activity. */
+  sourceChanges: { date: string; added: string[]; removed: string[] }[];
 }
 
 type SnapRow = {
@@ -119,8 +124,9 @@ export async function getAssetFundamentals(geckoId: string): Promise<AssetFundam
   const usable = snaps.filter((s) => s.is_backfilled || s.screener_runs?.status === "ok");
   const readings = usable.map((s) => ({ ...s, degraded: !!s.screener_runs?.degraded })) as unknown as (Reading & SnapRow)[];
   const byDay = dailyReadings(readings, new Date().toISOString()) as Map<string, Reading & SnapRow>;
-  const history = [...byDay.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : 1))
+  const days = [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+  const changes = sourceChanges(days.map(([date, s]) => [date, s.contributing_slugs] as const));
+  const history = days
     .map(([date, s]) => ({
       date,
       fees30d: s.fees_30d,
@@ -131,7 +137,7 @@ export async function getAssetFundamentals(geckoId: string): Promise<AssetFundam
     }));
 
   const run = await loadLatestDailyRun();
-  const base: AssetFundamentals = { asset, run: null, snapshot: null, metrics: null, tier: null, conflicts: [], history };
+  const base: AssetFundamentals = { asset, run: null, snapshot: null, metrics: null, tier: null, conflicts: [], history, sourceChanges: changes };
   if (!run) return base;
   base.run = { id: run.id, startedAt: run.started_at, degraded: !!run.degraded };
 

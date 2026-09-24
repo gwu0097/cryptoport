@@ -278,12 +278,21 @@ Each coin's Fundamentals also appear as a tab in the Encyclopedia (`/encyclopedi
 - **Every field is always shown; a missing value reads "N/A"** (user decision), including for rated/unrated status, tier rules without data, and coins outside the dataset.
 - `/screener`'s research table links each row to its tab.
 
-### Attribution audit (2026-09-24) — OPEN, fixes not yet decided
+### Attribution audit (2026-09-24) — fixes DECIDED and built (take effect from the next daily run)
 Run before the tab exposed unrated assets per coin. Every stored sector was compared with the category on the asset's own DefiLlama fees entry; every multi-slug revenue sum was checked for slugs sharing one DefiLlama parent.
 - **Sector label wrong for 11 L1 chains:** BTC, SOL, AVAX, SUI, APT, TIA, ACA, CANTO, GLMR, METIS and G carry "Canonical Bridge" (from `/protocols`, where the slug names the chain's bridge listing); their fees entry is the chain itself (`category: "Chain"`). The *figures* are the chain's and check out: BTC fees 30d $6.77M vs blockchain.com $7.20M (a one-day window offset). The sector also feeds `sector_bucket`, which drives the `out_of_scope` filter (APT, AVAX, SUI, SOL currently fail it), so a fix can change who is rated.
 - **FLOW misattributed:** `flow` (the Flow L1 token) is mapped to `flowswap-v3` (a DEX, $25.8k fees/30d) as its primary slug, plus the `flow` chain ($339). Its figures are mostly another protocol's fees.
 - **Everything else consistent:** 176 of 177 multi-slug sums add only children of one DefiLlama parent. 32 other sector labels differ from the fees-entry category, all for multi-product protocols (HYPE: Derivatives vs Dexs; JUP: DEX Aggregator vs Lending), which is a labeling choice, not wrong figures.
 - All affected assets are currently **unrated**.
+
+**Fixes (decided 2026-09-24, user):**
+1. **The sector follows the fee data** (`aggregate.ts` `sectorCategoryFor`): when a slug's fee entry is a chain's own (`defillamaId` `chain#…`), its sector is "Chain", whatever `/protocols` calls the slug. Checked on live DefiLlama data with `scripts/diag/screener-attribution-check.ts` (old vs new rule, no writes): **16 assets change**, the 11 above minus SUI (whose fee entry really is a bridge, id 3181, so it keeps "Canonical Bridge") plus five that stored a chain's fees under another label (berachain "Chain Bribes"; merlin, bitgert, genesys "Yield"; mind-network "AI Agents"). All 16 land in `out_of_scope` per the existing Scope rule ("Chain" is out of scope). **None was rated**, so the 72-asset rated set doesn't change.
+2. **FLOW:** `flowswap-v3` is excluded before grouping (config `slugExclusions`, a recorded per-case decision like `scopeOverrides`). FLOW's 30d fees go from $26,120 (99% FlowSwap's) to the Flow chain's own $339.
+3. **Daily check:** each run's notes record `attribution: { excluded_slugs, mixed_chain_app_groups }`. A mixed group is a token's own Chain entry plus an app that joined only through its parent's gecko_id (FlowSwap's shape). It's flagged for review, never auto-excluded: an app filed under a chain can be its real business (the Scope rule keeps HYPE, DRV, RUNE, DYDX). Today it flags only FLOW before the fix and nothing after.
+
+**Correction to the 2026-09-23 scope overrides:** the recorded reason for `solana`, `avalanche-2` and `aptos` ("rated on canonical-bridge revenue") is inaccurate. Their stored figures are the chains' own fees; only the label came from the bridge listing. The out-of-scope conclusion stands (it now also follows from fix 1). `sui`'s reason is accurate. The entries are left as recorded rather than rewritten.
+
+**History is point-in-time:** rows already stored keep what was captured (FLOW's history still includes FlowSwap's fees up to 2026-09-24); the fixes apply to rows written from the next run on.
 
 ### Read-only table view
 Built (Phase 1), sortable, flags conflicts and backfilled rows. **Moved to `/screener/universe` in 3b.** `/screener` is now the real screener (Phase 3b). `/screener/universe` stays URL-only (linked from `/screener`'s footer). **`/screener` itself is in the sidebar (Research group) since 2026-09-23**: the URL-only restriction existed because grades were the default view, and the default is now the research table, which is defensible on its own (see "Product").

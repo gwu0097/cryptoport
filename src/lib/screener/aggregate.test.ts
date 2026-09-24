@@ -1,14 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  sumOrNull,
-  resolveGroups,
-  aggregateGroupTotals,
-  sumDailySeriesAcrossSlugs,
-  rollingSum,
-  type ProtocolForGrouping,
-  dominantCategory,
-} from "./aggregate.ts";
+import { sumOrNull, resolveGroups, aggregateGroupTotals, sumDailySeriesAcrossSlugs, rollingSum, type ProtocolForGrouping, dominantCategory, sectorCategoryFor, mixedChainAppGroups } from "./aggregate.ts";
 
 const proto = (slug: string, geckoId: string | null, parentProtocol: string | null, tvl = 1, mcap: number | null = null): ProtocolForGrouping => ({
   slug,
@@ -111,4 +103,35 @@ test("dominantCategory: falls back to fees, then to any child with a category", 
   assert.equal(dominantCategory(["a", "b"], cats, () => null, (s) => (s === "b" ? 10 : 1)), "Launchpad");
   assert.equal(dominantCategory(["c", "a"], cats, () => null, () => null), "Dexs");
   assert.equal(dominantCategory(["c"], cats, () => null, () => null), null);
+});
+
+test("sector follows the fee data: a chain's own fee entry is 'Chain', whatever /protocols calls the slug (audit 2026-09-24)", () => {
+  // bitcoin: /protocols says Canonical Bridge (the bridge TVL listing), fees are chain#bitcoin
+  assert.equal(sectorCategoryFor("Canonical Bridge", { defillamaId: "chain#bitcoin" }), "Chain");
+  // sui-foundation's fee entry really is a bridge protocol (id 3181): unchanged
+  assert.equal(sectorCategoryFor("Canonical Bridge", { defillamaId: "3181" }), "Canonical Bridge");
+  assert.equal(sectorCategoryFor("Dexs", { defillamaId: "6933" }), "Dexs");
+  assert.equal(sectorCategoryFor("Lending", undefined), "Lending");
+  assert.equal(sectorCategoryFor(null, { defillamaId: null }), null);
+});
+
+test("mixedChainAppGroups flags a chain token that also absorbed a parent-filed app (FLOW + FlowSwap), not ordinary groups", () => {
+  const protocols = new Map<string, ProtocolForGrouping>(
+    [
+      { slug: "flowswap-v3", geckoId: null, category: "Dexs", tvl: null, mcap: null, parentProtocol: "parent#flow-swap" },
+      { slug: "flow", geckoId: "flow", category: "Chain", tvl: null, mcap: null, parentProtocol: null },
+      { slug: "uniswap-v3", geckoId: null, category: "Dexs", tvl: null, mcap: null, parentProtocol: "parent#uniswap" },
+      { slug: "uniswap-v2", geckoId: null, category: "Dexs", tvl: null, mcap: null, parentProtocol: "parent#uniswap" },
+      { slug: "bitcoin", geckoId: "bitcoin", category: "Canonical Bridge", tvl: null, mcap: null, parentProtocol: null },
+    ].map((p) => [p.slug, p]),
+  );
+  const parents = new Map([
+    ["parent#flow-swap", { geckoId: "flow", mcap: null }],
+    ["parent#uniswap", { geckoId: "uniswap", mcap: null }],
+  ]);
+  const { groups } = resolveGroups([...protocols.values()], parents);
+  assert.deepEqual(mixedChainAppGroups(groups, protocols), [{ geckoId: "flow", chainSlugs: ["flow"], appSlugs: ["flowswap-v3"] }]);
+  // With the app excluded (config slugExclusions), nothing is flagged.
+  const { groups: g2 } = resolveGroups([...protocols.values()].filter((p) => p.slug !== "flowswap-v3"), parents);
+  assert.deepEqual(mixedChainAppGroups(g2, protocols), []);
 });

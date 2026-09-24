@@ -3,7 +3,7 @@ import { serviceDb } from "@/lib/supabase";
 import { fetchMarketsByIds, type MarketDataRow } from "@/lib/adapters/coingecko";
 import { fetchPricesAt } from "./adapters/defillamaPrices";
 import { fetchProtocols, fetchFeesOverview, fetchParentProtocols } from "./adapters/defillama";
-import { resolveGroups, aggregateGroupTotals, dominantCategory } from "./aggregate";
+import { resolveGroups, aggregateGroupTotals, dominantCategory, sectorCategoryFor, mixedChainAppGroups } from "./aggregate";
 import { SCREENER_CONFIG } from "./config";
 import { buildLiveRunProvenance } from "./provenance";
 import { diffUnmatched, type UnmatchedEntry, type OpenUnmatchedRow } from "./unmatched";
@@ -256,7 +256,15 @@ export async function runScreenerSnapshot(
     // resolveGroups needs both own and parent gecko_id, and a protocol
     // with neither is genuinely out of scope, not "unmatched": that's the
     // scope note itself, PHASE_0.md §8 #7, not a data-quality gap).
+    const exclusions = SCREENER_CONFIG.slugExclusions as Record<string, { reason: string }>;
+    const excludedSlugs: string[] = [];
     const candidates = protocols.filter((p) => {
+      // Decided per case (config slugExclusions): data that would be summed
+      // into a token it doesn't belong to (audit 2026-09-24: FlowSwap -> FLOW).
+      if (Object.hasOwn(exclusions, p.slug)) {
+        excludedSlugs.push(p.slug);
+        return false;
+      }
       if (!fees.has(p.slug)) {
         unmatched.push({
           kind: "no_fee_data",
@@ -269,6 +277,9 @@ export async function runScreenerSnapshot(
     });
 
     const { groups, unresolved } = resolveGroups(candidates, parents);
+    // For review, never auto-excluded (see mixedChainAppGroups).
+    const mixedGroups = mixedChainAppGroups(groups, new Map(candidates.map((p) => [p.slug, p])));
+    if (mixedGroups.length) console.warn(`[screener] run ${runId}: ${mixedGroups.length} group(s) mix a chain entry with parent-filed apps: ${JSON.stringify(mixedGroups)}`);
     for (const p of unresolved) {
       unmatched.push({
         kind: "no_gecko_id",
@@ -322,7 +333,9 @@ export async function runScreenerSnapshot(
     // sequential round trips per asset (upsert + insert) — 173s of the
     // route's 300s budget for 682 assets, measured 2026-09-22 — leaving no
     // room for the Phase 2 derivation step in the same invocation.
-    const categoryBySlug = new Map(candidates.map((p) => [p.slug, p.category]));
+    // The label must describe the stored numbers: a slug whose fee data is a
+    // chain's own entry is "Chain", whatever /protocols calls that slug.
+    const categoryBySlug = new Map(candidates.map((p) => [p.slug, sectorCategoryFor(p.category, fees.get(p.slug))]));
     const prepared = [];
     for (const group of groups.values()) {
       const market = marketByGeckoId.get(group.geckoId);
@@ -451,6 +464,7 @@ export async function runScreenerSnapshot(
           gap_dates: gapDates,
           unmatched_changes: unmatchedChanges,
           reference_prices: referencePrices,
+          attribution: { excluded_slugs: excludedSlugs, mixed_chain_app_groups: mixedGroups },
           ...(degradation ? { degradation } : {}),
         },
       })

@@ -236,3 +236,47 @@ export function dominantCategory(
   }
   return best?.category ?? null;
 }
+
+/**
+ * The category to store as a slug's sector. Normally DefiLlama's /protocols
+ * category — except when the slug's FEE data is a chain's own entry
+ * (defillamaId "chain#…"): then "Chain". Why (attribution audit,
+ * 2026-09-24): /protocols and /overview/fees can use one slug for two
+ * different things. For bitcoin, solana, avalanche, aptos, celestia and six
+ * more, /protocols' entry is the chain's canonical-bridge TVL listing
+ * ("Canonical Bridge") while the fees we store under that slug are the
+ * chain's own transaction fees (e.g. BTC 30d fees $6.77M vs blockchain.com's
+ * $7.20M). The label has to describe the numbers. sui-foundation's fee entry
+ * really is a bridge (id 3181), so it keeps "Canonical Bridge".
+ */
+export function sectorCategoryFor(protocolCategory: string | null, feeEntry: { defillamaId: string | null } | undefined): string | null {
+  return feeEntry?.defillamaId?.startsWith("chain#") ? "Chain" : protocolCategory;
+}
+
+/**
+ * Groups that mix the token's own chain entry (a /protocols "Chain" entry
+ * carrying this gecko_id) with an app that joined only through its parent's
+ * gecko_id (no gecko_id of its own) — the shape that filed FlowSwap's DEX
+ * fees under the FLOW L1 token (audit, 2026-09-24). Flagged for review in
+ * the run's notes, never auto-excluded: an app filed under a chain can be
+ * that chain's real business (the SPEC "Scope rule" keeps HYPE, DRV, RUNE,
+ * DYDX), so each case is decided explicitly (config slugExclusions).
+ */
+export function mixedChainAppGroups(
+  groups: ReadonlyMap<string, GroupMembership>,
+  protocolBySlug: ReadonlyMap<string, ProtocolForGrouping>,
+): { geckoId: string; chainSlugs: string[]; appSlugs: string[] }[] {
+  const out: { geckoId: string; chainSlugs: string[]; appSlugs: string[] }[] = [];
+  for (const g of groups.values()) {
+    const chainSlugs = g.contributingSlugs.filter((sl) => {
+      const p = protocolBySlug.get(sl);
+      return p?.category === "Chain" && p.geckoId === g.geckoId;
+    });
+    const appSlugs = g.contributingSlugs.filter((sl) => {
+      const p = protocolBySlug.get(sl);
+      return p !== undefined && p.geckoId === null && p.category !== "Chain";
+    });
+    if (chainSlugs.length > 0 && appSlugs.length > 0) out.push({ geckoId: g.geckoId, chainSlugs, appSlugs });
+  }
+  return out;
+}

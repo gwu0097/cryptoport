@@ -208,6 +208,17 @@ function FundamentalsHistory({ f }: { f: AssetFundamentals | null }) {
             {points.length} days, {points[0].date} to {points[points.length - 1].date}
             {firstLive ? ` · daily capture since ${firstLive}` : " · all backfilled"}. A missing day is a gap, never a zero.
           </p>
+          {f?.sourceChanges.map((c) => (
+            <p key={c.date} className="mt-1 flex items-start gap-1.5 text-xs text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                Revenue sources changed on {c.date}
+                {c.added.length ? ` (added ${c.added.join(", ")})` : ""}
+                {c.removed.length ? ` (removed ${c.removed.join(", ")})` : ""}: a step in the lines there is a change in what&rsquo;s
+                counted, not in activity.
+              </span>
+            </p>
+          ))}
         </>
       ) : (
         <p className="text-sm text-fg-muted">N/A — no stored fee or revenue history for this coin.</p>

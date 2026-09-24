@@ -88,6 +88,12 @@ export type FeesDataType = "dailyFees" | "dailyRevenue" | "dailyHoldersRevenue";
 
 export interface ProtocolFeeTotals {
   slug: string;
+  /** DefiLlama's id for the entry these totals belong to — "chain#bitcoin"
+   * for a chain's own fees, a number for a protocol. The same slug can name
+   * a different thing in /protocols (e.g. a chain's canonical-bridge
+   * listing), so this is what says what the numbers actually are. */
+  defillamaId: string | null;
+  category: string | null;
   total24h: number | null;
   total7d: number | null;
   total30d: number | null;
@@ -118,6 +124,8 @@ export async function fetchFeesOverview(dataType: FeesDataType): Promise<Map<str
   const body: {
     protocols: {
       slug: string;
+      defillamaId?: string | number | null;
+      category?: string | null;
       total24h?: number | null;
       total7d?: number | null;
       total30d?: number | null;
@@ -128,6 +136,8 @@ export async function fetchFeesOverview(dataType: FeesDataType): Promise<Map<str
   for (const p of body.protocols) {
     map.set(p.slug, {
       slug: p.slug,
+      defillamaId: p.defillamaId == null ? null : String(p.defillamaId),
+      category: p.category ?? null,
       total24h: typeof p.total24h === "number" ? p.total24h : null,
       total7d: typeof p.total7d === "number" ? p.total7d : null,
       total30d: typeof p.total30d === "number" ? p.total30d : null,

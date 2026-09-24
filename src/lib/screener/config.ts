@@ -37,6 +37,13 @@ export interface ScopeOverride {
   decided_at: string;
 }
 
+/** A DefiLlama slug kept out of every asset's revenue: its data would
+ * otherwise be summed into a token it doesn't belong to. */
+export interface SlugExclusion {
+  reason: string;
+  decided_at: string;
+}
+
 /** Score B's regime modifier for one label: adjusted score = base −
  * betaPenalty × (beta percentile − 0.5), so a positive penalty pushes
  * high-beta assets down in that regime. An untested weight like any other:
@@ -159,6 +166,17 @@ export const SCREENER_CONFIG = {
    * sequencer revenue (ARB, OP) stays in. scripts/diag/screener-l1l2-rated.mjs
    * lists rated assets CoinGecko tags L1/L2 for review (it excludes nothing
    * on its own). */
+  /** DefiLlama slugs excluded before grouping (decided per case; the job
+   * flags new candidates in each run's notes as `mixed_chain_app_groups`,
+   * see aggregate.ts mixedChainAppGroups). */
+  slugExclusions: {
+    "flowswap-v3": {
+      reason:
+        "FlowSwap (a DEX) has no token of its own; its DefiLlama parent carries the Flow L1's gecko_id, so its fees were summed into FLOW (~99% of FLOW's 30d fees). Not Flow's own revenue.",
+      decided_at: "2026-09-24",
+    },
+  } satisfies Record<string, SlugExclusion>,
+
   scopeOverrides: {
     near: {
       bucket: "out_of_scope",
