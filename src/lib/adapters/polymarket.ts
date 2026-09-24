@@ -80,9 +80,15 @@ async function fetchJson<T>(url: string): Promise<T> {
  * sold, no leverage/margin distinction needed the way a perp position has).
  */
 export async function fetchPolymarketHoldings(address: string): Promise<AdapterHolding[]> {
-  const profile = await fetchJson<PolymarketProfile>(
-    `${GAMMA_BASE}/public-profile?address=${address}`,
-  );
+  // Since 2026-09 Gamma answers 404 {"error":"profile not found"} for an
+  // address that never used Polymarket (it used to return a computed proxy
+  // regardless): that's "no Polymarket activity", not a failure — it was
+  // reported as a sync warning on every such wallet.
+  const profileUrl = `${GAMMA_BASE}/public-profile?address=${address}`;
+  const profileRes = await fetchWithRetry(profileUrl, { cache: "no-store" });
+  if (profileRes.status === 404) return [];
+  if (!profileRes.ok) throw new Error(`Polymarket request failed: HTTP ${profileRes.status} (${profileUrl})`);
+  const profile: PolymarketProfile = await profileRes.json();
   const proxyWallet = profile.proxyWallet as Address;
 
   const balanceData = encodeFunctionData({ abi: BALANCE_OF_ABI, functionName: "balanceOf", args: [proxyWallet] });

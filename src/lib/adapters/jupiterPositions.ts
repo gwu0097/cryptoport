@@ -1,5 +1,5 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { jupiterFetch } from "./jupiterFetch";
 import type { AdapterHolding } from "./types";
 
 const API_BASE = "https://api.jup.ag/portfolio/v1";
@@ -108,7 +108,7 @@ function humanize(label: string): string {
  * as evm.ts's chains vs. Hyperliquid split.
  */
 export async function fetchJupiterPositions(address: string): Promise<JupiterPositionsResult> {
-  const res = await fetchWithRetry(`${API_BASE}/positions/${address}`, { headers: HEADERS });
+  const res = await jupiterFetch(`${API_BASE}/positions/${address}`, { headers: HEADERS });
   if (!res.ok) throw new Error(`Jupiter positions failed: HTTP ${res.status}`);
   const body: PositionsResponse = await res.json();
   const tokenInfo = body.tokenInfo?.solana;

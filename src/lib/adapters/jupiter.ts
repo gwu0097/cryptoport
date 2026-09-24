@@ -1,5 +1,5 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { jupiterFetch } from "./jupiterFetch";
 import type { AdapterHolding } from "./types";
 
 // lite-api.jup.ag (this file's original host for all three endpoints below)
@@ -76,7 +76,7 @@ const HEADERS: Record<string, string> = {
 };
 
 async function fetchBalances(address: string): Promise<Record<string, JupiterBalance>> {
-  const res = await fetchWithRetry(`${BALANCES_URL}/${address}`, { headers: HEADERS });
+  const res = await jupiterFetch(`${BALANCES_URL}/${address}`, { headers: HEADERS });
   if (!res.ok) throw new Error(`Jupiter balances failed: HTTP ${res.status}`);
   return res.json();
 }
@@ -93,7 +93,7 @@ export async function fetchTokenInfo(mints: string[]): Promise<Map<string, Jupit
   const info = new Map<string, JupiterTokenInfo>();
   for (const batch of chunk(mints, SEARCH_BATCH_SIZE)) {
     const url = `${TOKEN_SEARCH_URL}?query=${encodeURIComponent(batch.join(","))}`;
-    const res = await fetchWithRetry(url, { headers: HEADERS });
+    const res = await jupiterFetch(url, { headers: HEADERS });
     if (!res.ok) throw new Error(`Jupiter tokens/v2/search failed: HTTP ${res.status}`);
     const results: JupiterTokenInfo[] = await res.json();
     for (const t of results) info.set(t.id, t);
@@ -115,7 +115,7 @@ async function fetchUnsellableMints(mints: string[]): Promise<Set<string>> {
   const unsellable = new Set<string>();
   for (const batch of chunk(mints, SHIELD_BATCH_SIZE)) {
     const url = `${SHIELD_URL}?mints=${batch.join(",")}`;
-    const res = await fetchWithRetry(url, { headers: HEADERS });
+    const res = await jupiterFetch(url, { headers: HEADERS });
     if (!res.ok) throw new Error(`Jupiter shield failed: HTTP ${res.status}`);
     const { warnings }: { warnings: Record<string, ShieldWarning[]> } = await res.json();
     for (const [mint, mintWarnings] of Object.entries(warnings)) {
