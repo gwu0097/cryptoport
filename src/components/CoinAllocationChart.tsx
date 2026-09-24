@@ -129,10 +129,16 @@ export function CoinAllocationChart({ groups, total, className = "mb-4" }: { gro
   ).list;
 
   return (
-    <Panel title="Coin allocation" className={className}>
-      <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-center">
+    <Panel title="Coin allocation" className={`@container ${className}`}>
+      {/* Side by side only when the panel itself is wide enough (a container
+          query, not a viewport one): in the half-width slot beside Chain
+          allocation, a viewport breakpoint put the ring and legend in a row
+          wider than the panel, pushing the ring against its edge. The ring
+          is smaller there, and the legend shrinks (names truncate) rather
+          than pushing the ring. */}
+      <div className="flex flex-col items-center gap-6 @md:flex-row @md:justify-center @2xl:gap-10">
         <div className="relative shrink-0">
-          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+          <svg viewBox={`0 0 ${size} ${size}`} className="size-40 -rotate-90 @2xl:size-[200px]">
             <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={strokeWidth} />
             {arcs.map((s) => {
               // 0-length dasharray segments (a slice with no share, shouldn't
@@ -161,9 +167,11 @@ export function CoinAllocationChart({ groups, total, className = "mb-4" }: { gro
           </div>
         </div>
 
-        <ul className="w-full max-w-xs shrink-0 space-y-2">
+        {/* A grid sized to its content, not a fixed-width list with
+            justify-between, so the name sits right next to its figures. */}
+        <ul className="grid w-full max-w-xs min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto] @md:flex-1">
           {slices.map((s) => (
-            <li key={s.key} className="flex items-center justify-between gap-3 text-sm">
+            <li key={s.key} className="contents">
               <span className="flex min-w-0 items-center gap-2">
                 <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.color }} aria-hidden="true" />
                 {s.key === "__other__" ? (
@@ -175,10 +183,8 @@ export function CoinAllocationChart({ groups, total, className = "mb-4" }: { gro
                 )}
                 <span className="truncate text-fg">{s.label}</span>
               </span>
-              <span className="flex shrink-0 items-baseline gap-2 tabular-nums">
-                <span className="hidden text-xs text-fg-muted sm:inline">{hidden ? MASK : formatUsd(s.usd)}</span>
-                <span className="text-fg-muted">{formatShare(s.usd, total)}</span>
-              </span>
+              <span className="hidden text-right text-xs tabular-nums text-fg-muted sm:block">{hidden ? MASK : formatUsd(s.usd)}</span>
+              <span className="text-right tabular-nums text-fg-muted">{formatShare(s.usd, total)}</span>
             </li>
           ))}
         </ul>

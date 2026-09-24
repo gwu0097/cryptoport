@@ -125,8 +125,8 @@ export default async function AssetsPage({
         <>
           {user && (
             <div className="mb-4 grid gap-4 lg:grid-cols-2">
-              <CoinAllocationChart groups={groups} total={grand.total} className="" />
               <ChainAllocationPanel chains={chains} total={grand.total} icons={chainIcons} />
+              <CoinAllocationChart groups={groups} total={grand.total} className="" />
             </div>
           )}
 
