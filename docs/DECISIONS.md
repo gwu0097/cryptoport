@@ -9,6 +9,20 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-25 — Jupiter Perps from Jupiter's perps API
+
+Jupiter's portfolio API (beta) returned "Discriminant 225 out of range" for its
+perps fetcher on every sync of one wallet from 2026-09-10 — a wallet whose only
+perps accounts were four closed January-2024 positions — and on a live trader's
+wallet with two open positions, so for every perps user the value was unknown.
+Jupiter's own CLI reads positions from `perps-api.jup.ag/v2/positions`; checked
+live against the on-chain Position account (side, entry, size, collateral all
+match). That API is now the source (`adapters/jupiterPerps.ts`), and the
+portfolio API's perps fetcher is skipped. Jupiter Perps carries ~80% of Solana
+perps volume, so it's covered even though the owner doesn't trade it. The same
+change retries the portfolio API once when one of its fetchers reports
+Jupiter's own backend rate limit.
+
 ## 2026-09-25 — Wallet balance discovery
 
 The sync read every CoinGecko-listed token on every chain (tens of thousands of

@@ -235,6 +235,13 @@ stay and the sync status says so. Budget: one Zerion call per wallet sync
 (free tier: 300/day, 1/second app-wide; its chain list is cached).
 (DECISIONS: 2026-09-25 DeFi in the wallet sync)
 
+The same rule holds on Solana: Jupiter's portfolio API
+(`adapters/jupiterPositions.ts`) skips the products a dedicated adapter reads
+(`SKIPPED_FETCHERS`: Jupiter Perps, read from Jupiter's perps API by
+`adapters/jupiterPerps.ts`). An isolated-margin perps position is valued at
+what closing it returns (collateral + PnL after fees), not its margin — see
+`jupiterPerps.ts`. (DECISIONS: 2026-09-25 Jupiter Perps)
+
 ### 4.5 Two independent kinds of staleness
 
 Price freshness is per coin (`asset_prices.updated_at`, shown by `pricesAsOf.ts`

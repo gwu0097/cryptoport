@@ -2,6 +2,7 @@ import "server-only";
 import type { AdapterHolding } from "./types";
 import { protocolScope, type KeepScope } from "../carryForward";
 import { fetchJupiterPositions } from "./jupiterPositions";
+import { fetchJupiterPerps, JUPITER_PERPS_PROTOCOL } from "./jupiterPerps";
 import { fetchKaminoPositions } from "./kaminoPositions";
 import { fetchWormholeStaking } from "./wormholeStaking";
 import { fetchMeteoraPositions } from "./meteoraPositions";
@@ -32,10 +33,15 @@ export interface SolPositionsResult {
 const SOURCES: { name: string; keep: KeepScope; fetch: (address: string) => Promise<SolPositionsResult> }[] = [
   {
     name: "jupiter positions",
-    // "Jupiter <product>" (jupiterPositions.ts), but not Jupiter DAO below.
-    keep: { label: "jupiter positions", owns: (h) => !!h.protocol?.startsWith("Jupiter ") && h.protocol !== "Jupiter DAO" },
+    // "Jupiter <product>" (jupiterPositions.ts), but not Jupiter DAO or
+    // Jupiter Perps below.
+    keep: {
+      label: "jupiter positions",
+      owns: (h) => !!h.protocol?.startsWith("Jupiter ") && h.protocol !== "Jupiter DAO" && h.protocol !== JUPITER_PERPS_PROTOCOL,
+    },
     fetch: fetchJupiterPositions,
   },
+  { name: "jupiter perps", keep: protocolScope("jupiter perps", JUPITER_PERPS_PROTOCOL), fetch: fetchJupiterPerps },
   { name: "kamino", keep: protocolScope("kamino", "Kamino"), fetch: fetchKaminoPositions },
   {
     name: "wormhole",

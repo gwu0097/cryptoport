@@ -107,23 +107,45 @@ function humanize(label: string): string {
  * token holdings — same hard-failure-must-be-independent-per-source rule
  * as evm.ts's chains vs. Hyperliquid split.
  */
-export async function fetchJupiterPositions(address: string): Promise<JupiterPositionsResult> {
+// Jupiter Perps is read from Jupiter's perps API instead (jupiterPerps.ts):
+// this API's perps fetcher failed for every wallet with a perps account
+// ("Discriminant 225 out of range", 2026-09-10 on). Its report and any
+// element it returns are skipped here, so a perps position is never counted
+// twice if it starts working again.
+const SKIPPED_FETCHERS = new Set(["jupiter-exchange-perpetual"]);
+
+const RATE_LIMIT_RETRY_MS = 3_000;
+
+const failedFetchers = (body: PositionsResponse) =>
+  (body.fetcherReports ?? []).filter((r) => r.status === "failed" && !SKIPPED_FETCHERS.has(r.id));
+
+async function getPositions(address: string): Promise<PositionsResponse> {
   const res = await jupiterFetch(`${API_BASE}/positions/${address}`, { headers: HEADERS });
   if (!res.ok) throw new Error(`Jupiter positions failed: HTTP ${res.status}`);
-  const body: PositionsResponse = await res.json();
+  return res.json();
+}
+
+export async function fetchJupiterPositions(address: string): Promise<JupiterPositionsResult> {
+  let body = await getPositions(address);
+  // A product fetcher inside Jupiter's service can hit Jupiter's own backend
+  // rate limit ("rate limit exceeded" on jupiter-pm-positions) even when our
+  // call succeeded — it's their limit, not ours. Asked once more after a
+  // pause, and the second answer is used either way.
+  if (failedFetchers(body).some((r) => /rate limit/i.test(r.error ?? ""))) {
+    await new Promise((r) => setTimeout(r, RATE_LIMIT_RETRY_MS));
+    body = await getPositions(address);
+  }
   const tokenInfo = body.tokenInfo?.solana;
 
-  // A fetcher failing (e.g. Jupiter's own "Discriminant 225 out of range"
-  // error seen against a real wallet's perpetual position) means that one
-  // position type is unknown, not that it's zero — surfaced as a warning
-  // rather than silently treated as "nothing there".
-  const warnings = (body.fetcherReports ?? [])
-    .filter((r) => r.status === "failed")
-    .map((r) => `jupiter positions(${r.id}): ${r.error ?? "unknown error"}`);
+  // A fetcher failing means that one position type is unknown, not that
+  // it's zero — surfaced as a warning rather than silently treated as
+  // "nothing there".
+  const warnings = failedFetchers(body).map((r) => `jupiter positions(${r.id}): ${r.error ?? "unknown error"}`);
 
   const holdings: AdapterHolding[] = [];
 
   for (const el of body.elements ?? []) {
+    if (el.fetcherId && SKIPPED_FETCHERS.has(el.fetcherId)) continue;
     const label = el.name ?? el.label ?? el.fetcherId ?? el.type;
     const protocol = `Jupiter ${humanize(label)}`;
 
@@ -184,7 +206,7 @@ export async function fetchJupiterPositions(address: string): Promise<JupiterPos
       continue;
     }
 
-    // Any other Jupiter product (Perps, DCA, staking, ...) this adapter
+    // Any other Jupiter product (DCA, staking, ...) this adapter
     // doesn't have specific handling for yet — still surfaced using the
     // element's own top-level USD value rather than silently dropped.
     if (el.value != null && el.value !== 0) {
