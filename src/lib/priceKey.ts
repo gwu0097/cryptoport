@@ -46,9 +46,8 @@ function platformFor(chain: string): string | null {
  * A manual holding has no chain/contract to infer from at all, so it can
  * only ever reach a safe key this way — see CoinSearchInput/addHolding,
  * which let the user pick the exact coin at add time instead of the app
- * guessing off a bare ticker (the same ticker-collision risk the Solana
- * "KNOWN GAP" in valuation.ts documents; Coinbase's own pricing API turned
- * out to have this exact collision for the ticker "DOG").
+ * guessing off a bare ticker (a ticker can name several coins; Coinbase's
+ * own pricing API had this exact collision for the ticker "DOG").
  *
  * The native-token fallback ONLY fires when the ticker actually matches
  * that chain's own native asset (checked against EVM_CHAINS' nativeSymbol

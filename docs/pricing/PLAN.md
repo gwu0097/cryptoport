@@ -1,7 +1,9 @@
 # One price per asset — plan
 
-Status: FOR SIGN-OFF, 2026-09-25. Reviewed (Fable); owner decisions recorded.
-No code written against it yet.
+Status: phases 1–3c SHIPPED 2026-09-25 (19aeb56 … 948f282); 3d (drop the
+legacy tables) pending its gate in BACKLOG.md. The "what exists today"
+section below describes the system *before* this plan, kept as the record
+of why. The current design is summarized in CLAUDE.md ("Pricing").
 
 ## Goal
 

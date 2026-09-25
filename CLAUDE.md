@@ -2,415 +2,394 @@
 
 # CryptoPort — project guidance
 
-## Purpose
+Last verified against the code at commit `ea9e799` (2026-09-25). Every claim
+below names a file or symbol so it can be checked; when you change the thing a
+rule describes, update the rule in the same commit. The story behind a rule
+lives in `docs/DECISIONS.md` (cited as `DECISIONS: <date> <title>`), not here.
 
-A multi-tenant, multi-chain crypto portfolio tracker. The point is a single
-place to see every wallet/holding you have, know what's moving, and get
-enough signal to make a buy/sell decision — not a trading platform, not a
-tax tool. Every feature should serve traceability (where is my money) and
-trackability (what changed) first.
+## 1. Purpose
 
-### The Dashboard is a lens, not a workshop
+A multi-tenant, multi-chain crypto portfolio tracker: one place to see every
+wallet and holding (**traceability** — where is my money), what changed
+(**trackability**), and enough signal to make a buy/sell decision. Not a
+trading platform, not a tax tool. Every feature serves traceability and
+trackability first, and must work for users whose assets differ from the
+owner's.
 
-`/dashboard` presents existing data — it reads already-computed tables
-(`AssetGroup`, `portfolio_snapshots`, etc.) and displays them. It should
-never be where new computation/business logic gets built for the first
-time. If a Dashboard request would require inventing new functionality
-(a new metric that doesn't exist anywhere else, a new kind of aggregation,
-a new data source), stop and say so explicitly, rather than building it
-directly into the Dashboard page/components. Build that feature as its own
-page/tab first (e.g. Analytics owns historical/derived calculations),
-verify it stands on its own, and only then have the Dashboard consume it.
-(Precedent: a 30-day value-history approximation was proposed for the
-Dashboard directly and correctly redirected to become Analytics' job
-instead — this section exists so that judgment call doesn't have to be
-re-made from scratch next time.)
+- **The Dashboard is a lens, not a workshop.** `/dashboard` only presents data
+  other pages already compute (`AssetGroup`, `portfolio_snapshots`, …). If a
+  Dashboard request needs a new metric, aggregation or data source, say so and
+  build it as its own page first (Analytics owns historical/derived math), then
+  have the Dashboard consume it. (DECISIONS: before 2026-09-22 Dashboard is a
+  lens)
+- **The screener ("Fundamentals" in the UI) is a verified research dataset with
+  a risk filter, not a signal.** No new capability until evidence supports it.
+  Its spec, phases and rules live in `docs/screener/` (start with SPEC.md's
+  "Product" section). `src/lib/screener/*` is never imported by portfolio code
+  (wallets, holdings, watchlist); the Encyclopedia reads it only through
+  `src/lib/screener/assetView.ts` (`getAssetFundamentals`) and
+  `src/lib/screener/labels.ts`.
+- Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
+  (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
-## Architecture
+## 2. Commands
 
-- **Modular by default, dependency only when it earns its keep.** Prefer
-  many small, focused files over shared abstractions built ahead of need.
-  Pure logic with no DB/network dependency (valuation math, formatting,
-  dashboard math) belongs in its own `src/lib/*.ts` file so it's directly
-  unit-testable with `node --test`, separate from the Supabase-fetching
-  layer (`queries.ts`) and separate from components.
-- **Don't reinvent the wheel.** Before building a non-trivial mechanism,
-  check whether a standard, a well-known library, or a free API already
-  solves it. (Precedent: EIP-6963 multi-wallet discovery via `mipd` instead
-  of a hand-rolled provider listener; reusing Coinbase/CoinGecko's own 24h
-  change fields instead of computing deltas from scratch.)
-- **`node --test` needs explicit `.ts` extensions** on relative imports
-  (`allowImportingTsExtensions` in tsconfig) — Node's native ESM resolver
-  doesn't infer them the way bundlers do.
-- **Every module that pulls in a heavy/sensitive dependency (viem, siwe,
-  @noble/curves, ...) gets a real `import "server-only";`** — it's the only
-  compile-time guard against that dependency leaking into a client bundle,
-  and this app has already had one real leak that only got caught by
-  review, not by tooling. `server-only` throws unconditionally when
-  imported outside Next's own server bundle, which used to make this
-  incompatible with `node --test` — fixed, not worked around: the package's
-  own `package.json` declares a `"react-server"` export condition that
-  resolves to a no-op instead of throwing, and package.json's `test` script
-  runs `node --conditions=react-server --test` so files can carry the real
-  guard and still be unit-tested. Never reach for "just don't mark it
-  server-only" as the fix for a test-breakage — check whether the
-  underlying package has (or could reasonably be given) the same
-  conditional-export escape hatch first.
-- **A bug fix landing in duplicated code is the trigger to unify it, not
-  just patch every copy.** Several real duplications in this codebase were
-  only found because a bug got independently re-fixed in more than one
-  copy of the same logic (a wallet-lookup query, a DB upsert's dedupe
-  step) — small duplication is fine (see above), but the moment the *same*
-  logic needs the *same* fix applied more than once, that's the signal to
-  extract a shared implementation instead of patching each copy separately.
-- **Before copying a block of real logic (not a 3-5 line presentational
-  helper), grep for existing copies first.** If two already exist, that's
-  the threshold to extract a shared version rather than adding a third.
-  When that constraint bites, duplicate the small helper locally rather than
-  pulling in the dependency.
-- **A heavy-dependency file (viem/siwe/@noble/curves/...) must not also
-  hold the small, pure helpers other unrelated code needs.** `walletAuth.ts`
-  used to export `pinnedWalletChain`/`walletDisplayName` (plain string
-  logic, no heavy deps) alongside its actual signature-verification code —
-  and because `(app)/layout.tsx` (wrapping every page in the app) and
-  `queries.ts` (imported by every data-heavy read page) only needed those
-  pure helpers, every single page load still pulled in the full viem/siwe/
-  @noble/curves/@scure/base graph. Split into `walletDisplay.ts` (pure,
-  imported by the hot read paths) and `walletAuth.ts` (heavy, imported only
-  by the actual sign-in/link-wallet flow). When a file needs `server-only`
-  for a genuinely heavy/sensitive reason, periodically check whether
-  everything it exports still needs to be in that file.
+| Task | Command |
+|---|---|
+| Dev server | `npm run dev` (port 3000 may belong to an unrelated server — pass `-p <port>`; never `pkill -f`, stop by PID: `lsof -ti:<port> -sTCP:LISTEN \| xargs kill`) |
+| Type check | `npx tsc --noEmit` |
+| Lint | `npm run lint` |
+| Unit tests | `npm test` (= `node --conditions=react-server --test`) |
+| Production build | `npm run build` |
+| SQL schema check | `node scripts/check-sql-schema.mts <file.sql>` (exit 1 on anything outside `cryptoport`) |
+| Screener schema preflight | `node scripts/check-screener-schema.mjs` |
+| Portfolio totals regression | `scripts/diag/portfolio-totals.ts save <f.json>` then `compare <f.json>` |
 
-## Data correctness — the rule that must never break
+**Verification gate before every push:** tsc, lint, test; `npm run build` for
+changes to routes, config or dependencies; the screener preflight for anything
+touching screener code or its tables.
 
-A missing value is **unknown**, never silently 0 and never a misleading
-number. `valuation.ts`'s `Valuation` tagged union (`{kind:"unpriced",
-reason}` vs `{kind:"priced", usd}`) exists specifically so "forgot to
-handle missing data" is a type error, not a runtime surprise. Every later
-feature follows the same rule: `blendedChange` excludes holdings with no
-24h data from the average rather than treating them as flat, unpriced
-holdings are counted and named (not dropped silently) from portfolio
-totals, and the UI always shows `—` or an explicit warning rather than a
-plausible-looking wrong number.
+**Diag/one-off scripts** (`scripts/diag/`): tsx is not a project dependency —
+use a cached copy (`ls ~/.npm/_npx/*/node_modules/.bin/tsx`) with
+`NODE_OPTIONS="--conditions=react-server"`, and load `.env.local` before a
+dynamic `import()` of anything touching `src/lib/supabase.ts` (see
+`scripts/diag/portfolio-totals.ts`). Under tsx wrap the body in `main()` — tsx
+compiles `.ts` as CommonJS, so top-level `await` needs a `.mts` file (or plain
+`node` with relative `.ts` imports only). `src/lib/queries.ts` can't be imported
+outside Next (its `auth.ts` import pulls in `next/navigation`) — read tables with
+`serviceDb()` directly. Only real tests may match `node --test`'s discovery:
+`*.test.ts`, `*_test.ts`, `*-test.ts`, `test-*.ts`, `test.ts`, or any file in a
+`test/` directory — name scripts accordingly. Keep a diag script only if
+it's read-only and reusable (arguments, not hard-coded ids); delete one-offs;
+never leave a destructive script anywhere.
 
-**One price per asset — know this before touching pricing/valuation code**
-(docs/pricing/PLAN.md). Every holding carries a `price_key`: the one asset
-it is (a CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<T>`
-/ `fiat:USD` for what CoinGecko doesn't list), set at sync time by
-`resolvePriceKey` (`assetIdentity.ts`) from the contract (token_registry),
-the venue's ticker map (`exchange_assets`), or the chain's native coin —
-**never by ticker alone**. `asset_prices` holds one price per key, filled by
-`refreshAssetPrices` (Refresh prices, the post-sync pass, the snapshot) and
-never overwritten with null (`missing_since` instead). Valuation
-(`valueHolding`): `qty × asset_prices[price_key]`, else the holding's stored
-`usd_override`, else unpriced. `usd_override` is now only for **position
-values** a protocol computes (LP, perps, Kamino, prediction shares, vaults
-— `isPositionValue`) and a few protocol pins; syncs no longer stamp one on
-plain coins. Bridged/wrapped copies (USDC.e, axlUSDC, WETH) are their own
-assets. Gaps are visible on `/admin/pricing` (the coverage report), and
-each exchange's ticker map refreshes itself weekly from CoinGecko's
-per-exchange data. If a value is missing or stale, check the holding's
-`price_key` and that key's `asset_prices` row first.
+## 3. Directory map
 
-**A failed part of a sync keeps its previous rows; it never deletes them.**
-A sync replaces all of a wallet's auto rows at once, so a soft-failing
-source that returns `[]` used to erase its own rows (385 staked AXS vanished
-on a CoinGecko 429, 2026-09-24). Every soft failure now also returns a
-`KeepScope` naming the rows it owns (`src/lib/carryForward.ts`); the sync
-re-saves those from the last run and says so in the status. A new adapter
-or soft-failing source must declare one, matching the protocol/chain it
-writes.
+- `src/app/(app)/` — the app's pages (the nav list is
+  `components/layout/navItems.tsx`). Every page renders per request and is
+  viewable as a guest, except `admin` (`requireAdmin()` in
+  `src/lib/adminAuth.ts` → `notFound()` for anyone but `ADMIN_EMAIL`).
+  `wallets/actions.ts` holds the sync and price-refresh actions. Also
+  `src/app/(auth)/` (sign-in) and `src/app/lookup/` (public address lookup).
+- `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry}` (schedules
+  in `vercel.json`, gated by `Authorization: Bearer $CRON_SECRET`),
+  `job-status` (what `JobPoller` polls), `tv-symbol` (a route handler rather
+  than a Server Action so it doesn't wait in the action queue, §6).
+- `src/lib/` — pure logic (one concern per file, with a sibling `.test.ts`) plus
+  the data layer (untested directly): `queries.ts` (page reads), `supabase.ts`
+  (`serviceDb()` service role — shared tables, crons, admin only; `userDb()` —
+  anything per-user, RLS applies), `auth.ts` (`getUser`, `requireUser`).
+- `src/lib/adapters/` — one file per external source or chain (network code):
+  EVM (`evm.ts` → `multicallEvm.ts`, chain list `evmChains.ts`), non-EVM
+  (`nonEvmChains.ts`, `nonEvmDispatch.ts`), DeFi (`zerionDefi.ts` plus
+  per-protocol files), pricing (`assetPrices.ts`, `assetKeys.ts`,
+  `exchangeTickers.ts`), HTTP plumbing (`http.ts`, `coingeckoFetch.ts`,
+  `jupiterFetch.ts`). Exchanges dispatch from `src/lib/exchangeAdapters.ts`.
+  Where a topic has both halves, the pure part lives in `src/lib/` under the
+  same name (`cosmosMulti.ts`, `exchangeTickers.ts`).
+- `src/components/` — `ui/` (shared primitives), `jobs/` (background-job UI),
+  per-page folders.
+- `db/schema.sql` — checked-in documentation of the live schema (there is no
+  migration tool; see §8). `scripts/` — schema checks, screener jobs, `diag/`,
+  `launchd/` (the owner's local archive jobs).
+- `docs/` — `DECISIONS.md` (why), `pricing/PLAN.md`, `screener/`, `signals/`.
+  `BACKLOG.md` (repo root) is the committed backlog; read it before starting
+  anything that might already be planned.
 
-**Staleness is also two independent things** — don't conflate them:
-price freshness (each `asset_prices.updated_at`; `pricesAsOf.ts` shows it
-per coin) vs. per-wallet sync freshness (`wallets.last_refresh_at`/
-`last_refresh_status`).
+Env var names (values only in `.env.local` / Vercel): `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+`NEXT_PUBLIC_SITE_URL`, `COINGECKO_API_KEY`, `COINGECKO_API_KEY_BACKUP`,
+`ETHERSCAN_API_KEY`, `HELIUS_API_KEY`, `ALCHEMY_API_KEY`, `ZERION_API_KEY`,
+`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SECRETS_ENCRYPTION_KEY`,
+`ADMIN_EMAIL`, `CRON_SECRET` (Vercel only); scripts only:
+`SCREENER_ARCHIVE_DIR`, `SIGNALS_ARCHIVE_DIR`.
 
-## API integration
+## 4. Data invariants — these must never break
 
-- **Free and fast, in that order of research effort.** Before building any
-  API integration, research the available free options and their actual
-  rate limits/coverage — don't just start calling the first endpoint found.
-- **Verify live, don't trust docs or assumptions.** Twice this session a
-  plausible "the API just doesn't have this data" theory was wrong — the
-  real cause (unbounded concurrent requests tripping a rate limiter) was
-  only found by curling the real endpoint under real load. When data looks
-  missing/wrong, reproduce it against the live system before concluding
-  it's a structural limitation.
-- **Respect free-tier rate limits by construction**, not by hoping: cap
-  concurrency (see `mapWithConcurrency` in `adapters/http.ts`) and retry
-  with backoff on 429/503, rather than an unbounded `Promise.all` fan-out
-  over every ticker/contract at once. This has already bitten Coinbase's
-  Exchange API and CoinGecko's anonymous tier — assume any new free API has
-  the same failure mode until proven otherwise.
-- Every external `fetch()` in this app deliberately passes
-  `cache: "no-store"` — live financial data is never cached without an
-  explicit staleness caption next to it. This is intentional, not an
-  oversight; don't "optimize" it away.
+### 4.1 Unknown is never 0
 
-## Caching — two different rules for two different kinds of data
+A missing value is **unknown**, never silently 0 and never a plausible-looking
+wrong number. `valuation.ts`'s `Valuation` union (`{kind:"unpriced"}` vs
+`{kind:"priced"}`) makes "forgot to handle missing data" a type error.
+Unpriced holdings are counted and named, never dropped from totals silently;
+averages (`blendedChange`) exclude missing inputs rather than treating them as
+flat; the UI shows `—` or an explicit warning. Never fabricate placeholder data,
+for guests included (§7).
 
-1. **Within-request dedupe is always safe** and currently under-used: e.g.
-   the Dashboard page calls `getPriceMap()` twice in one request because
-   `getAssetsGroupedByTicker()` and `getWalletsWithTotals()` each fetch
-   their own copy. React's `cache()` (native in Server Components) memoizes
-   a query function for the lifetime of one request only — no cross-user,
-   no cross-time staleness risk. Use it for query functions that multiple
-   callers independently invoke in the same render.
-2. **Cross-request caching only for slow-changing data**, and only in the
-   DB itself as a persistent cache — `token_registry`/`chain_icons` are the
-   existing pattern (fetched once, reused until the weekly refresh —
-   lib/tokenRegistryRefresh.ts). Extend this pattern for new slow-changing external data.
-   Never apply it to live prices/balances without the same staleness-
-   caption discipline everywhere else in this app (`formatStaleness`).
-3. **`next.config.ts` sets `experimental.staleTimes.dynamic = 1800`** — the
-   client Router Cache's window for reusing a `force-dynamic` page's
-   already-rendered result on a repeat visit (every page in `(app)/` is
-   `force-dynamic`). This defaulted to 0s as of Next 15+ (a training-data
-   trap — earlier versions defaulted to 30s), which meant every single
-   navigation back to a page re-ran every query from scratch even a few
-   seconds later; reported as "clicking Portfolio takes 7 seconds even
-   though I was just there." First bumped to 60s under the assumption that
-   `revalidatePath` (called by every mutating Server Action) reliably
-   purges the client cache on any real change — investigated properly
-   later and found *half* true: a plain, immediate action's own
-   synchronous `revalidatePath` call does purge the cache (still every
-   previously-visited page at once, not just the path passed in — Next's
-   own docs still call this "temporary"), but a background job's
-   completion-time `revalidatePath` call living inside `after()` could
-   never reach the browser at all — Next attaches the client-cache-purge
-   signal to the *response* of the Server Action that calls it, and
-   `after()` runs strictly after that response has already been sent. A
-   finished sync was silently failing to invalidate any tab that wasn't
-   the one actively polling it; the 60s ceiling was a bound on how long
-   that could last, not a fix for it. Fixed properly (see
-   `components/jobs/JobPoller.tsx`/`jobActions.ts`: the poller detects a
-   real busy→done transition and calls a live, reachable
-   `notifyJobsComplete()` instead of relying on `after()`), which is what
-   made raising this number to 1800 (30 min) actually safe — every real
-   data change now purges the cache on its own regardless of this
-   window's length, so it's no longer covering for a gap. If a future
-   Next version narrows `revalidatePath` to only invalidate its own path,
-   re-check this before trusting it again. **A literal path doesn't cover
-   dynamic sub-pages**: a Server Action's `revalidatePath("/wallets")`
-   refreshes the UI only "if viewing the affected path", so it never
-   refreshed `/wallets/<id>`, and a finished sync left that page stuck on
-   "Syncing…" (2026-09-23). `notifyJobsComplete()` now uses
-   `revalidatePath("/", "layout")` so whatever page is open refreshes.
-4. **A stored research artifact (an AI narrative explanation, an analysis)
-   is reused forever until a user explicitly asks for a refresh — never
-   TTL-expired into a silent recompute on a plain page load.** `token_
-   analyses` and `trend_explanations` are the pattern: an on-demand claim
-   (`claimTokenAnalysis`/`claimTrendExplanation`, CAS: update-if-stale-or-
-   idle else insert) + the real slow call inside `after()`
-   (`runTokenAnalysis`/`runTrendExplanation`), a `status`/`started_at`
-   pair reusing `jobStatus.ts`'s own `IN_PROGRESS_STATUSES` vocabulary,
-   always show the last result with `formatStaleness(computedAt)` next to
-   a Refresh button — see `TokenAnalysisPanel.tsx`/
-   `TrendExplanationRefresh.tsx`. `trend_explanations` originally used a
-   24h TTL (`EXPLANATION_CACHE_TTL_MS`) that silently re-ran a live ~20-30s
-   Perplexity call on whichever page load happened to land after the row
-   turned stale — reported directly as "I thought we said everything
-   should be stored... it showed up in Recent, which means I used it
-   before" — a real, previously-searched token still paid the full cold-
-   start wait because nothing about "already searched before" was part of
-   the freshness check. A slow-changing figure with no real cost to
-   recompute (a price, a balance) can still use rule 2's plain TTL cache;
-   this rule is specifically for anything that costs real money/time per
-   recompute (an LLM call, an extensive multi-API workup) — those get
-   claim-and-store-forever, not claim-and-expire.
+### 4.2 Pricing: one price per asset
 
-## Loading feedback — every click should either be fast or say why it isn't
+**Debugging a missing or stale value:** check the holding's `price_key`, then
+that key's `asset_prices` row, then the latest `pricing_runs` row. Verify any
+pricing change with `scripts/diag/portfolio-totals.ts save`/`compare`.
 
-- `SubmitButton` (`useFormStatus`-based: disables itself + shows a pending
-  label while a Server Action runs) is the existing mechanism — use it for
-  every mutating form, and give it a real, specific `pendingLabel`
-  ("Refreshing prices…", not the generic default "Saving…") whenever the
-  action isn't near-instant, especially when the delay is for a
-  non-obvious reason (an external API call, an on-chain scan).
-- Every route that fetches data on render should have a `loading.tsx` —
-  `(app)/loading.tsx` covers every page under that group; add a
-  route-specific one only if a page's fetch is slow enough to want a
-  tailored skeleton instead of the shared one. **But `loading.tsx` only
-  ever shows its fallback on a genuine first entry into that route
-  segment** — verified directly from the installed Next.js source
-  (`node_modules/next/dist/client/components/layout-router.js`): the
-  Suspense boundary it creates is keyed *without* search params
-  (`createRouterCacheKey(segment, /*withoutSearchParameters*/ true)`),
-  and Next's own comment on that line says why: "search params do not
-  cause state to be lost, so two segments with the same segment path but
-  different search params should have the same state key." Once that
-  boundary has resolved once, a same-route `<Link>` click that only
-  changes a searchParam (a tab, a filter, a market-cap picker, a new
-  search while results are already shown) suspends *inside an
-  already-resolved boundary* during a transition — React's transition
-  semantics then keep the old content on screen instead of falling back
-  to the spinner, with **zero visible loading feedback**, until the new
-  content is ready. This produced the same reported bug twice
-  (`trend-finder`'s market-cap-floor picker, then `encyclopedia`'s tab
-  pills) because the file-existence rule above sounds like it should
-  cover this case and doesn't — don't rely on `loading.tsx` for it.
-  **The fix for that case**: wrap the searchParams-dependent content in
-  its own `<Suspense key={...}>` at the point where those params are
-  read, keyed by whatever combination of params should trigger a fresh
-  loading state (e.g. `` key={`${id}:${tab}:${mcapFloor}`} ``). A key
-  change forces React to treat it as a brand-new boundary, which *does*
-  show its fallback even mid-transition — same pattern as Next's own
-  `?query=` search-page tutorial. See `trend-finder/page.tsx` and
-  `encyclopedia/page.tsx` for the canonical example (`TrendResultsFallback`/
-  `TabFallback`). Any new searchParams-driven tab/filter/re-search UI on an
-  already-mounted page needs this, not just a sibling `loading.tsx`.
-- If an action genuinely takes a while, say why in the UI (a caption, not
-  just a spinner) — "this pulls a live price for every holding" is more
-  useful than silence.
-- **A Server Action that does more than a couple of seconds of real work
-  must return almost immediately and do that work inside `after()`
-  (from `next/server`), not by awaiting it directly.** Next dispatches
-  Server Actions and client-side route navigations through one shared
-  sequential queue per client — an awaited slow action doesn't just leave
-  its own button pending, it freezes every other click (including
-  sidebar/tab navigation) app-wide until it resolves. (Precedent:
-  `syncWalletHoldings` in `wallets/actions.ts` does this correctly —
-  flip a status flag, `revalidatePath`, return, then do the slow chain
-  calls inside `after()`. `backfillHistoryAction` in `analytics/actions.ts`
-  originally awaited `backfillPriceHistory()` directly, which froze
-  navigation app-wide while it ran and was reported as a CLAUDE.md
-  violation; fixed by moving to the same `after()` pattern.) `after()`
-  still shares the route's `maxDuration` budget and can call
-  `revalidatePath`. (`refreshPricesAction` follows it too. The token list
-  has no action at all anymore: it refreshes itself — weekly cron, and after
-  a sync meets an unknown Solana/Sui token — see lib/tokenRegistryRefresh.ts.)
+**Identity.** Every holding carries a `price_key`: the one asset it is — a
+CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<TICKER>` /
+`fiat:USD` for what CoinGecko doesn't list. `resolvePriceKey`
+(`src/lib/assetIdentity.ts`; lookup tables loaded by `adapters/assetKeys.ts`
+`withPriceKeys`) sets it at sync time:
+- manual dollar entries and position values (`isPositionValue`) get none;
+- then, in order: `asset_contracts` overrides; the row's own coin (Cosmos
+  registry id, a manual pick); an exchange's fixed coins (`CANONICAL_EXCHANGE`,
+  `NATIVE_BY_SYMBOL`); the venue's ticker map (`exchange_assets`) — an unmapped
+  venue ticker tries `krakenStakedBase`, then becomes `coinbase:<T>` / `hl:<T>`,
+  else stays unpriced; a contract via `token_registry` (CoinGecko's
+  contract→coin list), with Solana falling back to `jup:<mint>`; the chain's own
+  native coin (`nativeKey`, which also covers `PROTOCOL_COINS` and venue natives).
+- **Never an open-ended ticker lookup.** The only ticker matches are those fixed
+  sets and a chain's own native symbol; no match means unpriced.
+- **Bridged and wrapped copies are their own assets** (WETH, USDC.e, axlUSDC,
+  Gravity USDT). Combining liquid staking tokens with their base coin is a
+  display toggle (`liquidStaking.ts`), never a price rule. A registry that maps
+  a bridged copy onto the real coin (Keplr does) is not trusted for that asset
+  (`registryAssetInfo`, `src/lib/cosmosMulti.ts`).
 
-## UI conventions
+**Prices.** `asset_prices` holds one price per key plus its `change_*` and
+`market_cap` columns, filled by `refreshAssetPrices` (`adapters/assetPrices.ts`)
+in one lane per source — coingecko, jupiter, hyperliquid, coinbase — with
+`fiat:USD` fixed at $1. A price is **never overwritten with null**
+(`planPriceWrites` in `assetPriceWrites.ts` sets `missing_since` instead). Each
+pass is logged to `pricing_runs` (keys requested/returned/missing, calls per
+source).
 
-- Reuse shared primitives (`Panel`, `PageHeader`, `SignInPrompt`,
-  `GuestBanner`, `AuthButtons`, `ui/table.ts`'s class exports,
-  `buttonClass`/`SubmitButton`) before building a new one-off. Small
-  presentational duplication (e.g. a `ChangeCell`-style color helper
-  redefined per file) is preferred over a shared component when the
-  surrounding markup differs enough that sharing would need its own
-  prop-plumbing — don't force abstraction just to avoid a five-line
-  duplicate.
-- **Guest state on a data page (Dashboard, Portfolio, Wallets, Assets,
-  DeFi, Analytics) renders the real page shell** — same Panels, same
-  layout — not a full-page `SignInPrompt` replacing everything. One
-  `GuestBanner` sits where `TotalValuePanel` would (the page's only
-  sign-up/log-in CTA), and every section below it still renders its own
-  Panel/title with an honest muted "Log in and add a wallet to see your
-  {noun} here." placeholder instead of real data — no button on these,
-  just the one banner. **Never mock/fabricate data for the placeholder**
-  (a fake total or fake table rows) — that's exactly the "plausible-
-  looking wrong number" the Data Correctness rule above exists to
-  prevent, guest or not. Public, non-personal data (the Dashboard's
-  Coin360 heatmap) renders live for everyone regardless of auth — it was
-  never gated on `user` to begin with. `SignInPrompt` (the original full-
-  block version) is still correct for a page with genuinely nothing to
-  preview — `wallets/new`'s form, `settings`' account-specific panels.
-- Every number gets explicit formatting via `src/lib/format.ts`
-  (`formatUsd`, `formatPercent`, `formatQty`, `formatStaleness`, …) — `—`
-  for missing, colored (`text-positive`/`text-negative`/`text-warning`) for
-  gain/loss/warning, never a bare unlabeled 0.
-- Not too cluttered, and mobile-translatable from the start: secondary
-  table columns get `hideOnMobileClass` (`hidden sm:table-cell`) appended
-  — never replacing — the existing header/cell class; every data table is
-  wrapped in `overflow-x-auto`; mobile nav is a separate drawer sharing
-  `navItems.tsx` with the desktop sidebar rather than a divergent nav
-  structure.
-- **Every table gets sortable columns by default** — not a per-table
-  request, the baseline for any new table with more than a couple of rows
-  worth reordering. Use the shared `SortableHeader`/`SortIcon`
-  (`ui/SortableHeader.tsx`) for the header cells and `usePersistedState`
-  (keyed `cryptoport:<table>Sort`, e.g. `cryptoport:adminWalletsSort`) so
-  the chosen sort survives a reload — see AssetsTable.tsx, WatchlistTable.tsx,
-  HoldingsTable.tsx, and AdminWalletsTable.tsx for the exact shape (a local
-  `SortKey` union, a `sortValue(row, key)` switch, `toggleSort` flipping
-  direction on a repeat click else defaulting to `desc`). A column with no
-  sensible sort value (an actions column, a rendered icon with no
-  underlying scalar) just doesn't get a `SortableHeader` — the rest of the
-  table still does.
+**Refresh triggers** (owner decision: on demand, no periodic refresh): the
+Refresh prices button; after a sync, only the keys it touched
+(`ensureAssetPrices`, which skips keys fresher than its `maxAgeMs` default);
+before a Sync all when the newest price is older than `primeSyncPricesAction`'s
+threshold; before the daily snapshot when older than the threshold in
+`api/cron/snapshot/route.ts` (`refreshAssetPricesIfOlderThan`).
 
-## Database/schema conventions
+**Valuation** (`valueHolding`, `valuation.ts`): `qty × asset_prices[price_key]`,
+else the row's stored `usd_override`, else unpriced. `usd_override` is for
+position values a protocol computes (LP, perps, Kamino, prediction shares,
+vaults) and manual dollar entries. No sync path prices a coin row from the
+app's own price tables. Some protocol adapters still stamp the source's own
+valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts`, `hyperliquid.ts`
+(spot stablecoins), `polymarket.ts` (PUSD deposits), `jupiterPositions.ts`
+(limit orders) — and `valueHolding` uses it only when the row's key has no price.
 
-- Every new per-user table needs `user_id uuid references auth.users(id)
-  on delete cascade default auth.uid()` plus RLS:
-  `create policy "<table>: owner only" ... using (user_id = auth.uid())`,
-  matching `wallets`/`tags`/`linked_wallets`/`portfolio_snapshots`. Don't
-  invent a different ownership pattern.
-- No migrations folder or CLI in this project — `db/schema.sql` is
-  checked-in documentation, kept in sync after the fact. The actual
-  mechanism for a schema change: hand the user runnable SQL **directly in
-  the chat response as a plain fenced code block**, never piped through a
-  tool call (a tool call's output isn't visible/copyable to the user the
-  same way) — they paste it into Supabase's SQL editor themselves.
-- **Every table lives in the `cryptoport` schema — never `public`, never
-  unqualified.** The Supabase clients are pinned to it (`serviceDb()` =
-  `.schema("cryptoport")`), so a table anywhere else is invisible to the
-  app; a new table also needs `grant all on cryptoport.<t> to service_role`.
-  Before pasting any handover SQL, write it to a scratch file and run
-  `node scripts/check-sql-schema.mts <file>` (exit 1 on any create/alter/
-  index/policy/grant/reference outside cryptoport); the screener preflight
-  runs the same check over `db/schema.sql`. (2026-09-24: `signals_load_log`
-  SQL was handed over as `public.` and the insert failed "Could not find the
-  table 'cryptoport.signals_load_log'".)
+**Resolution must work for assets the owner doesn't hold.** Exchange tickers
+come from CoinGecko's per-exchange data, refreshed weekly
+(`adapters/exchangeTickers.ts` `refreshExchangeAssetsIfStale`; rows with
+`mapping_source` `manual` or `coinbase-registry` are kept); Kraken staking codes
+resolve by Kraken's naming (`krakenStakedBase`); Cosmos `ibc/…` tokens are
+traced over IBC to their home chain's registry entry (`adapters/cosmosMulti.ts`);
+the token list refreshes weekly and when a Solana/Sui sync meets an unknown
+token (`tokenRegistryRefresh.ts`). `/admin/pricing` (`pricingCoverage.ts`) lists
+every unpriced holding across all users by cause; Settings → "Exchange coin
+mappings" shows each user how their exchange tickers were matched.
 
-## Process
+**History.** Analytics keys price history by `price_key` (`priceHistory.ts`
+`getPriceHistoryMap`): old `price_history` rows under the pre-price_key key,
+rows under the key itself, and `asset_price_daily` (the daily snapshot's close,
+`recordDailyCloses`). Backfill fetches CoinGecko coins only.
 
-- Push directly to `main` — no PR intermediate step.
-- **Held work goes on a local `hold/<name>` branch, never on `main`.** A
-  hold is any commit that must not deploy yet (waiting on DDL, on checking
-  a cron run, ...). Keep the shared checkout on `main`; release by
-  `git merge --ff-only hold/<name>` into `main` once the gate passes, then
-  push. **A general "go ahead and push" never releases a named hold.**
-  When a push is requested while a hold exists, name the held commits,
-  restate what each hold is waiting for, and ask. (2026-09-23: screener 2b
-  was "held" on `main` pending the first 07:00 cron check; an unrelated
-  "go ahead and push it" for `/signals` shipped it along, and the cron
-  tested 2b instead of 2a on its own. Nobody noticed until the morning.)
-- **Never run a command that discards uncommitted changes** — `git reset
-  --hard`, `git checkout -- <path>`, `git restore`, `git clean`, `git stash
-  drop`, a branch switch that would overwrite — **without first running
-  `git status`, then `git stash push -u -m "<why>"`, then `git stash list`
-  to confirm the stash exists.** The working tree can hold the user's own
-  local-only edits (e.g. `next.config.ts`'s `allowedDevOrigins`, never
-  committed on purpose). 2026-09-24: moving a commit to a hold branch with
-  `git reset --hard` silently wiped that file; recovered only because its
-  diff happened to be in the session transcript. To move an unpushed commit
-  off `main`, `git branch hold/<name>` + `git reset --soft HEAD~1` + stash
-  is the non-destructive route.
-- Verification gate: `npx tsc --noEmit`, `npm run lint`, `npm test`. For
-  any push touching screener code, also `node scripts/check-screener-schema.mjs`
-  — push deploys, so DDL the user hasn't run yet means the next cron writes to
-  a column that doesn't exist. Hand over the SQL, wait for it to be run, pass
-  the preflight, then push (twice on 2026-09-22 the push went first).
-  `npm run build` will always fail locally at "Collecting page data" due to
-  a permanent, unrelated local `.env.local` gap (`NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  empty) — known and non-blocking, not something to chase.
-- Diagnostic scripts inspect/verify real DB state directly. **New ones go
-  in `scripts/diag/` (committed), not the repo root** — keep a read-only
-  one there if it's reusable (take run ids etc. as arguments, not
-  hard-coded), delete a one-off after use, and never leave a destructive
-  one anywhere (untracked root-level scripts are how a bulk-delete dedup
-  script lingered after its job was done). The older untracked
-  `diag_*.mjs` files in the root predate this rule. A diag script
-  that needs real TS module resolution (importing a `server-only` `.ts`
-  file directly, not just plain JS) needs `.ts` instead of `.mjs`. If it
-  only imports relative `.ts` files, plain `node file.ts` works (Node strips
-  types); if it goes through the `@/...` alias, it needs tsx, which is NOT a
-  project dependency (`npx --no-install tsx` fails) — use a cached copy
-  (`ls ~/.npm/_npx/*/node_modules/.bin/tsx`) with
-  `NODE_OPTIONS="--conditions=react-server"`, and load `.env.local` before a
-  dynamic `import()` of anything touching `src/lib/supabase.ts` (see
-  `scripts/diag/screener-score-run.ts`) — but never name one ending in `_test.ts`/`-test.ts`/
-  `.test.ts`: Node's test runner auto-discovers that exact suffix pattern
-  and tries to run it as a test file, breaking `npm test` (real bug hit
-  this session — `diag_full_sync_test.ts` got picked up and reported as a
-  failing test until renamed/removed).
-- Before declaring a fix "done" — especially a data-correctness bug —
-  verify against real data/live calls, not just passing type checks. Two
-  real catches this session (a Coinbase rate-limit bug, a Dashboard query
-  against a table that didn't exist yet) only surfaced because of an
-  explicit verify-before-reporting pass, not incidentally.
-- For anything with real blast radius — a new DB table, new
-  infrastructure (cron jobs, external services), a schema change — plan it
-  and confirm scope before writing code. Small, reversible changes don't
-  need that ceremony.
+**Open item:** phase 3d drops the legacy stores (`prices`, `coin_market_data`,
+`exchange_asset_registry`, `token_registry` price/stat columns) behind the gate
+in BACKLOG.md. Nothing may read them.
+
+### 4.3 A failed part of a sync keeps its previous rows
+
+A sync replaces a wallet's auto rows atomically (the `sync_*_holdings` RPCs), so
+a source that soft-fails must not return `[]` and erase its rows. Every soft
+failure returns a `KeepScope` (`src/lib/carryForward.ts`: `chainScope`,
+`protocolScope`) naming the rows it owns; they're re-saved from the last run and
+the status says so. A new adapter or soft-failing source must declare one.
+(DECISIONS: 2026-09-24)
+
+### 4.4 Two independent kinds of staleness
+
+Price freshness is per coin (`asset_prices.updated_at`, shown by `pricesAsOf.ts`
+and the price cell tooltips). Sync freshness is per wallet
+(`wallets.last_refresh_at` / `last_refresh_status`). Don't conflate them.
+
+### 4.5 Every table lives in the `cryptoport` schema
+
+The Supabase clients are pinned to it; a table anywhere else is invisible to the
+app. Per-user tables get `user_id uuid references auth.users(id) on delete
+cascade default auth.uid()` plus RLS `create policy "<table>: owner only" …
+using (user_id = auth.uid())` (as `wallets`, `tags`, `linked_wallets`,
+`portfolio_snapshots`). Shared tables get `grant all … to service_role` and, if
+read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
+
+## 5. External APIs — sparing, deliberate, measured
+
+- **Ask the owner before any CoinGecko call you initiate yourself** (scripts,
+  diagnostics, verification, backfills — even a handful), and check
+  month-to-date usage on the CoinGecko dashboard before a bulk run (the `/key`
+  endpoint is Pro-only). Prefer another source (DefiLlama, Hyperliquid, the
+  chain itself) when it answers the question. Plan limits and the app's own
+  limiter are in `coingeckoFetch.ts` (`CALLS_PER_MINUTE`, header comment); the
+  backup key (`COINGECKO_API_KEY_BACKUP`) is a safety net, not budget. Bulk
+  scripts refuse to run past a call cap without `--confirm`
+  (`scripts/screener-backfill.ts`). The app's normal usage and crons aren't
+  gated, but every new call path you add must justify its cost.
+  (DECISIONS: 2026-09-22)
+- **Batch and dedupe by design:** one pricing pass per event, deduped across
+  wallets and users (`ensureAssetPrices` reuses fresh prices); batched endpoints
+  (`/coins/markets` by id, `per_page` = batch size); slow-changing data cached in
+  the DB (below). Adding a per-holding or per-wallet call is a design smell.
+- **Every external call goes through the shared plumbing:** `fetchWithRetry`
+  (429/503 with backoff, honors `Retry-After`), `mapWithConcurrency` /
+  `sequentialWithSpacing` (`adapters/http.ts`) — never an unbounded
+  `Promise.all` over tickers/contracts; `coingeckoFetch.ts` (every CoinGecko
+  call: rolling-window limiter, backup-key failover on quota errors);
+  `jupiterFetch.ts` (process-wide pacer). Assume any new free API rate-limits
+  bursts until proven otherwise.
+- **Research before building an integration:** check for a standard, a
+  maintained package, or a free API, and record its real rate limit and coverage
+  in the commit or plan. Reuse over rebuild (EIP-6963 via `mipd`; a source's own
+  24h-change field over computing deltas).
+- **Verify live, don't trust docs or assumptions.** When data looks missing,
+  reproduce against the real endpoint (under realistic load) before calling it a
+  structural limitation. (DECISIONS: before 2026-09-22 "The API doesn't have
+  this data")
+- Every external `fetch()` passes `cache: "no-store"`. Live financial data is
+  never cached without a staleness caption next to it.
+
+### Caching
+
+1. **Within a request:** wrap query functions several callers use in React's
+   `cache()` (e.g. `getPriceMap`, `getAssetStatsMap`, `getActiveWalletsWithHoldings`).
+2. **Slow-changing external data:** persist in the DB and refresh on a schedule
+   or on demand — `token_registry`, `chain_icons`, `exchange_assets`,
+   `coin_cache` logos. `ttlCache.ts` is an in-process cache for short-lived
+   responses and carries `fetchedAtMs` so any shown value can be captioned.
+3. **Expensive research artifacts** (an LLM explanation, a multi-API workup)
+   are stored forever and recomputed only when a user asks: a compare-and-set
+   claim plus the work inside `after()` (`claimTokenAnalysis`/`runTokenAnalysis`,
+   `claimTrendExplanation`/`runTrendExplanation`), shown with
+   `formatStaleness(computedAt)` and a Refresh button. Never a TTL that silently
+   re-runs on a page load. (DECISIONS: before 2026-09-22 Research artifacts)
+4. **Router Cache:** `next.config.ts` sets `experimental.staleTimes.dynamic` so a
+   revisited page reuses its render. That is safe only because every real data
+   change purges it: an action's own `revalidatePath`, or `JobPoller` →
+   `notifyJobsComplete()` (`revalidatePath("/", "layout")`) when a background job
+   finishes. If a Next upgrade narrows `revalidatePath`, re-check this.
+   (DECISIONS: before 2026-09-22 Router Cache)
+
+## 6. Background work and loading feedback
+
+- **A Server Action doing more than a couple of seconds of work returns at once
+  and does the work inside `after()`** (`next/server`). Next runs actions and
+  navigations through one sequential queue per client, so an awaited slow
+  action freezes every click app-wide. Pattern: `syncWalletHoldings`,
+  `tryStartPriceRefresh` (`wallets/actions.ts`). `after()` shares the route's
+  `maxDuration`, so pages whose actions start jobs export `maxDuration = 300`.
+  A read the client calls often can be a route handler instead of a Server
+  Action to stay out of that queue (`api/tv-symbol`). (DECISIONS: before
+  2026-09-22 slow action)
+- **Jobs claim their row with compare-and-set** (status not busy, or started
+  before `JOB_STALE_MS`) and return a `JobStartResult`; status vocabulary and
+  derivation live in `src/lib/jobStatus.ts` (`deriveJobStatus`). UI:
+  `components/jobs/` — `useJob` + `JobButton` (locked for the real duration),
+  `SlowJobHint`, one `JobPoller` loop over `/api/job-status`.
+- **Completion reaches the browser through `JobPoller` → `notifyJobsComplete()`**,
+  never through a `revalidatePath` inside `after()` (its response is already
+  sent). (DECISIONS: 2026-09-23)
+- **Sync all** runs in the browser (`SyncQueue.tsx`): wallets sharing a
+  rate-limited API form a lane (`syncLanes.ts`), lanes run in parallel, each lane
+  runs up to `LANE_CONCURRENCY` at once; each wallet is its own request (its own
+  time budget); per-wallet status is live and failures are summarized.
+- **Every click is fast or says why it isn't.** Mutating forms use `SubmitButton`
+  with a specific `pendingLabel` ("Refreshing prices…", not "Saving…"); slow work
+  gets a caption saying why ("this pulls a live price for every holding").
+- Every route that fetches on render is covered by a `loading.tsx`
+  (`(app)/loading.tsx` for the group; add a route-specific one only for a
+  tailored skeleton).
+- **But `loading.tsx` only covers first entry into a route segment.** A same-route
+  click that only changes a search param (tab, filter, re-search) shows nothing
+  unless the param-dependent content sits in its own
+  `<Suspense key={…params}>` — see `trend-finder/page.tsx`,
+  `encyclopedia/page.tsx`, `signals/page.tsx`. (DECISIONS: before 2026-09-22
+  searchParams)
+- **Relative times** ("x ago") use a request-anchored clock —
+  `requestNowSec()` (`requestClock.ts`) on the server, `useNowSec(serverNowSec)`
+  (`components/useServerNow.ts`) on the client — never `Date.now()` at render
+  (a cached render can be re-shown much later).
+
+## 7. Code and UI conventions
+
+- **Modular by default.** Small focused files over shared abstractions built
+  ahead of need. Pure logic (no DB, no network) goes in its own `src/lib/*.ts`
+  with a sibling `.test.ts`; the Supabase layer (`queries.ts`, `*Query.ts`) and
+  components stay separate. Relative imports in files `node --test` loads need
+  explicit `.ts` extensions.
+- **`import "server-only"` in every module with a heavy or sensitive dependency**
+  (viem, siwe, @noble/*, service-role DB). Tests keep working because `npm test`
+  uses the package's `react-server` condition — never drop the guard to fix a
+  test. A heavy module must not also export small pure helpers other code needs
+  (`walletDisplay.ts` pure vs `walletAuth.ts` heavy). (DECISIONS: before
+  2026-09-22 server-only; heavy module)
+- **Duplication threshold:** before copying real logic (more than a 3–5 line
+  presentational helper), grep for existing copies. Two copies is the limit; a
+  bug fix that has to land in two copies means extract a shared version now. A
+  tiny helper may be duplicated across a server-only boundary instead of
+  importing the heavy module.
+- **No band-aids.** Fix the category, not the instance: a gap found in the
+  owner's data is a sample of a class of inputs. Fix the rule or source so other
+  users' tokens, exchanges and DeFi positions resolve on their own, and make the
+  gap visible (`/admin/pricing`). A hand-added data row is a labeled stopgap
+  ("Set by hand (stopgap)" in Settings), never the fix. (DECISIONS: 2026-09-25
+  category)
+- **Reuse UI primitives** before building one-offs: `Panel`, `PageHeader`,
+  `GuestBanner`, `SignInPrompt`, `AuthButtons`, `ui/table.ts` classes,
+  `buttonClass`, `SubmitButton`. Small presentational duplication beats a shared
+  component that needs prop-plumbing.
+- **Guest state on a data page renders the real page shell:** one `GuestBanner`
+  where `TotalValuePanel` would be, and every section's Panel with a muted "Log in
+  and add a wallet to see your {noun} here." — no fake data. Public data (the
+  Coin360 heatmap) renders for everyone. `SignInPrompt` is for pages with nothing
+  to preview (`wallets/new`, `profile`).
+- **Numbers** go through `src/lib/format.ts` (`formatUsd`, `formatPercent`,
+  `formatQty`, `formatStaleness`…): `—` for missing; `text-positive` /
+  `text-negative` / `text-warning` for gain, loss, warning; never a bare 0.
+- **Tables are sortable by default:** `SortableHeader` / `SortIcon`
+  (`components/ui/SortableHeader.tsx`) and `usePersistedState` keyed
+  `cryptoport:<table>Sort`; a local `SortKey` union, a `sortValue(row, key)`
+  switch, `toggleSort` flipping direction on repeat else `desc` (see
+  `components/admin/AdminWalletsTable.tsx`). Columns with no scalar value skip it.
+- **Mobile from the start:** secondary columns append `hideOnMobileClass` to the
+  existing cell class; every table is wrapped in `overflow-x-auto`; the mobile
+  nav drawer shares `navItems.tsx` with the sidebar.
+
+## 8. Schema changes
+
+- There is no migration tool. Hand the owner runnable SQL **as a plain fenced
+  code block in the chat** (not through a tool call); they run it in Supabase's
+  SQL editor. Write it to a scratch file and pass
+  `node scripts/check-sql-schema.mts` first. Then update `db/schema.sql` to match.
+- **Order: SQL handed over → owner confirms it ran → preflight passes → push.**
+  Push deploys, and a cron writing to a column that doesn't exist yet fails.
+  Code that needs unrun DDL waits on a hold branch (§9). (DECISIONS: 2026-09-22)
+- **Plan anything with real blast radius** (new table, new external service,
+  new cron, schema change, irreversible drop) and get the owner's OK on scope
+  before writing code. For multi-step work, write a plan doc like
+  `docs/pricing/PLAN.md`: goal, decisions, phases, and a verification gate per
+  phase.
+
+## 9. Process and git
+
+- **Push directly to `main`**; no PRs.
+- **Phased work: one commit per phase** (a revertable unit). Before committing,
+  show `git status` and the exact file list; don't bundle unrelated changes
+  (local-only edits, scratch scripts, other backlog items). Then stop for the
+  owner's sign-off before the next phase.
+- **Held work goes on a local `hold/<name>` branch, never `main`** (waiting on
+  DDL, on a cron check, …). Release with `git merge --ff-only hold/<name>`, then
+  push. **A general "go ahead and push" never releases a named hold**: name the
+  held commits, restate what each waits for, and ask. (DECISIONS: 2026-09-23)
+- **Never run a command that discards uncommitted changes** (`reset --hard`,
+  `checkout -- <path>`, `restore`, `clean`, `stash drop`, an overwriting branch
+  switch) without first `git status`, `git stash push -u -m "<why>"`,
+  `git stash list`. To move an unpushed commit off `main`:
+  `git branch hold/<name>` + `git reset --soft HEAD~1` + stash.
+  (DECISIONS: 2026-09-24 reset --hard)
+- **`next.config.ts` carries a local-only `allowedDevOrigins` change: never commit
+  it, never discard it.** Stage files by name, not with `git add -A`.
+- **Exercise CRUD through the UI** (add wallets via the form), not seed scripts.
+- **Verify against real data before calling anything done**, especially data
+  correctness: live calls, real DB rows, before/after totals — not just passing
+  type checks. A store's own read-back is not verification; spot-check against a
+  different source. Report outcomes faithfully, including what wasn't verified.
+- **Keep this file true.** When a rule's mechanism changes or is deleted, update
+  or remove the rule in the same commit; record why in `docs/DECISIONS.md`.

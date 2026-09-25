@@ -25,7 +25,7 @@ test("a key with no mapping row is not passed off as native", () => {
 test("the venue's own list vs. a copy needing review", () => {
   assert.equal(classifyMapping({ venue: "coinbase", ticker: "MORPHO", price_key: "morpho" }, sources), "venue-list");
   assert.equal(classifyMapping({ venue: "kraken", ticker: "MORPHO", price_key: "morpho" }, sources), "copied");
-  assert.equal(classifyMapping({ venue: "hyperliquid", ticker: "USDE", price_key: "ethena-usde" }, sources), "venue-list");
+  assert.equal(classifyMapping({ venue: "hyperliquid", ticker: "USDE", price_key: "ethena-usde" }, sources), "override"); // hand-added: a stopgap
 });
 
 test("venue-priced and unpriced", () => {
