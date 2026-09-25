@@ -50,7 +50,7 @@ export const venueKey = (venue: string, ticker: string) => `${venue}|${ticker.to
 const REGISTRY_CHAIN: Record<string, string> = { "solana-defi": "solana" };
 // Native coins of venues that aren't in the chain config's native-symbol
 // table (priceKey.ts only knows real chains).
-const VENUE_NATIVE: Record<string, { symbol: string; id: string }> = { hyperliquid: { symbol: "HYPE", id: "hyperliquid" } };
+export const VENUE_NATIVE: Record<string, { symbol: string; id: string }> = { hyperliquid: { symbol: "HYPE", id: "hyperliquid" } };
 
 function nativeKey(h: KeyInput): string | null {
   if (!h.chain) return null;
@@ -85,11 +85,11 @@ export const NATIVE_BY_SYMBOL: ReadonlyMap<string, string> = (() => {
 /** Exchange tickers whose coin is fixed by definition: the canonical
  * stablecoins, and fiat dollars (fiat:USD, worth exactly $1 because it is
  * a dollar — not a stablecoin pin). */
-const CANONICAL_EXCHANGE: Record<string, string> = { USDC: "usd-coin", USDT: "tether", USD: "fiat:USD" };
+export const CANONICAL_EXCHANGE: Record<string, string> = { USDC: "usd-coin", USDT: "tether", USD: "fiat:USD" };
 
 const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 // Venues priced by their own tickers (exchange balances; protocol accounts).
-const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket"]);
+export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket"]);
 
 /** A stored position value, not a coin quantity: its worth comes from the
  * protocol (LP, perps, prediction shares, leveraged vault) and has no single

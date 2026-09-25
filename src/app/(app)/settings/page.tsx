@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { Field, selectClass } from "@/components/ui/Field";
+import { getExchangeMappings } from "@/lib/exchangeMappingsQuery";
+import { ExchangeMappingsTable } from "@/components/ExchangeMappingsTable";
 
 export const metadata = { title: "Settings · CryptoPort" };
 
@@ -19,7 +21,7 @@ export default async function SettingsPage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const { saved } = await searchParams;
-  const [user, zone] = await Promise.all([getUser(), getEffectiveTimeZone()]);
+  const [user, zone, mappings] = await Promise.all([getUser(), getEffectiveTimeZone(), getExchangeMappings()]);
   const zones = listTimeZones();
 
   return (
@@ -86,6 +88,15 @@ export default async function SettingsPage({
           </div>
           <p className="mt-3 text-xs text-fg-muted">More languages and currencies coming soon.</p>
         </Panel>
+
+        {user && mappings.length > 0 && (
+          <Panel
+            title="Exchange coin mappings"
+            description="An exchange reports a ticker, not a coin. This is the coin each ticker you hold is priced as, and how it was matched. “Copied from Coinbase” means Kraken, Gemini or MEXC reuse Coinbase's list — usually right, but a ticker can mean a different coin on another exchange. Tell us about a wrong one; mappings are shared, so they're fixed centrally."
+          >
+            <ExchangeMappingsTable rows={mappings} />
+          </Panel>
+        )}
       </div>
     </>
   );
