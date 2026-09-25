@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, chainsById, parseIbcTrace, withIbcOrigins, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, chainsById, parseIbcTrace, withIbcOrigins, registryAssetInfo, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -203,4 +203,17 @@ test("an IBC token takes its home asset's decimals and coin id; a known coin id 
   assert.deepEqual(out.assets.get("ibc/NEW"), { denom: "ibc/NEW", symbol: "AXLUSDC", decimals: 6, coingeckoId: "axlusdc", usd: null, image: null });
   assert.equal(out.assets.get("ibc/KNOWN")?.coingeckoId, "osmosis");
   assert.equal(out.assets.has("ibc/NODEC"), false); // no decimals: an amount can't be shown
+});
+
+test("the chain registry's own entry names a bridged copy's coin and marks it bridged", () => {
+  const list = { assets: [
+    { base: "uusdc", coingecko_id: "axlusdc", traces: [{ type: "bridge" }] },
+    { base: "uaxl", coingecko_id: "axelar-network" },
+    { base: "unoid", traces: [{ type: "wrapped" }] },
+  ] };
+  assert.deepEqual(registryAssetInfo(list, "uusdc"), { coingeckoId: "axlusdc", bridged: true });
+  assert.deepEqual(registryAssetInfo(list, "uaxl"), { coingeckoId: "axelar-network", bridged: false });
+  assert.deepEqual(registryAssetInfo(list, "unoid"), { coingeckoId: null, bridged: true });
+  assert.equal(registryAssetInfo(list, "missing"), null);
+  assert.equal(registryAssetInfo(null, "uusdc"), null);
 });

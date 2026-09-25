@@ -20,6 +20,7 @@ import {
   chainsById,
   parseIbcTrace,
   withIbcOrigins,
+  registryAssetInfo,
   type CosmosHolding,
   type DirectoryAsset,
   type IbcTrace,
@@ -204,6 +205,7 @@ async function traceIbcDenoms(
   if (!chain.chainId) return out;
   const from = chain.chainId;
   const keplrCache = new Map<string, Promise<Parameters<typeof withKeplrCurrencies>[1]>>();
+  const registryCache = new Map<string, Promise<Parameters<typeof registryAssetInfo>[0]>>();
   await mapWithConcurrency(denoms, 4, async (denom) => {
     const hash = denom.slice(4);
     const trace =
@@ -222,13 +224,35 @@ async function traceIbcDenoms(
       out.set(denom, asset);
       return;
     }
-    // The home chain's directory entry lacks the coin id (Stride's stINJ,
-    // stJUNO …): Keplr's registry for that chain, as for tokens on the
-    // wallet's own chains (withKeplrCurrencies).
+    // The home chain's directory entry lacks the coin id: its chain-registry
+    // assetlist first (Axelar's uusdc -> axlusdc), then Keplr's registry
+    // (Stride's stINJ, stJUNO …) — but never Keplr's id for an asset the
+    // registry marks as a bridged copy (Keplr prices axlUSDC as USDC).
+    const info = registryAssetInfo(await registryAssetlist(home.name, registryCache), trace.base);
+    if (asset && info?.coingeckoId) {
+      out.set(denom, { ...asset, coingeckoId: info.coingeckoId });
+      return;
+    }
+    if (info?.bridged) {
+      if (asset) out.set(denom, asset); // amount and name, no coin
+      return;
+    }
     const filled = withKeplrCurrencies({ ...EMPTY_CHAIN, assets: home.assets }, await keplrFile(at, keplrCache)).assets.get(trace.base);
     if (filled) out.set(denom, filled);
   });
   return out;
+}
+
+/** A chain's chain-registry assetlist.json (memoized per trace pass), or null. */
+function registryAssetlist(name: string, cache: Map<string, Promise<Parameters<typeof registryAssetInfo>[0]>>): Promise<Parameters<typeof registryAssetInfo>[0]> {
+  let p = cache.get(name);
+  if (!p) {
+    p = fetch(`${REGISTRY_RAW}/${name}/assetlist.json`, { cache: "no-store", signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) })
+      .then((r) => (r.ok ? (r.json() as Promise<Parameters<typeof registryAssetInfo>[0]>) : null))
+      .catch(() => null);
+    cache.set(name, p);
+  }
+  return p;
 }
 
 const EMPTY_CHAIN: DirectoryChain = { name: "", chainId: null, prettyName: "", image: null, stakingDenom: null, prefix: "", restUrls: [], needsRegistryApis: false, assets: new Map() };

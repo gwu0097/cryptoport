@@ -172,6 +172,7 @@ function parseAssets(c: RawChain): Map<string, DirectoryAsset> {
  * an IBC token's home chain can be one a cosmos1 account isn't derivable on
  * (Injective, Evmos, Dymension). For tracing a token back to its home. */
 export interface OriginChain {
+  name: string; // chain-registry directory name, e.g. "axelar"
   restUrls: string[];
   assets: Map<string, DirectoryAsset>;
 }
@@ -179,7 +180,7 @@ export function chainsById(raw: readonly RawChain[]): Map<string, OriginChain> {
   const out = new Map<string, OriginChain>();
   for (const c of raw) {
     if (!c.name || !c.chain_id || c.network_type !== "mainnet") continue;
-    out.set(c.chain_id, { restUrls: [`https://rest.cosmos.directory/${c.name}`, ...listedRest(c).slice(0, 2)], assets: parseAssets(c) });
+    out.set(c.chain_id, { name: c.name, restUrls: [`https://rest.cosmos.directory/${c.name}`, ...listedRest(c).slice(0, 2)], assets: parseAssets(c) });
   }
   return out;
 }
@@ -210,6 +211,21 @@ export function parseIbcTrace(body: unknown): IbcTrace | null {
     return { base: b.denom_trace.base_denom, hops };
   }
   return null;
+}
+
+/** What the Cosmos chain registry's own assetlist.json says about one base
+ * denom: its CoinGecko id, and whether it's a bridged copy (a `bridge` or
+ * `wrapped` trace). cosmos.directory's feed drops some ids the registry has
+ * — Axelar's uusdc is `axlusdc` in the registry, missing in the directory —
+ * and Keplr's registry maps bridged copies onto the real coin (uusdc ->
+ * usd-coin), which would price axlUSDC as USDC. */
+export function registryAssetInfo(
+  assetlist: { assets?: { base?: string; coingecko_id?: string; traces?: { type?: string }[] }[] } | null,
+  base: string,
+): { coingeckoId: string | null; bridged: boolean } | null {
+  const a = assetlist?.assets?.find((x) => x.base === base);
+  if (!a) return null;
+  return { coingeckoId: a.coingecko_id || null, bridged: (a.traces ?? []).some((t) => t.type === "bridge" || t.type === "wrapped") };
 }
 
 /**
