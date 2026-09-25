@@ -11,13 +11,7 @@ import {
   type Address,
 } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
-import {
-  fetchNativePrice,
-  fetchTokenPrices,
-  fetchTokenImages,
-  fetchMarketStatsByIds,
-  type CoingeckoMarketStats,
-} from "./coingecko";
+import { fetchTokenPrices, fetchTokenImages, fetchMarketStatsByIds } from "./coingecko";
 import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
@@ -654,7 +648,8 @@ interface EvmHoldingRow {
  * of) the second. This is what lets the "Refresh prices" button catch up
  * every EVM holding immediately, the same way it already does for every
  * Coinbase/Jupiter-priced ticker — instead of an EVM token's price and 24h
- * change being stuck until that specific wallet's next full sync.
+ * change being stuck until that specific wallet's next full sync. Priced by
+ * CoinGecko coin id in one batched call for every chain (see below).
  */
 export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: boolean; error?: string }[]> {
   // No active-wallet filter — same "cheap and global, don't bother
@@ -668,219 +663,92 @@ export async function refreshEvmHoldingPrices(): Promise<{ ticker: string; ok: b
   if (error) throw new Error(`Failed to load EVM holdings: ${error.message}`);
 
   const rows = (data as EvmHoldingRow[]).filter((r) => EVM_CHAINS.some((c) => c.id === r.chain));
+  if (rows.length === 0) return [];
 
-  const byChain = new Map<string, EvmHoldingRow[]>();
-  for (const row of rows) {
-    if (!byChain.has(row.chain)) byChain.set(row.chain, []);
-    byChain.get(row.chain)!.push(row);
+  // Every held contract's CoinGecko coin id (token_registry, from
+  // CoinGecko's own contract -> coin mapping — never a ticker guess).
+  const contractRows = rows.filter((r): r is EvmHoldingRow & { contract: string } => r.contract !== null);
+  const key = (chain: string, contract: string) => `${chain}|${contract.toLowerCase()}`;
+  const idByKey = new Map<string, string>();
+  if (contractRows.length > 0) {
+    const { data: reg, error: regError } = await serviceDb()
+      .from("token_registry")
+      .select("chain_id, contract, coingecko_id")
+      .in("chain_id", [...new Set(contractRows.map((r) => r.chain))])
+      .in("contract", [...new Set(contractRows.map((r) => r.contract))])
+      .not("coingecko_id", "is", null);
+    if (regError) throw new Error(`Failed to load token ids: ${regError.message}`);
+    for (const r of reg as { chain_id: string; contract: string; coingecko_id: string }[]) idByKey.set(key(r.chain_id, r.contract), r.coingecko_id);
+  }
+  const nativeIdOf = (chainId: string) => EVM_CHAINS.find((c) => c.id === chainId)!.nativeCoingeckoId;
+
+  // One batched /coins/markets call (250 ids each) prices every held token
+  // and native coin on every chain at once, with its 24h/1h/7d/30d change
+  // and market cap. It used to be a contract-price call plus a market-stats
+  // call per chain plus a native call per coin — ~45 calls, ~2 minutes once
+  // paced to CoinGecko's per-minute limit (2026-09-25); now ~1.
+  const ids = new Set<string>(idByKey.values());
+  for (const r of rows) if (r.contract === null) ids.add(nativeIdOf(r.chain));
+  const stats = await fetchMarketStatsByIds([...ids]);
+
+  // A held contract with no CoinGecko id (none today) falls back to the
+  // per-chain contract-price endpoint.
+  const noId = contractRows.filter((r) => !idByKey.has(key(r.chain, r.contract)));
+  const byContract = new Map<string, { usd: number; change24h: number | null; marketCap: number | null }>();
+  for (const [chainId, chainRows] of groupBy(noId, (r) => r.chain)) {
+    const chain = EVM_CHAINS.find((c) => c.id === chainId)!;
+    const prices = await fetchTokenPrices(chain.coingeckoPlatform, chainRows.map((r) => r.contract)).catch(() => null);
+    for (const [contract, price] of prices ?? []) byContract.set(key(chainId, contract), price);
   }
 
-  // Fetched once per distinct native CoinGecko id, not once per chain — 12
-  // of this app's 32 EVM_CHAINS share "ethereum" as their own native asset
-  // (Base, Arbitrum, Optimism, Linea, Scroll, Blast, zkSync, Manta, Mode,
-  // Unichain, Soneium, plus Ethereum itself), so a portfolio holding native
-  // gas balances on several of them used to fetch the exact same price that
-  // many separate times — pure duplicate CoinGecko round-trips, unlike the
-  // per-chain contract pricing below (which genuinely needs one call per
-  // chain — CoinGecko's contract-pricing endpoint only ever accepts one
-  // platform per call). Only fetched for ids this refresh actually needs
-  // (a chain with no native-balance row among today's holdings doesn't get
-  // one), not all 32 unconditionally.
-  const neededNativeIds = new Set<string>();
-  for (const [chainId, chainRows] of byChain) {
-    if (chainRows.some((r) => r.contract === null)) {
-      const chain = EVM_CHAINS.find((c) => c.id === chainId);
-      if (chain) neededNativeIds.add(chain.nativeCoingeckoId);
+  const results: { ticker: string; ok: boolean; error?: string }[] = [];
+  const upserts: { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number }[] = [];
+  const statRows = new Map<string, { contract: string; symbol: string; [k: string]: unknown }[]>();
+  for (const row of rows) {
+    const coinId = row.contract === null ? nativeIdOf(row.chain) : idByKey.get(key(row.chain, row.contract));
+    const coin = coinId ? stats.get(coinId) : undefined;
+    const price = coin ?? (row.contract ? byContract.get(key(row.chain, row.contract)) : undefined);
+    if (!price) {
+      results.push({ ticker: row.ticker, ok: false, error: `No CoinGecko price for this ${row.contract ? "contract" : "native asset"}.` });
+      continue;
+    }
+    const qty = Number(row.qty);
+    if (!Number.isFinite(qty)) {
+      results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
+      continue;
+    }
+    upserts.push({ id: row.id, wallet_id: row.wallet_id, ticker: row.ticker, source: "auto", usd_override: qty * price.usd });
+    if (row.contract) {
+      const list = statRows.get(row.chain) ?? [];
+      list.push({
+        contract: row.contract,
+        symbol: row.ticker,
+        change_24h_pct: price.change24h,
+        market_cap: price.marketCap,
+        ...(coin ? { change_1h_pct: coin.change1h, change_7d_pct: coin.change7d, change_30d_pct: coin.change30d } : {}),
+      });
+      statRows.set(row.chain, list);
     }
   }
-  const nativePriceById = new Map<string, number | null>();
-  await Promise.all(
-    [...neededNativeIds].map(async (id) => {
-      nativePriceById.set(id, await fetchNativePrice(id).catch(() => null));
-    }),
-  );
 
-  // Each chain's block below is fully self-contained (its own CoinGecko
-  // calls, its own holdings/token_registry writes, its own slice of
-  // `results`) — nothing for one chain to wait on from another, so this
-  // used to be pure wasted wall-clock time as a sequential for-of loop.
-  // Real fix for a real "Refresh prices takes a while" report: a
-  // 20-chain portfolio was making CoinGecko round-trip #2 wait for #1 to
-  // fully finish, back to back, 20 times, for no reason. Concurrency 5 is
-  // well inside CoinGecko's documented free-tier rate limit even with a
-  // configured key (100 req/min) — this app's own EVM chain count doesn't
-  // come close to saturating that even fully parallel.
-  const EVM_PRICE_CONCURRENCY = 5;
+  try {
+    for (let i = 0; i < upserts.length; i += 1000) {
+      const { error: upsertError } = await serviceDb().from("holdings").upsert(upserts.slice(i, i + 1000), { onConflict: "id" });
+      if (upsertError) throw new Error(upsertError.message);
+    }
+    for (const u of upserts) results.push({ ticker: u.ticker, ok: true });
+  } catch (e) {
+    for (const u of upserts) results.push({ ticker: u.ticker, ok: false, error: (e as Error).message });
+    return results;
+  }
+  // Cosmetic stats (24h/1h/7d/30d, market cap): a failed write never fails
+  // the prices already saved above.
+  for (const [chainId, list] of statRows) await saveMarketStats(chainId, list).catch(() => {});
+  return results;
+}
 
-  const perChainResults = await mapWithConcurrency(
-    [...byChain.entries()],
-    EVM_PRICE_CONCURRENCY,
-    async ([chainId, chainRows]): Promise<{ ticker: string; ok: boolean; error?: string }[]> => {
-      const chain = EVM_CHAINS.find((c) => c.id === chainId)!;
-      const contractRows = chainRows.filter((r): r is EvmHoldingRow & { contract: string } => r.contract !== null);
-      const nativeRows = chainRows.filter((r) => r.contract === null);
-
-      const results: { ticker: string; ok: boolean; error?: string }[] = [];
-      type Upsert = { id: string; wallet_id: string; ticker: string; source: "auto"; usd_override: number };
-      const upserts: Upsert[] = [];
-      const changeRows: { contract: string; symbol: string; change_24h_pct: number | null; market_cap: number | null }[] =
-        [];
-      // Written via its own separate upsertTokenRegistry call, not merged
-      // into changeRows above — a bulk upsert's per-row column set isn't
-      // something to rely on being independently respected per row (unlike
-      // upsertPrice's single-row upsert, which is a Postgres/PostgREST
-      // guarantee already leaned on elsewhere in this file); a contract
-      // with no resolvable coingecko_id this cycle is simply left out of
-      // this array entirely, rather than included with these 3 fields
-      // null, so its previously-cached value (if any) survives untouched.
-      const multiWindowRows: {
-        contract: string;
-        symbol: string;
-        change_1h_pct: number | null;
-        change_7d_pct: number | null;
-        change_30d_pct: number | null;
-      }[] = [];
-
-      if (contractRows.length > 0) {
-        try {
-          // 1h/7d/30d change for these contracts — fetchTokenPrices
-          // (simple/token_price, below) is contract-address-keyed and
-          // confirmed live to only ever return 24h change, so this is a
-          // second, independent lookup: token_registry already caches
-          // each contract's own coingecko_id from the coins/list import
-          // (see refreshTokenRegistry), and fetchMarketStatsByIds
-          // (/coins/markets) accepts that id directly.
-          //
-          // Run via Promise.all alongside fetchTokenPrices below, NOT
-          // awaited before it — a real regression caught live (reported
-          // as "clicking Assets now has a delay before it navigates,
-          // something's running in the background first"): an earlier
-          // version of this awaited the registry lookup + market-stats
-          // call sequentially, ahead of fetchTokenPrices, which made
-          // every EVM chain's actual usd_override pricing (the thing
-          // that matters) wait on this best-effort enrichment finishing
-          // first, undoing this exact session's own earlier "parallelize
-          // independent refresh work" fix and extending how long
-          // "Refresh prices" (and its polling) stays active app-wide.
-          // Best-effort: a failure here shouldn't fail the actual price
-          // refresh, so its own errors are swallowed to an empty map.
-          const fetchMultiWindow = async (): Promise<{
-            coingeckoIdByContract: Map<string, string>;
-            marketStats: Map<string, CoingeckoMarketStats>;
-          }> => {
-            const registryRows = await serviceDb()
-              .from("token_registry")
-              .select("contract, coingecko_id")
-              .eq("chain_id", chainId)
-              .in("contract", contractRows.map((r) => r.contract))
-              .not("coingecko_id", "is", null)
-              .then(
-                (res) => (res.data ?? []) as { contract: string; coingecko_id: string }[],
-                () => [],
-              );
-            const coingeckoIdByContract = new Map(registryRows.map((r) => [r.contract.toLowerCase(), r.coingecko_id]));
-            const distinctIds = [...new Set(coingeckoIdByContract.values())];
-            const marketStats =
-              distinctIds.length > 0
-                ? await fetchMarketStatsByIds(distinctIds).catch(() => new Map<string, CoingeckoMarketStats>())
-                : new Map<string, CoingeckoMarketStats>();
-            return { coingeckoIdByContract, marketStats };
-          };
-          const [prices, { coingeckoIdByContract, marketStats }] = await Promise.all([
-            fetchTokenPrices(chain.coingeckoPlatform, contractRows.map((r) => r.contract)),
-            fetchMultiWindow(),
-          ]);
-          for (const row of contractRows) {
-            const price = prices.get(row.contract.toLowerCase());
-            if (!price) {
-              results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this contract." });
-              continue;
-            }
-            const qty = Number(row.qty);
-            if (!Number.isFinite(qty)) {
-              results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
-              continue;
-            }
-            upserts.push({
-              id: row.id,
-              wallet_id: row.wallet_id,
-              ticker: row.ticker,
-              source: "auto",
-              usd_override: qty * price.usd,
-            });
-            changeRows.push({
-              contract: row.contract,
-              symbol: row.ticker,
-              change_24h_pct: price.change24h,
-              market_cap: price.marketCap,
-            });
-            const coingeckoId = coingeckoIdByContract.get(row.contract.toLowerCase());
-            const stats = coingeckoId ? marketStats.get(coingeckoId) : undefined;
-            if (stats) {
-              multiWindowRows.push({
-                contract: row.contract,
-                symbol: row.ticker,
-                change_1h_pct: stats.change1h,
-                change_7d_pct: stats.change7d,
-                change_30d_pct: stats.change30d,
-              });
-            }
-          }
-        } catch (e) {
-          for (const row of contractRows) results.push({ ticker: row.ticker, ok: false, error: (e as Error).message });
-        }
-      }
-
-      if (nativeRows.length > 0) {
-        // Pre-fetched once per distinct id above, not per chain — see this
-        // function's own doc comment there.
-        const nativePrice = nativePriceById.get(chain.nativeCoingeckoId) ?? null;
-        for (const row of nativeRows) {
-          if (nativePrice === null) {
-            results.push({ ticker: row.ticker, ok: false, error: "No CoinGecko price for this native asset." });
-            continue;
-          }
-          const qty = Number(row.qty);
-          if (!Number.isFinite(qty)) {
-            results.push({ ticker: row.ticker, ok: false, error: "Holding has no parseable quantity." });
-            continue;
-          }
-          upserts.push({
-            id: row.id,
-            wallet_id: row.wallet_id,
-            ticker: row.ticker,
-            source: "auto",
-            usd_override: qty * nativePrice,
-          });
-        }
-      }
-
-      if (upserts.length === 0) return results;
-
-      // Write outcome decides ok/fail for every row in this chain's batch
-      // — deferred until now (rather than pushed optimistically above)
-      // specifically so a DB failure here doesn't mislabel rows as
-      // successfully repriced when the write never actually landed.
-      try {
-        for (let i = 0; i < upserts.length; i += 1000) {
-          const chunk = upserts.slice(i, i + 1000);
-          const { error: upsertError } = await serviceDb().from("holdings").upsert(chunk, { onConflict: "id" });
-          if (upsertError) throw new Error(upsertError.message);
-        }
-        for (const u of upserts) results.push({ ticker: u.ticker, ok: true });
-        if (changeRows.length > 0) await saveMarketStats(chainId, changeRows);
-        // Separate call, not merged with the write above — see
-        // multiWindowRows' own doc comment for why these need a uniform-
-        // shaped array of their own rather than being folded into
-        // changeRows for the (common) contract that didn't resolve one.
-        if (multiWindowRows.length > 0) await saveMarketStats(chainId, multiWindowRows);
-      } catch (e) {
-        for (const u of upserts) results.push({ ticker: u.ticker, ok: false, error: (e as Error).message });
-      }
-
-      return results;
-    },
-  );
-
-  return perChainResults.flat();
+function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const item of items) out.set(keyOf(item), [...(out.get(keyOf(item)) ?? []), item]);
+  return out;
 }
