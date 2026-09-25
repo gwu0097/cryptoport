@@ -74,6 +74,20 @@ export interface CosmosStakingData {
 /** A chain's page on Keplr's dashboard (stake, unstake, claim) — the
  * chain-registry name, except Cosmos Hub. Not every chain has one (no Sei,
  * no Archway on 2026-09-25): the adapter checks the page before using it. */
+/** cosmos.directory's own health check (status.cosmos.directory) marks a
+ * chain's REST down: skip its proxy and try only the chain's own registry
+ * endpoints — Neutron is marked down yet answers on those (and holds real
+ * tokens), so down alone never means skip. A chain that fails those too is
+ * dead: the adapter keeps any previous rows but doesn't warn about it. */
+export function withoutDirectoryProxy(chain: DirectoryChain): DirectoryChain {
+  return { ...chain, restUrls: chain.restUrls.filter((u) => !u.startsWith("https://rest.cosmos.directory/")) };
+}
+
+/** Chain names status.cosmos.directory reports with REST unavailable. */
+export function downChains(status: { chains?: { name: string; rest?: { available?: boolean } }[] }): Set<string> {
+  return new Set((status.chains ?? []).filter((c) => c.rest?.available === false).map((c) => c.name));
+}
+
 export function keplrDashboardUrl(chainName: string): string {
   return `https://wallet.keplr.app/chains/${chainName === "cosmoshub" ? "cosmos-hub" : chainName}`;
 }

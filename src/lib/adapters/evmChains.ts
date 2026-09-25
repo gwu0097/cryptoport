@@ -33,6 +33,10 @@ export interface EvmChain {
   name: string;
   chainId: number;
   rpc: string;
+  /** Tried in order when `rpc` errors or times out (viem's fallback
+   * transport, set up in multicallEvm.ts — not here, this file ships to the
+   * client). Only for chains where the primary has actually failed. */
+  fallbackRpcs?: string[];
   /** CoinGecko's platform id for this chain (e.g. "base",
    * "optimistic-ethereum") — verified against CoinGecko's own
    * /asset_platforms (keyed by chain_identifier, the numeric chain ID, not
@@ -72,7 +76,11 @@ export const EVM_CHAINS: EvmChain[] = [
     id: "arb",
     name: "Arbitrum",
     chainId: 42161,
-    rpc: "https://arbitrum-one-rpc.publicnode.com",
+    // Arbitrum's own public RPC: a 2,995-token balance scan took 1.5s there
+    // vs 10.8s on publicnode (0 failures each), and publicnode failed
+    // 584-2,070 checks per wallet under Sync all load (2026-09-25).
+    rpc: "https://arb1.arbitrum.io/rpc",
+    fallbackRpcs: ["https://arbitrum.drpc.org", "https://arbitrum-one-rpc.publicnode.com"],
     coingeckoPlatform: "arbitrum-one",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
@@ -198,7 +206,12 @@ export const EVM_CHAINS: EvmChain[] = [
     id: "manta",
     name: "Manta Pacific",
     chainId: 169,
-    rpc: "https://manta-pacific.drpc.org",
+    // Caldera (Manta Pacific's own rollup provider): 0 of 26 token checks
+    // failed in 0.25s; drpc's free plan failed all 26 even for one wallet
+    // and timed out getBalance under load (2026-09-25). Manta's own
+    // pacific-rpc.manta.network didn't respond at all.
+    rpc: "https://manta-pacific-gascap.calderachain.xyz/http",
+    fallbackRpcs: ["https://manta-pacific-aperture.calderachain.xyz/http"],
     coingeckoPlatform: "manta-pacific",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",

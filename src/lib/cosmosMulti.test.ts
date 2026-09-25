@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -157,4 +157,18 @@ test("an unlinked Sei account's rows stay listed but become unpriced, id-less an
     ],
   );
   assert.equal(out[0].qty, 1, "amounts are kept");
+});
+
+test("a chain cosmos.directory marks down is tried only on its own endpoints (Neutron answers there)", () => {
+  const down = downChains({ chains: [
+    { name: "neutron", rest: { available: false } },
+    { name: "comdex", rest: { available: false } },
+    { name: "cosmoshub", rest: { available: true } },
+    { name: "odd" },
+  ] });
+  assert.deepEqual([...down].sort(), ["comdex", "neutron"]);
+  const [neutron] = eligibleChains([{ name: "neutron", bech32_prefix: "neutron", slip44: 118, status: "live", network_type: "mainnet", best_apis: { rest: [] } }]);
+  const enriched = withRegistryApis(neutron, { apis: { rest: [{ address: "https://rest-lb.neutron.org" }] } });
+  assert.deepEqual(withoutDirectoryProxy(enriched).restUrls, ["https://rest-lb.neutron.org"]);
+  assert.deepEqual(withoutDirectoryProxy(withRegistryApis(neutron, null)).restUrls, [], "no own endpoint: nothing to try");
 });

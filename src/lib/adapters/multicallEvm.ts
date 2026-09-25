@@ -2,6 +2,7 @@ import "server-only";
 import {
   createPublicClient,
   http,
+  fallback,
   formatUnits,
   isAddress,
   BaseError,
@@ -199,6 +200,13 @@ function isRetryableFailure(r: any): boolean {
   return r.status === "failure" && !isContractFailure(r.error);
 }
 
+/** The chain's RPC, plus its fallbacks when it has any (see
+ * EvmChain.fallbackRpcs): a request the primary errors or times out on goes
+ * to the next one. */
+function evmTransport(chain: EvmChain) {
+  return chain.fallbackRpcs?.length ? fallback([chain.rpc, ...chain.fallbackRpcs].map((url) => http(url))) : http(chain.rpc);
+}
+
 /** Whether a chain has Multicall3 at the standard address — Merlin doesn't,
  * so every aggregate3 there "returned no data" and no Merlin token balance
  * was ever read (2026-09-25). Checked once per chain per server instance. */
@@ -319,7 +327,7 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
   const tokens = (await getRegisteredTokens(chain.id)).filter(
     (t) => t.coingecko_id !== chain.nativeCoingeckoId && isAddress(t.contract, { strict: false }),
   );
-  const client = createPublicClient({ transport: http(chain.rpc) });
+  const client = createPublicClient({ transport: evmTransport(chain) });
 
   const nativeBalancePromise = client.getBalance({ address });
   const useMulticall = await hasMulticall3(chain.id, client);

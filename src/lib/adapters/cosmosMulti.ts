@@ -14,6 +14,8 @@ import {
   withPrices,
   keplrRegistryFile,
   keplrDashboardUrl,
+  withoutDirectoryProxy,
+  downChains,
   stakingHoldings,
   lockUnlinkedSei,
   type CosmosHolding,
@@ -29,6 +31,7 @@ import {
 // (refreshCosmosHoldingPrices below), never by ticker.
 
 const DIRECTORY_URL = "https://chains.cosmos.directory/";
+const STATUS_URL = "https://status.cosmos.directory/";
 const REGISTRY_RAW = "https://raw.githubusercontent.com/cosmos/chain-registry/master";
 const KEPLR_RAW = "https://raw.githubusercontent.com/chainapsis/keplr-chain-registry/main/cosmos";
 const CONCURRENCY = 12;
@@ -39,6 +42,12 @@ const PER_REQUEST_TIMEOUT_MS = 6_000;
 const SCAN_DEADLINE_MS = 150_000;
 
 export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{ holdings: CosmosHolding[]; warnings: string[]; keep: KeepScope[] }> {
+  // cosmos.directory's health check, alongside its chain list; best-effort
+  // (null = unknown: every chain is scanned and warned about as before).
+  const statusPromise = fetch(STATUS_URL, { cache: "no-store", signal: AbortSignal.timeout(10_000) })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b) => (b ? downChains(b) : null))
+    .catch(() => null);
   const res = await fetchWithRetry(DIRECTORY_URL);
   if (!res.ok) throw new Error(`cosmos.directory chain list failed: HTTP ${res.status}`);
   const listed = eligibleChains(((await res.json()) as { chains: Parameters<typeof eligibleChains>[0] }).chains);
@@ -55,9 +64,12 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
     }
   });
 
+  const down = await statusPromise;
+  const scanList = down ? chains.map((c) => (down.has(c.name) ? withoutDirectoryProxy(c) : c)) : chains;
+
   const started = Date.now();
   const dnsCache = new Map<string, Promise<boolean>>();
-  const scanned = await mapWithConcurrency(chains, CONCURRENCY, (chain) => scanChain(chain, cosmosAddress, started, dnsCache));
+  const scanned = await mapWithConcurrency(scanList, CONCURRENCY, (chain) => scanChain(chain, cosmosAddress, started, dnsCache));
 
   // Tokens the Cosmos chain registry can't identify (no entry, or no
   // CoinGecko id — e.g. stINJ, milkTIA, dATOM): fill from Keplr's registry
@@ -87,7 +99,10 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   }
   holdings = await withKeplrManageUrls(holdings);
   await saveChainIcons(results.filter((r) => r.holdings.length > 0).map((r) => r.chain));
-  const unreachable = results.filter((r) => r.unreachable).map((r) => r.chain.prettyName);
+  // Dead chains (down per cosmos.directory and unreachable on their own
+  // endpoints too) aren't warned about — 66 of them on every sync was noise
+  // (2026-09-25); their rows, if any, are still kept (keep below).
+  const unreachable = results.filter((r) => r.unreachable && !down?.has(r.chain.name)).map((r) => r.chain.prettyName);
   // Rows these failures leave unanswered are kept from the last sync
   // (carryForward.ts): every row of an unreachable chain, and the staking
   // rows of a chain whose staking couldn't be read.
