@@ -1,7 +1,7 @@
 # Wallet balance discovery — plan
 
-Status: revised after Fable's review, 2026-09-25 — awaiting owner sign-off on
-the two decisions below. No code yet.
+Status: owner signed off on the design and both decisions (b, table),
+2026-09-25. Phase 1 (read-only prototype) mostly done — results below.
 
 ## Goal
 
@@ -57,6 +57,17 @@ source is config checked live, never derived from `adapters/alchemy.ts`
 returns token contract addresses (lowercased, de-duplicated). Every call goes
 through `fetchWithRetry`, capped with `mapWithConcurrency` (start at 5 per
 wallet; a Sync all runs 2 EVM wallets at once — `LANE_CONCURRENCY`).
+
+**D1b. Bounded discovery.** Alchemy returns 100 tokens per page, sequentially
+(each page needs the previous page's key), so its cost grows with the wallet's
+token count while the registry scan's doesn't. Discovery stops at
+`DISCOVERY_MAX_PAGES` (10 = 1,000 tokens on one chain); a chain that hits it
+finishes with the registry scan ∪ what was discovered ∪ last-sync tokens — the
+same fallback as D4, so every CoinGecko-listed token is still read and only an
+unlisted tail beyond 1,000 (on such wallets, overwhelmingly airdrop spam) may go
+unseen. Each trigger is logged (D5) and shown in the coverage report. Measured:
+the owner's spammiest wallet needs at most 3 pages on a chain; vitalik.eth
+needs 106 on Ethereum (6,938 tokens, ~30 s uncapped).
 
 **D2. Balances stay ours.** One Multicall3 pass per chain reads `balanceOf` for
 the union, keyed by lowercase contract, of (a) discovered contracts and
@@ -122,6 +133,24 @@ anyway. Revisit only if a generated catalog adds many registry chains.
    carry URLs). A user who knows what one is picks its coin (the existing
    `asset_contracts` override / coin picker) and it's counted from then on.
    `holdings` keeps meaning "things that count". **Recommended.**
+
+## Phase 1 results (2026-09-25, `scripts/diag/discovery-compare.ts`)
+
+The 20 Alchemy chains, all in parallel, today's scan vs Alchemy discovery +
+our balance reads (the other 18 chains are unchanged either way):
+
+| Wallet | Today | Alchemy | Found today, missed by Alchemy |
+|---|---|---|---|
+| Metamask Main (spam-heavy) | 5.9 s | 1.9 s | 2 BSC dust tokens, $0.00 |
+| BizNFT (heavy) | 5.4 s | 3.7 s | same 2, $0.00 |
+| Metamask Test (light) | 5.3 s | 1.3 s | same 2, $0.00 |
+| vitalik.eth (extreme) | ~5 s | 30 s on Ethereum uncapped → D1b | none once fully paged |
+
+Biggest chains: Ethereum 5.5 s → 0.6 s, BSC 5.9 s → 1.4 s, Base 4.3 s → 1.1 s,
+Arbitrum 4.5 s → 0.7 s. Newly found: 121–1,038 unlisted tokens per wallet
+(Blast hUSDB among them; mostly airdrop spam → "unrecognized") and CELO's
+ERC-20 (the D2 native guard's case). Still to measure: a real Sync all (two
+wallets at once — 429s), and Alchemy CU from the dashboard.
 
 ## Phases (each its own commit; owner sign-off between)
 
