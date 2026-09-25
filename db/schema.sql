@@ -2067,3 +2067,48 @@ create policy "asset_price_daily: readable by all signed-in users"
 -- sync_defi_holdings above writes pool_contract.
 alter table cryptoport.asset_prices add column if not exists volume_24h numeric;
 alter table cryptoport.holdings add column if not exists pool_contract text;
+
+-- Wallet balance discovery (docs/sync/PLAN.md, phase 2).
+
+-- One row per wallet sync: how each chain's tokens were found and read, so
+-- speed and API use are measured, not claimed (pricing_runs precedent).
+create table if not exists cryptoport.sync_runs (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  wallet_id   uuid not null references cryptoport.wallets(id) on delete cascade,
+  started_at  timestamptz not null default now(),
+  duration_ms integer,
+  -- per chain: {chain, source, discovery_ms, pages, discovered, read, counted,
+  -- receipt, unrecognized, calls, fallback}
+  chains      jsonb not null default '[]'::jsonb
+);
+create index if not exists sync_runs_wallet_started on cryptoport.sync_runs (wallet_id, started_at desc);
+alter table cryptoport.sync_runs enable row level security;
+grant all on cryptoport.sync_runs to service_role;
+grant select, insert on cryptoport.sync_runs to authenticated;
+create policy "sync_runs: owner only" on cryptoport.sync_runs
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Tokens a wallet holds that aren't counted (no CoinGecko price, not a known
+-- receipt): listed per wallet as "Unrecognized tokens", never in totals, never
+-- silently dropped. Rows at zero balance for two syncs are pruned.
+create table if not exists cryptoport.wallet_discovered_tokens (
+  user_id          uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  wallet_id        uuid not null references cryptoport.wallets(id) on delete cascade,
+  chain            text not null,
+  contract         text not null,
+  symbol           text,
+  decimals         integer,
+  status           text not null default 'unrecognized',
+  source           text not null,
+  last_balance_raw text,
+  zero_syncs       integer not null default 0,
+  first_seen_at    timestamptz not null default now(),
+  last_seen_at     timestamptz not null default now(),
+  primary key (wallet_id, chain, contract)
+);
+alter table cryptoport.wallet_discovered_tokens enable row level security;
+grant all on cryptoport.wallet_discovered_tokens to service_role;
+grant select, insert, update, delete on cryptoport.wallet_discovered_tokens to authenticated;
+create policy "wallet_discovered_tokens: owner only" on cryptoport.wallet_discovered_tokens
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
