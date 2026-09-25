@@ -26,7 +26,8 @@ import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
-import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY } from "@/lib/tokenRegistryRefresh";
+import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY, TOKEN_LIST_WEEKLY } from "@/lib/tokenRegistryRefresh";
+import { refreshExchangeAssetsIfStale } from "@/lib/adapters/exchangeTickers";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
@@ -621,6 +622,11 @@ async function keyed<T extends { ticker: string; chain: string | null; contract:
       (r) => r.contract && (r.chain === "solana" || r.chain === "solana-defi" || r.chain === "sui") && (!r.price_key || r.price_key.startsWith("jup:")),
     );
     if (unmapped) after(() => refreshTokenRegistryIfStale(TOKEN_LIST_DAILY).catch(() => {}));
+    // An exchange ticker with no coin: refresh the exchange mappings from
+    // CoinGecko's exchange data (at most weekly), which re-keys it.
+    if (source === "auto_exchange" && out.some((r) => !r.price_key)) {
+      after(() => refreshExchangeAssetsIfStale(TOKEN_LIST_WEEKLY).catch(() => {}));
+    }
     return out;
   } catch (e) {
     console.warn(`[pricing] price keys not set (${source}): ${(e as Error).message}`);

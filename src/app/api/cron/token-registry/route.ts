@@ -1,10 +1,11 @@
 import type { NextRequest } from "next/server";
 import { refreshTokenRegistryIfStale, TOKEN_LIST_WEEKLY } from "@/lib/tokenRegistryRefresh";
+import { refreshExchangeAssetsIfStale } from "@/lib/adapters/exchangeTickers";
 
 // The token list's weekly refresh (see lib/tokenRegistryRefresh.ts) — its own
 // cron because it takes ~80s, too long to ride along with the daily snapshot
 // (maxDuration 120). Skips itself when a sync-triggered refresh already ran
-// this week.
+// this week. The exchange ticker mappings refresh here too.
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest): Promise<Response> {
@@ -13,5 +14,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     return new Response("Unauthorized", { status: 401 });
   }
   const result = await refreshTokenRegistryIfStale(TOKEN_LIST_WEEKLY);
-  return Response.json({ tokenRegistry: result });
+  // Which coin each Kraken/Gemini/MEXC ticker is (~35 calls, ~90s).
+  const exchangeAssets = await refreshExchangeAssetsIfStale(TOKEN_LIST_WEEKLY).catch((e: Error) => `error: ${e.message}`);
+  return Response.json({ tokenRegistry: result, exchangeAssets });
 }

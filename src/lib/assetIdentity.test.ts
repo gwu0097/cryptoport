@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolvePriceKey, isPositionValue, contractKey, venueKey, NATIVE_BY_SYMBOL, type KeyInput, type KeyMaps } from "./assetIdentity.ts";
+import { resolvePriceKey, isPositionValue, contractKey, venueKey, NATIVE_BY_SYMBOL, krakenStakedBase, type KeyInput, type KeyMaps } from "./assetIdentity.ts";
 
 const MORPHO = "0xBAA5CC21fd487B8Fcc2F632f3F4E8D37262a0842";
 const maps: KeyMaps = {
@@ -108,4 +108,20 @@ test("a Zerion DeFi row is one coin inside a protocol: priced by its coin (a loa
   assert.equal(resolvePriceKey(h({ ticker: "MORPHO", chain: "base", contract: MORPHO, source: "auto_defi" }), maps), "morpho");
   assert.equal(resolvePriceKey(h({ ticker: "ETH", chain: "eth", source: "auto_defi" }), maps), "ethereum");
   assert.equal(isPositionValue(h({ ticker: "AVAX", chain: "avax", source: "auto_defi" })), false);
+});
+
+test("Kraken staking codes resolve to the coin they stake", () => {
+  assert.equal(krakenStakedBase("SOL03.S"), "SOL");
+  assert.equal(krakenStakedBase("DOT28.S"), "DOT");
+  assert.equal(krakenStakedBase("USDC.M"), "USDC");
+  assert.equal(krakenStakedBase("ETH2"), "ETH");
+  assert.equal(krakenStakedBase("ETH2.S"), "ETH");
+  assert.equal(krakenStakedBase("C98"), "C98");
+  assert.equal(krakenStakedBase("L3.S"), "L3.S");
+  const maps: KeyMaps = { registry: new Map(), overrides: new Map(), venues: new Map([["kraken|ATOM21.S", "wrong"], ["kraken|FLOW", "flow"]]) };
+  const k = (ticker: string) => resolvePriceKey({ ticker, chain: "kraken", contract: null, source: "auto_exchange" }, maps);
+  assert.equal(k("SOL03.S"), "solana");
+  assert.equal(k("FLOW14.S"), "flow");
+  assert.equal(k("ATOM21.S"), "wrong"); // an explicit mapping for the code itself wins
+  assert.equal(k("ZZZ.S"), null);
 });

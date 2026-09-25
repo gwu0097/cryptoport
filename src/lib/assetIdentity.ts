@@ -87,6 +87,17 @@ export const NATIVE_BY_SYMBOL: ReadonlyMap<string, string> = (() => {
  * a dollar — not a stablecoin pin). */
 export const CANONICAL_EXCHANGE: Record<string, string> = { USDC: "usd-coin", USDT: "tether", USD: "fiat:USD" };
 
+/** The coin under a Kraken staking balance code: `SOL03.S` (SOL staked,
+ * 3-day unbond), `DOT28.S`, `USDC.M`, and the legacy `ETH2` / `ETH2.S`
+ * (staked ETH). Kraken's own documented naming; these aren't traded, so
+ * no exchange listing maps them. Anything else is returned as is. */
+export function krakenStakedBase(ticker: string): string {
+  const t = ticker.toUpperCase();
+  if (t === "ETH2" || t === "ETH2.S") return "ETH";
+  const m = t.match(/^([A-Z]+?)(\d{2})?\.[SMFBP]$/);
+  return m ? m[1] : t;
+}
+
 const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 // Venues priced by their own tickers (exchange balances; protocol accounts).
 export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket"]);
@@ -125,6 +136,11 @@ export function resolvePriceKey(h: KeyInput, maps: KeyMaps): string | null {
   if (h.chain && VENUE_CHAINS.has(h.chain)) {
     const mapped = maps.venues.get(venueKey(h.chain, h.ticker));
     if (mapped) return mapped;
+    // A Kraken staking balance is priced as the coin it stakes.
+    if (h.chain === "kraken") {
+      const base = krakenStakedBase(h.ticker);
+      if (base !== h.ticker.toUpperCase()) return resolvePriceKey({ ...h, ticker: base }, maps);
+    }
     if (h.chain === "coinbase") return `coinbase:${h.ticker.toUpperCase()}`;
     if (h.chain === "hyperliquid") return nativeKey(h) ?? `hl:${h.ticker.toUpperCase()}`;
     return null; // an exchange ticker with no mapping: unpriced, never guessed

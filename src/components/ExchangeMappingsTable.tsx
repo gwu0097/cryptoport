@@ -14,11 +14,13 @@ const STORAGE_KEY = "cryptoport:exchangeMappingsSort";
 const DEFAULT_SORT: Sort = { key: "match", dir: "desc" };
 
 // "Review" first when sorted by match descending: the rows worth a look.
-const MATCH_RANK: Record<MatchKind, number> = { canonical: 0, native: 1, "venue-list": 2, "venue-price": 3, override: 4, unpriced: 5, copied: 6 };
+const MATCH_RANK: Record<MatchKind, number> = { canonical: 0, native: 1, "venue-list": 2, "exchange-data": 3, staked: 4, "venue-price": 5, override: 6, unpriced: 7, copied: 8 };
 const MATCH_TONE: Record<MatchKind, string> = {
   canonical: "text-fg-muted",
   native: "text-fg-muted",
   "venue-list": "text-fg-muted",
+  "exchange-data": "text-fg-muted",
+  staked: "text-fg-muted",
   "venue-price": "text-fg-muted",
   override: "text-fg-muted",
   copied: "text-warning",
