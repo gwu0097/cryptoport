@@ -237,10 +237,15 @@ stay and the sync status says so. Budget: one Zerion call per wallet sync
 
 The same rule holds on Solana: Jupiter's portfolio API
 (`adapters/jupiterPositions.ts`) skips the products a dedicated adapter reads
-(`SKIPPED_FETCHERS`: Jupiter Perps, read from Jupiter's perps API by
-`adapters/jupiterPerps.ts`). An isolated-margin perps position is valued at
-what closing it returns (collateral + PnL after fees), not its margin — see
-`jupiterPerps.ts`. (DECISIONS: 2026-09-25 Jupiter Perps)
+(`SKIPPED_FETCHERS`: Jupiter Perps and Jupiter Prediction, read from their
+dedicated APIs by `adapters/jupiterPerps.ts` and `adapters/jupiterPrediction.ts`).
+An isolated-margin perps position is valued at what closing it returns
+(collateral + PnL after fees), not its margin — see `jupiterPerps.ts`.
+(DECISIONS: 2026-09-25 Jupiter Perps)
+
+Every on-chain Solana adapter lists accounts through `adapters/solanaRpc.ts`
+`getProgramAccounts`: Helius's paged `getProgramAccountsV2`, falling back to
+the one-shot method. Never call the RPC for it directly.
 
 ### 4.5 Two independent kinds of staleness
 

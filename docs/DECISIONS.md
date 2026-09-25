@@ -23,6 +23,16 @@ perps volume, so it's covered even though the owner doesn't trade it. The same
 change retries the portfolio API once when one of its fetchers reports
 Jupiter's own backend rate limit.
 
+Same day, the retry wasn't enough: the portfolio API's prediction-market
+fetcher reported Jupiter's rate limit on 8 of 13 Solana wallets (none of which
+hold prediction positions), while Jupiter's documented Prediction API
+(`/prediction/v1/positions`) answered all 13. It's now the source
+(`adapters/jupiterPrediction.ts`) and that fetcher is skipped too.
+Also: Helius failed the Solana stake-account lookup with "account index
+service overloaded … use getProgramAccountsV2 with pagination". The shared
+`getProgramAccounts` now uses V2 (same results on all 13 wallets), with the
+one-shot method as fallback, for every on-chain Solana adapter.
+
 ## 2026-09-25 — Wallet balance discovery
 
 The sync read every CoinGecko-listed token on every chain (tens of thousands of

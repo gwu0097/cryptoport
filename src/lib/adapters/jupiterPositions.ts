@@ -107,12 +107,13 @@ function humanize(label: string): string {
  * token holdings — same hard-failure-must-be-independent-per-source rule
  * as evm.ts's chains vs. Hyperliquid split.
  */
-// Jupiter Perps is read from Jupiter's perps API instead (jupiterPerps.ts):
-// this API's perps fetcher failed for every wallet with a perps account
-// ("Discriminant 225 out of range", 2026-09-10 on). Its report and any
-// element it returns are skipped here, so a perps position is never counted
-// twice if it starts working again.
-const SKIPPED_FETCHERS = new Set(["jupiter-exchange-perpetual"]);
+// Products read from Jupiter's dedicated APIs instead, because this API's
+// fetcher for them failed (2026-09-25): Perps (jupiterPerps.ts — "Discriminant
+// 225 out of range" for every wallet with a perps account, since 2026-09-10)
+// and Prediction (jupiterPrediction.ts — Jupiter's own backend rate limit on
+// most wallets). Their reports and any elements they return are skipped, so a
+// position is never counted twice if a fetcher starts working again.
+const SKIPPED_FETCHERS = new Set(["jupiter-exchange-perpetual", "jupiter-pm-positions"]);
 
 const RATE_LIMIT_RETRY_MS = 3_000;
 

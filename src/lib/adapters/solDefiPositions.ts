@@ -3,6 +3,7 @@ import type { AdapterHolding } from "./types";
 import { protocolScope, type KeepScope } from "../carryForward";
 import { fetchJupiterPositions } from "./jupiterPositions";
 import { fetchJupiterPerps, JUPITER_PERPS_PROTOCOL } from "./jupiterPerps";
+import { fetchJupiterPrediction, JUPITER_PREDICTION_PROTOCOL } from "./jupiterPrediction";
 import { fetchKaminoPositions } from "./kaminoPositions";
 import { fetchWormholeStaking } from "./wormholeStaking";
 import { fetchMeteoraPositions } from "./meteoraPositions";
@@ -33,15 +34,16 @@ export interface SolPositionsResult {
 const SOURCES: { name: string; keep: KeepScope; fetch: (address: string) => Promise<SolPositionsResult> }[] = [
   {
     name: "jupiter positions",
-    // "Jupiter <product>" (jupiterPositions.ts), but not Jupiter DAO or
-    // Jupiter Perps below.
+    // "Jupiter <product>" (jupiterPositions.ts), but not the Jupiter
+    // products read by their own adapters below.
     keep: {
       label: "jupiter positions",
-      owns: (h) => !!h.protocol?.startsWith("Jupiter ") && h.protocol !== "Jupiter DAO" && h.protocol !== JUPITER_PERPS_PROTOCOL,
+      owns: (h) => !!h.protocol?.startsWith("Jupiter ") && !["Jupiter DAO", JUPITER_PERPS_PROTOCOL, JUPITER_PREDICTION_PROTOCOL].includes(h.protocol),
     },
     fetch: fetchJupiterPositions,
   },
   { name: "jupiter perps", keep: protocolScope("jupiter perps", JUPITER_PERPS_PROTOCOL), fetch: fetchJupiterPerps },
+  { name: "jupiter prediction", keep: protocolScope("jupiter prediction", JUPITER_PREDICTION_PROTOCOL), fetch: fetchJupiterPrediction },
   { name: "kamino", keep: protocolScope("kamino", "Kamino"), fetch: fetchKaminoPositions },
   {
     name: "wormhole",

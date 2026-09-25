@@ -120,36 +120,78 @@ interface RpcResponse {
   error?: { message: string };
 }
 
+interface RpcPageResponse {
+  result?: { accounts: RpcAccount[]; paginationKey: string | null };
+  error?: { message: string };
+}
+
 export type GetProgramAccountsFilter = { memcmp: { offset: number; bytes: string } } | { dataSize: number };
 
+// getProgramAccountsV2 (Helius): the same query, answered page by page from
+// Helius's newer account index. The one-shot getProgramAccounts scans huge
+// programs (the Stake program has millions of accounts) in one request and
+// intermittently fails under load ("account index service overloaded, please
+// ... use getProgramAccountsV2 with pagination", 2026-09-25). Same filters,
+// same accounts (checked on every Solana wallet: identical results). Pages
+// are read to the end — all or nothing — so a partial list is never returned.
+const PAGE_LIMIT = 10_000; // V2's maximum
+const MAX_PAGES = 20;
+
+async function getProgramAccountsPaged(program: string, filters: GetProgramAccountsFilter[], context: string): Promise<RpcAccount[]> {
+  const out: RpcAccount[] = [];
+  let paginationKey: string | null = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await rpcFetch({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getProgramAccountsV2",
+      params: [program, { encoding: "base64", filters, limit: PAGE_LIMIT, ...(paginationKey ? { paginationKey } : {}) }],
+    });
+    if (!res.ok) throw new Error(`${context} failed: HTTP ${res.status}`);
+    const json: RpcPageResponse = await res.json();
+    if (json.error || !json.result) throw new Error(`${context} failed: ${json.error?.message ?? "no result"}`);
+    out.push(...json.result.accounts);
+    // The end is a null key (a page can hold fewer than PAGE_LIMIT and still
+    // have more after it).
+    paginationKey = json.result.paginationKey;
+    if (!paginationKey || json.result.accounts.length === 0) return out;
+  }
+  throw new Error(`${context} failed: more than ${MAX_PAGES} pages`);
+}
+
+async function getProgramAccountsOneShot(program: string, filters: GetProgramAccountsFilter[], context: string): Promise<RpcAccount[]> {
+  const res = await rpcFetch({ jsonrpc: "2.0", id: 1, method: "getProgramAccounts", params: [program, { encoding: "base64", filters }] });
+  if (!res.ok) throw new Error(`${context} failed: HTTP ${res.status}`);
+  const json: RpcResponse = await res.json();
+  if (json.error) throw new Error(`${context} failed: ${json.error.message}`);
+  return json.result ?? [];
+}
+
 /**
- * getProgramAccounts against Solana's public mainnet RPC, base64-encoded —
- * the shared request/response wrapper that three on-chain-only DeFi
- * adapters (parclPositions.ts, wormholeStaking.ts, jupiterDaoStaking.ts)
- * used to each reimplement near-verbatim (one of their own doc comments
- * already admitted as much: "the same technique as wormholeStaking.ts/
- * parclPositions.ts"). `context` only labels a failure's error message
- * with which adapter/program it came from — this function itself has no
- * idea what the accounts it returns mean, that's each caller's own
- * account-layout decoding.
+ * Every account of `program` matching `filters`, base64-encoded — the one
+ * shared implementation for every on-chain Solana adapter (parcl, wormhole,
+ * jupiter DAO, solana staking, SKR, meteora). With Helius, the paged V2
+ * method, falling back to the one-shot method if V2 fails (two independent
+ * indexes, so one overloaded index doesn't fail the read); on the keyless
+ * public endpoint, which has no V2, the one-shot method. `context` only
+ * labels a failure with the adapter it came from; decoding the accounts is
+ * each caller's job.
  */
 export async function getProgramAccounts(
   program: string,
   filters: GetProgramAccountsFilter[],
   context: string,
 ): Promise<RpcAccount[]> {
-  const body = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "getProgramAccounts",
-    params: [program, { encoding: "base64", filters }],
-  };
-
-  const res = await rpcFetch(body);
-  if (!res.ok) throw new Error(`${context} failed: HTTP ${res.status}`);
-  const json: RpcResponse = await res.json();
-  if (json.error) throw new Error(`${context} failed: ${json.error.message}`);
-  return json.result ?? [];
+  if (!HELIUS_API_KEY) return getProgramAccountsOneShot(program, filters, context);
+  try {
+    return await getProgramAccountsPaged(program, filters, context);
+  } catch (paged) {
+    try {
+      return await getProgramAccountsOneShot(program, filters, context);
+    } catch (oneShot) {
+      throw new Error(`${(paged as Error).message}; one-shot fallback: ${(oneShot as Error).message.replace(`${context} failed: `, "")}`);
+    }
+  }
 }
 
 /** A single getMultipleAccounts entry — null when that pubkey doesn't

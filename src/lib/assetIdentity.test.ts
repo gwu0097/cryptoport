@@ -55,6 +55,8 @@ test("protocol positions have no price key (their stored value stands)", () => {
     h({ ticker: "POLY-ABC-0", chain: "polymarket", protocol_section: "Prediction" }),
     h({ ticker: "METEORA-LP", chain: "solana-defi" }),
     h({ ticker: "KAMINO-MULTIPLY", chain: "solana-defi" }),
+    h({ ticker: "SOL-PERP", chain: "solana-defi", protocol_section: "Perpetuals" }),
+    h({ ticker: "JUPPM-ABC", chain: "solana-defi", protocol_section: "Prediction" }),
   ]) {
     assert.equal(isPositionValue(x), true, x.ticker);
     assert.equal(resolvePriceKey(x, maps), null, x.ticker);

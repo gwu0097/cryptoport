@@ -119,6 +119,7 @@ export function isPositionValue(h: KeyInput): boolean {
   if (ticker.endsWith("-PERP") || ticker.endsWith("-LP") || ticker.startsWith("KAMINO-")) return true;
   if ((h.chain === "hyperliquid" || h.chain === "lighter") && (h.protocol_section === "Perpetuals" || h.protocol_section === "Yield")) return true;
   if (h.chain === "polymarket" && h.protocol_section !== "Deposit") return true; // prediction shares
+  if (h.protocol_section === "Prediction") return true; // prediction shares elsewhere (Jupiter Prediction)
   return false;
 }
 
