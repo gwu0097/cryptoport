@@ -276,13 +276,36 @@ async function scanChain(
       const body = (await r.json()) as { balances?: Balance[] };
       if (!Array.isArray(body.balances)) continue;
       const balances = body.balances.filter((b) => /^\d+$/.test(b.amount) && !/^0+$/.test(b.amount));
-      const { staking, monikers } = await readStaking(base, address).catch(() => ({ staking: null, monikers: new Map<string, string>() }));
+      const { staking, monikers } = await readStakingAnywhere(chain, base, address, started, dnsCache);
       return { chain, balances, staking, monikers, holdings: rowsFor(chain, balances, staking, monikers), unreachable: false };
     } catch {
       // timeout / network error: try the chain's next endpoint
     }
   }
   return { chain, balances: [], staking: null, monikers: new Map(), holdings: [], unreachable: true };
+}
+
+/** Staking from the endpoint that answered for balances, else the chain's
+ * other endpoints in turn — a one-off timeout on one server used to report
+ * "Staking couldn't be read" (Union, 2026-09-25) though another answered.
+ * staking null = no endpoint answered. */
+async function readStakingAnywhere(
+  chain: DirectoryChain,
+  first: string,
+  address: string,
+  started: number,
+  dnsCache: Map<string, Promise<boolean>>,
+): Promise<{ staking: CosmosStakingData | null; monikers: Map<string, string> }> {
+  for (const base of [first, ...chain.restUrls.filter((u) => u !== first)]) {
+    if (Date.now() - started > SCAN_DEADLINE_MS) break;
+    if (base !== first && !(await hostResolves(base, dnsCache))) continue;
+    try {
+      return await readStaking(base, address);
+    } catch {
+      // next endpoint
+    }
+  }
+  return { staking: null, monikers: new Map() };
 }
 
 /**
