@@ -39,7 +39,10 @@ async function main() {
   if (mode === "seed") {
     const { data: reg } = await db.from("exchange_asset_registry").select("ticker, coingecko_id");
     const now = new Date().toISOString();
-    const rows = (reg as { ticker: string; coingecko_id: string }[]).flatMap((r) => [
+    // A ticker the registry couldn't resolve has no id: no mapping (unpriced
+    // unless Coinbase itself prices it, as coinbase:<TICKER>).
+    const resolved = (reg as { ticker: string; coingecko_id: string | null }[]).filter((r) => r.coingecko_id);
+    const rows = resolved.flatMap((r) => [
       { exchange: "coinbase", ticker: r.ticker.toUpperCase(), price_key: r.coingecko_id, mapping_source: "coinbase-registry", updated_at: now },
       ...["kraken", "gemini", "mexc"].map((exchange) => ({ exchange, ticker: r.ticker.toUpperCase(), price_key: r.coingecko_id, mapping_source: "coinbase-catalog", updated_at: now })),
     ]);
