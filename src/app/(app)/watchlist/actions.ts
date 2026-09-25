@@ -6,7 +6,7 @@ import { after } from "next/server";
 import { userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
-import { refreshCoinsById } from "@/lib/coinMarketData";
+import { ensureAssetPrices } from "@/lib/adapters/assetPrices";
 import { mapWithConcurrency } from "@/lib/adapters/http";
 import { pickBestMatch, MAX_BULK_TICKERS } from "@/lib/watchlistInput";
 import { getTokenAnalysis, claimTokenAnalysis, runTokenAnalysis, type TokenAnalysisRow } from "@/lib/tokenAnalysis";
@@ -48,9 +48,8 @@ export async function renameWatchlist(watchlistId: string, formData: FormData) {
  * watchlist — two independent rows sharing no state afterward, so removing
  * a coin from the clone never touches the original. Item copies carry over
  * the identity fields captured at the original's own add-time
- * (coingecko_id/ticker/name/image_url); coin_market_data is shared/global
- * and already covers whatever's copied, so there's nothing to duplicate
- * there. */
+ * (coingecko_id/ticker/name/image_url); prices are shared (asset_prices),
+ * so there's nothing to duplicate there. */
 export async function cloneWatchlist(watchlistId: string) {
   await requireUser();
   const db = await userDb();
@@ -137,11 +136,13 @@ async function insertItems(watchlistId: string, coins: AddableCoin[]): Promise<v
  * MARKETS_BATCH_SIZE=250) is fast enough to just await like any other
  * quick mutation, and doing so is what lets the one real revalidatePath
  * call (after the write, not before) actually show the fetched price on
- * first render instead of racing it. */
+ * first render instead of racing it. Priced into asset_prices (one call
+ * for the new coins; a coin already priced in the last 15 minutes costs
+ * nothing). */
 export async function addWatchlistItem(watchlistId: string, coin: AddableCoin) {
   await requireUser();
   await insertItems(watchlistId, [coin]);
-  await refreshCoinsById([coin.coingeckoId]).catch(() => {
+  await ensureAssetPrices([coin.coingeckoId], "watchlist-add").catch(() => {
     // Best-effort — the item is already saved; it just shows "—" until
     // the next successful refresh instead of a fabricated number.
   });
@@ -151,7 +152,7 @@ export async function addWatchlistItem(watchlistId: string, coin: AddableCoin) {
 export async function addWatchlistItems(watchlistId: string, coins: AddableCoin[]) {
   await requireUser();
   await insertItems(watchlistId, coins);
-  await refreshCoinsById(coins.map((c) => c.coingeckoId)).catch(() => {
+  await ensureAssetPrices(coins.map((c) => c.coingeckoId), "watchlist-add").catch(() => {
     // Best-effort — see addWatchlistItem's own comment.
   });
   revalidatePath("/watchlist");

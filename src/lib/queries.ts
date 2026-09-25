@@ -11,11 +11,11 @@ import {
   type Valuation,
 } from "./valuation";
 import { pricesAsOf, type PricesAsOf } from "./pricesAsOf";
+import { holdingKeyIndex, transactionPriceKey } from "./transactionPricing.ts";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
 import { pinnedWalletChain, externalPortfolioViewer, type WalletChain } from "./walletDisplay.ts";
-import { resolveCoingeckoKey } from "./priceKey";
-import type { Holding, LinkedWallet, Price, Tag, Transaction, Wallet, WalletWithTags } from "./types";
+import type { Holding, LinkedWallet, Tag, Transaction, Wallet, WalletWithTags } from "./types";
 
 export type PriceRefreshPhaseStatus = "running" | "done" | "error";
 export interface PriceRefreshPhase {
@@ -247,117 +247,6 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
   return out;
 });
 
-/** Legacy ticker -> price (the `prices` table). Only transactions still use
- * it (their rows have no price_key yet — pricing plan phase 3). */
-export const getTickerPriceMap = cache(async (): Promise<Record<string, number | string | null>> => {
-  const { data, error } = await serviceDb().from("prices").select("ticker, usd");
-  if (error) throw new Error(`Failed to load prices: ${error.message}`);
-  const prices: Record<string, number | string | null> = {};
-  for (const row of data as Pick<Price, "ticker" | "usd">[]) prices[row.ticker] = row.usd;
-  return prices;
-});
-
-/** A separate query rather than folding into PriceMap/getPriceMap — that
- * type is threaded through valuation.ts/aggregate/effectivePrice, all of
- * which only ever want the raw usd value; changing its shape to also carry
- * these stats would ripple into every one of those for fields only the
- * Assets page currently needs.
- *
- * One shape for both the ticker-keyed (`prices`) and contract-keyed
- * (`token_registry`) lookups below — used to be 4 near-identical map
- * functions (a change map + a market-cap map, each duplicated once for
- * contracts), which was already the "two is the threshold" signal before
- * 1h/7d/30d would have made it 10. */
-export interface PriceStats {
-  change24h: number | null;
-  change1h: number | null;
-  change7d: number | null;
-  change30d: number | null;
-  marketCap: number | null;
-  /** CoinGecko coin id (e.g. "usd-coin"), when known — only ever populated
-   * by getContractStatsMap (token_registry.coingecko_id, a real id cached
-   * from CoinGecko's own coins/list, never guessed from a ticker). Always
-   * null from getPriceStatsMap — the ticker-keyed `prices` table has no
-   * such column. Feeds AssetGroup.coingeckoId (see getAssetsGroupedByTicker)
-   * for an unambiguous CoinGecko link/Trend Finder seed per asset row. */
-  coingeckoId: string | null;
-}
-export type PriceStatsMap = Record<string, PriceStats>;
-
-/** Cached per-request — same reasoning as getPriceMap's doc comment. */
-export const getPriceStatsMap = cache(async (): Promise<PriceStatsMap> => {
-  const { data, error } = await serviceDb()
-    .from("prices")
-    .select("ticker, change_24h_pct, change_1h_pct, change_7d_pct, change_30d_pct, market_cap");
-  if (error) throw new Error(`Failed to load price stats: ${error.message}`);
-
-  const stats: PriceStatsMap = {};
-  for (const row of data as {
-    ticker: string;
-    change_24h_pct: number | string | null;
-    change_1h_pct: number | string | null;
-    change_7d_pct: number | string | null;
-    change_30d_pct: number | string | null;
-    market_cap: number | string | null;
-  }[]) {
-    stats[row.ticker] = {
-      change24h: parseNumeric(row.change_24h_pct),
-      change1h: parseNumeric(row.change_1h_pct),
-      change7d: parseNumeric(row.change_7d_pct),
-      coingeckoId: null,
-      change30d: parseNumeric(row.change_30d_pct),
-      marketCap: parseNumeric(row.market_cap),
-    };
-  }
-  return stats;
-});
-
-/** lowercase contract -> stats, from token_registry (see multicallEvm.ts's
- * saveMarketStats). EVM holdings are valued via usd_override and never
- * touch the ticker-keyed `prices` table (see valuation.ts) — this is the
- * equivalent lookup for those, keyed by contract instead of ticker so it
- * can't cross-contaminate across chains or ticker collisions. Not
- * chain-scoped even though token_registry's key is (chain_id, contract): a
- * contract address is already globally unique in practice, and a holding's
- * own `contract` field carries no chain_id to join on without a second
- * query — the same simplification effectivePrice already makes for
- * ticker-keyed prices. Cached per-request — same reasoning as
- * getPriceMap's doc comment. */
-export const getContractStatsMap = cache(async (): Promise<PriceStatsMap> => {
-  // Excludes rows with no 24h change up front — token_registry has tens of
-  // thousands of contracts per chain from refreshTokenRegistry's coins/list
-  // import, the overwhelming majority never actually held/synced. Only the
-  // ones a sync has actually priced (which always sets change_24h_pct,
-  // even when 1h/7d/30d couldn't be resolved — see saveMarketStats) are
-  // useful here.
-  const { data, error } = await serviceDb()
-    .from("token_registry")
-    .select("contract, change_24h_pct, change_1h_pct, change_7d_pct, change_30d_pct, market_cap, coingecko_id")
-    .not("change_24h_pct", "is", null);
-  if (error) throw new Error(`Failed to load token registry stats: ${error.message}`);
-
-  const stats: PriceStatsMap = {};
-  for (const row of data as {
-    contract: string;
-    change_24h_pct: number | string | null;
-    change_1h_pct: number | string | null;
-    change_7d_pct: number | string | null;
-    change_30d_pct: number | string | null;
-    market_cap: number | string | null;
-    coingecko_id: string | null;
-  }[]) {
-    stats[row.contract.toLowerCase()] = {
-      change24h: parseNumeric(row.change_24h_pct),
-      change1h: parseNumeric(row.change_1h_pct),
-      change7d: parseNumeric(row.change_7d_pct),
-      change30d: parseNumeric(row.change_30d_pct),
-      marketCap: parseNumeric(row.market_cap),
-      coingeckoId: row.coingecko_id,
-    };
-  }
-  return stats;
-});
-
 // The ticker-keyed `prices` table is deliberately never consulted for a
 // holding that already carries usd_override (see valuation.ts) — but the
 // per-unit "Price" column still wants a number to show instead of a
@@ -374,27 +263,10 @@ function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "price_k
   return null;
 }
 
-/** Contract-keyed first, ticker-keyed fallback — EVM holdings are valued
- * via usd_override and never touch the ticker-keyed `prices` table (see
- * valuation.ts), so only token_registry's stats (getContractStatsMap)
- * exist for them; everything else falls back to the ticker table
- * (getPriceStatsMap). Extracted once a third call site needed the exact
- * same resolution getAssetsGroupedByTicker's own inline version already
- * did (this codebase's own "two is fine, three is the threshold" rule —
- * see CLAUDE.md's Architecture section). */
-function resolveChange24h(
-  holding: Pick<Holding, "contract" | "ticker"> & Partial<Pick<Holding, "source" | "coingecko_id">>,
-  priceStats: PriceStatsMap,
-  contractStats: PriceStatsMap,
-): number | null {
-  // A Cosmos token without a CoinGecko id has no verified identity, so a
-  // ticker-keyed change could be a different coin's (see valuation.ts).
-  const tickerOk = !(holding.source === "auto_cosmos" && !holding.coingecko_id);
-  return (
-    (holding.contract ? contractStats[holding.contract.toLowerCase()]?.change24h : undefined) ??
-    (tickerOk ? priceStats[holding.ticker]?.change24h : undefined) ??
-    null
-  );
+/** A holding's 24h change: its asset's (asset_prices), or null when it has
+ * no asset (a position, an unmapped token) — never another coin's by ticker. */
+function keyChange24h(holding: Pick<Holding, "price_key">, assetStats: ReadonlyMap<string, AssetStats>): number | null {
+  return holding.price_key ? (assetStats.get(holding.price_key)?.change24h ?? null) : null;
 }
 
 export interface WalletWithTotal extends WalletWithTags {
@@ -567,27 +439,19 @@ export interface ValuatedHoldings {
 /** Shared by every "one entity, many chains" view — a saved wallet
  * (getWalletDetail) and an ad-hoc, unsaved address lookup (lib/lookup.ts)
  * alike. `fallbackChain` covers holdings with no `chain` of their own
- * (manual rows, or pre-chain-column sync rows).
- *
- * `priceStats`/`contractStats` default to `{}` (lookup.ts's own call
- * doesn't pass them — an ad-hoc, unsaved address preview never had 24h
- * data either, unchanged here) rather than being required, so this stays
- * a small, additive change instead of forcing every caller to fetch stats
- * maps it doesn't need. Same contract-then-ticker resolution as
- * getAssetsGroupedByTicker's own per-holding change24h — see
- * HoldingWithValuation's own doc comment for why. */
+ * (manual rows, or pre-chain-column sync rows). `assetStats` is optional
+ * (an address lookup shows no 24h change). */
 export function valuateHoldings(
   holdings: Holding[],
   fallbackChain: string,
   prices: PriceMap,
-  priceStats: PriceStatsMap = {},
-  contractStats: PriceStatsMap = {},
+  assetStats: ReadonlyMap<string, AssetStats> = new Map(),
 ): ValuatedHoldings {
   const holdingsWithValuation: HoldingWithValuation[] = holdings.map((holding) => ({
     ...holding,
     valuation: valueHolding(holding, prices),
     price: effectivePrice(holding, prices),
-    change24h: resolveChange24h(holding, priceStats, contractStats),
+    change24h: keyChange24h(holding, assetStats),
   }));
   const chainGroups = groupByChain(
     holdingsWithValuation.map((holding) => ({ holding, fallbackChain })),
@@ -617,11 +481,10 @@ export async function getWalletDetail(id: string, opts?: { userId: string }): Pr
   if (!opts && !(await getUser())) return null;
   const db = opts ? serviceDb() : await userDb();
   const baseQuery = db.from("wallets").select("*, holdings(*), tags(id,name)").eq("id", id);
-  const [{ data: wallet, error: walletError }, prices, priceStats, contractStats] = await Promise.all([
+  const [{ data: wallet, error: walletError }, prices, assetStats] = await Promise.all([
     (opts ? baseQuery.eq("user_id", opts.userId) : baseQuery).maybeSingle(),
     getPriceMap(),
-    getPriceStatsMap(),
-    getContractStatsMap(),
+    getAssetStatsMap(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (!wallet) return null;
@@ -629,7 +492,7 @@ export async function getWalletDetail(id: string, opts?: { userId: string }): Pr
   const { holdings, ...rest } = wallet as WalletWithTags & { holdings: Holding[] };
   return {
     wallet: rest,
-    ...valuateHoldings(holdings, defaultChainId(rest.chain), prices, priceStats, contractStats),
+    ...valuateHoldings(holdings, defaultChainId(rest.chain), prices, assetStats),
   };
 }
 
@@ -663,12 +526,7 @@ export interface AssetsResult {
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
 export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, priceStats, contractStats] = await Promise.all([
-    getActiveWalletsWithHoldings(),
-    getPriceMap(),
-    getPriceStatsMap(),
-    getContractStatsMap(),
-  ]);
+  const [rows, prices, assetStats] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap(), getAssetStatsMap()]);
 
   const entries = rows.flatMap((wallet) =>
     wallet.holdings.map((holding) => ({
@@ -676,7 +534,7 @@ export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
         ...holding,
         valuation: valueHolding(holding, prices),
         price: effectivePrice(holding, prices),
-        change24h: resolveChange24h(holding, priceStats, contractStats),
+        change24h: keyChange24h(holding, assetStats),
       },
       fallbackChain: defaultChainId(wallet.chain),
     })),
@@ -770,32 +628,21 @@ export interface AssetsByTickerResult {
 }
 
 /**
- * Every holding across every active wallet, grouped by ticker — the same
- * BTC held in two different wallets is one row here (see getAssetsGroupedByChain
- * above for the "same coin, wherever it is" location-first cut instead).
- * Grouped by ticker rather than a stricter per-token identity (e.g.
- * CoinGecko's coin id, which would correctly merge USDC-on-Ethereum and
- * USDC-on-Base as the literal same asset while never conflating two
- * unrelated tokens that happen to share a symbol) — ticker is what the rest
- * of this app already keys pricing and display on (see the `prices` table),
- * so this stays consistent with that rather than introducing a second,
- * stricter notion of "same asset" just for this one page.
+ * Every holding across every active wallet, one row per asset (its
+ * price_key): the same BTC in two wallets, or native USDC on eight chains,
+ * is one row; bridged USDC.e is its own. Holdings with no asset (protocol
+ * positions, unmapped tokens) group by ticker. See getAssetsGroupedByChain
+ * for the location-first cut.
  */
 /** `opts.userId` — admin-only read path, see getWalletsWithTotals' own doc
  * comment for the pattern this follows. */
 export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promise<AssetsByTickerResult> {
   if (!opts && !(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, priceStats, contractStats, assetStats] = await Promise.all([
-    getActiveWalletsWithHoldings(opts),
-    getPriceMap(),
-    getPriceStatsMap(),
-    getContractStatsMap(),
-    getAssetStatsMap(),
-  ]);
+  const [rows, prices, assetStats] = await Promise.all([getActiveWalletsWithHoldings(opts), getPriceMap(), getAssetStatsMap()]);
 
   const byTicker = new Map<string, AssetGroup>();
-  // Per ticker: the value of the holding the row's price / stats came from.
-  const picks = new Map<string, { price: number; stats: number }>();
+  // Per row: the value of the holding the row's price came from.
+  const picks = new Map<string, { price: number }>();
   for (const wallet of rows) {
     for (const holding of wallet.holdings) {
       const valuation = valueHolding(holding, prices);
@@ -804,7 +651,7 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
         ...holding,
         valuation,
         price: effectivePrice(holding, prices),
-        change24h: (holding.price_key ? assetStats.get(holding.price_key)?.change24h : null) ?? resolveChange24h(holding, priceStats, contractStats),
+        change24h: keyChange24h(holding, assetStats),
         walletId: wallet.id,
         walletName: wallet.name,
         chainId,
@@ -837,7 +684,7 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
         };
         byTicker.set(key, group);
         // An asset row shows the asset's one price and stats — no per-
-        // holding picking or mixing sources (Infinity: nothing overrides).
+        // holding picking (Infinity: nothing overrides).
         if (asset && asset.usd !== null) {
           Object.assign(group, {
             price: asset.usd,
@@ -849,82 +696,23 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
             priceAt: asset.updatedAt,
             priceSource: asset.source,
           });
-          picks.set(key, { price: Infinity, stats: Infinity });
+          picks.set(key, { price: Infinity });
         }
         if (holding.price_key && !holding.price_key.includes(":")) group.coingeckoId = holding.price_key;
       }
 
       group.holdings.push(entry);
       if (!group.iconUrl && holding.icon_url) group.iconUrl = holding.icon_url;
-      // Filled in from each holding's own already-resolved price (entry.price
-      // via effectivePrice) rather than a second lookup by the group's
-      // uppercased key — a group can merge holdings whose raw ticker casing
-      // differs (that's the whole reason grouping uppercases at all), and
-      // `prices` is keyed by that raw, possibly mixed-case string, so an
-      // uppercase-key lookup here could miss a real price that only exists
-      // under the original casing.
-      //
-      // The row's price and market stats come from its largest holding that
-      // has them, not whichever holding came first: MORPHO showed a small
-      // Merkl reward position's older price ($2.42) and a day-old ticker
-      // row's +13.89% while its ~$10K Base holding had today's −5.7%
-      // (2026-09-25).
+      // A row with no asset price (positions, unmapped tokens) shows the
+      // per-unit stored value of its largest holding; it has no market
+      // stats — those exist only for an asset (never borrowed by ticker).
       const weight = valuation.kind === "priced" ? valuation.usd : 0;
-      const pick = picks.get(key) ?? { price: -1, stats: -1 };
+      const pick = picks.get(key) ?? { price: -1 };
       picks.set(key, pick);
       if (entry.price !== null && weight > pick.price) {
         group.price = entry.price;
         pick.price = weight;
       }
-      // Contract-keyed first — EVM holdings are valued via usd_override and
-      // never touch the ticker-keyed `prices` table (see valuation.ts), so
-      // priceStats[ticker] is never populated for them; getContractStatsMap
-      // is the equivalent lookup for those. Falls back to the ticker table
-      // for everything else (Coinbase/Jupiter/CoinGecko-native-priced
-      // holdings, which have no `contract`).
-      //
-      // Resolved independently per field, not as one whole-object fallback
-      // — a contract can have a real change_24h_pct (the getContractStatsMap
-      // filter's condition) while still missing e.g. change_1h_pct this
-      // cycle (see multicallEvm.ts's multiWindowRows), and the ticker-keyed
-      // table might separately have that field filled in for the same
-      // ticker from another holding. Falling back to the ticker source for
-      // just that one still-missing field (rather than giving up once the
-      // contract source is found at all) is a genuine improvement a
-      // whole-object fallback would silently lose.
-      const contractRowStats = holding.contract ? contractStats[holding.contract.toLowerCase()] : undefined;
-      const tickerRowStats = priceStats[holding.ticker];
-      const change24h = contractRowStats?.change24h ?? tickerRowStats?.change24h;
-      const change1h = contractRowStats?.change1h ?? tickerRowStats?.change1h;
-      const change7d = contractRowStats?.change7d ?? tickerRowStats?.change7d;
-      const change30d = contractRowStats?.change30d ?? tickerRowStats?.change30d;
-      const marketCap = contractRowStats?.marketCap ?? tickerRowStats?.marketCap;
-      if (change24h != null && weight > pick.stats) {
-        group.change24h = change24h;
-        group.change1h = change1h ?? group.change1h;
-        group.change7d = change7d ?? group.change7d;
-        group.change30d = change30d ?? group.change30d;
-        group.marketCap = marketCap ?? group.marketCap;
-        pick.stats = weight;
-      } else if (pick.stats !== Infinity) {
-        // Windows the chosen holding lacks, from any other holding.
-        if (group.change1h === null && change1h != null) group.change1h = change1h;
-        if (group.change7d === null && change7d != null) group.change7d = change7d;
-        if (group.change30d === null && change30d != null) group.change30d = change30d;
-        if (group.marketCap === null && marketCap != null) group.marketCap = marketCap;
-      }
-      // Contract-based id first (a real token_registry.coingecko_id, never
-      // guessed); native fallback only when this holding has no contract
-      // at all — resolveCoingeckoKey's own contract branch would otherwise
-      // return a "platform:contract" composite key (built for the
-      // price-history API, not a CoinGecko coin page/Trend Finder seed),
-      // which is why that branch is deliberately never reached here.
-      const coingeckoId =
-        contractRowStats?.coingeckoId ??
-        (holding.contract
-          ? null
-          : resolveCoingeckoKey({ ticker: holding.ticker, source: holding.source, contract: null, chain: holding.chain }));
-      if (group.coingeckoId === null && coingeckoId) group.coingeckoId = coingeckoId;
       const qty = parseNumeric(holding.qty);
       if (qty !== null) group.totalQty = (group.totalQty ?? 0) + qty;
       if (valuation.kind === "priced") group.total += valuation.usd;
@@ -981,12 +769,7 @@ export interface DefiResult {
  */
 export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, priceStats, contractStats] = await Promise.all([
-    getActiveWalletsWithHoldings(),
-    getPriceMap(),
-    getPriceStatsMap(),
-    getContractStatsMap(),
-  ]);
+  const [rows, prices, assetStats] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap(), getAssetStatsMap()]);
 
   const byProtocol = new Map<string, Map<string, { walletName: string; holdings: Holding[] }>>();
   for (const wallet of rows) {
@@ -1016,7 +799,7 @@ export async function getDefiGroupedByProtocol(): Promise<DefiResult> {
               ...h,
               valuation: valueHolding(h, prices),
               price: effectivePrice(h, prices),
-              change24h: resolveChange24h(h, priceStats, contractStats),
+              change24h: keyChange24h(h, assetStats),
             }))
             .sort(byValueDesc);
           return { walletId, walletName, total, unpricedCount, positions };
@@ -1111,20 +894,24 @@ export async function getTransactions(walletId?: string): Promise<TransactionRow
   if (!(await getUser())) return [];
   const db = await userDb();
 
-  const [{ data, error }, prices] = await Promise.all([
+  const [{ data, error }, prices, wallets] = await Promise.all([
     (walletId
       ? db.from("transactions").select("*, wallets(name)").eq("wallet_id", walletId)
       : db.from("transactions").select("*, wallets(name)")
     )
       .order("occurred_at", { ascending: false })
       .limit(500),
-    getTickerPriceMap(),
+    getPriceMap(),
+    getActiveWalletsWithHoldings(),
   ]);
   if (error) throw new Error(`Failed to load transactions: ${error.message}`);
+  // Priced at today's price of the coin each leg is (transactionPricing.ts).
+  const holdingKeys = holdingKeyIndex(wallets.flatMap((w) => w.holdings));
 
   return (data as (Transaction & { wallets: { name: string } | null })[]).map((row) => {
     const amount = parseNumeric(row.amount);
-    const price = row.ticker ? parseNumeric(prices[row.ticker]) : null;
+    const key = transactionPriceKey(row, holdingKeys);
+    const price = key ? parseNumeric(prices[key]) : null;
     return {
       ...row,
       walletName: row.wallets?.name ?? "Unknown wallet",
@@ -1179,64 +966,34 @@ export interface WatchlistRow {
 
 type WatchlistItemRow = { id: string; coingecko_id: string; ticker: string; name: string; image_url: string | null };
 
-/** Shared by getWatchlistItems and getAllWatchlistItems — merges item rows
- * in code against the shared, coingecko-id-keyed cryptoport.coin_market_data
- * (see coinMarketData.ts's own doc comment for why this is id-keyed rather
- * than reusing the ticker-keyed `prices` table getPriceMap reads). Two
- * plain queries, not a PostgREST embedded-relationship select, since
- * there's deliberately no foreign key from watchlist_items.coingecko_id to
- * coin_market_data.coingecko_id (a newly-added coin's item row is saved
- * before its market-data row exists — see addWatchlistItem's own comment —
- * so a FK here would make that insert fail). A coin with no market_data
- * row yet (just added, not refreshed) or one CoinGecko no longer returns
- * data for renders every numeric field null — "—", never a fabricated
- * number. */
-async function mergeWithMarketData(
-  rows: WatchlistItemRow[],
-  db: Awaited<ReturnType<typeof userDb>>,
-): Promise<WatchlistRow[]> {
+/** Shared by getWatchlistItems and getAllWatchlistItems: each coin's price,
+ * changes and market cap from asset_prices, the same one price per coin the
+ * rest of the app shows (every watchlist coin is priced in each pricing
+ * pass, see assetPrices.ts's allHeldKeys). A coin not priced yet shows "—"
+ * in every numeric field, never a fabricated number. */
+async function withAssetStats(rows: WatchlistItemRow[]): Promise<WatchlistRow[]> {
   if (rows.length === 0) return [];
-
-  const ids = [...new Set(rows.map((r) => r.coingecko_id))];
-  const { data: marketRows, error: marketError } = await db
-    .from("coin_market_data")
-    .select("coingecko_id, price_usd, change_1h, change_24h, change_7d, change_30d, market_cap")
-    .in("coingecko_id", ids);
-  if (marketError) throw new Error(`Failed to load coin market data: ${marketError.message}`);
-
-  type MarketRow = {
-    coingecko_id: string;
-    price_usd: number | null;
-    change_1h: number | null;
-    change_24h: number | null;
-    change_7d: number | null;
-    change_30d: number | null;
-    market_cap: number | null;
-  };
-  const marketById = new Map((marketRows as MarketRow[]).map((m) => [m.coingecko_id, m]));
-
+  const stats = await getAssetStatsMap();
   return rows.map((row) => {
-    const market = marketById.get(row.coingecko_id) ?? null;
+    const s = stats.get(row.coingecko_id);
     return {
       id: row.id,
       coingeckoId: row.coingecko_id,
       ticker: row.ticker,
       name: row.name,
       imageUrl: row.image_url,
-      price: parseNumeric(market?.price_usd ?? null),
-      change1h: parseNumeric(market?.change_1h ?? null),
-      change24h: parseNumeric(market?.change_24h ?? null),
-      change7d: parseNumeric(market?.change_7d ?? null),
-      change30d: parseNumeric(market?.change_30d ?? null),
-      marketCap: parseNumeric(market?.market_cap ?? null),
+      price: s?.usd ?? null,
+      change1h: s?.change1h ?? null,
+      change24h: s?.change24h ?? null,
+      change7d: s?.change7d ?? null,
+      change30d: s?.change30d ?? null,
+      marketCap: s?.marketCap ?? null,
     };
   });
 }
 
 /** One watchlist's items — RLS on watchlist_items (via the watchlists.user_id
- * subquery) already confirms this list belongs to the caller;
- * coin_market_data's own policy opens select to every signed-in user (it's
- * global market data, not per-user). */
+ * subquery) already confirms this list belongs to the caller. */
 export async function getWatchlistItems(watchlistId: string): Promise<WatchlistRow[]> {
   if (!(await getUser())) return [];
   const db = await userDb();
@@ -1247,7 +1004,7 @@ export async function getWatchlistItems(watchlistId: string): Promise<WatchlistR
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
 
-  return mergeWithMarketData(items as WatchlistItemRow[], db);
+  return withAssetStats(items as WatchlistItemRow[]);
 }
 
 /** Every coin *this user* is watching, across every one of their
@@ -1269,5 +1026,5 @@ export async function getAllWatchlistItems(): Promise<WatchlistRow[]> {
     return true;
   });
 
-  return mergeWithMarketData(deduped, db);
+  return withAssetStats(deduped);
 }
