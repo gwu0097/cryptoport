@@ -67,51 +67,54 @@ export function dedupeReceipts<
   };
 }
 
-/** What a vault share token held by the wallet is worth in its underlying
- * coin, read on-chain (ERC-4626 `asset()` + `convertToAssets(balance)`,
- * adapters/erc4626.ts). */
-export interface VaultClaim {
+/** What a receipt token held by the wallet is worth in its underlying coin,
+ * read on-chain through its standard interface (ERC-4626 vault, Aave aToken,
+ * Compound v3 Comet, Compound v2 cToken — adapters/receiptTokens.ts). */
+export interface ReceiptClaim {
   chain: string;
-  /** The vault share token's own contract (lowercase). */
-  vault: string;
-  /** The coin the vault holds (lowercase). */
+  /** The receipt token's own contract (lowercase). */
+  receipt: string;
+  /** The coin it stands for (lowercase). */
   asset: string;
-  /** The wallet's shares, converted to that coin. */
+  /** The wallet's balance, converted to that coin. */
   assets: number;
 }
 
 /** Relative tolerance between the on-chain claim and Zerion's position
  * amount: rounding and a few seconds of accrued yield, never a guess. */
-export const VAULT_MATCH_TOLERANCE = 0.001;
+export const RECEIPT_MATCH_TOLERANCE = 0.001;
 
 /**
- * Links vault positions Zerion reports without a pool address (Morpho's
- * "Morpho Degen" deposit) to the vault share token the wallet holds
- * (mDEGEN): same chain, the vault's `asset()` is the position's coin, and
- * the shares convert to the position's amount within
- * VAULT_MATCH_TOLERANCE. A linked position gets the vault as its
- * `pool_contract`, so dedupeReceipts treats it like any receipt. Exactly one
- * claim must match a position, and a claim links at most one position;
- * anything ambiguous stays unlinked (both counted — never dropped on a guess).
+ * Links a DeFi position to the receipt token the wallet holds for it when
+ * Zerion's `pool_contract` doesn't already name a held token — Morpho vaults
+ * come with no pool address, Aave's pool address is the lending pool, not the
+ * aToken. Same chain, the receipt's underlying coin is the position's coin,
+ * and the receipt converts to the position's amount within
+ * RECEIPT_MATCH_TOLERANCE. Exactly one claim must match a position, and a
+ * claim links at most one position; anything ambiguous stays unlinked (both
+ * counted — never dropped on a guess). A linked position gets the receipt as
+ * its `pool_contract`, so dedupeReceipts treats it like any receipt.
  */
-export function linkVaultPositions<Pos extends { chain: string | null; contract: string | null; qty: number | null; pool_contract?: string | null }>(
+export function linkReceiptPositions<Pos extends { chain: string | null; contract: string | null; qty: number | null; pool_contract?: string | null }>(
   positions: readonly Pos[],
-  claims: readonly VaultClaim[],
+  claims: readonly ReceiptClaim[],
 ): Pos[] {
-  const matches = (p: Pos, c: VaultClaim) =>
+  const receipts = new Set(claims.map((c) => receiptKey(c.chain, c.receipt)));
+  const alreadyLinked = (p: Pos) => !!p.chain && !!p.pool_contract && receipts.has(receiptKey(p.chain, p.pool_contract));
+  const matches = (p: Pos, c: ReceiptClaim) =>
     !!p.chain &&
     !!p.contract &&
     p.qty !== null &&
     p.qty > 0 &&
     c.chain === p.chain &&
     c.asset === p.contract.toLowerCase() &&
-    Math.abs(c.assets - p.qty) <= VAULT_MATCH_TOLERANCE * p.qty;
-  const open = positions.map((p) => (p.pool_contract ? [] : claims.filter((c) => matches(p, c))));
-  const claimUses = new Map<VaultClaim, number>();
+    Math.abs(c.assets - p.qty) <= RECEIPT_MATCH_TOLERANCE * p.qty;
+  const open = positions.map((p) => (alreadyLinked(p) ? [] : claims.filter((c) => matches(p, c))));
+  const claimUses = new Map<ReceiptClaim, number>();
   for (const cs of open) for (const c of cs) claimUses.set(c, (claimUses.get(c) ?? 0) + 1);
   return positions.map((p, i) => {
     const cs = open[i];
     if (cs.length !== 1 || claimUses.get(cs[0]) !== 1) return p;
-    return { ...p, pool_contract: cs[0].vault };
+    return { ...p, pool_contract: cs[0].receipt };
   });
 }

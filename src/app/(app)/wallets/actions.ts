@@ -21,8 +21,8 @@ import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, readAssetVolumes, type OnLane } from "@/lib/adapters/assetPrices";
-import { dedupeReceipts, dropUntradableReceiptTokens, isTradable, linkVaultPositions, receiptKey, type VaultClaim } from "@/lib/receiptDedupe";
-import { readVaultClaims } from "@/lib/adapters/erc4626";
+import { dedupeReceipts, dropUntradableReceiptTokens, linkReceiptPositions, receiptKey, type ReceiptClaim } from "@/lib/receiptDedupe";
+import { readReceiptClaims } from "@/lib/adapters/receiptTokens";
 import type { PriceRefreshPhases } from "@/lib/queries";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
@@ -781,17 +781,13 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         : await keyed(holdings, "auto");
       let defiSaved: (AdapterHolding & { price_key?: string | null })[] | null = null;
       let defiStatus = "ok";
-      // Vault share tokens (ERC-4626) that can't be traded, read on-chain
-      // while Zerion is still loading: what each is worth in its coin, to
-      // link a vault position Zerion reports without a pool address
-      // (receiptDedupe.ts linkVaultPositions).
-      const vaultClaims: Promise<VaultClaim[]> =
+      // Every held token that is a standard DeFi receipt (vault share, aToken,
+      // cToken, Comet), read on-chain while Zerion is still loading: what each
+      // is worth in its coin, to link it to its Zerion position
+      // (receiptDedupe.ts linkReceiptPositions).
+      const receiptClaims: Promise<ReceiptClaim[]> =
         defiFetch && !cosmosHoldings
-          ? (async () => {
-              const tokens = (saved as (AdapterHolding & { price_key?: string | null })[]).filter((t) => t.contract);
-              const volumes = await readAssetVolumes(tokens.map((t) => t.price_key));
-              return readVaultClaims(wallet.address!, tokens.filter((t) => !t.price_key || !isTradable(volumes.get(t.price_key))));
-            })().catch(() => [])
+          ? readReceiptClaims(wallet.address!, saved as AdapterHolding[]).catch(() => [])
           : Promise.resolve([]);
       const defi = defiFetch ? await defiFetch : null;
       if (defi?.ok) {
@@ -812,7 +808,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         const tokens = saved as (AdapterHolding & { price_key?: string | null })[];
         if (defiSaved) {
           // Each liquid staking / vault receipt counted once (receiptDedupe.ts).
-          const linked = linkVaultPositions(defiSaved, await vaultClaims);
+          const linked = linkReceiptPositions(defiSaved, await receiptClaims);
           const r = dedupeReceipts(tokens, linked, await readAssetVolumes(allKeys).catch(() => new Map<string, number | null>()));
           saved = r.tokens;
           defiSaved = r.positions;

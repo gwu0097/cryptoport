@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dedupeReceipts, linkVaultPositions, dropTradableReceiptPositions, dropUntradableReceiptTokens, isTradable, receiptKey } from "./receiptDedupe.ts";
+import { dedupeReceipts, linkReceiptPositions, dropTradableReceiptPositions, dropUntradableReceiptTokens, isTradable, receiptKey } from "./receiptDedupe.ts";
 
 const MATICX = "0xFa68FB4628DFF1028CFEc22b4162FCcd0d45efb6";
 const MDEGEN = "0x8c3a6b12332a6354805eb4b72ef619aedd22bcdd";
@@ -57,22 +57,32 @@ test("one sync's fresh lists: every receipt is counted exactly once", () => {
   assert.deepEqual(r.positions.map((x) => x.p), ["Stader", "Aave"]); // eETH is tradable: the token counts it
 });
 
-test("a vault position without a pool is linked to the held vault token only on an exact match", () => {
+test("a position is linked to the held receipt only on an exact match", () => {
   const DEGEN = "0x4ed4e862860bed51a9570b96d89af5e1b0efefed";
-  const claim = { chain: "base", vault: MDEGEN, asset: DEGEN, assets: 32074.35 };
-  const morpho = { p: "Morpho", chain: "base", contract: DEGEN, qty: 32074.3507, pool_contract: null };
-  const [linked] = linkVaultPositions([morpho], [claim]);
+  const claim = { chain: "base", receipt: MDEGEN, asset: DEGEN, assets: 32074.35 };
+  const morpho = { p: "Morpho", chain: "base", contract: DEGEN, qty: 32074.3507, pool_contract: null as string | null };
+  const [linked] = linkReceiptPositions([morpho], [claim]);
   assert.equal(linked.pool_contract, MDEGEN);
   // then the usual rule applies: mDEGEN has no volume, so the position stays and the token goes
   const r = dedupeReceipts([{ t: "mDEGEN", chain: "base", contract: MDEGEN, price_key: "morpho-degen" }], [linked], volume);
   assert.deepEqual([r.tokens.length, r.positions.length], [0, 1]);
 
-  const off = linkVaultPositions([{ ...morpho, qty: 30_000 }], [claim]); // amounts differ: not the same money
-  assert.equal(off[0].pool_contract, null);
-  const otherChain = linkVaultPositions([{ ...morpho, chain: "eth" }], [claim]);
-  assert.equal(otherChain[0].pool_contract, null);
-  const twoVaults = linkVaultPositions([morpho], [claim, { ...claim, vault: "0xother" }]); // ambiguous
-  assert.equal(twoVaults[0].pool_contract, null);
-  const twoPositions = linkVaultPositions([morpho, { ...morpho, p: "Morpho 2" }], [claim]); // one claim, two takers
-  assert.deepEqual(twoPositions.map((x) => x.pool_contract), [null, null]);
+  assert.equal(linkReceiptPositions([{ ...morpho, qty: 30_000 }], [claim])[0].pool_contract, null); // amounts differ
+  assert.equal(linkReceiptPositions([{ ...morpho, chain: "eth" }], [claim])[0].pool_contract, null); // other chain
+  assert.equal(linkReceiptPositions([morpho], [claim, { ...claim, receipt: "0xother" }])[0].pool_contract, null); // ambiguous
+  assert.deepEqual(linkReceiptPositions([morpho, { ...morpho, p: "Morpho 2" }], [claim]).map((x) => x.pool_contract), [null, null]); // one claim, two takers
+});
+
+test("an Aave position whose pool is the lending pool is still linked to the held aToken", () => {
+  const ARB = "0x912ce59144191c1204e64559fe8253a0e49e6548";
+  const AARB = "0x6533afac2e7bccb20dca161449a13a32d391fb00";
+  const aave = { p: "AAVE V3", chain: "arb", contract: ARB, qty: 432.2867811827462, pool_contract: "0x794a61358d6845594f94dc1db02a252b5b4814ad" };
+  const [linked] = linkReceiptPositions([aave], [{ chain: "arb", receipt: AARB, asset: ARB, assets: 432.2870928039785 }]);
+  assert.equal(linked.pool_contract, AARB);
+});
+
+test("a position already pointing at a held receipt isn't re-linked", () => {
+  const claim = { chain: "matic", receipt: MATICX.toLowerCase(), asset: "0xpol", assets: 10 };
+  const stader = { p: "Stader", chain: "matic", contract: "0xpol", qty: 10, pool_contract: MATICX.toLowerCase() };
+  assert.equal(linkReceiptPositions([stader], [claim, { ...claim, receipt: "0xother" }])[0].pool_contract, MATICX.toLowerCase());
 });
