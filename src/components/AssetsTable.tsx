@@ -4,7 +4,8 @@ import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp, BookOpen } from "lucide-react";
 import type { AssetGroup } from "@/lib/queries";
-import { formatUsd, formatCompactUsd, formatQty, formatPercent, formatShare } from "@/lib/format";
+import { formatUsd, formatCompactUsd, formatQty, formatPercent, formatShare, formatStaleness } from "@/lib/format";
+import { isStalePrice } from "@/lib/pricesAsOf";
 import { TokenIcon } from "./TokenIcon";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
@@ -151,6 +152,9 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
  * the next organic visit remembers this as the new "last sort" too.
  */
 export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup[]; total: number; initialSort?: Sort }) {
+  // The newest coin price on the page — a row's price is flagged when it
+  // lags this by over an hour.
+  const newestPriceAt = groups.reduce<string | null>((m, g) => (g.priceAt && (!m || g.priceAt > m) ? g.priceAt : m), null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, initialSort ?? DEFAULT_SORT);
   const { key: sortKey, dir: sortDir } = sort;
@@ -339,7 +343,18 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                       </div>
                     </td>
                     <td className={`${tdClass} tabular-nums`}>
-                      {group.price !== null ? formatUsd(group.price) : "—"}
+                      {group.price !== null ? (
+                        // When and where this coin's one price came from; amber when it
+                        // lags the rest by over an hour (lib/pricesAsOf.ts).
+                        <span
+                          className={isStalePrice(group.priceAt ?? null, newestPriceAt) ? "text-warning" : undefined}
+                          title={group.priceAt ? `Priced ${formatStaleness(group.priceAt)}${group.priceSource ? ` · ${group.priceSource}` : ""}` : undefined}
+                        >
+                          {formatUsd(group.price)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                       {/* 24h has its own dedicated column at sm+ (hideOnMobileClass
                           below) — this is mobile-only (sm:hidden), tucked next to
                           price instead of adding a 5th always-visible column that'd

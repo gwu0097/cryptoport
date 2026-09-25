@@ -110,7 +110,7 @@ export function PriceRefreshButton({
           below isn't redundant, though — it's genuinely new information
           (which lane is running, how long each took) the button label
           can't show. */}
-      {!busy && <p className="text-xs text-fg-muted">{`Last priced: ${formatStaleness(priceState.refreshedAt)}`}</p>}
+      {!busy && <PricedCaption priceState={priceState} />}
       {showPhases && priceState.phases && (
         <p className="flex flex-wrap justify-end gap-x-2 text-[11px] text-fg-muted/70">
           {PHASE_ORDER.filter((name) => priceState.phases![name]).map((name) => (
@@ -120,5 +120,24 @@ export function PriceRefreshButton({
       )}
       {error && <p className="max-w-xs text-right text-xs text-negative">{error}</p>}
     </div>
+  );
+}
+
+/** "Priced 2m ago · 3 older than 1h" — when the user's held coins were
+ * priced (lib/pricesAsOf.ts), with the lagging coins named on hover. Falls
+ * back to the last full refresh before any coin has a price. */
+function PricedCaption({ priceState }: { priceState: PriceRefreshState }) {
+  const { newestAt, stale } = priceState.pricesAsOf;
+  const at = newestAt ?? priceState.refreshedAt;
+  return (
+    <p className="text-xs text-fg-muted">
+      {at ? `Priced ${formatStaleness(at)}` : "Not priced yet"}
+      {stale.length > 0 && (
+        <span
+          className="text-warning"
+          title={stale.map((s) => `${s.label}: ${formatStaleness(s.at)}`).join("\n")}
+        >{` · ${stale.length} older than 1h`}</span>
+      )}
+    </p>
   );
 }

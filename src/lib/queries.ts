@@ -10,6 +10,7 @@ import {
   type PriceMap,
   type Valuation,
 } from "./valuation";
+import { pricesAsOf, type PricesAsOf } from "./pricesAsOf";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
 import { pinnedWalletChain, externalPortfolioViewer, type WalletChain } from "./walletDisplay.ts";
@@ -37,6 +38,8 @@ export interface PriceRefreshState {
    * at the very end. Null before the very first refresh this app has ever
    * run. */
   phases: PriceRefreshPhases | null;
+  /** When the user's held coins were priced (pricesAsOf.ts). */
+  pricesAsOf: PricesAsOf;
 }
 
 /** The one global "prices last refreshed" timestamp — see
@@ -45,19 +48,34 @@ export interface PriceRefreshState {
  * cache() — same reasoning as every other function in this file that does,
  * see getPriceMap's doc comment. */
 export const getPriceRefreshState = cache(async (): Promise<PriceRefreshState> => {
-  const { data, error } = await serviceDb()
-    .from("price_refresh_state")
-    .select("refreshed_at, status, started_at, phases")
-    .eq("id", 1)
-    .maybeSingle();
+  const [{ data, error }, asOf] = await Promise.all([
+    serviceDb().from("price_refresh_state").select("refreshed_at, status, started_at, phases").eq("id", 1).maybeSingle(),
+    getHeldPricesAsOf().catch(() => ({ newestAt: null, stale: [] })),
+  ]);
   if (error) throw new Error(`Failed to load price refresh state: ${error.message}`);
   return {
     refreshedAt: data?.refreshed_at ?? null,
     status: data?.status ?? null,
     startedAt: data?.started_at ?? null,
     phases: (data?.phases as PriceRefreshPhases | null) ?? null,
+    pricesAsOf: asOf,
   };
 });
+
+/** When this user's held coins were priced (asset_prices.updated_at), per
+ * pricesAsOf.ts: the bulk's time plus coins lagging it by over an hour. */
+async function getHeldPricesAsOf(): Promise<PricesAsOf> {
+  if (!(await getUser())) return { newestAt: null, stale: [] };
+  const [wallets, stats] = await Promise.all([getActiveWalletsWithHoldings(), getAssetStatsMap()]);
+  const held: { label: string; at: string | null }[] = [];
+  for (const w of wallets) {
+    for (const h of w.holdings) {
+      const s = h.price_key ? stats.get(h.price_key) : undefined;
+      if (s && s.usd !== null) held.push({ label: s.symbol ?? formatTicker(h.ticker), at: s.updatedAt });
+    }
+  }
+  return pricesAsOf(held);
+}
 
 /** Every tag *this user* has ever created — populates TagPicker's dropdown
  * on the wallet add/edit forms and the wallets list's tag filter (see
@@ -181,6 +199,7 @@ export interface AssetStats {
   change30d: number | null;
   marketCap: number | null;
   updatedAt: string | null;
+  source: string | null;
   symbol: string | null;
   name: string | null;
   imageUrl: string | null;
@@ -195,7 +214,7 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
   for (let from = 0; ; from += 1000) {
     const { data, error } = await serviceDb()
       .from("asset_prices")
-      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, updated_at")
+      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, updated_at, source")
       .order("price_key")
       .range(from, from + 999);
     if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
@@ -208,6 +227,7 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
         change30d: num(r.change_30d),
         marketCap: num(r.market_cap),
         updatedAt: (r.updated_at as string | null) ?? null,
+        source: (r.source as string | null) ?? null,
         symbol: null,
         name: null,
         imageUrl: null,
@@ -738,6 +758,10 @@ export interface AssetGroup {
    * into this base-coin row (e.g. ["weETH", "stETH"]). Its totalQty is then
    * a base-coin equivalent, shown with "≈". */
   combinedTickers?: string[];
+  /** When and from where the row's price came (asset_prices), for asset
+   * rows; undefined for rows priced by a stored value. */
+  priceAt?: string | null;
+  priceSource?: string | null;
 }
 
 export interface AssetsByTickerResult {
@@ -822,6 +846,8 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
             change7d: asset.change7d,
             change30d: asset.change30d,
             marketCap: asset.marketCap,
+            priceAt: asset.updatedAt,
+            priceSource: asset.source,
           });
           picks.set(key, { price: Infinity, stats: Infinity });
         }
