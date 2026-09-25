@@ -48,6 +48,11 @@ export interface AdapterHolding {
    * (Jupiter Earn, Kamino, ...) omits it and renders as one flat list,
    * same as before this field existed. */
   protocol_section?: string | null;
+  /** The protocol contract a DeFi position lives in (Zerion's pool_address,
+   * lowercase). For liquid staking it's the receipt token itself, which is
+   * how a position and the wallet's copy of that token are recognized as
+   * the same money (receiptDedupe.ts). */
+  pool_contract?: string | null;
   /** Leveraged-position detail — genuinely optional like `protocol` above:
    * only an open perp/futures position has any of these, a plain token or
    * spot DeFi holding correctly omits them all. Currently only

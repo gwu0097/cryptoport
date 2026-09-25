@@ -1,0 +1,52 @@
+// A liquid staking or vault receipt token (MaticX, eETH, a Morpho vault share)
+// is the same money as the protocol position it stands for. The wallet sync
+// lists the token; Zerion lists the position (in the underlying coin), and its
+// pool contract IS the token's contract. Each must count once (2026-09-25:
+// +$1,256 on one wallet vs DeBank). Which copy stays depends on whether the
+// token can be sold without unstaking (owner decision):
+//  - tradable (a real market) → keep the wallet token, priced by its own
+//    market price; drop the duplicate position;
+//  - not tradable → keep the position (where it's staked, how to withdraw);
+//    drop the wallet copy.
+// Tradable = CoinGecko's 24h trading volume (asset_prices.volume_24h, all
+// venues) at or above TRADABLE_MIN_VOLUME_USD; unlisted or no volume = not
+// tradable. Pure.
+
+export const TRADABLE_MIN_VOLUME_USD = 10_000;
+
+export const receiptKey = (chain: string, contract: string) => `${chain}|${contract.toLowerCase()}`;
+
+export function isTradable(volume24h: number | null | undefined): boolean {
+  return typeof volume24h === "number" && Number.isFinite(volume24h) && volume24h >= TRADABLE_MIN_VOLUME_USD;
+}
+
+/** DeFi sync: drops positions whose pool is a token this wallet holds and
+ * that token is tradable (the wallet row already counts it).
+ * `heldKeys`: receiptKey(chain, contract) -> that wallet token's price_key. */
+export function dropTradableReceiptPositions<T extends { chain: string | null; pool_contract?: string | null }>(
+  positions: readonly T[],
+  heldKeys: ReadonlyMap<string, string | null>,
+  volumeByKey: ReadonlyMap<string, number | null>,
+): T[] {
+  return positions.filter((p) => {
+    if (!p.chain || !p.pool_contract) return true;
+    const k = receiptKey(p.chain, p.pool_contract);
+    if (!heldKeys.has(k)) return true;
+    const priceKey = heldKeys.get(k);
+    return !(priceKey && isTradable(volumeByKey.get(priceKey)));
+  });
+}
+
+/** Wallet sync: drops tokens that are the receipt of one of this wallet's
+ * DeFi positions and can't be traded (the position row counts it).
+ * `poolKeys`: receiptKey(chain, pool_contract) of the wallet's DeFi rows. */
+export function dropUntradableReceiptTokens<T extends { chain: string | null; contract: string | null; price_key?: string | null }>(
+  tokens: readonly T[],
+  poolKeys: ReadonlySet<string>,
+  volumeByKey: ReadonlyMap<string, number | null>,
+): T[] {
+  return tokens.filter((t) => {
+    if (!t.chain || !t.contract || !poolKeys.has(receiptKey(t.chain, t.contract))) return true;
+    return !!t.price_key && isTradable(volumeByKey.get(t.price_key));
+  });
+}

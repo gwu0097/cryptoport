@@ -110,6 +110,9 @@ interface ZerionPosition {
     } | null;
     /** deposit | loan | locked | staked | reward | investment | wallet */
     position_type?: string | null;
+    /** The protocol contract the position lives in — for liquid staking this
+     * is the receipt token itself (Stader's pool is MaticX). */
+    pool_address?: string | null;
   };
   relationships?: { chain?: { data?: { id?: string | null } } };
 }
@@ -211,6 +214,7 @@ export async function fetchZerionDefiPositions(address: string): Promise<ZerionD
       protocol,
       protocol_url: a?.application_metadata?.url ?? null,
       protocol_section: sectionFor(a?.position_type),
+      pool_contract: a?.pool_address ? a.pool_address.toLowerCase() : null,
     });
   }
 

@@ -20,7 +20,8 @@ import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
-import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, type OnLane } from "@/lib/adapters/assetPrices";
+import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, readAssetVolumes, type OnLane } from "@/lib/adapters/assetPrices";
+import { dropTradableReceiptPositions, dropUntradableReceiptTokens, receiptKey } from "@/lib/receiptDedupe";
 import type { PriceRefreshPhases } from "@/lib/queries";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
@@ -596,6 +597,46 @@ async function keyed<T extends { ticker: string; chain: string | null; contract:
   }
 }
 
+/** Wallet sync side of receiptDedupe.ts: this wallet's DeFi rows' pools vs
+ * the tokens about to be saved. A lookup failure keeps every token (never
+ * drops value on an error). */
+async function withoutUntradableReceipts<T extends AdapterHolding & { price_key?: string | null }>(
+  db: Awaited<ReturnType<typeof userDb>>,
+  walletId: string,
+  tokens: T[],
+): Promise<T[]> {
+  try {
+    const { data, error } = await db.from("holdings").select("chain, pool_contract").eq("wallet_id", walletId).eq("source", "auto_defi").not("pool_contract", "is", null);
+    if (error) throw new Error(error.message);
+    const pools = new Set((data as { chain: string | null; pool_contract: string }[]).filter((r) => r.chain).map((r) => receiptKey(r.chain!, r.pool_contract)));
+    if (pools.size === 0) return tokens;
+    return dropUntradableReceiptTokens(tokens, pools, await readAssetVolumes(tokens.map((t) => t.price_key)));
+  } catch (e) {
+    console.warn(`[receipts] wallet ${walletId}: ${(e as Error).message}`);
+    return tokens;
+  }
+}
+
+/** DeFi sync side of receiptDedupe.ts: this wallet's held tokens vs the
+ * positions about to be saved. A lookup failure keeps every position. */
+async function withoutTradableReceiptPositions<T extends AdapterHolding & { price_key?: string | null }>(
+  db: Awaited<ReturnType<typeof userDb>>,
+  walletId: string,
+  positions: T[],
+): Promise<T[]> {
+  if (!positions.some((p) => p.pool_contract)) return positions;
+  try {
+    const { data, error } = await db.from("holdings").select("chain, contract, price_key").eq("wallet_id", walletId).eq("source", "auto").not("contract", "is", null);
+    if (error) throw new Error(error.message);
+    const held = new Map((data as { chain: string | null; contract: string; price_key: string | null }[]).filter((r) => r.chain).map((r) => [receiptKey(r.chain!, r.contract), r.price_key]));
+    if (held.size === 0) return positions;
+    return dropTradableReceiptPositions(positions, held, await readAssetVolumes([...held.values()]));
+  } catch (e) {
+    console.warn(`[receipts] wallet ${walletId}: ${(e as Error).message}`);
+    return positions;
+  }
+}
+
 /** Called by "Sync all" (components/jobs/SyncQueue.tsx) before its first
  * wallet: one pricing pass for every held coin (~1-2 CoinGecko calls,
  * ~3s) when the newest price is over 5 minutes old, so each wallet's own
@@ -744,9 +785,12 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       }
 
       const status = warnings.length === 0 ? "ok" : `partial — ${[...warnings, keptStatus].filter(Boolean).join("; ")}`;
-      const saved: { price_key?: string | null }[] = cosmosHoldings
+      let saved: { price_key?: string | null }[] = cosmosHoldings
         ? await keyed(cosmosHoldings, "auto_cosmos")
         : await keyed(holdings, "auto");
+      // A token that is the receipt of one of this wallet's DeFi positions and
+      // can't be traded is counted by that position instead (receiptDedupe.ts).
+      if (!cosmosHoldings) saved = await withoutUntradableReceipts(afterDb, walletId, saved as (AdapterHolding & { price_key?: string | null })[]);
       const { error: syncError } = await afterDb.rpc(cosmosHoldings ? "sync_cosmos_holdings" : "sync_auto_holdings", {
         p_wallet_id: walletId,
         p_holdings: saved,
@@ -859,7 +903,9 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
       const { holdings, warnings } = await fetchZerionDefiPositions(wallet.address!);
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
 
-      const savedDefi: { price_key?: string | null }[] = await keyed(holdings, "auto_defi");
+      // A position whose receipt token this wallet holds and can trade is
+      // already counted by that token (receiptDedupe.ts).
+      const savedDefi: { price_key?: string | null }[] = await withoutTradableReceiptPositions(afterDb, walletId, await keyed(holdings, "auto_defi"));
       const { error: syncError } = await afterDb.rpc("sync_defi_holdings", {
         p_wallet_id: walletId,
         p_holdings: savedDefi,

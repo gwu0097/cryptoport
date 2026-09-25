@@ -1923,7 +1923,7 @@ begin
   insert into cryptoport.holdings
     (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
      position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
-     position_pnl_percent, display_label, protocol_section)
+     position_pnl_percent, display_label, protocol_section, pool_contract)
   select
     h->>'price_key',
     p_wallet_id,
@@ -1944,7 +1944,8 @@ begin
     (h->>'position_pnl_usd')::numeric,
     (h->>'position_pnl_percent')::numeric,
     h->>'display_label',
-    h->>'protocol_section'
+    h->>'protocol_section',
+    h->>'pool_contract'
   from jsonb_array_elements(p_holdings) as h;
 
   update cryptoport.wallets
@@ -2059,3 +2060,10 @@ grant all on cryptoport.asset_price_daily to service_role;
 grant select on cryptoport.asset_price_daily to authenticated;
 create policy "asset_price_daily: readable by all signed-in users"
   on cryptoport.asset_price_daily for select to authenticated using (true);
+
+-- Liquid staking / vault receipts counted once (2026-09-25, receiptDedupe.ts):
+-- the 24h trading volume decides whether a receipt token is tradable, and a
+-- DeFi row's pool contract links it to the wallet's copy of that token.
+-- sync_defi_holdings above writes pool_contract.
+alter table cryptoport.asset_prices add column if not exists volume_24h numeric;
+alter table cryptoport.holdings add column if not exists pool_contract text;

@@ -169,6 +169,13 @@ row's key has no price. **A $1-per-unit value is allowed only for the
 stablecoins in `src/lib/stablecoinFallback.ts`** (Hyperliquid and Polymarket
 dollar balances), as a last resort; any other coin without a price shows "—".
 
+**A receipt token and its protocol position count once** (`receiptDedupe.ts`).
+A liquid staking or vault receipt (MaticX, eETH) that the wallet holds is the
+same money as the Zerion position whose `pool_contract` is that token. If the
+token is tradable (`asset_prices.volume_24h` ≥ `TRADABLE_MIN_VOLUME_USD`) the
+wallet token stays and the position is dropped; if not, the position stays
+(where it's staked, how to withdraw) and the wallet copy is dropped.
+
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly
 (`adapters/exchangeTickers.ts` `refreshExchangeAssetsIfStale`; rows with

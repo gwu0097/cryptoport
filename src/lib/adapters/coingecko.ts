@@ -209,6 +209,9 @@ export interface CoingeckoMarketStats extends CoingeckoPrice {
   change1h: number | null;
   change7d: number | null;
   change30d: number | null;
+  /** 24h trading volume in USD across every venue CoinGecko tracks — the
+   * tradability signal (receiptDedupe.ts). Null when not reported. */
+  volume24h: number | null;
   /** Free in the same /coins/markets response — display info for the
    * `assets` table (docs/pricing/PLAN.md). */
   symbol?: string | null;
@@ -257,6 +260,7 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
       price_change_percentage_7d_in_currency?: number;
       price_change_percentage_30d_in_currency?: number;
       market_cap?: number;
+      total_volume?: number;
     }[] = await res.json();
     for (const coin of body) {
       if (typeof coin.current_price === "number") {
@@ -278,6 +282,7 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
             ? coin.price_change_percentage_30d_in_currency
             : null,
           marketCap: typeof coin.market_cap === "number" ? coin.market_cap : null,
+          volume24h: typeof coin.total_volume === "number" ? coin.total_volume : null,
         });
       }
     }

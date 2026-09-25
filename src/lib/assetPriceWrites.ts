@@ -13,6 +13,7 @@ export interface FetchedPrice {
   change_7d?: number | null;
   change_30d?: number | null;
   market_cap?: number | null;
+  volume_24h?: number | null;
   source: string;
 }
 

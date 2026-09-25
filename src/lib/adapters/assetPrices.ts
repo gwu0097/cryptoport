@@ -74,7 +74,7 @@ export async function refreshAssetPrices(
         calls.coingecko = Math.ceil(cg.length / 250);
         const stats = await fetchMarketStatsByIds(cg);
         for (const [id, s] of stats) {
-          fetched.set(id, { usd: s.usd, change_1h: s.change1h, change_24h: s.change24h, change_7d: s.change7d, change_30d: s.change30d, market_cap: s.marketCap, source: "coingecko" });
+          fetched.set(id, { usd: s.usd, change_1h: s.change1h, change_24h: s.change24h, change_7d: s.change7d, change_30d: s.change30d, market_cap: s.marketCap, volume_24h: s.volume24h, source: "coingecko" });
           assets.push({ price_key: id, symbol: s.symbol ?? null, name: s.name ?? null, image_url: s.image ?? null, updated_at: nowIso() });
         }
       }),
@@ -198,6 +198,19 @@ export async function refreshAssetPricesIfOlderThan(maxAgeMs: number, trigger: s
   if (Date.now() - newest < maxAgeMs) return "fresh";
   const r = await refreshAssetPrices(trigger);
   return `priced ${r.returned}/${r.requested}`;
+}
+
+/** Each key's stored 24h trading volume (asset_prices.volume_24h; null when
+ * its source reports none) — the tradability signal (receiptDedupe.ts). */
+export async function readAssetVolumes(keys: (string | null | undefined)[]): Promise<Map<string, number | null>> {
+  const distinct = [...new Set(keys.filter((k): k is string => !!k))];
+  const out = new Map<string, number | null>();
+  for (let i = 0; i < distinct.length; i += 500) {
+    const { data, error } = await serviceDb().from("asset_prices").select("price_key, volume_24h").in("price_key", distinct.slice(i, i + 500));
+    if (error) throw new Error(`Failed to read trading volumes: ${error.message}`);
+    for (const r of data as { price_key: string; volume_24h: number | string | null }[]) out.set(r.price_key, r.volume_24h === null ? null : Number(r.volume_24h));
+  }
+  return out;
 }
 
 /** The stored price of each key that has one (asset_prices.usd). */
