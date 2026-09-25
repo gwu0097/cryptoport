@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dedupeReceipts, dropTradableReceiptPositions, dropUntradableReceiptTokens, isTradable, receiptKey } from "./receiptDedupe.ts";
+import { dedupeReceipts, linkVaultPositions, dropTradableReceiptPositions, dropUntradableReceiptTokens, isTradable, receiptKey } from "./receiptDedupe.ts";
 
 const MATICX = "0xFa68FB4628DFF1028CFEc22b4162FCcd0d45efb6";
 const MDEGEN = "0x8c3a6b12332a6354805eb4b72ef619aedd22bcdd";
@@ -55,4 +55,24 @@ test("one sync's fresh lists: every receipt is counted exactly once", () => {
   const r = dedupeReceipts(tokens, positions, vol);
   assert.deepEqual(r.tokens.map((x) => x.t), ["eETH", "ETH"]); // MaticX isn't tradable: Stader counts it
   assert.deepEqual(r.positions.map((x) => x.p), ["Stader", "Aave"]); // eETH is tradable: the token counts it
+});
+
+test("a vault position without a pool is linked to the held vault token only on an exact match", () => {
+  const DEGEN = "0x4ed4e862860bed51a9570b96d89af5e1b0efefed";
+  const claim = { chain: "base", vault: MDEGEN, asset: DEGEN, assets: 32074.35 };
+  const morpho = { p: "Morpho", chain: "base", contract: DEGEN, qty: 32074.3507, pool_contract: null };
+  const [linked] = linkVaultPositions([morpho], [claim]);
+  assert.equal(linked.pool_contract, MDEGEN);
+  // then the usual rule applies: mDEGEN has no volume, so the position stays and the token goes
+  const r = dedupeReceipts([{ t: "mDEGEN", chain: "base", contract: MDEGEN, price_key: "morpho-degen" }], [linked], volume);
+  assert.deepEqual([r.tokens.length, r.positions.length], [0, 1]);
+
+  const off = linkVaultPositions([{ ...morpho, qty: 30_000 }], [claim]); // amounts differ: not the same money
+  assert.equal(off[0].pool_contract, null);
+  const otherChain = linkVaultPositions([{ ...morpho, chain: "eth" }], [claim]);
+  assert.equal(otherChain[0].pool_contract, null);
+  const twoVaults = linkVaultPositions([morpho], [claim, { ...claim, vault: "0xother" }]); // ambiguous
+  assert.equal(twoVaults[0].pool_contract, null);
+  const twoPositions = linkVaultPositions([morpho, { ...morpho, p: "Morpho 2" }], [claim]); // one claim, two takers
+  assert.deepEqual(twoPositions.map((x) => x.pool_contract), [null, null]);
 });

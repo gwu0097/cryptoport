@@ -176,7 +176,10 @@ that token. If the token is tradable (`asset_prices.volume_24h` ≥
 `TRADABLE_MIN_VOLUME_USD`) the wallet token stays and the position is dropped;
 if not, the position stays (where it's staked, how to withdraw) and the wallet
 copy is dropped. Both lists come from the same sync (§4.4), so the check always
-runs on fresh data from both sides.
+runs on fresh data from both sides. A vault position Zerion reports without a
+pool address (Morpho) is linked to the share token by an on-chain ERC-4626 read
+(`adapters/erc4626.ts` → `linkVaultPositions`): same coin, same amount within
+`VAULT_MATCH_TOLERANCE`, exactly one match — otherwise both stay.
 
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly

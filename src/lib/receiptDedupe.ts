@@ -66,3 +66,52 @@ export function dedupeReceipts<
     positions: dropTradableReceiptPositions(positions, held, volumeByKey),
   };
 }
+
+/** What a vault share token held by the wallet is worth in its underlying
+ * coin, read on-chain (ERC-4626 `asset()` + `convertToAssets(balance)`,
+ * adapters/erc4626.ts). */
+export interface VaultClaim {
+  chain: string;
+  /** The vault share token's own contract (lowercase). */
+  vault: string;
+  /** The coin the vault holds (lowercase). */
+  asset: string;
+  /** The wallet's shares, converted to that coin. */
+  assets: number;
+}
+
+/** Relative tolerance between the on-chain claim and Zerion's position
+ * amount: rounding and a few seconds of accrued yield, never a guess. */
+export const VAULT_MATCH_TOLERANCE = 0.001;
+
+/**
+ * Links vault positions Zerion reports without a pool address (Morpho's
+ * "Morpho Degen" deposit) to the vault share token the wallet holds
+ * (mDEGEN): same chain, the vault's `asset()` is the position's coin, and
+ * the shares convert to the position's amount within
+ * VAULT_MATCH_TOLERANCE. A linked position gets the vault as its
+ * `pool_contract`, so dedupeReceipts treats it like any receipt. Exactly one
+ * claim must match a position, and a claim links at most one position;
+ * anything ambiguous stays unlinked (both counted — never dropped on a guess).
+ */
+export function linkVaultPositions<Pos extends { chain: string | null; contract: string | null; qty: number | null; pool_contract?: string | null }>(
+  positions: readonly Pos[],
+  claims: readonly VaultClaim[],
+): Pos[] {
+  const matches = (p: Pos, c: VaultClaim) =>
+    !!p.chain &&
+    !!p.contract &&
+    p.qty !== null &&
+    p.qty > 0 &&
+    c.chain === p.chain &&
+    c.asset === p.contract.toLowerCase() &&
+    Math.abs(c.assets - p.qty) <= VAULT_MATCH_TOLERANCE * p.qty;
+  const open = positions.map((p) => (p.pool_contract ? [] : claims.filter((c) => matches(p, c))));
+  const claimUses = new Map<VaultClaim, number>();
+  for (const cs of open) for (const c of cs) claimUses.set(c, (claimUses.get(c) ?? 0) + 1);
+  return positions.map((p, i) => {
+    const cs = open[i];
+    if (cs.length !== 1 || claimUses.get(cs[0]) !== 1) return p;
+    return { ...p, pool_contract: cs[0].vault };
+  });
+}

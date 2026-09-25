@@ -23,8 +23,10 @@ which button was clicked last — "horrible user experience" (owner). Zerion's
 DeFi fetch moved into the wallet sync and the separate DeFi Sync button was
 removed, so both lists are compared in memory in one job. Owner: no rate limit
 for now (two users); native adapters take precedence and Zerion skips their
-protocols. Remaining known gap: vault shares Zerion reports without a pool
-address (Morpho's mDEGEN).
+protocols. Vault shares Zerion reports without a pool address (Morpho's
+mDEGEN — Zerion's own totals count them twice too) are linked by reading the
+vault on-chain (ERC-4626 `asset()` + `convertToAssets`) and requiring the
+amounts to match; it runs while Zerion loads (~0.8s for 29 candidates).
 
 ## 2026-09-25 — Analytics: chain returns across the estimate→real switch
 

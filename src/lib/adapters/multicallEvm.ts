@@ -176,7 +176,7 @@ function isRetryableFailure(r: any): boolean {
 /** The chain's RPC, plus its fallbacks when it has any (see
  * EvmChain.fallbackRpcs): a request the primary errors or times out on goes
  * to the next one. */
-function evmTransport(chain: EvmChain) {
+export function evmTransport(chain: EvmChain) {
   return chain.fallbackRpcs?.length ? fallback([chain.rpc, ...chain.fallbackRpcs].map((url) => http(url))) : http(chain.rpc);
 }
 
