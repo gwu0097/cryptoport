@@ -12,9 +12,9 @@ import { refreshPricesAction } from "../wallets/actions";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Portfolio · CryptoPort" };
 
-// refreshPricesAction re-prices every EVM holding directly from CoinGecko
-// on top of the Coinbase/Jupiter ticker pass — same reasoning as
-// wallets/page.tsx's maxDuration for the same action.
+// refreshPricesAction runs one pricing pass (refreshAssetPrices, four
+// source lanes) in after() — same reasoning as wallets/page.tsx's
+// maxDuration for the same action.
 export const maxDuration = 300;
 
 export default async function PortfolioPage({

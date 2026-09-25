@@ -74,13 +74,10 @@ const ABI = [
  * the Data Correctness rule forbids — the staked SUPER and ETH rewards
  * (both real, priceable amounts) are still fully captured either way.
  *
- * SUPER priced via CoinGecko's contract-keyed lookup (never the shared
- * ticker table), same mechanism multicallEvm.ts/axieStaking.ts use for
- * every other DeFi-position token, for the same collision-safety reason.
- * The ETH reward amount uses the regular ticker-keyed path (usd_override
- * null) — unlike an arbitrary token symbol, "ETH" carries no realistic
- * collision risk, and every other native-ETH holding in this app already
- * prices the same way.
+ * Both priced from asset_prices by their price_key, never by ticker: SUPER
+ * by its contract (token_registry -> CoinGecko id), same as every other EVM
+ * contract token; the ETH reward as Ethereum's native coin, same as every
+ * other native-ETH holding.
  */
 export async function fetchSuperverseStaking(address: Address): Promise<AdapterHolding[]> {
   const client = createPublicClient({ transport: http(ETH_CHAIN.rpc) });
@@ -122,7 +119,7 @@ export async function fetchSuperverseStaking(address: Address): Promise<AdapterH
     holdings.push({
       ticker: ETH_CHAIN.nativeSymbol,
       qty,
-      usd_override: null, // priced via the existing ticker-keyed path, same as every other native ETH holding
+      usd_override: null, // priced by its native-coin price_key, same as every other native ETH holding
       contract: null,
       category: "defi",
       chain: ETH_CHAIN.id,

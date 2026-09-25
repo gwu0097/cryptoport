@@ -155,7 +155,7 @@ export async function fetchGeminiBalances(
   const holdings: AdapterHolding[] = [...qtyByTicker.entries()].map(([ticker, qty]) => ({
     ticker,
     qty,
-    usd_override: null, // priced via the existing ticker-keyed path, same as Coinbase/Kraken's spot balances
+    usd_override: null, // priced from asset_prices by its price_key (exchange_assets maps the ticker), same as Coinbase/Kraken's spot balances
     contract: null,
     category: "token",
     chain: "gemini",

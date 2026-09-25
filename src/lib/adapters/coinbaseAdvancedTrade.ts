@@ -194,7 +194,7 @@ export async function fetchCoinbaseBalances(
       holdings.push({
         ticker: account.currency,
         qty,
-        usd_override: null, // priced via the existing ticker-keyed path — Coinbase is already a pricing source in prices.ts
+        usd_override: null, // priced from asset_prices by its price_key (exchange_assets maps the ticker; unmapped → coinbase:<TICKER>)
         contract: null,
         category: "token",
         chain: "coinbase",

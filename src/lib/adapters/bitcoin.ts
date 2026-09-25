@@ -37,9 +37,8 @@ async function buildBtcHolding(sats: number): Promise<AdapterHolding[]> {
  *   (see bitcoinXpub.ts) the same way Ledger Live/Electrum do, and sums
  *   whatever has a balance.
  *
- * Priced via the shared ticker-keyed `prices` table (usd_override: null,
- * not fetched here) — BTC is already priced there today for manual
- * holdings, same as every other ticker (see prices.ts).
+ * Priced from asset_prices as the chain's native coin (price_key
+ * "bitcoin", usd_override: null, not fetched here) — see assetPrices.ts.
  *
  * No script-type caching here — this is the plain adapter interface (also
  * used by lib/lookup.ts's ephemeral, unsaved address search, which has no

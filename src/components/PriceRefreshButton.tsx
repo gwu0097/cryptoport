@@ -39,7 +39,7 @@ function PhaseRow({ name, phase }: { name: string; phase: PriceRefreshPhases[str
 
 /**
  * "Refresh prices" button + "Last priced: X ago" caption + per-lane
- * (CoinGecko/Coinbase-Jupiter/EVM holdings) breakdown — identical on
+ * (CoinGecko/Jupiter/Hyperliquid/Coinbase) breakdown — identical on
  * Dashboard/Portfolio/Wallets/Assets/wallet-detail (5 call sites), same
  * "two is the threshold" extraction as SyncWalletButtons. Replaces the old
  * separate SubmitButton form + PriceRefreshCaption pair: this app's price

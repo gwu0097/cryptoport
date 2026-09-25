@@ -199,8 +199,8 @@ export default async function WalletDetailPage(
               <>
                 {wallet.mode === "auto" ? (
                   // No separate "Refresh prices" button for an auto wallet —
-                  // syncWalletHoldings now always reprices this wallet's own
-                  // ticker-keyed holdings as part of every sync (see its own
+                  // syncWalletHoldings now always prices this wallet's own
+                  // holdings' price_keys as part of every sync (see its own
                   // doc comment in wallets/actions.ts), so Sync is a strict
                   // superset of what a scoped refresh button would add here.
                   <SyncWalletButtons

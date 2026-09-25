@@ -87,7 +87,7 @@ function normalizeTicker(code: string, altnames: Map<string, string>): string {
   // present as its own entry in the asset list — strip it and resolve the
   // base asset instead. Falls back to the raw code untouched if nothing
   // matches (still shows up as a holding, just under Kraken's own code
-  // until this app's ticker table catches up — never dropped).
+  // until exchange_assets maps that code to a price_key — never dropped).
   const base = code.split(".")[0];
   const altname = altnames.get(base) ?? altnames.get(code) ?? base;
   return TICKER_OVERRIDES[altname] ?? altname;
@@ -117,7 +117,7 @@ export async function fetchKrakenBalances(
     holdings.push({
       ticker: normalizeTicker(code, altnames),
       qty,
-      usd_override: null, // priced via the existing ticker-keyed path, same as Coinbase's spot balances
+      usd_override: null, // priced from asset_prices by its price_key (exchange_assets maps the ticker), same as Coinbase's spot balances
       contract: null,
       category: "token",
       chain: "kraken",

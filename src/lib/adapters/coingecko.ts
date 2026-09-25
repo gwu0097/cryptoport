@@ -78,20 +78,17 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
 
   // Same coins/list response, one more platform extracted from it — a
   // mint -> coingecko_id cache for Solana SPL tokens, same shape as the
-  // EVM loop above. This is what lets prices.ts's refreshCoinGeckoTickers
-  // resolve a Solana contract to a coingecko_id and fetch its 1h/7d/30d
-  // change via fetchMarketStatsByIds — simple/token_price (the endpoint
-  // that actually prices these tokens) only ever returns 24h change,
-  // confirmed live, so those 3 windows need this separate id-based lookup,
-  // same reasoning as the EVM contract-token path in multicallEvm.ts.
+  // EVM loop above. This is what gives a CoinGecko-listed Solana mint a
+  // CoinGecko-id price_key (assetIdentity.ts's resolvePriceKey), so it's
+  // priced in assetPrices.ts's coingecko lane with its full 1h/7d/30d
+  // change instead of as a `jup:<mint>` key.
   //
   // Written under a single chain_id ("solana"), not per holding.chain
   // value ("solana" vs "solana-defi" both mean the same underlying
-  // Solana platform) — the read side (getContractStatsMap) doesn't scope
-  // by chain_id at all (see its own doc comment: a contract address is
-  // already globally unique in practice), so one canonical entry per
-  // mint is enough regardless of which app-internal chain label a given
-  // holding happens to carry.
+  // Solana platform) — the read side (assetIdentity.ts's contractKey)
+  // does key by chain, but maps "solana-defi" to "solana" first
+  // (REGISTRY_CHAIN), so one canonical entry per mint is enough
+  // regardless of which app-internal chain label a given holding carries.
   //
   // .toLowerCase() here is purely an internal DB-key convention, matching
   // every other token_registry.contract value in this table — it's never
@@ -222,16 +219,13 @@ export interface CoingeckoMarketStats extends CoingeckoPrice {
 const MARKETS_BATCH_SIZE = 250; // coins/markets' own per-call ids cap
 
 /** coingecko-id -> full market stats (price, 1h/24h/7d/30d change, market
- * cap) via /coins/markets — a superset of what simple/price gives, so this
- * both replaced that as prices.ts's native-ticker source (BTC, ETH, SOL,
- * ADA, ...) and doubles as the lookup multicallEvm.ts uses for EVM
- * contract-tokens' 1h/7d/30d change: those are priced via
- * fetchTokenPrices' contract-address lookup (simple/token_price, 24h-only
- * — confirmed it silently ignores price_change_percentage), but
- * token_registry already caches each contract's own coingecko_id from the
- * coins/list import, so resolving through that id and batching here gets
- * the extra windows without needing a second, contract-shaped endpoint
- * that doesn't exist. */
+ * cap) via /coins/markets — a superset of what simple/price gives. This is
+ * assetPrices.ts's coingecko lane: every CoinGecko-id price_key (natives
+ * like BTC/ETH/SOL/ADA, and contract tokens, whose id token_registry
+ * resolves from the coins/list import) is priced here, which is how they
+ * all get 1h/7d/30d change — simple/token_price's contract-address lookup
+ * (fetchTokenPrices) is 24h-only (confirmed it silently ignores
+ * price_change_percentage). */
 export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map<string, CoingeckoMarketStats>> {
   const stats = new Map<string, CoingeckoMarketStats>();
   if (coingeckoIds.length === 0) return stats;
@@ -335,8 +329,8 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
  * an icon lookup needs and searchCoins deliberately doesn't give). Icon-only
  * — unlike every price-bearing lookup in this file, a wrong symbol match
  * here is a cosmetic risk, not a valuation one (see resolveTickerIcons, the
- * one caller: Coinbase already prices these tickers via the existing
- * ticker-keyed `prices` table, this only ever touches `icon_url`). Callers
+ * only caller: these holdings are priced by their price_key, never by this
+ * lookup — it only ever touches `icon_url`). Callers
  * should still skip fiat codes (USD, EUR, ...) — CoinGecko's "best match"
  * for a fiat symbol is some unrelated obscure coin that happens to share it,
  * not a real crypto icon.

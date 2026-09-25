@@ -23,9 +23,9 @@ import { refreshPricesAction } from "../wallets/actions";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
 
-// refreshPricesAction refreshes both the ticker-keyed Coinbase/Jupiter pass
-// and every EVM holding's CoinGecko price — same reasoning as assets/
-// page.tsx's maxDuration for the same action.
+// refreshPricesAction runs one pricing pass (refreshAssetPrices, four
+// source lanes) in after() — same reasoning as assets/page.tsx's
+// maxDuration for the same action.
 export const maxDuration = 300;
 
 // Same dust threshold as the Assets page's "Hide low price tokens" filter —

@@ -13,8 +13,7 @@ export interface CoinbaseCurrency {
   /** Coinbase's own currency id, e.g. "UNI" — always uppercase in practice. */
   ticker: string;
   /** Full asset name, e.g. "Uniswap" — safer to search CoinGecko by than the
-   * bare ticker (see exchangeAssetRegistry.ts's own doc comment: full names
-   * collide far less than 3-4 letter symbols). */
+   * bare ticker (full names collide far less than 3-4 letter symbols). */
   name: string;
   /** Coinbase's own network id for the network carrying a contract_address
    * (e.g. "ethereum", "solana"), or null when this asset has no on-chain
@@ -40,8 +39,10 @@ interface CoinbaseCurrencyResponse {
  * (which has no contract of its own — see coinbaseAdvancedTrade.ts's own
  * doc comment on why) resolve to a *verified* identity instead of either
  * guessing off the ticker or falling back to a slow, rate-limited
- * per-ticker pricing API call. See exchangeAssetRegistry.ts, the one
- * caller — this file only fetches/shapes the raw catalog.
+ * per-ticker pricing API call. Nothing calls this now: its one caller
+ * (exchangeAssetRegistry.ts) is gone, and exchange tickers are mapped to
+ * price_keys by exchange_assets (exchangeTickers.ts) instead — this file
+ * only fetches/shapes the raw catalog.
  */
 export async function fetchCoinbaseCurrencies(): Promise<CoinbaseCurrency[]> {
   const res = await fetchWithRetry(CURRENCIES_URL);

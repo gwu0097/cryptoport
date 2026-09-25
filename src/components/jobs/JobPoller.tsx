@@ -32,11 +32,12 @@ interface WalletJobRow {
 
 interface JobStatusResponse {
   wallets: WalletJobRow[];
-  // phases: per-lane (CoinGecko/Coinbase-Jupiter/EVM) running/done/error +
-  // elapsed ms, written progressively as each lane actually finishes (see
-  // prices.ts's refreshPrices) — what lets this provider notify as soon as
-  // the fast CoinGecko lane lands, instead of waiting for the whole row's
-  // `status` to flip once the slower Coinbase/Jupiter lane is also done.
+  // phases: per-lane (coingecko/jupiter/hyperliquid/coinbase) running/
+  // done/error + elapsed ms, written progressively as each lane finishes
+  // (wallets/actions.ts's runPriceRefresh) — what lets this provider
+  // notify as each lane lands, instead of only once the whole row's
+  // `status` flips. (asset_prices itself is written once, after every
+  // lane is done — see assetPrices.ts's refreshAssetPrices.)
   priceRefresh: (JobStatusRow & { phases: PriceRefreshPhases | null }) | null;
   tokenRegistry: JobStatusRow | null;
 }
@@ -108,9 +109,10 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   const lastRunningKeysRef = useRef<Set<string>>(new Set());
   // Per-lane status as of the last poll (price_refresh_state.phases) —
   // separate from lastAnyRunningRef's single aggregate boolean, since a
-  // price refresh's 3 lanes finish at genuinely different times and each
+  // price refresh's 4 lanes finish at genuinely different times and each
   // one landing should refresh the page on its own, not just once every
-  // lane is done. Keyed by phase name ("coingecko", "coinbase", "evm").
+  // lane is done. Keyed by phase name ("coingecko", "jupiter",
+  // "hyperliquid", "coinbase").
   const lastPhaseStatusRef = useRef<Record<string, string | undefined>>({});
   const [minPollMs, setMinPollMs] = useState<number | null>(null);
   // Increments on every poll (and every visibility-driven refresh) so
@@ -198,9 +200,9 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       setTick((t) => t + 1);
 
       // Two independent triggers, not mutually exclusive: a lane finishing
-      // mid-refresh notifies immediately (this is the whole point — prices
-      // that are already correct in the DB shouldn't sit unrendered for
-      // however long the slowest remaining lane takes), and the job as a
+      // mid-refresh notifies immediately (keeps the per-lane progress
+      // live; the prices themselves only land in asset_prices once every
+      // lane is done, see refreshAssetPrices), and the job as a
       // whole finishing notifies again as the final, definitely-complete
       // signal. Calling notifyJobsComplete() more than once in the same
       // tick (both can fire together, e.g. the last lane finishing) is

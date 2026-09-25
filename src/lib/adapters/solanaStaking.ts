@@ -8,7 +8,7 @@ import type { AdapterHolding } from "./types";
 const STAKE_PROGRAM = "Stake11111111111111111111111111111111111111";
 // Same wrapped-SOL mint jupiterPositions.ts's resolveAsset uses to look up
 // SOL's own icon — reused here via the already-exported fetchTokenInfo
-// (originally exported for prices.ts's Jupiter-fallback path) rather than
+// (also assetPrices.ts's jupiter pricing lane) rather than
 // hardcoding an icon URL or adding a second API call for it.
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 // StakeStateV2's own 4-byte enum discriminant for the "Stake" (delegated)

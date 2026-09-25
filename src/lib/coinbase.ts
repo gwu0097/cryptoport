@@ -54,10 +54,11 @@ export function isDelistedProduct(json: unknown): boolean {
 
 /** Distinguishes "Coinbase confirms this product is permanently delisted"
  * from every other failure (network blip, a ticker Coinbase never listed,
- * ...) — see prices.ts's refreshPrices, which only lets a *delisted*
- * failure override its "never let Jupiter overwrite an established
- * Coinbase price" rule (a spam token sharing a real ticker's symbol
- * shouldn't hijack that price just because Coinbase had a bad moment). */
+ * ...) — thrown by fetchCoinbaseSpotPrice so a delisted product's frozen
+ * last-trade value is never stored as live. assetPrices.ts's coinbase lane
+ * records it as that `coinbase:<TICKER>` key's error, like any other
+ * failure (asset_prices keeps the last real price, never overwritten
+ * with null). */
 export class CoinbaseDelistedError extends Error {}
 
 async function assertProductTradable(ticker: string): Promise<void> {

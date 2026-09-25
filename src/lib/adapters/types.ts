@@ -33,8 +33,9 @@ export interface AdapterHolding {
   protocol_url?: string | null;
   /** Overrides the ticker text shown in the UI (e.g. "Perps Withdrawable",
    * "Hyperliquidity Provider (HLP)") without changing `ticker` itself —
-   * `ticker` stays the real asset symbol (still "USDC") so ticker-keyed
-   * grouping/pricing (the Assets page, prices.ts) is unaffected; several
+   * `ticker` stays the real asset symbol (still "USDC") so ticker grouping
+   * (the Assets page) and a venue's ticker -> price_key mapping
+   * (exchange_assets) are unaffected; several
    * distinct balances can legitimately share one ticker while needing
    * different on-screen labels (Hyperliquid's cross-margin "Available" vs
    * "Withdrawable" USDC, or a vault's own name, are both still just USDC).

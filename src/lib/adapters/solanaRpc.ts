@@ -28,7 +28,7 @@ const RPC_URL = HELIUS_API_KEY
 // Solana RPC's own hard limit on how many pubkeys getMultipleAccounts
 // accepts per call — not a tunable, a protocol constant.
 const MAX_ACCOUNTS_PER_CALL = 100;
-// Same rate-limit caution as prices.ts's COINBASE_CONCURRENCY — bounds how
+// Same rate-limit caution as every other capped free-API fan-out — bounds how
 // many chunk-fetches getMultipleAccounts itself tries to have in flight;
 // see RPC_CONCURRENCY below for the *global* gate that actually matters.
 const ACCOUNTS_CONCURRENCY = 4;

@@ -86,9 +86,9 @@ export interface LookupResult extends ValuatedHoldings {
  * (fetchEvmHoldings / fetchJupiterHoldings / fetchBitcoinHoldings /
  * fetchCardanoHoldings). Nothing is written to the database: no wallet
  * row, no holdings row, so this can't collide with (or accidentally add
- * to) the user's actual saved portfolio. Pricing still uses the shared,
- * already-cached `prices` table (read-only) rather than fetching prices
- * live, same as any other holding rendered elsewhere in the app.
+ * to) the user's actual saved portfolio. Priced like any wallet: each
+ * holding's price_key, any key without a fresh asset_prices row priced
+ * now (ensureAssetPrices), then qty × that one price.
  */
 export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   const address = rawAddress.trim();

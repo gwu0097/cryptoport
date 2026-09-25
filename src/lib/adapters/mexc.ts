@@ -71,7 +71,7 @@ export async function fetchMexcBalances(
     holdings.push({
       ticker: b.asset.toUpperCase(),
       qty,
-      usd_override: null, // priced via the existing ticker-keyed path, same as Coinbase/Kraken/Gemini's spot balances
+      usd_override: null, // priced from asset_prices by its price_key (exchange_assets maps the ticker), same as Coinbase/Kraken/Gemini's spot balances
       contract: null,
       category: "token",
       chain: "mexc",

@@ -32,8 +32,8 @@ import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 
 
-// Prices are global (touches the shared `prices` table plus every EVM
-// holding's usd_override — never just one wallet), so every page that
+// Prices are global (one shared asset_prices row per price_key — never
+// just one wallet), so every page that
 // shows a price needs revalidating, not just /wallets.
 function revalidateAllPriceConsumers() {
   revalidatePath("/wallets");
@@ -139,7 +139,8 @@ function scheduleUserSnapshot(userId: string, extraPaths: string[] = []) {
  * Same after() pattern as syncWalletHoldings, for the same reason: a real
  * refresh (517 distinct pricing operations on this app's own largest
  * portfolio, measured at ~30s before this app's pricing pipeline was
- * redesigned around CoinGecko, ~9s now — see prices.ts) used to be awaited
+ * redesigned around CoinGecko, ~9s later — see assetPrices.ts's
+ * refreshAssetPrices for today's one-pass version) used to be awaited
  * directly here, which froze every other click app-wide until it finished
  * (Server Actions and client-side navigations share one sequential
  * dispatch queue per client — see CLAUDE.md's Loading feedback section).
@@ -402,10 +403,10 @@ export async function addHolding(walletId: string, formData: FormData) {
   const kind = requireOneOf(formData, "kind", HOLDING_KINDS);
   // Set only when the coin picker (CoinSearchInput, in AddHoldingModal) was
   // actually used — a plain typed ticker with nothing picked leaves both
-  // null, same as before this existed. See priceKey.ts's resolveCoingeckoKey
-  // for why this is the one thing that lets a manual holding resolve to a
-  // safe, collision-proof price instead of a bare-ticker Coinbase/Jupiter
-  // lookup (the DOG-vs-DOG bug this exists to fix).
+  // null, same as before this existed. It becomes the holding's price_key
+  // (assetIdentity.ts's manual_qty branch) — the one thing that gives a
+  // manual holding a collision-proof price; with no pick it would be
+  // unpriced, never priced by ticker (the DOG-vs-DOG bug this exists to fix).
   const coingeckoId = optionalString(formData, "coingecko_id");
   const iconUrl = optionalString(formData, "icon_url");
   // A quantity is priced as qty × its coin's price: it needs the exact coin
@@ -459,9 +460,9 @@ export async function addHolding(walletId: string, formData: FormData) {
   // once some *other* action happened to refresh the page. A single new
   // ticker's price lookup is small/bounded (one CoinGecko/Coinbase call),
   // not the kind of multi-second work after() exists to avoid blocking
-  // on. usd_override holdings never need pricing at all (valuation.ts
-  // bypasses the `prices` table for them entirely), so skip this for
-  // those — nothing for it to price.
+  // on. A fixed-USD holding never needs pricing at all (no price_key —
+  // valuation.ts uses its stored usd_override), so skip this for those —
+  // nothing for it to price.
   if (kind !== "usd") await ensureAssetPrices([coingeckoId], "manual").catch(() => {});
 
   revalidatePath(`/wallets/${walletId}`);

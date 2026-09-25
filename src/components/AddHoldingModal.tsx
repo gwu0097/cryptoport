@@ -14,7 +14,7 @@ import type { CoinSearchResult } from "@/lib/adapters/coingecko";
  * "+ Add holding" as a popup (see ui/Dialog.tsx) rather than two
  * always-visible panels at the bottom of the wallet page — keeps the page
  * itself to just the wallet's actual holdings. Both entry modes (by
- * quantity, priced live off the shared ticker table; by a fixed USD value,
+ * quantity, priced as the picked coin (its price_key); by a fixed USD value,
  * bypassing pricing entirely) live in the same popup rather than two
  * separate buttons, matching how they were already presented side by side.
  *
@@ -23,8 +23,8 @@ import type { CoinSearchResult } from "@/lib/adapters/coingecko";
  * nothing about that path changes — but picking a result also stashes that
  * coin's coingecko_id/icon_url in hidden inputs, submitted alongside the
  * ticker. addHolding stores them on the holding, which is what lets
- * priceKey.ts resolve a manual holding to a real, collision-safe price
- * instead of a bare-ticker Coinbase/Jupiter lookup — a manual holding has
+ * a manual holding carry a real, collision-safe price_key (without one it
+ * would be unpriced, never priced by ticker) — a manual holding has
  * no chain to infer an identity from otherwise (fixes a real bug: a
  * manually-added "DOG" Bitcoin Rune was priced off Coinbase's own
  * unrelated "DOG"). Same insert gets a real icon instead of the ticker-

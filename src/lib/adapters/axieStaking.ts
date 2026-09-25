@@ -64,11 +64,9 @@ async function readAmount(
  * (claimable) are genuinely different things, same "keep principal and
  * rewards visually distinct" treatment as jitoMevRewards.ts.
  *
- * Priced via CoinGecko's contract-keyed lookup (chain.coingeckoPlatform
- * "ronin" + AXS's real contract), the same mechanism multicallEvm.ts uses
- * for every other EVM contract token — never the shared ticker-table path,
- * for the same collision-safety reason every other DeFi-position adapter
- * in this app avoids it.
+ * Priced by its contract ("ronin" + AXS's real contract -> token_registry
+ * -> CoinGecko id price_key), the same way as every other EVM contract
+ * token — never by ticker, for collision safety.
  */
 export async function fetchAxieStaking(address: Address): Promise<AdapterHolding[]> {
   const client = createPublicClient({ transport: http(RPC_URL) });
@@ -82,8 +80,7 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
 
   // A price/icon failure (CoinGecko 429) keeps the position, unpriced —
   // it used to throw and drop 385 AXS from the wallet entirely
-  // (2026-09-24). Refresh prices' EVM lane (refreshEvmHoldingPrices)
-  // re-prices these rows later by (chain, contract, qty).
+  // (2026-09-24).
   // Priced by its asset key after the sync (docs/pricing/PLAN.md) — no
   // sync-time price call.
   const images = await fetchTokenImages([AXS_COINGECKO_ID]).catch(() => new Map<string, string>());

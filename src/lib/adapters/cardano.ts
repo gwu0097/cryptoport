@@ -141,9 +141,8 @@ async function resolveAndFetch(addressOrStake: string): Promise<{ lovelace: numb
  * either a stake address (stake1...) directly, or a payment address
  * (addr1...) whose stake address is derived offline (see
  * deriveStakeAddress) — an address type with no inline staking credential
- * falls back to that one address's own balance. Priced via the shared
- * ticker-keyed `prices` table (usd_override: null) — Coinbase already
- * lists ADA-USD.
+ * falls back to that one address's own balance. Priced from asset_prices
+ * as the chain's native coin (price_key "cardano", usd_override: null).
  *
  * No caching here (this is the plain, ephemeral-lookup interface, same as
  * bitcoin.ts's fetchBitcoinHoldings) — see fetchCardanoHoldingsForSync for

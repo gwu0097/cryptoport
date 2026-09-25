@@ -71,10 +71,10 @@ export async function fetchSkrStaking(address: string): Promise<AdapterHolding[]
       ticker: "SKR",
       qty,
       usd_override: null,
-      // contract+chain (not a bare "SKR" ticker) routes this through the
-      // safe CoinGecko contract-keyed price path — NON_EVM_PLATFORM_IDS
-      // maps "solana-defi" to CoinGecko's "solana" platform (priceKey.ts)
-      // — rather than a risky bare-ticker Coinbase/Jupiter lookup. Same
+      // contract+chain (not a bare "SKR" ticker) gives this a contract-
+      // based price_key — token_registry's CoinGecko id ("solana-defi"
+      // reads as "solana", assetIdentity.ts), else `jup:<mint>` — never a
+      // price by ticker. Same
       // fix-class this session already shipped once for a real bug (a
       // manually-added "DOG" mispriced off Coinbase's own unrelated
       // "DOG" — see coinbase.ts/priceKey.ts's coingecko_id branch).

@@ -37,12 +37,12 @@ export async function GET() {
         "id, last_refresh_status, sync_started_at, tx_sync_status, tx_sync_started_at, defi_sync_status, defi_sync_started_at, exchange_sync_status, exchange_sync_started_at",
       )
       .eq("active", true),
-    // phases (per-lane running/done/error + elapsed ms — see prices.ts's
-    // refreshPrices) is read here too, not just status/started_at: it's
-    // what lets JobPoller.tsx trigger a real, live page refresh as soon as
-    // the fast CoinGecko lane finishes, rather than waiting for the whole
-    // row's status to flip once the slower Coinbase/Jupiter lane is also
-    // done — see that file's own doc comment.
+    // phases (per-lane coingecko/jupiter/hyperliquid/coinbase running/
+    // done/error + elapsed ms — written by wallets/actions.ts's
+    // runPriceRefresh) is read here too, not just status/started_at: it's
+    // what lets JobPoller.tsx refresh the page as each lane finishes,
+    // rather than only once the whole row's status flips — see that
+    // file's own doc comment.
     serviceDb().from("price_refresh_state").select("status, started_at, phases").eq("id", 1).maybeSingle(),
     serviceDb().from("token_registry_state").select("status, started_at").eq("id", 1).maybeSingle(),
   ]);

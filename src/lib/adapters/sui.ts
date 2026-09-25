@@ -114,31 +114,23 @@ function realIconUrl(iconUrl: string | null): string | null {
  * connection (Sui GraphQL) enumerates every coin type Sui tracks for it;
  * `coinMetadata` resolves each type's symbol/decimals/icon.
  *
- * Non-native coins are priced the same way multicallEvm.ts prices EVM
- * tokens: a real per-*contract* CoinGecko lookup (fetchTokenPrices against
- * the "sui" asset platform, live-verified against this wallet's real coin
- * types — resolved USDC/AUSD/S/BLUE/SCB/TARDI correctly, including "S",
- * which is priced at its own ~$0.0001 rather than colliding with an
- * unrelated asset that happens to share that short ticker). This is
- * deliberately NOT a self-reported-symbol stablecoin pin (the earlier draft
- * of this fix trusted `meta.symbol === "USDC"`, which is exactly the
- * spoofed-token shape CLAUDE.md's Data Correctness rule warns about — a
- * coin's publisher controls its own symbol string, not CoinGecko).
+ * Non-native coins are priced by contract, the same way as EVM tokens: the
+ * coin type is looked up in token_registry (CoinGecko's "sui" platform) to
+ * get its price_key, so "S" is priced as its own coin (~$0.0001) rather
+ * than colliding with an unrelated asset that happens to share that short
+ * ticker. This is deliberately NOT a self-reported-symbol stablecoin pin
+ * (the earlier draft of this fix trusted `meta.symbol === "USDC"`, which is
+ * exactly the spoofed-token shape CLAUDE.md's Data Correctness rule warns
+ * about — a coin's publisher controls its own symbol string, not
+ * CoinGecko).
  *
- * KNOWN GAP, same one valuation.ts already documents for Solana SPL
- * balances: a coin type CoinGecko can't price by contract (seen live: a
- * few genuinely obscure ones — SuiReward, GMB, a coin literally named
- * "TOKEN") falls through to the shared ticker-keyed `prices` table, same
- * collision risk as any other unpriced-by-contract token. Not closed here
- * for the same reason it isn't closed for Solana: excluding a holding from
- * that fallback entirely is a valuation.ts design change, not a one-line
- * patch. In practice this only affects long-tail/illiquid coins with no
- * CoinGecko contract listing at all.
+ * A coin type CoinGecko doesn't list (seen live: a few genuinely obscure
+ * ones — SuiReward, GMB, a coin literally named "TOKEN") gets no price_key
+ * and shows unpriced ("—"), never a price borrowed from a same-ticker
+ * asset (assetIdentity.ts's resolvePriceKey).
  *
- * Native SUI itself is unchanged — still priced via the existing
- * ticker-keyed `prices` table (SUI is CoinGecko's platform's own native
- * asset, not a candidate for a ticker collision the way an arbitrary
- * third-party coin type is).
+ * Native SUI itself is priced as the chain's native coin (CoinGecko id
+ * "sui").
  */
 export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[]> {
   const balances = await fetchBalances(address);

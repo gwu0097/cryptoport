@@ -133,10 +133,10 @@ interface ZerionPosition {
  * burn through it fast for no benefit (DeFi positions don't change nearly
  * as often as someone clicks "Sync").
  *
- * usd_override is Zerion's own resolved value, never the shared ticker
- * table — same treatment as every other DeFi-position adapter in this app
- * (Kamino, Meteora, Hyperliquid, ...), and for the same reason: a position
- * has no single safe ticker-table lookup the way a plain balance does.
+ * usd_override is Zerion's own resolved value, used only as the stored
+ * fallback: each row is one coin's quantity in a protocol, so it's priced
+ * by its coin's price_key like any other holding when one resolves
+ * (assetIdentity.ts's isPositionValue), and by this value otherwise.
  */
 const SECTIONS: Record<string, string> = {
   deposit: "Deposit",

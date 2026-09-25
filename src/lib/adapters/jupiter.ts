@@ -64,8 +64,9 @@ export interface JupiterTokenInfo {
    * needed (unlike EVM, where icons come from a separate CoinGecko call). */
   icon?: string;
   /** Also free — same response already carries 24h/6h/1h/5m stats; only
-   * the 24h price change is used (see prices.ts's Jupiter-fallback pricing
-   * path), the rest isn't captured here since nothing in this app uses it. */
+   * the 24h price change is used (see assetPrices.ts's jupiter lane, which
+   * prices `jup:<mint>` keys), the rest isn't captured here since nothing
+   * in this app uses it. */
   stats24h?: { priceChange?: number };
 }
 
@@ -87,7 +88,8 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-/** Exported for reuse by prices.ts's Jupiter-fallback pricing path. */
+/** Exported for assetPrices.ts's jupiter lane (prices `jup:<mint>` keys)
+ * and solanaStaking.ts's SOL icon lookup. */
 export async function fetchTokenInfo(mints: string[]): Promise<Map<string, JupiterTokenInfo>> {
   if (mints.length === 0) return new Map();
   const info = new Map<string, JupiterTokenInfo>();
