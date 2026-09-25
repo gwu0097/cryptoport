@@ -439,7 +439,7 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                                   <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                                     {holding.chainName}
                                   </span>
-                                  {group.combinedTickers && holding.ticker.toUpperCase() !== group.tickerKey && (
+                                  {group.combinedTickers && holding.ticker.toUpperCase() !== group.ticker.toUpperCase() && (
                                     <span className="ml-1 rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted sm:hidden">
                                       {holding.ticker}
                                     </span>

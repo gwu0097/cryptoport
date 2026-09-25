@@ -59,7 +59,11 @@ export function inferBase(symbol: string, candidates: Iterable<string>): string 
   return best;
 }
 
-/** tickerKey of each liquid staking group → tickerKey of its base coin. */
+/** tickerKey of each liquid staking group → tickerKey of its base coin.
+ * Symbols are matched on each row's display symbol (`ticker`), and the base
+ * is returned as its row key — rows are keyed by coin (price_key) since
+ * pricing phase 2, so a key ("cosmos") and its symbol ("ATOM") differ. A
+ * base coin no row holds is returned as its symbol (a new row for it). */
 export function resolveBases(groups: AssetGroup[], tokens: LiquidStakingToken[]): Map<string, string> {
   const byId = new Map(tokens.map((t) => [t.coingeckoId, t]));
   const bySymbol = new Map<string, LiquidStakingToken[]>();
@@ -67,18 +71,21 @@ export function resolveBases(groups: AssetGroup[], tokens: LiquidStakingToken[])
     const k = t.symbol.toUpperCase();
     bySymbol.set(k, [...(bySymbol.get(k) ?? []), t]);
   }
+  const symbolOf = (g: AssetGroup) => g.ticker.toUpperCase();
 
   const matched = new Map<string, LiquidStakingToken[]>();
   for (const g of groups) {
     const byIdHit = g.coingeckoId ? byId.get(g.coingeckoId) : undefined;
-    const hits = byIdHit ? [byIdHit] : (bySymbol.get(g.tickerKey) ?? []);
+    const hits = byIdHit ? [byIdHit] : (bySymbol.get(symbolOf(g)) ?? []);
     if (hits.length > 0) matched.set(g.tickerKey, hits);
   }
   // Coins a generic token can fold into: held, and not themselves staking
-  // tokens (wstETH must find ETH, not stETH).
-  const held = groups.map((g) => g.tickerKey).filter((k) => !matched.has(k));
-  const heldSet = new Set(held);
-  const renamed = (b: string) => (!heldSet.has(b) && RENAMED[b] && heldSet.has(RENAMED[b]) ? RENAMED[b] : b);
+  // tokens (wstETH must find ETH, not stETH). Symbol -> the row holding it.
+  const keyBySymbol = new Map<string, string>();
+  for (const g of groups) if (!matched.has(g.tickerKey) && !keyBySymbol.has(symbolOf(g))) keyBySymbol.set(symbolOf(g), g.tickerKey);
+  const held = [...keyBySymbol.keys()];
+  const renamed = (b: string) => (!keyBySymbol.has(b) && RENAMED[b] && keyBySymbol.has(RENAMED[b]) ? RENAMED[b] : b);
+  const symbolByKey = new Map(groups.map((g) => [g.tickerKey, symbolOf(g)]));
 
   const out = new Map<string, string>();
   for (const [key, hits] of matched) {
@@ -90,8 +97,8 @@ export function resolveBases(groups: AssetGroup[], tokens: LiquidStakingToken[])
       }),
     );
     const [base] = bases;
-    if (bases.size !== 1 || !base || base === key) continue;
-    out.set(key, base);
+    if (bases.size !== 1 || !base || base === symbolByKey.get(key)) continue;
+    out.set(key, keyBySymbol.get(base) ?? base);
   }
   return out;
 }

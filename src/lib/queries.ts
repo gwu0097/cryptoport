@@ -173,6 +173,60 @@ export const getPriceMap = cache(async (): Promise<PriceMap> => {
   }
 });
 
+export interface AssetStats {
+  usd: number | null;
+  change1h: number | null;
+  change24h: number | null;
+  change7d: number | null;
+  change30d: number | null;
+  marketCap: number | null;
+  updatedAt: string | null;
+  symbol: string | null;
+  name: string | null;
+  imageUrl: string | null;
+}
+
+/** price_key -> the asset's one price, its 1h/24h/7d/30d change, market cap
+ * and display info (asset_prices + assets) — what every asset row shows
+ * (docs/pricing/PLAN.md). Cached per request. */
+export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>> => {
+  const out = new Map<string, AssetStats>();
+  const num = (v: unknown) => parseNumeric(v as number | string | null);
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await serviceDb()
+      .from("asset_prices")
+      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, updated_at")
+      .order("price_key")
+      .range(from, from + 999);
+    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
+    for (const r of data as Record<string, unknown>[]) {
+      out.set(r.price_key as string, {
+        usd: num(r.usd),
+        change1h: num(r.change_1h),
+        change24h: num(r.change_24h),
+        change7d: num(r.change_7d),
+        change30d: num(r.change_30d),
+        marketCap: num(r.market_cap),
+        updatedAt: (r.updated_at as string | null) ?? null,
+        symbol: null,
+        name: null,
+        imageUrl: null,
+      });
+    }
+    if (data.length < 1000) break;
+  }
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await serviceDb().from("assets").select("price_key, symbol, name, image_url").order("price_key").range(from, from + 999);
+    if (error) throw new Error(`Failed to load assets: ${error.message}`);
+    for (const r of data as { price_key: string; symbol: string | null; name: string | null; image_url: string | null }[]) {
+      const s = out.get(r.price_key);
+      if (s) Object.assign(s, { symbol: r.symbol, name: r.name, imageUrl: r.image_url });
+    }
+    if (data.length < 1000) break;
+  }
+  return out;
+});
+
 /** Legacy ticker -> price (the `prices` table). Only transactions still use
  * it (their rows have no price_key yet — pricing plan phase 3). */
 export const getTickerPriceMap = cache(async (): Promise<Record<string, number | string | null>> => {
@@ -707,11 +761,12 @@ export interface AssetsByTickerResult {
  * comment for the pattern this follows. */
 export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promise<AssetsByTickerResult> {
   if (!opts && !(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, priceStats, contractStats] = await Promise.all([
+  const [rows, prices, priceStats, contractStats, assetStats] = await Promise.all([
     getActiveWalletsWithHoldings(opts),
     getPriceMap(),
     getPriceStatsMap(),
     getContractStatsMap(),
+    getAssetStatsMap(),
   ]);
 
   const byTicker = new Map<string, AssetGroup>();
@@ -725,20 +780,25 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
         ...holding,
         valuation,
         price: effectivePrice(holding, prices),
-        change24h: resolveChange24h(holding, priceStats, contractStats),
+        change24h: (holding.price_key ? assetStats.get(holding.price_key)?.change24h : null) ?? resolveChange24h(holding, priceStats, contractStats),
         walletId: wallet.id,
         walletName: wallet.name,
         chainId,
         chainName: chainDisplayName(chainId),
       };
 
-      const key = holding.ticker.toUpperCase();
+      // One row per asset (docs/pricing/PLAN.md): keyed by the coin a
+      // holding is priced as, so native USDC on 8 chains is one row and
+      // bridged USDC.e its own. Holdings with no asset (protocol positions,
+      // unmapped tokens) still group by ticker.
+      const key = holding.price_key ?? `ticker:${holding.ticker.toUpperCase()}`;
+      const asset = holding.price_key ? assetStats.get(holding.price_key) : undefined;
       let group = byTicker.get(key);
       if (!group) {
         group = {
           tickerKey: key,
-          ticker: formatTicker(holding.ticker),
-          iconUrl: null,
+          ticker: formatTicker(asset?.symbol ?? holding.ticker),
+          iconUrl: asset?.imageUrl ?? null,
           totalQty: null,
           total: 0,
           unpricedCount: 0,
@@ -752,6 +812,20 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
           holdings: [],
         };
         byTicker.set(key, group);
+        // An asset row shows the asset's one price and stats — no per-
+        // holding picking or mixing sources (Infinity: nothing overrides).
+        if (asset && asset.usd !== null) {
+          Object.assign(group, {
+            price: asset.usd,
+            change1h: asset.change1h,
+            change24h: asset.change24h,
+            change7d: asset.change7d,
+            change30d: asset.change30d,
+            marketCap: asset.marketCap,
+          });
+          picks.set(key, { price: Infinity, stats: Infinity });
+        }
+        if (holding.price_key && !holding.price_key.includes(":")) group.coingeckoId = holding.price_key;
       }
 
       group.holdings.push(entry);
@@ -806,7 +880,7 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
         group.change30d = change30d ?? group.change30d;
         group.marketCap = marketCap ?? group.marketCap;
         pick.stats = weight;
-      } else {
+      } else if (pick.stats !== Infinity) {
         // Windows the chosen holding lacks, from any other holding.
         if (group.change1h === null && change1h != null) group.change1h = change1h;
         if (group.change7d === null && change7d != null) group.change7d = change7d;

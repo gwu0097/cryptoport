@@ -104,3 +104,16 @@ test("consolidate: staked tokens without their base coin still get a base row; n
   const groups = [group("ETH", { usd: [1] })];
   assert.equal(consolidateLiquidStaking(groups, new Map()), groups);
 });
+
+test("rows keyed by coin id (pricing phase 2): symbols still match on the display ticker, bases come back as row keys", () => {
+  const groups = [
+    group("ETH", { tickerKey: "ethereum" }),
+    group("ATOM", { tickerKey: "cosmos" }),
+    group("stETH", { tickerKey: "staked-ether", coingeckoId: "staked-ether" }),
+    group("stATOM", { tickerKey: "stride-staked-atom", coingeckoId: "stride-staked-atom" }),
+  ];
+  const bases = resolveBases(groups, [lst("staked-ether", "steth", "ETH"), lst("stride-staked-atom", "statom")]);
+  assert.deepEqual(Object.fromEntries(bases), { "staked-ether": "ethereum", "stride-staked-atom": "cosmos" });
+  const out = consolidateLiquidStaking(groups, bases);
+  assert.deepEqual(out.map((g) => g.tickerKey).sort(), ["cosmos", "ethereum"]);
+});
