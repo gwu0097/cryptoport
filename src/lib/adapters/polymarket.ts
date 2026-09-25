@@ -1,4 +1,5 @@
 import "server-only";
+import { stablecoinFallbackUsd } from "../stablecoinFallback";
 import { createPublicClient, http, formatUnits, encodeFunctionData, decodeFunctionResult, type Address } from "viem";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
@@ -117,7 +118,7 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
     holdings.push({
       ticker: "PUSD",
       qty: pusdBalance,
-      usd_override: pusdBalance, // 1:1 USDC-redeemable, same pin pattern as Hyperliquid's stablecoins
+      usd_override: stablecoinFallbackUsd("PUSD", pusdBalance), // $1 fallback only; priced by its key first
       contract: PUSD_CONTRACT,
       category: "defi",
       chain: "polymarket",

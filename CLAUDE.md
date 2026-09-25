@@ -163,9 +163,11 @@ else the row's stored `usd_override`, else unpriced. `usd_override` is for
 position values a protocol computes (LP, perps, Kamino, prediction shares,
 vaults) and manual dollar entries. No sync path prices a coin row from the
 app's own price tables. Some protocol adapters still stamp the source's own
-valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts`, `hyperliquid.ts`
-(spot stablecoins), `polymarket.ts` (PUSD deposits), `jupiterPositions.ts`
-(limit orders) — and `valueHolding` uses it only when the row's key has no price.
+valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts`,
+`jupiterPositions.ts` (limit orders) — and `valueHolding` uses it only when the
+row's key has no price. **A $1-per-unit value is allowed only for the
+stablecoins in `src/lib/stablecoinFallback.ts`** (Hyperliquid and Polymarket
+dollar balances), as a last resort; any other coin without a price shows "—".
 
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly

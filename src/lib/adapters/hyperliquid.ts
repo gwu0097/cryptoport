@@ -1,4 +1,5 @@
 import "server-only";
+import { stablecoinFallbackUsd } from "../stablecoinFallback";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
@@ -16,10 +17,6 @@ const BASE_URL = "https://api.hyperliquid.xyz/info";
 // before this check would even run) — kept anyway so that stays true by
 // construction rather than by an incidental chain-mapping gap.
 export const ZERION_PROTOCOL_NAMES = ["hyperliquid"];
-// Verified against real Hyperliquid balances (see commit message): only
-// these three can be taken at exactly $1. Everything else on the spot
-// account needs a real price or must be left unpriced — never guessed.
-const STABLECOINS = new Set(["USDC", "USDT0", "USDE"]);
 
 interface HyperliquidPosition {
   coin: string;
@@ -149,7 +146,8 @@ export async function fetchHyperliquidHoldings(
     holdings.push({
       ticker: balance.coin,
       qty: free,
-      usd_override: STABLECOINS.has(balance.coin) ? free : null,
+      // $1 fallback for listed stablecoins only (priced by their key first).
+      usd_override: stablecoinFallbackUsd(balance.coin, free),
       contract: null,
       category: "defi",
       chain: "hyperliquid",
@@ -165,7 +163,7 @@ export async function fetchHyperliquidHoldings(
     holdings.push({
       ticker: "USDC",
       qty: withdrawable,
-      usd_override: withdrawable,
+      usd_override: stablecoinFallbackUsd("USDC", withdrawable),
       contract: null,
       category: "defi",
       chain: "hyperliquid",
@@ -183,7 +181,7 @@ export async function fetchHyperliquidHoldings(
     holdings.push({
       ticker: "USDC",
       qty: available,
-      usd_override: available,
+      usd_override: stablecoinFallbackUsd("USDC", available),
       contract: null,
       category: "defi",
       chain: "hyperliquid",
@@ -253,7 +251,7 @@ export async function fetchHyperliquidHoldings(
     holdings.push({
       ticker: "USDC",
       qty: unclaimed,
-      usd_override: unclaimed,
+      usd_override: stablecoinFallbackUsd("USDC", unclaimed),
       contract: null,
       category: "defi",
       chain: "hyperliquid",
