@@ -51,8 +51,8 @@ function ChainRow({ row, total, barScale, hidden, detail = false }: { row: Row; 
         </span>
       </span>
       <span className="flex items-baseline justify-end gap-2 tabular-nums">
-        <span className="hidden text-xs text-fg-muted sm:inline">{hidden ? MASK : formatUsd(row.total)}</span>
-        <span className="w-12 text-right text-sm text-fg-muted">{formatShare(row.total, total)}</span>
+        <span className="text-xs text-fg-muted">{hidden ? MASK : formatUsd(row.total)}</span>
+        <span className="w-11 text-right text-xs text-fg-muted sm:w-12 sm:text-sm">{formatShare(row.total, total)}</span>
       </span>
       {detail && (
         <span className="col-span-3 -mt-2 text-xs text-fg-muted">
@@ -65,7 +65,8 @@ function ChainRow({ row, total, barScale, hidden, detail = false }: { row: Row; 
   );
 }
 
-const GRID = "grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-x-3 gap-y-3";
+// Narrower name column on phones so the $ figure fits beside the bar.
+const GRID = "grid grid-cols-[minmax(0,6.5rem)_1fr_auto] items-center gap-x-2 gap-y-3 sm:grid-cols-[minmax(0,9rem)_1fr_auto] sm:gap-x-3";
 
 function toRow(c: ChainAllocation, icons: Record<string, string>): Row {
   return { key: c.chainId, name: c.chainName, icon: icons[c.chainId] ?? null, total: c.total, byType: c.byType };

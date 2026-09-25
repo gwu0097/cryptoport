@@ -169,7 +169,7 @@ export function CoinAllocationChart({ groups, total, className = "mb-4" }: { gro
 
         {/* A grid sized to its content, not a fixed-width list with
             justify-between, so the name sits right next to its figures. */}
-        <ul className="grid w-full max-w-xs min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto] @md:flex-1">
+        <ul className="grid w-full max-w-xs min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-2 text-sm sm:gap-x-4 @md:flex-1">
           {slices.map((s) => (
             <li key={s.key} className="contents">
               <span className="flex min-w-0 items-center gap-2">
@@ -183,7 +183,7 @@ export function CoinAllocationChart({ groups, total, className = "mb-4" }: { gro
                 )}
                 <span className="truncate text-fg">{s.label}</span>
               </span>
-              <span className="hidden text-right text-xs tabular-nums text-fg-muted sm:block">{hidden ? MASK : formatUsd(s.usd)}</span>
+              <span className="text-right text-xs tabular-nums text-fg-muted">{hidden ? MASK : formatUsd(s.usd)}</span>
               <span className="text-right tabular-nums text-fg-muted">{formatShare(s.usd, total)}</span>
             </li>
           ))}
