@@ -397,6 +397,16 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   before writing code. For multi-step work, write a plan doc like
   `docs/pricing/PLAN.md`: goal, decisions, phases, and a verification gate per
   phase.
+- **Design a core subsystem before building it** (pricing, balance discovery,
+  sync, identity — anything other features will stand on). The design doc must
+  answer: how 2–3 leading products solve the same problem (Zerion, DeBank,
+  Rabby, CoinGecko…) and what their unit of truth is; which existing service
+  already provides it (an indexer API before our own scanning); how it holds
+  up at 10× the users, chains and tokens, and for a user whose assets look
+  nothing like the owner's; what fails and how that shows. Fable reviews the
+  doc before code. Building the simplest thing that works for the data at hand
+  and growing it caused the pricing, DeFi-sync and chain-scan rewrites of
+  2026-09-25. (DECISIONS: 2026-09-25 design before building)
 
 ## 9. Process and git
 

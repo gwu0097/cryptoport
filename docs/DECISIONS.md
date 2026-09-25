@@ -9,6 +9,20 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-25 — Design a core subsystem before building it
+
+In one day three core pieces were rebuilt after their first design hit its
+limit: pricing (ticker-keyed stores → one price per asset), DeFi (a separate
+sync → part of the wallet sync, receipt dedupe), and balance discovery (a
+fixed chain list × CoinGecko's token list → the detect-then-scan / indexer
+redesign). Each first version was the simplest thing that worked for the owner's
+data; the owner asked "how do we reach this design from the start". Leading
+products (Zerion, DeBank/Rabby) use indexers and "chains this address used"
+detection — known patterns we reached late. Pricing went smoothly because it had
+a researched plan and a Fable review first; the others didn't. Hence the
+CLAUDE.md rule: research how the leaders do it, prefer an existing service,
+stress-test at 10×, Fable-review the doc, then build.
+
 ## 2026-09-25 — DeFi positions are part of the wallet sync; receipts count once
 
 BizNFT showed ~$5,350 more than DeBank. Two double counts: Hyperliquid perps
