@@ -10,6 +10,18 @@ import { contractKey, resolvePriceKey, venueKey, type KeyInput, type KeyMaps } f
 
 const REGISTRY_CHAIN: Record<string, string> = { "solana-defi": "solana" };
 
+/** Every row of a mapping table, paged in its primary-key order (a unique
+ * sort, so pages never skip or repeat a row). */
+async function readAll<T>(table: string, columns: string, key: [string, string]): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await serviceDb().from(table).select(columns).order(key[0]).order(key[1]).range(from, from + 999);
+    if (error) throw new Error(`Failed to read ${table}: ${error.message}`);
+    out.push(...(data as T[]));
+    if (data.length < 1000) return out;
+  }
+}
+
 export async function loadKeyMaps(rows: KeyInput[]): Promise<KeyMaps> {
   const db = serviceDb();
   const byChain = new Map<string, Set<string>>();
@@ -37,18 +49,15 @@ export async function loadKeyMaps(rows: KeyInput[]): Promise<KeyMaps> {
     }
   }
 
-  const [overridesRes, venuesRes] = await Promise.all([
-    db.from("asset_contracts").select("chain, contract, price_key"),
-    db.from("exchange_assets").select("exchange, ticker, price_key"),
+  // Whole tables, paged: the API returns at most 1,000 rows per request,
+  // and exchange_assets has more — an unpaged read silently dropped the
+  // mappings past row 1,000 (Hyperliquid's USDC -> usd-coin, 2026-09-25).
+  const [overrideRows, venueRows] = await Promise.all([
+    readAll<{ chain: string; contract: string; price_key: string }>("asset_contracts", "chain, contract, price_key", ["chain", "contract"]),
+    readAll<{ exchange: string; ticker: string; price_key: string }>("exchange_assets", "exchange, ticker, price_key", ["exchange", "ticker"]),
   ]);
-  if (overridesRes.error) throw new Error(`Failed to read asset_contracts: ${overridesRes.error.message}`);
-  if (venuesRes.error) throw new Error(`Failed to read exchange_assets: ${venuesRes.error.message}`);
-  const overrides = new Map(
-    (overridesRes.data as { chain: string; contract: string; price_key: string }[]).map((r) => [contractKey(r.chain, r.contract), r.price_key]),
-  );
-  const venues = new Map(
-    (venuesRes.data as { exchange: string; ticker: string; price_key: string }[]).map((r) => [venueKey(r.exchange, r.ticker), r.price_key]),
-  );
+  const overrides = new Map(overrideRows.map((r) => [contractKey(r.chain, r.contract), r.price_key]));
+  const venues = new Map(venueRows.map((r) => [venueKey(r.exchange, r.ticker), r.price_key]));
   return { registry, overrides, venues };
 }
 
