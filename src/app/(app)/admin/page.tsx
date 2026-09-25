@@ -27,7 +27,15 @@ export default async function AdminPage() {
 
   return (
     <>
-      <PageHeader title="Admin" subtitle="Who's using cryptoport, and a read-only peek at what they see." />
+      <PageHeader
+        title="Admin"
+        subtitle="Who's using cryptoport, and a read-only peek at what they see."
+        actions={
+          <Link href="/admin/pricing" className="text-sm text-accent hover:underline">
+            Pricing coverage →
+          </Link>
+        }
+      />
 
       {users.length === 0 ? (
         <Panel className="text-center">
