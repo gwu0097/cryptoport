@@ -11,7 +11,9 @@ const TLDS = new Set<string>(tlds);
 // (IANA's list — any ending spam moves to: .ink, .icu, .gifts, ...). A dot
 // followed by something that isn't a domain ending is a bridge suffix, not
 // an address (USDC.e, BTC.b, USDC.axl).
-const DOTTED = /([\p{L}\p{N}-]+)\.([a-z]{2,24})(?![a-z])/giu;
+// Every ".label" preceded by a name character is checked (lookbehind, so
+// "better-gmx.eth.link" checks both "eth" and "link").
+const DOTTED = /(?<=[\p{L}\p{N}-])\.([a-z]{2,24})(?![a-z])/giu;
 const ADVERTISES = [
   /https?:\/\//i,
   /\bwww\./i,
@@ -21,7 +23,7 @@ const ADVERTISES = [
 ];
 
 function hasDomain(symbol: string): boolean {
-  for (const m of symbol.matchAll(DOTTED)) if (TLDS.has(m[2].toLowerCase())) return true;
+  for (const m of symbol.matchAll(DOTTED)) if (TLDS.has(m[1].toLowerCase())) return true;
   return false;
 }
 

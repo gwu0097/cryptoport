@@ -5,7 +5,7 @@ import { spamSign } from "./tokenSpam.ts";
 const LISTED = new Set(["USDC", "USDT", "SHIB", "WETH"]);
 
 test("a symbol advertising a site, a handle or a claim is spam — any domain ending", () => {
-  for (const s of ["$ Visit usdc-gift.com", "https://x.io", "t.me/free", "Claim your AIRDROP", "ETHG.lat", "Zepe.io", "RareTrx.xyz", "密马.com", "ecAVAX - investpulse.ink", "电报号 @biZhangHao", "DogX.AI PreSale"]) {
+  for (const s of ["$ Visit usdc-gift.com", "https://x.io", "t.me/free", "Claim your AIRDROP", "ETHG.lat", "Zepe.io", "better-gmx.eth.link", "RareTrx.xyz", "密马.com", "ecAVAX - investpulse.ink", "电报号 @biZhangHao", "DogX.AI PreSale"]) {
     assert.equal(spamSign(s, LISTED), "advertises", s);
   }
 });

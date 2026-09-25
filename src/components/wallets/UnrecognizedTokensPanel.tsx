@@ -14,6 +14,8 @@ type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:unrecognizedTokensSort";
 const DEFAULT_SORT: Sort = { key: "chain", dir: "asc" };
+// Rows shown before "Show all": a wallet can hold hundreds.
+const FIRST_ROWS = 25;
 
 function sortValue(r: UnrecognizedTokenRow, key: SortKey): number | string {
   switch (key) {
@@ -40,6 +42,7 @@ function sortValue(r: UnrecognizedTokenRow, key: SortKey): number | string {
 export function UnrecognizedTokensPanel({ tokens }: { tokens: UnrecognizedTokenRow[] }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const [showSpam, setShowSpam] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const { key: sortKey, dir: sortDir } = sort;
 
   function toggleSort(key: SortKey) {
@@ -88,7 +91,7 @@ export function UnrecognizedTokensPanel({ tokens }: { tokens: UnrecognizedTokenR
                 </tr>
               </thead>
               <tbody>
-                {shown.map((t) => (
+                {(showAll ? shown : shown.slice(0, FIRST_ROWS)).map((t) => (
                   <tr key={`${t.chain}|${t.contract}`} className={trClass}>
                     <td className={tdClass}>
                       <span className="break-all">{t.symbol}</span>
@@ -105,6 +108,11 @@ export function UnrecognizedTokensPanel({ tokens }: { tokens: UnrecognizedTokenR
                 ))}
               </tbody>
             </table>
+            {!showAll && shown.length > FIRST_ROWS && (
+              <button type="button" onClick={() => setShowAll(true)} className="mt-3 text-sm text-fg-muted hover:text-fg hover:underline">
+                Show all {shown.length}
+              </button>
+            )}
           </div>
         )}
       </div>
