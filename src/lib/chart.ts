@@ -64,3 +64,29 @@ export function sliceToRange<T extends DatedValuePoint>(points: T[], days: numbe
   const cutoffDate = cutoff.toISOString().slice(0, 10);
   return points.filter((p) => p.date >= cutoffDate);
 }
+
+/** A range's change, shown next to the chart's current value. Within one
+ * kind of point it's last − first. A range that runs from the estimate
+ * (today's holdings at past prices) into real daily snapshots measures two
+ * different things, and the step between them — the estimate leaves out
+ * every coin without price history — is not a gain or a loss (+$142k on a
+ * 30-day view on 2026-09-25 was mostly that step). So the two parts' own
+ * returns are chained instead — (1 + r_estimated) × (1 + r_real) − 1, the
+ * usual way to link periods — and the dollar change is that return applied
+ * to today's value. Null when a part starts at zero (no return to take). */
+export function rangeChange(points: readonly { total: number; kind: "real" | "estimated" }[]): { usd: number; pct: number; chained: boolean } | null {
+  if (points.length === 0) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const seam = points.findIndex((p) => p.kind === "real");
+  if (first.kind === "real" || seam === -1) {
+    if (first.total === 0) return null;
+    return { usd: last.total - first.total, pct: ((last.total - first.total) / first.total) * 100, chained: false };
+  }
+  const lastEstimated = points[seam - 1];
+  const firstReal = points[seam];
+  if (first.total === 0 || firstReal.total === 0) return null;
+  const r = (lastEstimated.total / first.total) * (last.total / firstReal.total) - 1;
+  const start = last.total / (1 + r);
+  return { usd: last.total - start, pct: r * 100, chained: true };
+}

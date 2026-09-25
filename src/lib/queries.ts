@@ -865,9 +865,9 @@ export interface TransactionRow extends Omit<Transaction, "amount" | "fee"> {
   walletName: string;
   amount: number | null;
   fee: number | null;
-  /** amount × the ticker's current price (same ticker-keyed `prices`
-   * table getPriceMap uses everywhere else) — null when either is
-   * unavailable (unpriced ticker, or amount itself unknown), never
+  /** amount × the current price of the coin the leg is (transactionPricing.ts,
+   * asset_prices) — null when either is unavailable (no single coin
+   * matches, no price, or amount itself unknown), never
    * guessed at. This is a *current*-price estimate of what the moved
    * amount is worth today, not the value at the time of the transaction
    * (this app has no historical per-transaction pricing) — good enough

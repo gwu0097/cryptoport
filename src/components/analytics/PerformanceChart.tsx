@@ -257,6 +257,13 @@ export function PerformanceChart({
           Dashed portion is estimated from today&rsquo;s holdings at historical prices — it doesn&rsquo;t
           reflect past buys or sells. Solid portion is real, captured daily.
         </p>
+        {selected.points.some((p) => p.kind === "estimated") && selected.points.some((p) => p.kind === "real") && (
+          <p>
+            * A range that crosses from the estimate into real snapshots links the two by their own % moves.
+            The step where real snapshots begin isn&rsquo;t a gain or loss (the estimate leaves out holdings
+            without price history), so it isn&rsquo;t counted.
+          </p>
+        )}
       </div>
     </Panel>
   );

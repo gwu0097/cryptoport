@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
-import { scalePoints, linePath, areaPath, sliceToRange, CHART_RANGES, type ChartRangeKey } from "@/lib/chart";
+import { scalePoints, linePath, areaPath, sliceToRange, rangeChange, CHART_RANGES, type ChartRangeKey } from "@/lib/chart";
 import { usePersistedState } from "../usePersistedState";
 import { useHideBalance } from "../HideBalanceProvider";
 import { ToggleGroup } from "../ui/ToggleGroup";
@@ -104,11 +104,10 @@ function Chart({ points }: { points: ValueChartPoint[] }) {
   const estimatedCoords = seamIndex === -1 ? coords : coords.slice(0, seamIndex + 1);
   const realCoords = seamIndex === -1 ? [] : coords.slice(seamIndex);
 
-  const first = points[0].total;
   const last = points[points.length - 1].total;
-  const deltaUsd = last - first;
-  const deltaPct = first !== 0 ? (deltaUsd / first) * 100 : 0;
-  const trendClass = deltaUsd >= 0 ? "text-positive" : "text-negative";
+  // Chained across the estimate→real switch (see rangeChange).
+  const change = rangeChange(points);
+  const trendClass = (change?.usd ?? 0) >= 0 ? "text-positive" : "text-negative";
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -140,8 +139,12 @@ function Chart({ points }: { points: ValueChartPoint[] }) {
         ) : (
           <>
             <span className="text-2xl font-semibold tabular-nums text-fg">{hidden ? "••••••" : formatUsd(last)}</span>
-            <span className={`text-sm font-medium tabular-nums ${trendClass}`}>
-              {hidden ? formatPercent(deltaPct) : `${formatUsdSigned(deltaUsd)} (${formatPercent(deltaPct)})`}
+            <span
+              className={`text-sm font-medium tabular-nums ${change ? trendClass : "text-fg-muted"}`}
+              title={change?.chained ? "Estimated and real portions linked by their own % moves; the step where real snapshots begin isn't counted" : undefined}
+            >
+              {!change ? "—" : hidden ? formatPercent(change.pct) : `${formatUsdSigned(change.usd)} (${formatPercent(change.pct)})`}
+              {change?.chained && "*"}
             </span>
           </>
         )}
