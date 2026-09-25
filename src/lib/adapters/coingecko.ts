@@ -173,7 +173,9 @@ export async function fetchTokenPrices(
 
   for (const batch of chunk(contracts, PRICE_BATCH_SIZE)) {
     const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
-    const res = await coingeckoFetch(url);
+    // Longer backoff (5 tries, 6s base): two EVM wallets syncing at once
+    // outran the per-minute limit with the default 3 tries (2026-09-25).
+    const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
     if (!res.ok) throw new Error(`CoinGecko token_price(${coingeckoPlatform}) failed: HTTP ${res.status}`);
     const body: Record<string, { usd?: number; usd_24h_change?: number; usd_market_cap?: number }> =
       await res.json();
@@ -630,7 +632,7 @@ export async function fetchCoinCategories(coingeckoId: string): Promise<string[]
 
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
   const url = `${API_BASE}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
-  const res = await coingeckoFetch(url);
+  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS); // same reason as fetchTokenPrices
   if (!res.ok) throw new Error(`CoinGecko simple/price(${coingeckoId}) failed: HTTP ${res.status}`);
   const body: Record<string, { usd?: number }> = await res.json();
   return body[coingeckoId]?.usd ?? null;

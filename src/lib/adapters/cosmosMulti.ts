@@ -131,8 +131,8 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   }
   const noStaking = results.filter((r) => !r.unreachable && r.staking === null).map((r) => r.chain.prettyName);
   if (noStaking.length > 0) warnings.push(`Staking couldn't be read on ${noStaking.length} chain(s): ${noStaking.slice(0, 8).join(", ")}${noStaking.length > 8 ? ", …" : ""}`);
-  const unrecognized = holdings.filter((h) => h.coingecko_id === null && h.qty === null).length;
-  if (unrecognized > 0) warnings.push(`${unrecognized} unrecognized token(s) listed without an amount or price`);
+  // Unrecognized tokens aren't reported as a warning: their rows are listed
+  // and labeled "Unrecognized token on <chain>" — not a sync problem.
   return { holdings, warnings, keep };
 }
 

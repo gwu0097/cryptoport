@@ -6,10 +6,13 @@ import type { AdapterHolding } from "./types";
 import { stakesToHoldings, type SuiStakeGroup } from "../suiStakes";
 import { fetchNaviHoldings } from "./naviLending";
 
-// PublicNode's Sui endpoint — verified live (sui-rpc.publicnode.com, not
-// the mainnet full-node domain: that host's TLS handshake didn't complete
-// from this app's network path, PublicNode's does).
-const RPC = "https://sui-rpc.publicnode.com";
+// Sui JSON-RPC endpoints, tried in order until one answers. Mysten's own
+// public fullnodes dropped JSON-RPC ("deprecated ... migrate to gRPC or
+// GraphQL"), PublicNode answered "no available nodes found" and 503s
+// (failed both Sui wallets' syncs, 2026-09-25), and Nodeinfra lacks the
+// balance/stake indexes. These three answered all four methods used here.
+// Longer term this adapter moves to Sui's GraphQL API.
+const RPCS = ["https://mainnet.suiet.app", "https://sui.blockpi.network/v1/rpc/public", "https://sui-mainnet-endpoint.blockvision.org"];
 const NATIVE_COIN_TYPE = "0x2::sui::SUI";
 // CoinGecko's asset_platforms id for Sui — live-verified via
 // GET /asset_platforms (id: "sui", native_coin_id: "sui"), same convention
@@ -35,15 +38,23 @@ interface CoinMetadata {
 }
 
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
-  const res = await fetchWithRetry(RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: "cryptoport", method, params }),
-  });
-  if (!res.ok) throw new Error(`Sui RPC (${method}) failed: HTTP ${res.status}`);
-  const body: { result?: T; error?: { message: string } } = await res.json();
-  if (body.error) throw new Error(`Sui RPC (${method}) error: ${body.error.message}`);
-  return body.result as T;
+  let lastError: Error | null = null;
+  for (const url of RPCS) {
+    try {
+      const res = await fetchWithRetry(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "cryptoport", method, params }),
+      });
+      if (!res.ok) throw new Error(`Sui RPC (${method}) failed: HTTP ${res.status} from ${url}`);
+      const body: { result?: T; error?: { message: string } } = await res.json();
+      if (body.error) throw new Error(`Sui RPC (${method}) error from ${url}: ${body.error.message}`);
+      return body.result as T;
+    } catch (e) {
+      lastError = e as Error; // next endpoint
+    }
+  }
+  throw lastError ?? new Error(`Sui RPC (${method}) failed`);
 }
 
 /** A real HTTPS URL, or null — suix_getCoinMetadata can return a
