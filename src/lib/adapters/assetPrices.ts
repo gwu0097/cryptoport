@@ -116,6 +116,11 @@ export async function refreshAssetPrices(trigger: string): Promise<{ requested: 
     );
   }
   await Promise.all(lanes);
+  // Fiat cash: the US dollar is $1 by definition (not a market price). Other
+  // currencies stay unpriced until there's a source for them.
+  for (const k of bySource.get("fiat") ?? []) {
+    if (k === "fiat:USD") fetched.set(k, { usd: 1, change_24h: 0, source: "fiat" });
+  }
 
   // missing_since must keep the first time a key went missing.
   const missingSince = new Map<string, string | null>();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolvePriceKey, isPositionValue, contractKey, venueKey, type KeyInput, type KeyMaps } from "./assetIdentity.ts";
+import { resolvePriceKey, isPositionValue, contractKey, venueKey, NATIVE_BY_SYMBOL, type KeyInput, type KeyMaps } from "./assetIdentity.ts";
 
 const MORPHO = "0xBAA5CC21fd487B8Fcc2F632f3F4E8D37262a0842";
 const maps: KeyMaps = {
@@ -68,4 +68,33 @@ test("Cosmos and manual rows use the coin they already carry; manual without one
   assert.equal(resolvePriceKey(h({ ticker: "DOG", source: "manual_qty", coingecko_id: "dog-go-to-the-moon-rune" }), maps), "dog-go-to-the-moon-rune");
   assert.equal(resolvePriceKey(h({ ticker: "BTC", source: "manual_qty" }), maps), null);
   assert.equal(resolvePriceKey(h({ ticker: "X", source: "manual_usd", coingecko_id: "bitcoin" }), maps), null);
+});
+
+test("exchange tickers that are a chain's native coin mean that coin, ahead of a wrong registry match", () => {
+  const wrong: KeyMaps = {
+    ...maps,
+    venues: new Map([
+      [venueKey("coinbase", "ETH"), "polygon-pos-bridged-weth-polygon-pos"],
+      [venueKey("kraken", "SOL"), "base-bridged-sol-base"],
+      [venueKey("coinbase", "DEGEN"), "degen-base"],
+    ]),
+  };
+  const ex = (ticker: string, chain = "coinbase") => resolvePriceKey(h({ ticker, chain, source: "auto_exchange" }), wrong);
+  assert.equal(ex("ETH"), "ethereum");
+  assert.equal(ex("SOL", "kraken"), "solana");
+  assert.equal(ex("AVAX"), "avalanche-2");
+  assert.equal(ex("BTC", "gemini"), "bitcoin");
+  assert.equal(ex("DEGEN"), "degen-base", "not a native symbol: the venue mapping stands");
+  assert.equal(ex("USDC", "kraken"), "usd-coin");
+  assert.equal(ex("USD", "gemini"), "fiat:USD");
+});
+
+test("NATIVE_BY_SYMBOL: one coin per symbol, no wrapped or ambiguous entries", () => {
+  assert.equal(NATIVE_BY_SYMBOL.get("ETH"), "ethereum");
+  assert.equal(NATIVE_BY_SYMBOL.has("WBTC"), false);
+  for (const id of NATIVE_BY_SYMBOL.values()) assert.ok(!id.includes(":"));
+});
+
+test("a venue maps its ticker even when the row carries a contract (Polymarket PUSD)", () => {
+  assert.equal(resolvePriceKey(h({ ticker: "PUSD", chain: "polymarket", contract: "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB", protocol_section: "Deposit" }), maps), "polymarket-usd");
 });

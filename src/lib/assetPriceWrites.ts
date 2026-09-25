@@ -42,7 +42,8 @@ export function planPriceWrites(
 }
 
 /** The source a key is priced from — one per key, by its namespace. */
-export function sourceOf(priceKey: string): "coingecko" | "jupiter" | "hyperliquid" | "coinbase" {
+export function sourceOf(priceKey: string): "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "fiat" {
+  if (priceKey.startsWith("fiat:")) return "fiat";
   if (priceKey.startsWith("jup:")) return "jupiter";
   if (priceKey.startsWith("hl:")) return "hyperliquid";
   if (priceKey.startsWith("coinbase:")) return "coinbase";

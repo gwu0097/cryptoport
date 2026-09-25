@@ -32,3 +32,7 @@ test("one source per key, by namespace", () => {
   assert.equal(sourceOf("hl:PURR"), "hyperliquid");
   assert.equal(sourceOf("coinbase:LRDS"), "coinbase");
 });
+
+test("fiat keys have their own source", () => {
+  assert.equal(sourceOf("fiat:USD"), "fiat");
+});

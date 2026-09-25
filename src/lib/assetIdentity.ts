@@ -11,6 +11,9 @@
 // unpriced ("—").
 
 import { resolveCoingeckoKey } from "./priceKey.ts";
+import { EVM_CHAINS } from "./adapters/evmChains.ts";
+import { NON_EVM_CHAINS } from "./adapters/nonEvmChains.ts";
+import { NATIVE_COINGECKO_IDS } from "./adapters/coingeckoIds.ts";
 import type { HoldingSource } from "./types.ts";
 
 export interface KeyInput {
@@ -56,6 +59,32 @@ function nativeKey(h: KeyInput): string | null {
   return key && !key.includes(":") ? key : null;
 }
 
+// Exchanges (their own balances, by ticker).
+const EXCHANGES = new Set(["coinbase", "kraken", "gemini", "mexc"]);
+
+/** A chain's native coin by its symbol (ETH -> ethereum, SOL -> solana,
+ * AVAX -> avalanche-2 …), from the chain configs. On an exchange a ticker
+ * that is a native coin means that coin — ahead of the ticker-matching
+ * registry, which picked bridged copies for ETH (Polygon-bridged WETH) and
+ * SOL (Base-bridged SOL) on 2026-09-25. A symbol claimed by two different
+ * coins, or a wrapped one, is left out rather than guessed. */
+export const NATIVE_BY_SYMBOL: ReadonlyMap<string, string> = (() => {
+  const claims = new Map<string, Set<string>>();
+  const add = (symbol: string, id: string | undefined) => {
+    const sym = symbol.toUpperCase();
+    if (!id || !sym || sym.startsWith("W")) return;
+    claims.set(sym, (claims.get(sym) ?? new Set()).add(id));
+  };
+  for (const c of EVM_CHAINS) add(c.nativeSymbol, c.nativeCoingeckoId);
+  for (const c of NON_EVM_CHAINS) add(c.id, NATIVE_COINGECKO_IDS[c.slug]);
+  return new Map([...claims].filter(([, ids]) => ids.size === 1).map(([sym, ids]) => [sym, [...ids][0]]));
+})();
+
+/** Exchange tickers whose coin is fixed by definition: the canonical
+ * stablecoins, and fiat dollars (fiat:USD, worth exactly $1 because it is
+ * a dollar — not a stablecoin pin). */
+const CANONICAL_EXCHANGE: Record<string, string> = { USDC: "usd-coin", USDT: "tether", USD: "fiat:USD" };
+
 const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 // Venues priced by their own tickers (exchange balances; protocol accounts).
 const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket"]);
@@ -83,7 +112,15 @@ export function resolvePriceKey(h: KeyInput, maps: KeyMaps): string | null {
   // Rows that already carry the coin they are (Cosmos registry, manual pick).
   if (h.source === "auto_cosmos" || h.source === "manual_qty") return h.coingecko_id ?? null;
 
-  if (h.chain && VENUE_CHAINS.has(h.chain) && !h.contract) {
+  if (h.chain && EXCHANGES.has(h.chain)) {
+    const t = h.ticker.toUpperCase();
+    const fixed = CANONICAL_EXCHANGE[t] ?? NATIVE_BY_SYMBOL.get(t);
+    if (fixed) return fixed;
+  }
+
+  // Venues map their own tickers — checked even when a row has a contract
+  // (Polymarket's PUSD carries its Polygon address).
+  if (h.chain && VENUE_CHAINS.has(h.chain)) {
     const mapped = maps.venues.get(venueKey(h.chain, h.ticker));
     if (mapped) return mapped;
     if (h.chain === "coinbase") return `coinbase:${h.ticker.toUpperCase()}`;
