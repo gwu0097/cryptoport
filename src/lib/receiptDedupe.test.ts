@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dropTradableReceiptPositions, dropUntradableReceiptTokens, isTradable, receiptKey } from "./receiptDedupe.ts";
+import { dedupeReceipts, dropTradableReceiptPositions, dropUntradableReceiptTokens, isTradable, receiptKey } from "./receiptDedupe.ts";
 
 const MATICX = "0xFa68FB4628DFF1028CFEc22b4162FCcd0d45efb6";
 const MDEGEN = "0x8c3a6b12332a6354805eb4b72ef619aedd22bcdd";
@@ -37,4 +37,22 @@ test("wallet sync drops a held receipt only when it isn't tradable", () => {
     { t: "same contract, other chain", chain: "arb", contract: MDEGEN, price_key: "morpho-degen" },
   ];
   assert.deepEqual(dropUntradableReceiptTokens(tokens, pools, volume).map((x) => x.t), ["MaticX", "ETH", "same contract, other chain"]);
+});
+
+test("one sync's fresh lists: every receipt is counted exactly once", () => {
+  const EETH = "0x35fa164735182de50811e8e2e824cfb9b6118ac2";
+  const vol = new Map<string, number | null>([["stader-maticx", 1_051], ["ether-fi-staked-eth", 9_281_471]]);
+  const tokens = [
+    { t: "MaticX", chain: "matic", contract: MATICX, price_key: "stader-maticx" },
+    { t: "eETH", chain: "eth", contract: EETH, price_key: "ether-fi-staked-eth" },
+    { t: "ETH", chain: "eth", contract: null, price_key: "ethereum" },
+  ];
+  const positions = [
+    { p: "Stader", chain: "matic", pool_contract: MATICX.toLowerCase() },
+    { p: "ether.fi", chain: "eth", pool_contract: EETH },
+    { p: "Aave", chain: "avax", pool_contract: "0xaavepool" },
+  ];
+  const r = dedupeReceipts(tokens, positions, vol);
+  assert.deepEqual(r.tokens.map((x) => x.t), ["eETH", "ETH"]); // MaticX isn't tradable: Stader counts it
+  assert.deepEqual(r.positions.map((x) => x.p), ["Stader", "Aave"]); // eETH is tradable: the token counts it
 });

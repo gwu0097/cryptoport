@@ -169,12 +169,14 @@ row's key has no price. **A $1-per-unit value is allowed only for the
 stablecoins in `src/lib/stablecoinFallback.ts`** (Hyperliquid and Polymarket
 dollar balances), as a last resort; any other coin without a price shows "—".
 
-**A receipt token and its protocol position count once** (`receiptDedupe.ts`).
-A liquid staking or vault receipt (MaticX, eETH) that the wallet holds is the
-same money as the Zerion position whose `pool_contract` is that token. If the
-token is tradable (`asset_prices.volume_24h` ≥ `TRADABLE_MIN_VOLUME_USD`) the
-wallet token stays and the position is dropped; if not, the position stays
-(where it's staked, how to withdraw) and the wallet copy is dropped.
+**A receipt token and its protocol position count once** (`receiptDedupe.ts`,
+`dedupeReceipts`). A liquid staking or vault receipt (MaticX, eETH) that the
+wallet holds is the same money as the Zerion position whose `pool_contract` is
+that token. If the token is tradable (`asset_prices.volume_24h` ≥
+`TRADABLE_MIN_VOLUME_USD`) the wallet token stays and the position is dropped;
+if not, the position stays (where it's staked, how to withdraw) and the wallet
+copy is dropped. Both lists come from the same sync (§4.4), so the check always
+runs on fresh data from both sides.
 
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly
@@ -205,13 +207,27 @@ failure returns a `KeepScope` (`src/lib/carryForward.ts`: `chainScope`,
 the status says so. A new adapter or soft-failing source must declare one.
 (DECISIONS: 2026-09-24)
 
-### 4.4 Two independent kinds of staleness
+### 4.4 DeFi positions: native adapters first, Zerion fills the gaps
+
+An EVM wallet's one Sync (`syncWalletHoldings`) fetches its balances, the native
+protocol adapters (Hyperliquid, Axie, SuperVerse, Polymarket, …) and Zerion's
+DeFi positions (`adapters/zerionDefi.ts`) in the same job — there is no separate
+DeFi sync. **Zerion only covers protocols no native adapter owns:** each native
+adapter exports the protocol names Zerion uses for it (`ZERION_PROTOCOL_NAMES`),
+and `NATIVELY_COVERED_PROTOCOLS` skips them. **Building a native adapter for a
+protocol means adding its Zerion names there in the same change**, so Zerion
+never double-counts or overrides it. If Zerion fails, the last saved positions
+stay and the sync status says so. Budget: one Zerion call per wallet sync
+(free tier: 300/day, 1/second app-wide; its chain list is cached).
+(DECISIONS: 2026-09-25 DeFi in the wallet sync)
+
+### 4.5 Two independent kinds of staleness
 
 Price freshness is per coin (`asset_prices.updated_at`, shown by `pricesAsOf.ts`
 and the price cell tooltips). Sync freshness is per wallet
 (`wallets.last_refresh_at` / `last_refresh_status`). Don't conflate them.
 
-### 4.5 Every table lives in the `cryptoport` schema
+### 4.6 Every table lives in the `cryptoport` schema
 
 The Supabase clients are pinned to it; a table anywhere else is invisible to the
 app. Per-user tables get `user_id uuid references auth.users(id) on delete

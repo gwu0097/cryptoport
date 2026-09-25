@@ -24,8 +24,6 @@ interface WalletJobRow {
   sync_started_at: string | null;
   tx_sync_status: string | null;
   tx_sync_started_at: string | null;
-  defi_sync_status: string | null;
-  defi_sync_started_at: string | null;
   exchange_sync_status: string | null;
   exchange_sync_started_at: string | null;
 }
@@ -43,15 +41,13 @@ interface JobStatusResponse {
 }
 
 /** Every distinct job the app tracks, flattened to one row each, from one
- * /api/job-status response — a wallet contributes up to four (holdings/
- * tx/defi/exchange), each independent per holdings.source's own "four
- * disjoint job columns on one row" doc comment. */
+ * /api/job-status response — a wallet contributes up to three (holdings —
+ * which includes an EVM wallet's DeFi positions — tx, exchange). */
 function flattenJobs(data: JobStatusResponse): (JobStatusRow & { key: string })[] {
   const jobs: (JobStatusRow & { key: string })[] = [];
   for (const w of data.wallets) {
     jobs.push({ key: `${w.id}:holdings`, status: w.last_refresh_status, started_at: w.sync_started_at });
     jobs.push({ key: `${w.id}:tx`, status: w.tx_sync_status, started_at: w.tx_sync_started_at });
-    jobs.push({ key: `${w.id}:defi`, status: w.defi_sync_status, started_at: w.defi_sync_started_at });
     jobs.push({ key: `${w.id}:exchange`, status: w.exchange_sync_status, started_at: w.exchange_sync_started_at });
   }
   if (data.priceRefresh) jobs.push({ key: "prices", ...data.priceRefresh });

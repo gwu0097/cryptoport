@@ -15,19 +15,16 @@ import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { SyncWalletButtons } from "@/components/SyncWalletButtons";
-import { SyncDefiButton } from "@/components/SyncDefiButton";
 import { SyncExchangeButton } from "@/components/SyncExchangeButton";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 import { VerifyWalletModal } from "@/components/VerifyWalletModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
-import { isEvmChainId } from "@/lib/adapters/evmChains";
 import {
   addHolding,
   deleteWallet,
   disconnectExchange,
   refreshPricesForWalletAction,
   syncWalletHoldings,
-  syncWalletDefi,
   syncExchangeHoldings,
   updateWallet,
 } from "../actions";
@@ -185,8 +182,8 @@ export default async function WalletDetailPage(
         <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
           <div className="flex flex-wrap items-start justify-end gap-2">
             {wallet.provider ? (
-              // A connected exchange has no on-chain address to scan and no
-              // separate DeFi sync — just its own independent balances job
+              // A connected exchange has no on-chain address to scan — just
+              // its own independent balances job
               // (see SyncExchangeButton's own doc comment) and a disconnect
               // action instead of the regular delete/sync UI below.
               <SyncExchangeButton
@@ -214,18 +211,6 @@ export default async function WalletDetailPage(
                     }
                   />
                 ) : null}
-                {wallet.mode === "auto" && isEvmChainId(wallet.chain) && (
-                  // Separate, explicit action — never chained into the regular
-                  // Sync above or into "Sync all wallets" (see syncWalletDefi's
-                  // own doc comment: Zerion's free tier is a real, shared
-                  // budget this button keeps under direct user control).
-                  <SyncDefiButton
-                    defiSyncStatus={wallet.defi_sync_status}
-                    defiSyncStartedAt={wallet.defi_sync_started_at}
-                    defiSyncedAt={wallet.defi_synced_at}
-                    sync={syncWalletDefi.bind(null, wallet.id)}
-                  />
-                )}
                 {wallet.mode !== "auto" && (
                   // A manual wallet has no Sync action at all — addHolding
                   // reprices a brand-new ticker at add time, but this is still

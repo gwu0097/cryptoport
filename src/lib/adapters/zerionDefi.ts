@@ -1,5 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
+import { createTtlCache } from "../ttlCache";
 import { EVM_CHAINS } from "./evmChains";
 import { ZERION_PROTOCOL_NAMES as HYPERLIQUID_PROTOCOL_NAMES } from "./hyperliquid";
 import { ZERION_PROTOCOL_NAMES as AXIE_PROTOCOL_NAMES } from "./axieStaking";
@@ -71,12 +72,14 @@ interface ZerionChain {
  * resolveCoingeckoKey). Cross-referenced instead via the numeric EVM chain
  * id both sides genuinely share: Zerion's /v1/chains/ exposes each chain's
  * `external_id` as a hex chain id, matched against evmChains.ts's own
- * numeric `chainId`. Fetched fresh per call rather than cached — this is a
- * small, infrequently-changing metadata endpoint, not a per-wallet data
- * pull, and "Sync DeFi" is already an explicit, infrequent user action (see
- * SyncDefiButton.tsx), so there's no real cost to keeping this simple.
+ * numeric `chainId`. Static reference data, cached in memory for a day
+ * (CHAIN_MAP_CACHE) so each wallet sync spends one Zerion call (its
+ * positions), not two.
  */
-async function fetchZerionChainIdMap(): Promise<Map<string, string>> {
+const CHAIN_MAP_CACHE = createTtlCache<Map<string, string>>(24 * 60 * 60 * 1000, 1);
+const fetchZerionChainIdMap = () => CHAIN_MAP_CACHE.get("chains", loadZerionChainIdMap).then((r) => r.value);
+
+async function loadZerionChainIdMap(): Promise<Map<string, string>> {
   const res = await fetchWithRetry(`${API_BASE}/chains/`, {
     headers: { Authorization: authHeader(), Accept: "application/json" },
   });
@@ -129,12 +132,13 @@ interface ZerionPosition {
  * comparable coverage — see the "Add EVM DeFi position sync via Zerion"
  * plan for the full comparison against DeBank/Zapper/Covalent.
  *
- * Deliberately its own explicit sync (syncWalletDefi in wallets/actions.ts,
- * triggered by SyncDefiButton), never chained into the regular "Sync
- * holdings" click or "Sync all wallets" — Zerion's free tier is a real,
- * shared monthly budget, and bundling this into every routine sync would
- * burn through it fast for no benefit (DeFi positions don't change nearly
- * as often as someone clicks "Sync").
+ * Part of an EVM wallet's regular sync (syncWalletHoldings), fetched in
+ * parallel with its balances so a liquid staking receipt and its position
+ * are compared on one sync's fresh data (receiptDedupe.ts) — it used to be
+ * a separate DeFi sync, which left the two out of step (2026-09-25). One
+ * Zerion call per wallet sync; the free tier is 300 calls/day and 1/second
+ * app-wide (fetchWithRetry retries its 429). Zerion only fills gaps: every
+ * protocol a native adapter covers is skipped (NATIVELY_COVERED_PROTOCOLS).
  *
  * usd_override is Zerion's own resolved value, used only as the stored
  * fallback: each row is one coin's quantity in a protocol, so it's priced

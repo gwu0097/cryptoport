@@ -34,7 +34,7 @@ export async function GET() {
     db
       .from("wallets")
       .select(
-        "id, last_refresh_status, sync_started_at, tx_sync_status, tx_sync_started_at, defi_sync_status, defi_sync_started_at, exchange_sync_status, exchange_sync_started_at",
+        "id, last_refresh_status, sync_started_at, tx_sync_status, tx_sync_started_at, exchange_sync_status, exchange_sync_started_at",
       )
       .eq("active", true),
     // phases (per-lane coingecko/jupiter/hyperliquid/coinbase running/

@@ -9,6 +9,23 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-25 — DeFi positions are part of the wallet sync; receipts count once
+
+BizNFT showed ~$5,350 more than DeBank. Two double counts: Hyperliquid perps
+margin stored as "Perps Available" and again per position (fixed in
+`hyperliquidPerps.ts`), and liquid staking receipts (MaticX, eETH, mDEGEN)
+counted as a wallet token and again as Zerion's staking position, whose pool
+contract is that token. Owner rule: a receipt you can trade without unstaking is
+a token; one you can't is shown as the position, with where it's staked and how
+to withdraw (tradable = CoinGecko 24h volume, `receiptDedupe.ts`). The first
+version compared against the other sync's saved rows, so the result depended on
+which button was clicked last — "horrible user experience" (owner). Zerion's
+DeFi fetch moved into the wallet sync and the separate DeFi Sync button was
+removed, so both lists are compared in memory in one job. Owner: no rate limit
+for now (two users); native adapters take precedence and Zerion skips their
+protocols. Remaining known gap: vault shares Zerion reports without a pool
+address (Morpho's mDEGEN).
+
 ## 2026-09-25 — Analytics: chain returns across the estimate→real switch
 
 The performance chart stitches an estimate (today's holdings × past prices) in

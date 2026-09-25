@@ -8,7 +8,7 @@ import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { JobButton } from "./jobs/JobButton";
 
-/** Same useJob/JobButton pattern as SyncDefiButton.tsx — a connected
+/** Same useJob/JobButton pattern as SyncWalletButtons.tsx — a connected
  * exchange's own independent job (exchange_sync_status/started_at), shown
  * instead of (not alongside) SyncWalletButtons for a provider-set wallet,
  * since there's no on-chain address to scan. */

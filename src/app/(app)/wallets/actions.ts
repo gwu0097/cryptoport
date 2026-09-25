@@ -21,7 +21,7 @@ import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, readAssetVolumes, type OnLane } from "@/lib/adapters/assetPrices";
-import { dropTradableReceiptPositions, dropUntradableReceiptTokens, receiptKey } from "@/lib/receiptDedupe";
+import { dedupeReceipts, dropUntradableReceiptTokens, receiptKey } from "@/lib/receiptDedupe";
 import type { PriceRefreshPhases } from "@/lib/queries";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
@@ -597,9 +597,10 @@ async function keyed<T extends { ticker: string; chain: string | null; contract:
   }
 }
 
-/** Wallet sync side of receiptDedupe.ts: this wallet's DeFi rows' pools vs
- * the tokens about to be saved. A lookup failure keeps every token (never
- * drops value on an error). */
+/** When Zerion failed and the last saved DeFi positions stay: checks the
+ * tokens about to be saved against those positions' pools
+ * (receiptDedupe.ts). A lookup failure keeps every token (never drops value
+ * on an error). */
 async function withoutUntradableReceipts<T extends AdapterHolding & { price_key?: string | null }>(
   db: Awaited<ReturnType<typeof userDb>>,
   walletId: string,
@@ -614,26 +615,6 @@ async function withoutUntradableReceipts<T extends AdapterHolding & { price_key?
   } catch (e) {
     console.warn(`[receipts] wallet ${walletId}: ${(e as Error).message}`);
     return tokens;
-  }
-}
-
-/** DeFi sync side of receiptDedupe.ts: this wallet's held tokens vs the
- * positions about to be saved. A lookup failure keeps every position. */
-async function withoutTradableReceiptPositions<T extends AdapterHolding & { price_key?: string | null }>(
-  db: Awaited<ReturnType<typeof userDb>>,
-  walletId: string,
-  positions: T[],
-): Promise<T[]> {
-  if (!positions.some((p) => p.pool_contract)) return positions;
-  try {
-    const { data, error } = await db.from("holdings").select("chain, contract, price_key").eq("wallet_id", walletId).eq("source", "auto").not("contract", "is", null);
-    if (error) throw new Error(error.message);
-    const held = new Map((data as { chain: string | null; contract: string; price_key: string | null }[]).filter((r) => r.chain).map((r) => [receiptKey(r.chain!, r.contract), r.price_key]));
-    if (held.size === 0) return positions;
-    return dropTradableReceiptPositions(positions, held, await readAssetVolumes([...held.values()]));
-  } catch (e) {
-    console.warn(`[receipts] wallet ${walletId}: ${(e as Error).message}`);
-    return positions;
   }
 }
 
@@ -745,6 +726,16 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       let keep: KeepScope[] = [];
       let detectedScriptType: ScriptType | null = wallet.btc_script_type as ScriptType | null;
       let cardanoStakeAddress: string | null = wallet.cardano_stake_address;
+      // An EVM wallet's DeFi positions come from Zerion in the same job, in
+      // parallel with the balance scan, so a receipt token and its position
+      // are compared on fresh data from one sync (receiptDedupe.ts). Zerion
+      // only covers protocols no native adapter owns (zerionDefi.ts).
+      const defiFetch = isEvmChainId(wallet.chain)
+        ? fetchZerionDefiPositions(wallet.address!).then(
+            (r) => ({ ok: true as const, ...r }),
+            (e: Error) => ({ ok: false as const, error: e.message }),
+          )
+        : null;
 
       if (wallet.chain === "BTC") {
         ({ holdings, detectedScriptType } = await fetchBitcoinHoldingsForSync(
@@ -784,23 +775,53 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         }
       }
 
-      const status = warnings.length === 0 ? "ok" : `partial — ${[...warnings, keptStatus].filter(Boolean).join("; ")}`;
-      let saved: { price_key?: string | null }[] = cosmosHoldings
+      let saved: (AdapterHolding & { price_key?: string | null })[] | { price_key?: string | null }[] = cosmosHoldings
         ? await keyed(cosmosHoldings, "auto_cosmos")
         : await keyed(holdings, "auto");
-      // A token that is the receipt of one of this wallet's DeFi positions and
-      // can't be traded is counted by that position instead (receiptDedupe.ts).
-      if (!cosmosHoldings) saved = await withoutUntradableReceipts(afterDb, walletId, saved as (AdapterHolding & { price_key?: string | null })[]);
+      let defiSaved: (AdapterHolding & { price_key?: string | null })[] | null = null;
+      let defiStatus = "ok";
+      const defi = defiFetch ? await defiFetch : null;
+      if (defi?.ok) {
+        defiSaved = await keyed(defi.holdings, "auto_defi");
+        if (defi.warnings.length > 0) defiStatus = `partial — ${defi.warnings.join("; ")}`;
+      } else if (defi) {
+        // Zerion failed: the last saved positions stay (sync_defi_holdings
+        // isn't called) and the status says so — never silently dropped.
+        warnings = [...warnings, `DeFi positions kept from the last sync (Zerion: ${defi.error})`];
+      }
+      // This wallet's coins that have no fresh price yet, in one batched pass
+      // (docs/pricing/PLAN.md) — coins another wallet priced minutes ago are
+      // reused, so a Sync all prices each coin about once. Before saving, so
+      // the receipt check below reads current trading volumes.
+      const allKeys = [...saved, ...(defiSaved ?? [])].map((r) => r.price_key);
+      await ensureAssetPrices(allKeys, "sync").catch(() => {});
+      if (!cosmosHoldings) {
+        const tokens = saved as (AdapterHolding & { price_key?: string | null })[];
+        if (defiSaved) {
+          // Each liquid staking / vault receipt counted once (receiptDedupe.ts).
+          const r = dedupeReceipts(tokens, defiSaved, await readAssetVolumes(allKeys).catch(() => new Map<string, number | null>()));
+          saved = r.tokens;
+          defiSaved = r.positions;
+        } else if (defiFetch) {
+          saved = await withoutUntradableReceipts(afterDb, walletId, tokens);
+        }
+      }
+
+      const status = warnings.length === 0 ? "ok" : `partial — ${[...warnings, keptStatus].filter(Boolean).join("; ")}`;
       const { error: syncError } = await afterDb.rpc(cosmosHoldings ? "sync_cosmos_holdings" : "sync_auto_holdings", {
         p_wallet_id: walletId,
         p_holdings: saved,
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
-      // This wallet's coins that have no fresh price yet, in one batched pass
-      // (docs/pricing/PLAN.md) — coins another wallet priced minutes ago are
-      // reused, so a Sync all prices each coin about once.
-      await ensureAssetPrices(saved.map((r) => r.price_key), "sync").catch(() => {});
+      if (defiSaved) {
+        const { error: defiError } = await afterDb.rpc("sync_defi_holdings", {
+          p_wallet_id: walletId,
+          p_holdings: defiSaved,
+          p_status: defiStatus,
+        });
+        if (defiError) throw new Error(`Failed to save DeFi positions: ${defiError.message}`);
+      }
 
       if (wallet.chain === "SOL") {
         await afterDb.from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
@@ -842,95 +863,6 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       // captureUserSnapshot above), Dashboard/Analytics need revalidating
       // too — harmless to call even on a failed sync (the snapshot write
       // just didn't happen, so there's nothing new for these to pick up).
-      revalidatePath("/dashboard");
-      revalidatePath("/analytics");
-    }
-  });
-
-  // No kickoff-time revalidation — see JobPoller.tsx's own doc comment.
-  return { started: true };
-}
-
-/**
- * A second, genuinely independent job on the same wallet row — same
- * after()/CAS-claim shape as syncWalletHoldings above and syncWalletTransactions
- * (transactions/actions.ts), but its own defi_sync_status/defi_sync_started_at
- * pair rather than reusing last_refresh_status/sync_started_at: this is a
- * different external source (Zerion, not this wallet's own on-chain
- * balances) on its own cadence, so it must be able to run, fail, or be
- * mid-flight independently of a regular holdings sync.
- *
- * Deliberately NOT wired into syncWalletHoldings, syncAllWallets, or any
- * other automatic trigger — see zerionDefi.ts's own doc comment for why:
- * Zerion's free tier is a real, shared monthly budget, and this button is
- * what keeps spending it under the user's explicit control rather than
- * burning it on every routine sync.
- *
- * Writes via cryptoport.sync_defi_holdings (schema.sql) — a near-duplicate
- * of sync_auto_holdings scoped to source='auto_defi' instead of 'auto', so
- * this sync's delete-then-insert can never touch (or be touched by) the
- * regular sync's own rows, including Hyperliquid's DeFi-category holdings.
- */
-export async function syncWalletDefi(walletId: string): Promise<JobStartResult> {
-  const user = await requireUser();
-  const db = await userDb();
-  const { data: wallet, error: walletError } = await db
-    .from("wallets")
-    .select("chain, address, mode")
-    .eq("id", walletId)
-    .single();
-  if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
-  if (wallet.mode !== "auto") throw new Error("Only auto wallets can sync DeFi positions.");
-  if (!wallet.address) throw new Error("This wallet has no address set.");
-  if (!isEvmChainId(wallet.chain)) throw new Error(`DeFi sync isn't available for chain "${wallet.chain}".`);
-
-  const syncStartedAt = Date.now();
-  const staleBefore = new Date(syncStartedAt - JOB_STALE_MS).toISOString();
-  const { data: claimed, error: markError } = await db
-    .from("wallets")
-    .update({ defi_sync_status: "syncing", defi_sync_started_at: new Date(syncStartedAt).toISOString() })
-    .eq("id", walletId)
-    .or(`defi_sync_status.neq.syncing,defi_sync_status.is.null,defi_sync_started_at.lt.${staleBefore}`)
-    .select("id");
-  if (markError) throw new Error(`Failed to start DeFi sync: ${markError.message}`);
-  if (!claimed || claimed.length === 0) {
-    return { started: false, reason: "A DeFi sync is already running for this wallet." };
-  }
-
-  after(async () => {
-    const afterDb = await userDb();
-    try {
-      const { holdings, warnings } = await fetchZerionDefiPositions(wallet.address!);
-      const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
-
-      // A position whose receipt token this wallet holds and can trade is
-      // already counted by that token (receiptDedupe.ts).
-      const savedDefi: { price_key?: string | null }[] = await withoutTradableReceiptPositions(afterDb, walletId, await keyed(holdings, "auto_defi"));
-      const { error: syncError } = await afterDb.rpc("sync_defi_holdings", {
-        p_wallet_id: walletId,
-        p_holdings: savedDefi,
-        p_status: status,
-      });
-      if (syncError) throw new Error(`Failed to save DeFi holdings: ${syncError.message}`);
-      await ensureAssetPrices(savedDefi.map((r) => r.price_key), "sync").catch(() => {});
-
-      await afterDb
-        .from("wallets")
-        .update({ defi_sync_duration_ms: Date.now() - syncStartedAt })
-        .eq("id", walletId);
-
-      scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
-    } catch (e) {
-      await afterDb
-        .from("wallets")
-        .update({
-          defi_sync_status: `error: ${(e as Error).message}`,
-          defi_sync_duration_ms: Date.now() - syncStartedAt,
-        })
-        .eq("id", walletId);
-    } finally {
-      revalidatePath(`/wallets/${walletId}`);
-      revalidatePath("/wallets");
       revalidatePath("/dashboard");
       revalidatePath("/analytics");
     }
