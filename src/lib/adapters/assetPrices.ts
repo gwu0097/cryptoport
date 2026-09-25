@@ -10,8 +10,7 @@ import { planPriceWrites, sourceOf, type FetchedPrice } from "../assetPriceWrite
 // One pricing pass for the whole app (docs/pricing/PLAN.md): every distinct
 // price_key held anywhere, plus every watchlist coin, priced once from its
 // one source, written to asset_prices (never overwriting a price with null)
-// and logged to pricing_runs. Phase 1: runs alongside today's pricing; no
-// page reads asset_prices yet.
+// and logged to pricing_runs. The only price table every page reads.
 
 async function allHeldKeys(): Promise<string[]> {
   const db = serviceDb();
@@ -28,15 +27,22 @@ async function allHeldKeys(): Promise<string[]> {
   return [...keys];
 }
 
-/** Prices the given keys (default: every held key + watchlist). */
+/** One source's progress through a pass ("Refresh prices" shows it live). */
+export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase";
+export type OnLane = (lane: PricingLane, status: "running" | "done" | "error") => void;
+
+/** Prices the given keys (default: every held key + watchlist). Each source
+ * is its own lane and fails on its own; `laneErrors` names the ones that
+ * failed outright. */
 export async function refreshAssetPrices(
   trigger: string,
   only?: string[],
-): Promise<{ requested: number; returned: number; missing: string[] }> {
+  onLane?: OnLane,
+): Promise<{ requested: number; returned: number; missing: string[]; laneErrors: string[] }> {
   const started = Date.now();
   const db = serviceDb();
   const keys = only ?? (await allHeldKeys());
-  if (keys.length === 0) return { requested: 0, returned: 0, missing: [] };
+  if (keys.length === 0) return { requested: 0, returned: 0, missing: [], laneErrors: [] };
   const bySource = new Map<string, string[]>();
   for (const k of keys) bySource.set(sourceOf(k), [...(bySource.get(sourceOf(k)) ?? []), k]);
 
@@ -45,67 +51,68 @@ export async function refreshAssetPrices(
   const calls: Record<string, number> = {};
   const assets: { price_key: string; symbol: string | null; name: string | null; image_url: string | null; updated_at: string }[] = [];
   const nowIso = () => new Date().toISOString();
+  const laneErrors: string[] = [];
   const failAll = (list: string[], e: unknown) => list.forEach((k) => errors.set(k, (e as Error).message));
+  // Runs one source's lane, reporting it; a thrown lane marks its keys failed.
+  const lane = async (name: PricingLane, list: string[], work: () => Promise<void>) => {
+    onLane?.(name, "running");
+    try {
+      await work();
+      onLane?.(name, "done");
+    } catch (e) {
+      failAll(list, e);
+      laneErrors.push(`${name}: ${(e as Error).message}`);
+      onLane?.(name, "error");
+    }
+  };
 
   const lanes: Promise<void>[] = [];
   const cg = bySource.get("coingecko") ?? [];
   if (cg.length) {
     lanes.push(
-      (async () => {
+      lane("coingecko", cg, async () => {
         calls.coingecko = Math.ceil(cg.length / 250);
-        try {
-          const stats = await fetchMarketStatsByIds(cg);
-          for (const [id, s] of stats) {
-            fetched.set(id, { usd: s.usd, change_1h: s.change1h, change_24h: s.change24h, change_7d: s.change7d, change_30d: s.change30d, market_cap: s.marketCap, source: "coingecko" });
-            assets.push({ price_key: id, symbol: s.symbol ?? null, name: s.name ?? null, image_url: s.image ?? null, updated_at: nowIso() });
-          }
-        } catch (e) {
-          failAll(cg, e);
+        const stats = await fetchMarketStatsByIds(cg);
+        for (const [id, s] of stats) {
+          fetched.set(id, { usd: s.usd, change_1h: s.change1h, change_24h: s.change24h, change_7d: s.change7d, change_30d: s.change30d, market_cap: s.marketCap, source: "coingecko" });
+          assets.push({ price_key: id, symbol: s.symbol ?? null, name: s.name ?? null, image_url: s.image ?? null, updated_at: nowIso() });
         }
-      })(),
+      }),
     );
   }
   const jup = bySource.get("jupiter") ?? [];
   if (jup.length) {
     lanes.push(
-      (async () => {
+      lane("jupiter", jup, async () => {
         calls.jupiter = Math.ceil(jup.length / 100);
-        try {
-          const info = await fetchTokenInfo(jup.map((k) => k.slice(4)));
-          for (const k of jup) {
-            const t = info.get(k.slice(4));
-            if (typeof t?.usdPrice !== "number") continue;
-            fetched.set(k, { usd: t.usdPrice, change_24h: t.stats24h?.priceChange ?? null, source: "jupiter" });
-            assets.push({ price_key: k, symbol: t.symbol ?? null, name: null, image_url: t.icon ?? null, updated_at: nowIso() });
-          }
-        } catch (e) {
-          failAll(jup, e);
+        const info = await fetchTokenInfo(jup.map((k) => k.slice(4)));
+        for (const k of jup) {
+          const t = info.get(k.slice(4));
+          if (typeof t?.usdPrice !== "number") continue;
+          fetched.set(k, { usd: t.usdPrice, change_24h: t.stats24h?.priceChange ?? null, source: "jupiter" });
+          assets.push({ price_key: k, symbol: t.symbol ?? null, name: null, image_url: t.icon ?? null, updated_at: nowIso() });
         }
-      })(),
+      }),
     );
   }
   const hl = bySource.get("hyperliquid") ?? [];
   if (hl.length) {
     lanes.push(
-      (async () => {
+      lane("hyperliquid", hl, async () => {
         calls.hyperliquid = 1;
-        try {
-          const spot = await fetchHyperliquidSpotPrices();
-          for (const k of hl) {
-            const p = spot.get(k.slice(3));
-            if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "hyperliquid" });
-            assets.push({ price_key: k, symbol: k.slice(3), name: null, image_url: null, updated_at: nowIso() });
-          }
-        } catch (e) {
-          failAll(hl, e);
+        const spot = await fetchHyperliquidSpotPrices();
+        for (const k of hl) {
+          const p = spot.get(k.slice(3));
+          if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "hyperliquid" });
+          assets.push({ price_key: k, symbol: k.slice(3), name: null, image_url: null, updated_at: nowIso() });
         }
-      })(),
+      }),
     );
   }
   const cb = bySource.get("coinbase") ?? [];
   if (cb.length) {
     lanes.push(
-      (async () => {
+      lane("coinbase", cb, async () => {
         calls.coinbase = cb.length * 2;
         await mapWithConcurrency(cb, 4, async (k) => {
           const ticker = k.slice(9);
@@ -117,7 +124,7 @@ export async function refreshAssetPrices(
             errors.set(k, (e as Error).message);
           }
         });
-      })(),
+      }),
     );
   }
   await Promise.all(lanes);
@@ -159,7 +166,7 @@ export async function refreshAssetPrices(
     missing: missing.map((k) => ({ key: k, error: errors.get(k) ?? "not returned" })),
     calls,
   });
-  return { requested: keys.length, returned: found.length, missing };
+  return { requested: keys.length, returned: found.length, missing, laneErrors };
 }
 
 /** Prices just the keys that have no price yet or one older than maxAgeMs —

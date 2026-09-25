@@ -9,27 +9,17 @@ import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { JobButton } from "./jobs/JobButton";
 
-// "coinbase" (the internal phase key — unchanged, still matches
-// price_refresh_state.phases/JobPoller's own phase tracking) relabeled from
-// "Coinbase/Jupiter" to "Fallback": most exchange-balance tickers now
-// resolve through exchange_asset_registry into the CoinGecko phase instead
-// (see prices.ts), so this lane is no longer "the Coinbase pricing pass" —
-// it's whatever's left after every other source already priced. Coinbase's
-// API is still the real last-resort here for genuinely unresolvable
-// tickers (with Jupiter as its own secondary fallback), just for a much
-// smaller set than before — "Fallback" describes the role honestly without
-// implying Coinbase is gone entirely.
+// One lane per price source in the pricing pass (refreshAssetPrices).
 const PHASE_LABELS: Record<string, string> = {
   coingecko: "CoinGecko",
-  coinbase: "Fallback",
-  evm: "EVM holdings",
-  cosmos: "Cosmos holdings",
+  jupiter: "Jupiter",
+  hyperliquid: "Hyperliquid",
+  coinbase: "Coinbase",
 };
 
 // Fixed order (not object insertion order, which JSONB round-tripping
-// doesn't guarantee) — matches the order refreshPrices actually starts
-// these lanes in.
-const PHASE_ORDER = ["coingecko", "coinbase", "evm", "cosmos"];
+// doesn't guarantee).
+const PHASE_ORDER = ["coingecko", "jupiter", "hyperliquid", "coinbase"];
 
 function formatMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;

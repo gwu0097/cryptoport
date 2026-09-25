@@ -5,17 +5,19 @@ import { withPriceKeys } from "./assetKeys";
 import { ensureAssetPrices } from "./assetPrices";
 import { COINGECKO_EXCHANGE_IDS, mappingsFromTickers, type ExchangeTicker } from "../exchangeTickers";
 
-// Keeps exchange_assets current for Kraken, Gemini and MEXC from CoinGecko's
+// Keeps exchange_assets current for Coinbase, Kraken, Gemini and MEXC from CoinGecko's
 // own per-exchange data (see ../exchangeTickers.ts), then re-keys the
 // exchange holdings it changes and prices any new coins — so a new user's
 // exchange tickers map without anyone editing a table. ~35 CoinGecko calls
-// (100 pairs a page: Kraken ~15, MEXC ~19, Gemini 1, measured 2026-09-25),
-// weekly. Hand-set rows (mapping_source 'manual') are never overwritten.
+// (100 pairs a page: Kraken ~15, MEXC ~19, Gemini 1, measured 2026-09-25)
+// plus Coinbase's pages, weekly. Hand-set rows and Coinbase's own catalog
+// rows are never overwritten.
 
 const API_BASE = "https://api.coingecko.com/api/v3";
 const PER_PAGE = 100;
 const MAX_PAGES = 40;
 const SOURCE = "coingecko-exchange";
+const KEPT_SOURCES = ["manual", "coinbase-registry"];
 
 async function fetchExchangeTickers(coingeckoId: string): Promise<ExchangeTicker[]> {
   const out: ExchangeTicker[] = [];
@@ -58,9 +60,11 @@ export async function refreshExchangeAssets(): Promise<string> {
   for (const [exchange, coingeckoId] of Object.entries(COINGECKO_EXCHANGE_IDS)) {
     try {
       const mappings = mappingsFromTickers(exchange, await fetchExchangeTickers(coingeckoId));
-      const { data: manual, error } = await db.from("exchange_assets").select("ticker").eq("exchange", exchange).eq("mapping_source", "manual");
+      // Kept as they are: hand-set rows, and Coinbase's own catalog (matched
+      // by each asset's contract address, the more exact source).
+      const { data: kept, error } = await db.from("exchange_assets").select("ticker").eq("exchange", exchange).in("mapping_source", KEPT_SOURCES);
       if (error) throw new Error(error.message);
-      const handSet = new Set((manual as { ticker: string }[]).map((r) => r.ticker));
+      const handSet = new Set((kept as { ticker: string }[]).map((r) => r.ticker));
       const now = new Date().toISOString();
       const rows = [...mappings]
         .filter(([ticker]) => !handSet.has(ticker))

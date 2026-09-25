@@ -101,7 +101,7 @@ export function stakingHoldings(chain: DirectoryChain, data: CosmosStakingData, 
   const row = (validator: string, amount: number, section: "Staked" | "Rewards" | "Unbonding", label: string): CosmosHolding => ({
     ticker: asset.symbol,
     qty: amount,
-    usd_override: asset.coingeckoId && asset.usd !== null ? amount * asset.usd : null,
+    usd_override: null, // valued from asset_prices by its coin (price_key)
     contract: asset.denom,
     category: "defi",
     chain: chain.name,
@@ -331,16 +331,6 @@ export function withKeplrCurrencies(chain: DirectoryChain, keplr: { currencies?:
   return { ...chain, assets };
 }
 
-/** Stamps a CoinGecko price (by id) onto holdings that have an id and an
- * amount but no price yet; everything else is returned unchanged. */
-export function withPrices(holdings: readonly CosmosHolding[], usdById: ReadonlyMap<string, number | null>): CosmosHolding[] {
-  return holdings.map((h) => {
-    if (h.usd_override !== null || !h.coingecko_id || h.qty === null) return h;
-    const usd = usdById.get(h.coingecko_id) ?? null;
-    return usd === null ? h : { ...h, usd_override: h.qty * usd };
-  });
-}
-
 /** The same account on another coin-type-118 chain. Throws on a non-cosmos1 input. */
 export function deriveAddress(cosmosAddress: string, prefix: string): string {
   const { prefix: from, words } = bech32.decode(cosmosAddress.trim() as `${string}1${string}`);
@@ -374,7 +364,7 @@ export function holdingsFromBalances(chain: DirectoryChain, balances: readonly {
       out.push({
         ticker: asset.symbol,
         qty,
-        usd_override: asset.coingeckoId && asset.usd !== null ? qty * asset.usd : null,
+        usd_override: null, // valued from asset_prices by its coin (price_key)
         contract: b.denom,
         category: "token",
         chain: chain.name,

@@ -5,9 +5,6 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
-import { refreshPrices } from "@/lib/prices";
-import { ensureExchangeAssetRegistry } from "@/lib/exchangeAssetRegistry";
-import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchZerionDefiPositions } from "@/lib/adapters/zerionDefi";
@@ -23,7 +20,8 @@ import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
-import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
+import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, type OnLane } from "@/lib/adapters/assetPrices";
+import type { PriceRefreshPhases } from "@/lib/queries";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY, TOKEN_LIST_WEEKLY } from "@/lib/tokenRegistryRefresh";
@@ -47,8 +45,7 @@ function revalidateAllPriceConsumers() {
   // captureUserSnapshot), Analytics' own value-history chart needs
   // revalidating too — it wasn't a price consumer before this.
   revalidatePath("/analytics");
-  // Watchlist coins are refreshed alongside holdings' prices (see
-  // runPriceRefresh) via the same button, so it's a price consumer too.
+  // Watchlist coins are priced in the same pass (see runPriceRefresh).
   revalidatePath("/watchlist");
 }
 
@@ -56,58 +53,28 @@ function revalidateAllPriceConsumers() {
  * refreshPricesForWalletAction, each inside its own after() so the extra
  * path either one also needs to revalidate (a specific wallet page, for
  * the latter) fires only once the real result exists, not on the
- * near-instant initial response. Never throws — a failure is recorded as
- * this singleton row's own status instead, same as every other sync
- * action in this app.
- *
- * `requestedAt` is the caller's own Date.now() from before requireUser()
- * — passed all the way through to refreshPrices so its per-lane timings
- * reflect time since the button was actually clicked, not just since this
- * function's own body started running (see refreshPrices' own doc
- * comment for why that gap is real and was worth closing: requireUser(),
- * the "mark refreshing" write, and the gap between a Server Action
- * returning and after() actually starting are all real, otherwise-
- * invisible latency). */
+ * near-instant initial response. One pricing pass (refreshAssetPrices):
+ * every held coin and every watchlist coin, each from its one source. Its
+ * lanes' progress goes to price_refresh_state.phases as they run (the
+ * button shows it live). Never throws — a failure is recorded as this
+ * singleton row's own status instead, same as every other sync action. */
 async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: string[] = []): Promise<void> {
-  // Launched alongside refreshPrices below, not chained after it — the two
-  // are independent CoinGecko-driven refreshes with no data dependency on
-  // each other (holdings-driven ticker prices vs. watchlist coingecko-id
-  // market data), so running them concurrently is a real wall-clock win.
-  // Deliberately NOT sequenced one-after-the-other inside this same
-  // function — that shape (new work awaited after the "real" work, inside
-  // one after() callback) is exactly what caused a reported regression
-  // earlier ("had to wait for processes to complete" to navigate away) —
-  // see scheduleUserSnapshot's doc comment for the full incident. A
-  // watchlist refresh failure is swallowed here (best-effort, same
-  // reasoning as scheduleUserSnapshot) rather than folded into
-  // price_refresh_state's own status column, which is specifically about
-  // holdings pricing.
-  const watchlistRefresh = refreshWatchlistMarketData().catch(() => {});
-  // Pricing phase 1 (docs/pricing/PLAN.md): the one-price-per-asset table,
-  // filled alongside today's pricing and read by nothing yet. Its own
-  // failure is logged to pricing_runs, never the refresh's status.
-  const assetRefresh = refreshAssetPrices("refresh-prices").catch((e: Error) => console.warn(`[pricing] asset prices: ${e.message}`));
+  const db = serviceDb();
+  const phases: PriceRefreshPhases = {};
+  // Writes queued in order, so a slow early write can't land after a later
+  // one and roll the progress back. Best-effort: purely cosmetic status.
+  let writes: Promise<unknown> = Promise.resolve();
+  const onLane: OnLane = (lane, status) => {
+    phases[lane] = { status, ms: status === "running" ? null : Date.now() - requestedAt };
+    const snapshot = { ...phases };
+    writes = writes.then(() => db.from("price_refresh_state").update({ phases: snapshot }).eq("id", 1)).catch(() => {});
+  };
 
   try {
-    const { results, laneErrors } = await refreshPrices(requestedAt);
-    const failed = results.filter((r) => !r.ok);
-    const tickerNote = failed.length > 0 ? `${failed.length}/${results.length} ticker(s) failed` : null;
-    const status =
-      laneErrors.length > 0
-        ? `partial — ${[...laneErrors, tickerNote].filter(Boolean).join("; ")}`
-        : results.length === 0
-          ? "no priced holdings"
-          : (tickerNote ?? "ok");
-
-    // Prices are keyed by ticker, not wallet — refreshPrices() touches
-    // the shared `prices` table, never a specific wallet's own holdings.
-    // This used to stamp every active wallet's own last_refresh_at/
-    // last_refresh_status instead of using its own state, which
-    // conflated "prices were refreshed" with "this wallet was synced"
-    // into one column (a wallet's real sync status kept getting
-    // overwritten by an unrelated price refresh). One singleton row
-    // instead — see price_refresh_state in schema.sql.
-    const { error } = await serviceDb()
+    const { requested, laneErrors } = await refreshAssetPrices("refresh-prices", undefined, onLane);
+    await writes;
+    const status = laneErrors.length > 0 ? `partial — ${laneErrors.join("; ")}` : requested === 0 ? "no priced holdings" : "ok";
+    const { error } = await db
       .from("price_refresh_state")
       // A failed lane means some prices weren't refreshed, so "Last priced"
       // doesn't move forward — only the status says what happened.
@@ -115,20 +82,15 @@ async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: 
       .eq("id", 1);
     if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
   } catch (e) {
-    await serviceDb()
+    await writes;
+    await db
       .from("price_refresh_state")
       .update({ status: `error: ${(e as Error).message}` })
       .eq("id", 1);
   }
 
-  await Promise.all([watchlistRefresh, assetRefresh]);
-
   // Nested after(), registered only now that prices are actually
-  // refreshed — not called concurrently with the work above, which would
-  // let it read stale (pre-refresh) prices via its own getPriceMap()
-  // call. See scheduleUserSnapshot's own doc comment for why this still
-  // needs to be its own after() registration rather than just an awaited
-  // call right here, though.
+  // refreshed — see scheduleUserSnapshot's doc comment.
   scheduleUserSnapshot(userId, extraPaths);
 }
 
@@ -587,13 +549,12 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
 
 /** Adds a Sei wallet's native staking (delegations, rewards, unbonding —
  * Cosmos-side, so neither balance scan sees it; adapters/seiStaking.ts).
- * Priced at the same per-unit SEI price as the wallet's own native balance
- * row when it has one. A staking lookup failure is a warning only. */
+ * Valued like the native balance: by the SEI coin's one price (price_key).
+ * A staking lookup failure is a warning only. */
 async function withSeiStaking(address: string, base: AdapterFetchResult): Promise<AdapterFetchResult> {
   const native = base.holdings.find((h) => h.chain === "sei" && h.contract === null && h.qty);
-  const unitUsd = native && native.usd_override !== null && native.qty ? native.usd_override / native.qty : null;
   try {
-    const stakes = await fetchSeiStakingHoldings(address, unitUsd, native?.icon_url ?? null);
+    const stakes = await fetchSeiStakingHoldings(address, null, native?.icon_url ?? null);
     return { ...base, holdings: [...base.holdings, ...stakes] };
   } catch (e) {
     return {
@@ -1099,11 +1060,6 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
         .update({ exchange_sync_duration_ms: Date.now() - syncStartedAt })
         .eq("id", walletId);
 
-      // Populated on sync if we don't already have it (24h TTL) — see
-      // exchangeAssetRegistry.ts's own doc comment. Awaited before the
-      // reprice below so a brand-new exchange connection's very first sync
-      // gets the coverage benefit immediately, not one sync cycle later.
-      await ensureExchangeAssetRegistry();
 
       scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
     } catch (e) {

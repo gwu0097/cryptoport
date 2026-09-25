@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, chainsById, parseIbcTrace, withIbcOrigins, registryAssetInfo, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, chainsById, parseIbcTrace, withIbcOrigins, registryAssetInfo, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -54,7 +54,7 @@ const chain: DirectoryChain = {
   ]),
 };
 
-test("known tokens are priced only by their own CoinGecko id; no id or no price = unpriced (never a ticker lookup)", () => {
+test("known tokens carry only their own CoinGecko id (priced later by it); no id = unpriced (never a ticker lookup)", () => {
   const h = holdingsFromBalances(chain, [
     { denom: "ustrd", amount: "2000000" },
     { denom: "stinj", amount: "500000000000000000" },
@@ -65,9 +65,9 @@ test("known tokens are priced only by their own CoinGecko id; no id or no price 
   assert.deepEqual(
     h.map((x) => [x.ticker, x.qty, x.usd_override, x.coingecko_id]),
     [
-      ["STRD", 2, 0.04, "stride"],
+      ["STRD", 2, null, "stride"], // no stored value: valued from asset_prices by its id
       ["stINJ", 0.5, null, null], // no CoinGecko id: listed, unpriced
-      ["TIA", 1, null, "celestia"], // id but no price in this snapshot: unpriced until Refresh prices
+      ["TIA", 1, null, "celestia"],
     ],
   );
   assert.ok(h.every((x) => x.chain === "stride" && x.contract));
@@ -104,18 +104,19 @@ test("Keplr's registry fills missing CoinGecko ids by exact denom (the stINJ / m
     { denom: "stutia", amount: "2000000" },
     { denom: "unoid", amount: "5000000" },
   ]);
-  const priced = withPrices(h, new Map([["stride-staked-injective", 12.3], ["stride-staked-tia", null]]));
+  // Each row carries its coin (priced later from asset_prices by that id);
+  // a known token with no id has none — never priced by name.
   assert.deepEqual(
-    priced.map((x) => [x.ticker, x.qty, x.usd_override === null ? null : Math.round(x.usd_override * 100) / 100]),
+    h.map((x) => [x.ticker, x.qty, x.coingecko_id, x.usd_override]),
     [
-      ["stINJ", 36.777, 452.36],
-      ["stTIA", 2, null], // id but no CoinGecko price: stays unpriced
-      ["NOID", 5, null], // known token, no id: unpriced by name
+      ["stINJ", 36.777, "stride-staked-injective", null],
+      ["stTIA", 2, "stride-staked-tia", null],
+      ["NOID", 5, null, null],
     ],
   );
 });
 
-test("staking: staked, rewards and unbonding rows per validator, priced by the staking token's own id", () => {
+test("staking: staked, rewards and unbonding rows per validator, carrying the staking token's own id", () => {
   const V = "stridevaloper1abcdefghijklmnop";
   const h = stakingHoldings(
     chain,
@@ -129,9 +130,9 @@ test("staking: staked, rewards and unbonding rows per validator, priced by the s
   assert.deepEqual(
     h.map((x) => [x.protocol_section, x.qty, x.usd_override, x.display_label]),
     [
-      ["Staked", 150, 3, "Staked · Stakecito"],
-      ["Rewards", 2.500000123, 0.05000000246, "Staking rewards · Stakecito"],
-      ["Unbonding", 40, 0.8, "Unbonding · Stakecito · available 2026-10-15"],
+      ["Staked", 150, null, "Staked · Stakecito"],
+      ["Rewards", 2.500000123, null, "Staking rewards · Stakecito"],
+      ["Unbonding", 40, null, "Unbonding · Stakecito · available 2026-10-15"],
     ],
   );
   assert.ok(h.every((x) => x.ticker === "STRD" && x.contract === "ustrd" && x.coingecko_id === "stride" && x.category === "defi" && x.protocol === "Stride native staking"));

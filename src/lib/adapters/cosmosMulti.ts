@@ -4,7 +4,6 @@ import { Resolver } from "node:dns/promises";
 import { serviceDb } from "../supabase";
 import { chainScope, type KeepScope } from "../carryForward";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
-import { fetchMarketsByIds } from "./coingecko";
 import {
   eligibleChains,
   deriveAddress,
@@ -439,34 +438,4 @@ async function readStakingAnywhere(
     }
   }
   return { staking: null, monikers: new Map() };
-}
-
-/**
- * "Refresh prices" for Cosmos holdings: re-prices every `auto_cosmos` row
- * that has a CoinGecko id from CoinGecko's /coins/markets by that id (one
- * batched call per 250 ids, via the shared 60s price cache) — the Cosmos
- * counterpart of refreshEvmHoldingPrices. A row whose id gets no price this
- * time is set to unpriced rather than keeping an old number with no caption.
- */
-export async function refreshCosmosHoldingPrices(): Promise<{ ticker: string; ok: boolean; error?: string }[]> {
-  const db = serviceDb();
-  const { data, error } = await db
-    .from("holdings")
-    .select("id, wallet_id, ticker, qty, coingecko_id")
-    .eq("source", "auto_cosmos")
-    .not("coingecko_id", "is", null);
-  if (error) throw new Error(`Failed to load Cosmos holdings: ${error.message}`);
-  const rows = (data ?? []) as { id: string; wallet_id: string; ticker: string; qty: number | string | null; coingecko_id: string }[];
-  if (rows.length === 0) return [];
-
-  const markets = await fetchMarketsByIds([...new Set(rows.map((r) => r.coingecko_id))]);
-  const priceById = new Map(markets.map((m) => [m.id, m.price]));
-  const upserts = rows.map((r) => {
-    const price = priceById.get(r.coingecko_id) ?? null;
-    const qty = r.qty === null ? null : Number(r.qty);
-    return { id: r.id, wallet_id: r.wallet_id, ticker: r.ticker, source: "auto_cosmos", usd_override: price !== null && qty !== null ? qty * price : null };
-  });
-  const { error: upsertError } = await db.from("holdings").upsert(upserts, { onConflict: "id" });
-  if (upsertError) throw new Error(`Failed to save Cosmos holding prices: ${upsertError.message}`);
-  return upserts.map((u) => ({ ticker: u.ticker, ok: u.usd_override !== null, ...(u.usd_override === null ? { error: "No CoinGecko price for this id." } : {}) }));
 }

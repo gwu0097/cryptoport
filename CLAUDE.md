@@ -93,36 +93,24 @@ holdings are counted and named (not dropped silently) from portfolio
 totals, and the UI always shows `—` or an explicit warning rather than a
 plausible-looking wrong number.
 
-**This app has two separate valuation paths — know both before touching
-pricing/valuation code:**
-1. The ticker-keyed `prices` table (Coinbase primary, Jupiter fallback,
-   refreshed by `refreshPrices()`) — global, shared across all holdings
-   with that ticker.
-2. Per-holding `usd_override` — computed and stamped directly onto a
-   holding at sync time (e.g. every EVM token/native via CoinGecko in
-   `multicallEvm.ts`, DeFi positions via their own protocol math). Per
-   `valuation.ts`'s own doc comment, a holding with `usd_override` set
-   **never** consults the ticker-keyed `prices` table — it's the source of
-   truth for that holding until the next sync.
-
-A lot of this session's debugging time went into re-discovering this split
-after the fact. If a fix touches "why is a value/24h-change missing or
-stale," check which of these two paths that holding actually uses before
-proposing a fix.
-
-**Known gap: plain Solana SPL token balances (`adapters/jupiter.ts`) are
-the one auto-synced category still on path 1 (ticker-keyed), not path 2.**
-EVM tokens/native and every DeFi-position adapter price themselves via a
-per-holding `usd_override` specifically so a token can never be valued off
-an unrelated asset that happens to share its ticker. Solana plain balances
-don't — a copycat/spoofed-symbol mint that's still sellable (so it isn't
-caught by `fetchJupiterHoldings`'s Jupiter-Shield `NOT_SELLABLE` filter,
-added after a real incident where two spoofed tokens showed real-looking
-USD values) gets priced off the real ticker's price in the shared `prices`
-table, not its own mint's actual price. See `valuation.ts`'s "KNOWN GAP"
-comment for the full explanation and why the real fix (stamping
-`usd_override` from Jupiter's own per-mint price, matching the EVM
-pattern) is a design change, not a patch.
+**One price per asset — know this before touching pricing/valuation code**
+(docs/pricing/PLAN.md). Every holding carries a `price_key`: the one asset
+it is (a CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<T>`
+/ `fiat:USD` for what CoinGecko doesn't list), set at sync time by
+`resolvePriceKey` (`assetIdentity.ts`) from the contract (token_registry),
+the venue's ticker map (`exchange_assets`), or the chain's native coin —
+**never by ticker alone**. `asset_prices` holds one price per key, filled by
+`refreshAssetPrices` (Refresh prices, the post-sync pass, the snapshot) and
+never overwritten with null (`missing_since` instead). Valuation
+(`valueHolding`): `qty × asset_prices[price_key]`, else the holding's stored
+`usd_override`, else unpriced. `usd_override` is now only for **position
+values** a protocol computes (LP, perps, Kamino, prediction shares, vaults
+— `isPositionValue`) and a few protocol pins; syncs no longer stamp one on
+plain coins. Bridged/wrapped copies (USDC.e, axlUSDC, WETH) are their own
+assets. Gaps are visible on `/admin/pricing` (the coverage report), and
+each exchange's ticker map refreshes itself weekly from CoinGecko's
+per-exchange data. If a value is missing or stale, check the holding's
+`price_key` and that key's `asset_prices` row first.
 
 **A failed part of a sync keeps its previous rows; it never deletes them.**
 A sync replaces all of a wallet's auto rows at once, so a soft-failing
@@ -134,8 +122,9 @@ or soft-failing source must declare one, matching the protocol/chain it
 writes.
 
 **Staleness is also two independent things** — don't conflate them:
-global price freshness (`price_refresh_state`, one singleton row) vs.
-per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
+price freshness (each `asset_prices.updated_at`; `pricesAsOf.ts` shows it
+per coin) vs. per-wallet sync freshness (`wallets.last_refresh_at`/
+`last_refresh_status`).
 
 ## API integration
 
@@ -170,8 +159,8 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
    callers independently invoke in the same render.
 2. **Cross-request caching only for slow-changing data**, and only in the
    DB itself as a persistent cache — `token_registry`/`chain_icons` are the
-   existing pattern (fetched once, reused until an explicit "Refresh token
-   list" action). Extend this pattern for new slow-changing external data.
+   existing pattern (fetched once, reused until the weekly refresh —
+   lib/tokenRegistryRefresh.ts). Extend this pattern for new slow-changing external data.
    Never apply it to live prices/balances without the same staleness-
    caption discipline everywhere else in this app (`formatStaleness`).
 3. **`next.config.ts` sets `experimental.staleTimes.dynamic = 1800`** — the
@@ -288,10 +277,9 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   navigation app-wide while it ran and was reported as a CLAUDE.md
   violation; fixed by moving to the same `after()` pattern.) `after()`
   still shares the route's `maxDuration` budget and can call
-  `revalidatePath`. Known remaining offenders that have this same shape
-  and haven't been fixed yet: `refreshPricesAction`. (The token list has
-  no action at all anymore: it refreshes itself — weekly cron, and after a
-  sync meets an unknown Solana/Sui token — see lib/tokenRegistryRefresh.ts.)
+  `revalidatePath`. (`refreshPricesAction` follows it too. The token list
+  has no action at all anymore: it refreshes itself — weekly cron, and after
+  a sync meets an unknown Solana/Sui token — see lib/tokenRegistryRefresh.ts.)
 
 ## UI conventions
 

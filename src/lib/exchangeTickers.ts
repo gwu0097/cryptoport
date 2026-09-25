@@ -10,8 +10,9 @@ export interface ExchangeTicker {
   coin_id?: string;
 }
 
-/** Our exchange chain id -> CoinGecko's exchange id. */
-export const COINGECKO_EXCHANGE_IDS: Record<string, string> = { kraken: "kraken", gemini: "gemini", mexc: "mxc" };
+/** Our exchange chain id -> CoinGecko's exchange id ("gdax" is Coinbase
+ * Exchange). */
+export const COINGECKO_EXCHANGE_IDS: Record<string, string> = { coinbase: "gdax", kraken: "kraken", gemini: "gemini", mexc: "mxc" };
 
 /** Where an exchange's name for a coin differs from the ticker its balances
  * are stored under (the Kraken adapter renames XBT to BTC). */
