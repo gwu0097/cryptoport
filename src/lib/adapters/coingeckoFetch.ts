@@ -1,5 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
+import { windowDelay } from "../rateWindow";
 
 // Every CoinGecko call in the app goes through here (the shared adapter and
 // the screener's own) — the key handling used to be duplicated in both.
@@ -41,10 +42,30 @@ async function isQuotaExhausted(res: Response): Promise<boolean> {
   }
 }
 
+// App-wide pacing (per server instance): at most CALLS_PER_MINUTE requests
+// in any rolling minute, the rest wait their turn — under the Demo plan's
+// ~30/min, leaving room for retries. A Refresh prices fires its CoinGecko
+// lanes in parallel (~50 calls) and a lane died on an HTTP 429 when they
+// all went at once (2026-09-25).
+const CALLS_PER_MINUTE = 25;
+const recentCalls: number[] = [];
+
+async function takeSlot(): Promise<void> {
+  for (;;) {
+    const wait = windowDelay(recentCalls, Date.now(), CALLS_PER_MINUTE, 60_000);
+    if (wait <= 0) {
+      recentCalls.push(Date.now());
+      return;
+    }
+    await new Promise((r) => setTimeout(r, wait + 50));
+  }
+}
+
 export async function coingeckoFetch(
   url: string,
   opts?: { attempts?: number; baseDelayMs?: number },
 ): Promise<Response> {
+  await takeSlot();
   for (;;) {
     const key = KEYS[active];
     const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...DEFAULT_RETRY, ...opts, stopOn: isQuotaExhausted });

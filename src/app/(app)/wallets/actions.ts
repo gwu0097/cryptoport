@@ -159,14 +159,15 @@ async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: 
   const watchlistRefresh = refreshWatchlistMarketData().catch(() => {});
 
   try {
-    const results = await refreshPrices(requestedAt);
+    const { results, laneErrors } = await refreshPrices(requestedAt);
     const failed = results.filter((r) => !r.ok);
+    const tickerNote = failed.length > 0 ? `${failed.length}/${results.length} ticker(s) failed` : null;
     const status =
-      results.length === 0
-        ? "no priced holdings"
-        : failed.length === 0
-          ? "ok"
-          : `${failed.length}/${results.length} ticker(s) failed`;
+      laneErrors.length > 0
+        ? `partial — ${[...laneErrors, tickerNote].filter(Boolean).join("; ")}`
+        : results.length === 0
+          ? "no priced holdings"
+          : (tickerNote ?? "ok");
 
     // Prices are keyed by ticker, not wallet — refreshPrices() touches
     // the shared `prices` table, never a specific wallet's own holdings.
@@ -178,7 +179,9 @@ async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: 
     // instead — see price_refresh_state in schema.sql.
     const { error } = await serviceDb()
       .from("price_refresh_state")
-      .update({ refreshed_at: new Date().toISOString(), status })
+      // A failed lane means some prices weren't refreshed, so "Last priced"
+      // doesn't move forward — only the status says what happened.
+      .update(laneErrors.length > 0 ? { status } : { refreshed_at: new Date().toISOString(), status })
       .eq("id", 1);
     if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
   } catch (e) {

@@ -585,7 +585,9 @@ type PhaseState = { status: "running" | "done" | "error"; ms: number | null };
  * clock started only once this function's own body was already running,
  * which is itself downstream of all of the above.
  */
-export async function refreshPrices(startedAt: number = Date.now()): Promise<PriceRefreshResult[]> {
+export async function refreshPrices(
+  startedAt: number = Date.now(),
+): Promise<{ results: PriceRefreshResult[]; laneErrors: string[] }> {
   const [holdingTickers, existingSources, exchangeRegistry] = await Promise.all([
     getDistinctHoldingTickers(),
     getExistingPriceSources(),
@@ -635,43 +637,45 @@ export async function refreshPrices(startedAt: number = Date.now()): Promise<Pri
   };
   await persistPhases(phases);
 
-  async function tracked<T>(name: PhaseName, work: Promise<T>): Promise<T> {
+  // Each lane fails on its own: a failed lane is recorded (phase "error" +
+  // laneErrors) and the others finish. A lane error used to reject the
+  // whole refresh at once — the status flipped to "error" while the EVM and
+  // Coinbase lanes were still running (2026-09-25).
+  const laneErrors: string[] = [];
+  async function tracked<T>(name: PhaseName, work: Promise<T>, fallback: T, markDone = true): Promise<T> {
     try {
       const result = await work;
-      phases[name] = { status: "done", ms: Date.now() - t0 };
-      await persistPhases(phases);
+      if (markDone) {
+        phases[name] = { status: "done", ms: Date.now() - t0 };
+        await persistPhases(phases);
+      }
       return result;
     } catch (e) {
+      laneErrors.push(`${name}: ${(e as Error).message}`);
       phases[name] = { status: "error", ms: Date.now() - t0 };
       await persistPhases(phases);
-      throw e;
+      return fallback;
     }
   }
 
-  // "coinbase" is deliberately NOT wrapped in tracked() — real bug, caught
-  // live: the initial residual call finishing would mark it "done" at,
-  // say, 2.2s, then the Solana-miss follow-up below (still to come) would
-  // silently overwrite that same "done" a second time at 7.6s once it
-  // finished — showing a lane as complete, then un-completing and
-  // re-completing it, which read as broken rather than as one lane taking
-  // a while. The phase only gets its one "done" write below, once the
-  // whole thing (both steps) is actually finished.
+  // "coinbase" gets no "done" from its first step — real bug, caught live:
+  // the initial residual call finishing would mark it "done" at, say, 2.2s,
+  // then the Solana-miss follow-up below would overwrite that same "done"
+  // again at 7.6s — a lane completing, un-completing and re-completing. Its
+  // one "done" is written after the merge below (both steps).
   const [coingecko, coinbaseAndJupiter, evmResults, cosmosResults] = await Promise.all([
-    tracked("coingecko", refreshCoinGeckoTickers(resolved)),
-    refreshCoinbaseAndJupiter(residual, existingSources),
-    tracked("evm", refreshEvmHoldingPrices()),
+    tracked("coingecko", refreshCoinGeckoTickers(resolved), { results: [], solanaMisses: [] }),
+    tracked("coinbase", refreshCoinbaseAndJupiter(residual, existingSources), null, false),
+    tracked("evm", refreshEvmHoldingPrices(), []),
     // Cosmos multi-chain tokens: re-priced by their own CoinGecko id, same
     // idea as the EVM lane (adapters/cosmosMulti.ts).
-    tracked("cosmos", refreshCosmosHoldingPrices()),
+    tracked("cosmos", refreshCosmosHoldingPrices(), []),
   ]);
   // Small, second-stage Solana-miss follow-up plus the final result merge —
-  // see mergeCoingeckoAndResidualResults' own doc comment. The phase only
-  // gets its one "done" write below, once this (both steps) is actually
-  // finished — see the comment above on why "coinbase" isn't wrapped in
-  // tracked() the same way.
-  const merged = await mergeCoingeckoAndResidualResults(coingecko, coinbaseAndJupiter, existingSources);
-  phases.coinbase = { status: "done", ms: Date.now() - t0 };
-  await persistPhases(phases);
+  // see mergeCoingeckoAndResidualResults' own doc comment.
+  const merged = coinbaseAndJupiter
+    ? await tracked("coinbase", mergeCoingeckoAndResidualResults(coingecko, coinbaseAndJupiter, existingSources), [])
+    : coingecko.results;
 
-  return [...merged, ...evmResults, ...cosmosResults];
+  return { results: [...merged, ...evmResults, ...cosmosResults], laneErrors };
 }
