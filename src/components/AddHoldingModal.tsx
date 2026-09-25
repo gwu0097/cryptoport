@@ -41,6 +41,10 @@ export function AddHoldingModal({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [qtyCoin, setQtyCoin] = useState<CoinSearchResult | null>(null);
+  // A quantity is priced as quantity × its coin's price, so it needs the
+  // exact coin: a typed ticker alone can't be priced (docs/pricing/PLAN.md —
+  // no ticker guessing). Two manual BTC rows sat without a coin this way.
+  const [needPick, setNeedPick] = useState(false);
   const [usdCoin, setUsdCoin] = useState<CoinSearchResult | null>(null);
 
   return (
@@ -58,7 +62,14 @@ export function AddHoldingModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <form
             action={addHolding}
-            onSubmit={() => dialogRef.current?.close()}
+            onSubmit={(e) => {
+              if (!qtyCoin) {
+                e.preventDefault();
+                setNeedPick(true);
+                return;
+              }
+              dialogRef.current?.close();
+            }}
             className="flex flex-col gap-3"
           >
             <input type="hidden" name="kind" value="qty" />
@@ -67,7 +78,10 @@ export function AddHoldingModal({
             <Field label="Ticker">
               <CoinSearchInput
                 search={searchCoinsAction}
-                onSelect={setQtyCoin}
+                onSelect={(coin) => {
+                  setQtyCoin(coin);
+                  if (coin) setNeedPick(false);
+                }}
                 name="ticker"
                 defaultValue={defaultTicker}
                 placeholder="e.g. BTC, ETH, PEPE…"
@@ -77,6 +91,9 @@ export function AddHoldingModal({
             <Field label="Quantity">
               <input name="qty" type="text" inputMode="decimal" required className={inputClass} />
             </Field>
+            {needPick && (
+              <p className="text-xs text-warning">Pick the coin from the list — a quantity is priced by its exact coin.</p>
+            )}
             <SubmitButton className="self-start">Add by quantity</SubmitButton>
           </form>
 

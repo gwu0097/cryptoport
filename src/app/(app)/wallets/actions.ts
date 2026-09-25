@@ -522,6 +522,9 @@ export async function addHolding(walletId: string, formData: FormData) {
   // lookup (the DOG-vs-DOG bug this exists to fix).
   const coingeckoId = optionalString(formData, "coingecko_id");
   const iconUrl = optionalString(formData, "icon_url");
+  // A quantity is priced as qty × its coin's price: it needs the exact coin
+  // (the form requires a pick; this guards the action itself).
+  if (kind !== "usd" && !coingeckoId) throw new Error("Pick the coin from the list — a quantity needs its exact coin to be priced.");
 
   const insert: {
     wallet_id: string;
@@ -531,6 +534,7 @@ export async function addHolding(walletId: string, formData: FormData) {
     usd_override: string | null;
     coingecko_id: string | null;
     icon_url: string | null;
+    price_key: string | null;
   } =
     kind === "usd"
       ? {
@@ -541,6 +545,7 @@ export async function addHolding(walletId: string, formData: FormData) {
           qty: null,
           coingecko_id: coingeckoId,
           icon_url: iconUrl,
+          price_key: null, // a fixed USD value isn't priced
         }
       : {
           wallet_id: walletId,
@@ -550,6 +555,7 @@ export async function addHolding(walletId: string, formData: FormData) {
           usd_override: null,
           coingecko_id: coingeckoId,
           icon_url: iconUrl,
+          price_key: coingeckoId, // the picked coin (docs/pricing/PLAN.md)
         };
 
   const db = await userDb();
