@@ -1763,3 +1763,284 @@ alter table cryptoport.coin_cache enable row level security;
 grant all on cryptoport.coin_cache to service_role;
 alter table cryptoport.token_registry add column if not exists price_usd numeric;
 alter table cryptoport.token_registry add column if not exists price_at timestamptz;
+
+-- Pricing phase 1 (docs/pricing/PLAN.md), 2026-09-25: one price per asset,
+-- built alongside today's price stores (nothing reads these yet).
+
+-- One row per asset: a CoinGecko coin id, or a namespaced long-tail key
+-- ('jup:<mint>', 'hl:<token>', 'coinbase:<ticker>'). base_key = the coin a
+-- bridged/wrapped/staked variant combines with in display only.
+create table if not exists cryptoport.assets (
+  price_key  text primary key,
+  symbol     text,
+  name       text,
+  image_url  text,
+  kind       text,
+  base_key   text,
+  updated_at timestamptz not null default now()
+);
+alter table cryptoport.assets enable row level security;
+grant all on cryptoport.assets to service_role;
+
+-- chain + contract (address / mint / Sui type / Cosmos denom / 'native') ->
+-- the asset it is. mapping_source says how the mapping was made.
+create table if not exists cryptoport.asset_contracts (
+  chain          text not null,
+  contract       text not null,
+  price_key      text not null,
+  mapping_source text not null,
+  updated_at     timestamptz not null default now(),
+  primary key (chain, contract)
+);
+alter table cryptoport.asset_contracts enable row level security;
+grant all on cryptoport.asset_contracts to service_role;
+create index if not exists asset_contracts_price_key_idx on cryptoport.asset_contracts (price_key);
+
+-- An exchange's own ticker -> asset, per exchange.
+create table if not exists cryptoport.exchange_assets (
+  exchange       text not null,
+  ticker         text not null,
+  price_key      text not null,
+  mapping_source text not null,
+  updated_at     timestamptz not null default now(),
+  primary key (exchange, ticker)
+);
+alter table cryptoport.exchange_assets enable row level security;
+grant all on cryptoport.exchange_assets to service_role;
+
+-- The one price per asset. usd is the last price a source reported and is
+-- never overwritten with null: a source omitting a key sets missing_since.
+create table if not exists cryptoport.asset_prices (
+  price_key       text primary key,
+  usd             numeric,
+  change_1h       numeric,
+  change_24h      numeric,
+  change_7d       numeric,
+  change_30d      numeric,
+  market_cap      numeric,
+  source          text,
+  updated_at      timestamptz,
+  last_attempt_at timestamptz,
+  missing_since   timestamptz,
+  last_error      text
+);
+alter table cryptoport.asset_prices enable row level security;
+grant all on cryptoport.asset_prices to service_role;
+
+-- One row per pricing pass: what was asked, what came back, what it cost.
+create table if not exists cryptoport.pricing_runs (
+  id          bigint generated always as identity primary key,
+  trigger     text not null,
+  started_at  timestamptz not null default now(),
+  duration_ms integer,
+  requested   integer,
+  returned    integer,
+  missing     jsonb,
+  calls       jsonb,
+  error       text
+);
+alter table cryptoport.pricing_runs enable row level security;
+grant all on cryptoport.pricing_runs to service_role;
+
+alter table cryptoport.holdings add column if not exists price_key text;
+create index if not exists holdings_price_key_idx on cryptoport.holdings (price_key);
+
+-- Every sync function lists its insert columns, so each gains price_key.
+
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
+     position_pnl_percent, display_label, protocol_section)
+  select
+    h->>'price_key',
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric,
+    (h->>'position_pnl_percent')::numeric,
+    h->>'display_label',
+    h->>'protocol_section'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+create or replace function cryptoport.sync_defi_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto_defi';
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
+     position_pnl_percent, display_label, protocol_section)
+  select
+    h->>'price_key',
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto_defi',
+    h->>'contract',
+    coalesce(h->>'category', 'defi'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric,
+    (h->>'position_pnl_percent')::numeric,
+    h->>'display_label',
+    h->>'protocol_section'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set defi_synced_at = now(), defi_sync_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+create or replace function cryptoport.sync_exchange_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto_exchange';
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
+     position_pnl_percent, display_label, protocol_section)
+  select
+    h->>'price_key',
+    p_wallet_id, h->>'ticker', (h->>'qty')::numeric, (h->>'usd_override')::numeric,
+    'auto_exchange', h->>'contract', coalesce(h->>'category', 'token'), h->>'chain',
+    h->>'icon_url', h->>'protocol', h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric,
+    (h->>'position_pnl_percent')::numeric,
+    h->>'display_label',
+    h->>'protocol_section'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set exchange_synced_at = now(), exchange_sync_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+create or replace function cryptoport.sync_cosmos_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source in ('auto', 'auto_cosmos');
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, coingecko_id, display_label,
+     protocol, protocol_url, protocol_section)
+  select
+    h->>'price_key',
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto_cosmos',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'coingecko_id',
+    h->>'display_label',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'protocol_section'
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;

@@ -202,6 +202,11 @@ export interface CoingeckoMarketStats extends CoingeckoPrice {
   change1h: number | null;
   change7d: number | null;
   change30d: number | null;
+  /** Free in the same /coins/markets response — display info for the
+   * `assets` table (docs/pricing/PLAN.md). */
+  symbol?: string | null;
+  name?: string | null;
+  image?: string | null;
 }
 
 const MARKETS_BATCH_SIZE = 250; // coins/markets' own per-call ids cap
@@ -239,6 +244,9 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
     const body: {
       id: string;
+      symbol?: string;
+      name?: string;
+      image?: string;
       current_price?: number;
       price_change_percentage_1h_in_currency?: number;
       price_change_percentage_24h_in_currency?: number;
@@ -249,6 +257,9 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
     for (const coin of body) {
       if (typeof coin.current_price === "number") {
         stats.set(coin.id, {
+          symbol: coin.symbol?.toUpperCase() ?? null,
+          name: coin.name ?? null,
+          image: coin.image ?? null,
           usd: coin.current_price,
           change1h: typeof coin.price_change_percentage_1h_in_currency === "number"
             ? coin.price_change_percentage_1h_in_currency

@@ -6,11 +6,9 @@ import { refreshEvmHoldingPrices } from "./adapters/multicallEvm.ts";
 import { refreshCosmosHoldingPrices } from "./adapters/cosmosMulti.ts";
 import { fetchTokenPrices, fetchMarketStatsByIds } from "./adapters/coingecko.ts";
 import { EVM_CHAINS } from "./adapters/evmChains.ts";
-import { resolveCoingeckoKey } from "./priceKey.ts";
 import { isFresh, SYNC_PRICE_MAX_AGE_MS } from "./priceCache.ts";
 import { mapWithConcurrency } from "./adapters/http.ts";
 import { getExchangeAssetRegistry } from "./exchangeAssetRegistry.ts";
-import type { HoldingSource } from "./types.ts";
 
 // Coinbase's Exchange API host (used for the delisting check + 24h stats,
 // see coinbase.ts) throttles hard under an unbounded burst — verified live

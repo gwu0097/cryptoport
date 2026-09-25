@@ -279,3 +279,30 @@ export async function fetchHyperliquidHoldings(
 
   return { holdings, warnings, keep };
 }
+
+/** Every Hyperliquid spot token's USD price — the USDC pair's mark price
+ * (the exchange's own reference price; several held tokens barely trade, and
+ * the mid of a near-empty book is noise: WOW mid 0.00032 vs mark 0.00013 on
+ * 2026-09-25) — and its 24h change from the previous day's price. One call.
+ * Keyed by token name (PURR, HFUN, …). */
+export async function fetchHyperliquidSpotPrices(): Promise<Map<string, { usd: number; change24h: number | null }>> {
+  const [meta, ctxs] = await postInfo<
+    [
+      { tokens: { name: string; index: number }[]; universe: { tokens: [number, number]; index: number }[] },
+      { markPx?: string; prevDayPx?: string }[],
+    ]
+  >({ type: "spotMetaAndAssetCtxs" });
+  const nameByIndex = new Map(meta.tokens.map((t) => [t.index, t.name]));
+  const out = new Map<string, { usd: number; change24h: number | null }>();
+  for (const pair of meta.universe) {
+    const [base, quote] = pair.tokens;
+    if (nameByIndex.get(quote) !== "USDC") continue;
+    const name = nameByIndex.get(base);
+    const ctx = ctxs[pair.index];
+    const usd = Number(ctx?.markPx);
+    if (!name || !Number.isFinite(usd) || usd <= 0) continue;
+    const prev = Number(ctx?.prevDayPx);
+    out.set(name.toUpperCase(), { usd, change24h: Number.isFinite(prev) && prev > 0 ? ((usd - prev) / prev) * 100 : null });
+  }
+  return out;
+}

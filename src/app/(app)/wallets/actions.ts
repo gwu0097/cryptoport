@@ -22,6 +22,8 @@ import { fetchSeiStakingHoldings } from "@/lib/adapters/seiStaking";
 import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
+import { withPriceKeys } from "@/lib/adapters/assetKeys";
+import { refreshAssetPrices } from "@/lib/adapters/assetPrices";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshLiquidStakingTokens } from "@/lib/adapters/liquidStakingRegistry";
@@ -157,6 +159,10 @@ async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: 
   // price_refresh_state's own status column, which is specifically about
   // holdings pricing.
   const watchlistRefresh = refreshWatchlistMarketData().catch(() => {});
+  // Pricing phase 1 (docs/pricing/PLAN.md): the one-price-per-asset table,
+  // filled alongside today's pricing and read by nothing yet. Its own
+  // failure is logged to pricing_runs, never the refresh's status.
+  const assetRefresh = refreshAssetPrices("refresh-prices").catch((e: Error) => console.warn(`[pricing] asset prices: ${e.message}`));
 
   try {
     const { results, laneErrors } = await refreshPrices(requestedAt);
@@ -191,7 +197,7 @@ async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: 
       .eq("id", 1);
   }
 
-  await watchlistRefresh;
+  await Promise.all([watchlistRefresh, assetRefresh]);
 
   // Nested after(), registered only now that prices are actually
   // refreshed — not called concurrently with the work above, which would
@@ -671,6 +677,22 @@ async function withSeiStaking(address: string, base: AdapterFetchResult): Promis
   }
 }
 
+/** The rows with their price_key (docs/pricing/PLAN.md phase 1: written
+ * alongside today's pricing, read by nothing yet). A key lookup failure
+ * saves the rows without keys rather than failing the sync — until phase 2
+ * makes the keys load-bearing. */
+async function keyed<T extends { ticker: string; chain: string | null; contract: string | null }>(
+  rows: T[],
+  source: HoldingSource,
+): Promise<T[]> {
+  try {
+    return await withPriceKeys(rows, source);
+  } catch (e) {
+    console.warn(`[pricing] price keys not set (${source}): ${(e as Error).message}`);
+    return rows;
+  }
+}
+
 // Every column sync_auto_holdings / sync_cosmos_holdings (schema.sql)
 // inserts — a kept row (carryForward.ts) is re-saved with all of them.
 const AUTO_KEEP_COLUMNS =
@@ -811,7 +833,9 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       const status = warnings.length === 0 ? "ok" : `partial — ${[...warnings, keptStatus].filter(Boolean).join("; ")}`;
       const { error: syncError } = await afterDb.rpc(cosmosHoldings ? "sync_cosmos_holdings" : "sync_auto_holdings", {
         p_wallet_id: walletId,
-        p_holdings: cosmosHoldings ?? holdings,
+        p_holdings: cosmosHoldings
+          ? await keyed(cosmosHoldings, "auto_cosmos")
+          : await keyed(holdings, "auto"),
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
@@ -944,7 +968,7 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
 
       const { error: syncError } = await afterDb.rpc("sync_defi_holdings", {
         p_wallet_id: walletId,
-        p_holdings: holdings,
+        p_holdings: await keyed(holdings, "auto_defi"),
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save DeFi holdings: ${syncError.message}`);
@@ -1081,7 +1105,7 @@ export async function connectExchange(
   // no need to immediately click "Sync" right after connecting.
   await db.rpc("sync_exchange_holdings", {
     p_wallet_id: wallet.id,
-    p_holdings: testResult.holdings,
+    p_holdings: await keyed(testResult.holdings, "auto_exchange"),
     p_status: testResult.warnings.length === 0 ? "ok" : `partial — ${testResult.warnings.join("; ")}`,
   });
 
@@ -1137,7 +1161,7 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
 
       const { error: syncError } = await afterDb.rpc("sync_exchange_holdings", {
         p_wallet_id: walletId,
-        p_holdings: holdings,
+        p_holdings: await keyed(holdings, "auto_exchange"),
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
