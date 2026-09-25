@@ -32,11 +32,10 @@ export interface PriceRefreshState {
    * deriveJobStatus (lib/jobStatus.ts) the same way wallets.sync_started_at
    * does for a wallet sync. */
   startedAt: string | null;
-  /** Per-lane ("coingecko" | "coinbase" | "evm" | "cosmos") live status/timing for the
-   * current or most recent refresh — see prices.ts's refreshPrices, which
-   * writes this incrementally as each lane finishes rather than only once
-   * at the very end. Null before the very first refresh this app has ever
-   * run. */
+  /** Per-lane ("coingecko" | "jupiter" | "hyperliquid" | "coinbase") live
+   * status/timing for the current or most recent refresh — written as each
+   * of refreshAssetPrices' source lanes runs (wallets/actions.ts's
+   * runPriceRefresh). Null before the very first refresh. */
   phases: PriceRefreshPhases | null;
   /** When the user's held coins were priced (pricesAsOf.ts). */
   pricesAsOf: PricesAsOf;
@@ -169,8 +168,8 @@ export const getChainIconMap = cache(async (): Promise<Record<string, string>> =
   return icons;
 });
 
-// Shared/global, not per-user — every user's holdings draw from the same
-// ticker-keyed price cache, see prices.ts's refreshPrices doc comment.
+// Shared/global, not per-user — every user's holdings are valued from the
+// same one-price-per-asset table (asset_prices, see assetPrices.ts).
 // Cached per-request via React's cache(): several of this file's own
 // grouped queries (getWalletsWithTotals, getAssetsGroupedByChain,
 // getAssetsGroupedByTicker, getDefiGroupedByProtocol) each call this
@@ -247,11 +246,6 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
   return out;
 });
 
-// The ticker-keyed `prices` table is deliberately never consulted for a
-// holding that already carries usd_override (see valuation.ts) — but the
-// per-unit "Price" column still wants a number to show instead of a
-// misleading "unpriced" on a row that clearly has a value. Derived only for
-// display; never fed back into valuation.
 /** Per-unit price: the asset's one price when it has one, else the stored
  * value per unit (a position, or a sync-time value awaiting pricing). */
 function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "price_key">, prices: PriceMap): number | null {
@@ -370,15 +364,10 @@ export async function getWalletsWithTotals(opts?: { userId: string }): Promise<W
 
 export interface HoldingWithValuation extends Holding {
   valuation: Valuation;
-  /** Raw per-unit ticker price, for display only — manual_usd holdings have no per-unit price. */
+  /** Per-unit price, for display only — manual_usd holdings have none. */
   price: number | null;
-  /** Same contract-then-ticker resolution as getAssetsGroupedByTicker's own
-   * per-holding change24h (see that function's doc comment on why
-   * contract-keyed stats take priority — EVM holdings are valued via
-   * usd_override and never touch the ticker-keyed `prices` table, so only
-   * token_registry's stats exist for them). Null, not 0, when neither
-   * source has it — reported directly: Portfolio/Wallet's mobile view
-   * showed no 24h at all, unlike Assets/Watchlist. */
+  /** The holding's asset's 24h change (asset_prices, by price_key). Null,
+   * not 0, when it has none (a position, an unmapped token). */
   change24h: number | null;
 }
 
@@ -576,23 +565,16 @@ export interface AssetGroup {
   totalQty: number | null;
   total: number;
   unpricedCount: number;
-  /** Per-unit price for this ticker — a single global number (see the
-   * `prices` table), not a per-holding value, so it's on the group rather
-   * than something callers derive from `holdings`. Null when unpriced. */
+  /** Per-unit price for this asset — its one price (asset_prices), or for
+   * a row with no asset the stored value per unit of its largest holding.
+   * Null when unpriced. */
   price: number | null;
-  /** 24h % change (see prices.change_24h_pct) — null when unavailable,
+  /** 24h % change (the asset's, asset_prices) — null when unavailable,
    * same "don't distinguish why" reasoning as `price`. */
   change24h: number | null;
-  /** 1h/7d/30d % change — same contract-keyed-first-then-ticker-keyed
-   * resolution as change24h (see getContractStatsMap/getPriceStatsMap).
-   * Null more often than change24h: only available at all for a ticker
-   * CoinGecko's /coins/markets can resolve by coin id, which both EVM
-   * contract tokens and Solana SPL tokens now get via their own
-   * coingecko_id cached in token_registry (see multicallEvm.ts's and
-   * prices.ts's refreshCoinGeckoTickers' own doc comments) — actually
-   * priced through a different, 24h-only endpoint either way, so this is
-   * a second, best-effort lookup layered on top and can still come back
-   * empty for a token CoinGecko hasn't cached an id for yet. */
+  /** 1h/7d/30d % change, from asset_prices like change24h. Null more
+   * often: only CoinGecko-priced assets have them (Jupiter, Hyperliquid
+   * and Coinbase give 24h at most). */
   change1h: number | null;
   change7d: number | null;
   change30d: number | null;
@@ -601,15 +583,9 @@ export interface AssetGroup {
    * reference only), null when CoinGecko has no market cap for this asset
    * or it couldn't be resolved to a CoinGecko id. */
   marketCap: number | null;
-  /** CoinGecko coin id, when resolvable — contract-based holdings get it
-   * straight from token_registry (getContractStatsMap), native holdings
-   * (BTC, ETH, SOL, ...) via priceKey.ts's resolveCoingeckoKey, which only
-   * ever returns a real id for a holding whose ticker actually matches its
-   * chain's own native asset (never guessed off a bare ticker — see that
-   * file's own doc comment on the exact bug this guards against). Null
-   * when neither source resolves one (an unlisted/unrecognized token) —
-   * callers (AssetsTable's CoinGecko/Trend Finder links) fall back to a
-   * ticker-based search/lookup rather than showing nothing. */
+  /** CoinGecko coin id — the row's price_key when it is one (not a
+   * jup:/hl:/coinbase: key). Null otherwise; callers (AssetsTable's
+   * CoinGecko/Trend Finder links) fall back to a ticker-based search. */
   coingeckoId: string | null;
   holdings: AssetHoldingEntry[];
   /** Set only by liquidStaking.ts's combined view: the staked tokens folded

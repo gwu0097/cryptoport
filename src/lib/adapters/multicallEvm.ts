@@ -52,12 +52,6 @@ interface RegistryToken {
   decimals: number | null;
   coingecko_id: string | null;
   image_url: string | null;
-  // Sync-time price cache (priceCache.ts): the last CoinGecko price and when
-  // it was fetched (price_usd null + price_at set = "CoinGecko had none").
-  price_usd: number | string | null;
-  price_at: string | null;
-  change_24h_pct: number | string | null;
-  market_cap: number | string | null;
 }
 
 const REGISTRY_PAGE_SIZE = 1000;
@@ -82,7 +76,7 @@ const REGISTRY_PAGE_SIZE = 1000;
 async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
   const { data: firstPage, error: firstError, count } = await serviceDb()
     .from("token_registry")
-    .select("contract, symbol, decimals, coingecko_id, image_url, price_usd, price_at, change_24h_pct, market_cap", { count: "exact" })
+    .select("contract, symbol, decimals, coingecko_id, image_url", { count: "exact" })
     .eq("chain_id", chainId)
     .order("contract")
     .range(0, REGISTRY_PAGE_SIZE - 1);
@@ -99,7 +93,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
         const from = pageIndex * REGISTRY_PAGE_SIZE;
         const { data, error } = await serviceDb()
           .from("token_registry")
-          .select("contract, symbol, decimals, coingecko_id, image_url, price_usd, price_at, change_24h_pct, market_cap")
+          .select("contract, symbol, decimals, coingecko_id, image_url")
           .eq("chain_id", chainId)
           .order("contract")
           .range(from, from + REGISTRY_PAGE_SIZE - 1);

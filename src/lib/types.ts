@@ -42,7 +42,6 @@ export type WalletMode = "manual" | "auto";
  * priced only by their own coingecko_id, never by ticker (valuation.ts). */
 export type HoldingSource = "manual_qty" | "manual_usd" | "auto" | "auto_defi" | "auto_exchange" | "auto_cosmos";
 export type HoldingCategory = "token" | "defi";
-export type PriceSource = "coingecko" | "coinbase" | "jupiter";
 
 /** Every source a real sync writes, never hand-editable by the user —
  * checked as an allowlist inversion ("anything not manual is sync-owned")
@@ -209,10 +208,3 @@ export interface Holding {
   updated_at: string;
 }
 
-export interface Price {
-  ticker: string;
-  usd: number | string | null;
-  source: PriceSource | null;
-  updated_at: string | null;
-  change_24h_pct: number | string | null;
-}
