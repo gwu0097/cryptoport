@@ -19,7 +19,11 @@ import type { AdapterHolding } from "./types";
 import type { KeepScope } from "../carryForward";
 import { ensureAssetPrices, readAssetPrices } from "./assetPrices";
 
-const TOKEN_USD_FLOOR = 5;
+// Sub-cent dust only. The spam protection is that CoinGecko must list and price
+// the token; a $5 floor on top of that dropped real small holdings (ENA,
+// VELO, ALT, weETH… — $26 on one wallet vs DeBank/Zerion, 2026-09-25), and
+// the owner wants every legitimate token captured, however small.
+const TOKEN_USD_FLOOR = 0.01;
 // Multicall3 calldata/response size is bounded by the RPC node's own
 // eth_call gas cap, not by us — chunking keeps each call comfortably under
 // that regardless of node config. 300 worked fine against PublicNode
@@ -388,8 +392,8 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
  * sync, or Refresh prices, usually already has them). It used to price per
  * chain per wallet, ~20 CoinGecko calls a wallet.
  *
- * The spam filter is unchanged: a token is listed only if CoinGecko prices
- * it and it's worth more than TOKEN_USD_FLOOR (see the doc comment above).
+ * The spam filter: a token is listed only if CoinGecko prices it (and it's
+ * worth more than sub-cent dust, TOKEN_USD_FLOOR).
  * Native coins are always listed (priced or not). If the pricing call fails,
  * coins keep their last stored price; a chain holding tokens that ended up
  * with no price at all is reported (priceError) so its previous rows stay.

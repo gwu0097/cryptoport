@@ -355,6 +355,39 @@ export const EVM_CHAINS: EvmChain[] = [
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
   },
+  // Added 2026-09-25 after a DeBank/Zerion comparison found real balances on
+  // them. RPCs, chain ids and Multicall3 checked live; CoinGecko platform ids
+  // from GeckoTerminal's network list (coingecko_asset_platform_id).
+  {
+    id: "pze",
+    name: "Polygon zkEVM",
+    chainId: 1101,
+    rpc: "https://zkevm-rpc.com",
+    fallbackRpcs: ["https://polygon-zkevm.drpc.org"],
+    coingeckoPlatform: "polygon-zkevm",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    id: "zora",
+    name: "Zora",
+    chainId: 7777777,
+    rpc: "https://rpc.zora.energy",
+    fallbackRpcs: ["https://zora.drpc.org"],
+    coingeckoPlatform: "zora-network",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    id: "ftm",
+    name: "Fantom",
+    chainId: 250,
+    rpc: "https://rpcapi.fantom.network",
+    fallbackRpcs: ["https://fantom.drpc.org"],
+    coingeckoPlatform: "fantom",
+    nativeCoingeckoId: "fantom",
+    nativeSymbol: "FTM",
+  },
 ];
 
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
@@ -363,7 +396,7 @@ const EVM_CHAIN_IDS_UPPER = new Set(EVM_CHAINS.map((c) => c.id.toUpperCase()));
 
 /** Whether `chain` (a wallet's own `chain` field, e.g. "ETH", "RON",
  * "SEI") names one of the EVM chains above — every one of them is reached
- * by scanning the SAME EVM address across all 32 chains (see evm.ts), so a
+ * by scanning the SAME EVM address across every chain above (see evm.ts), so a
  * wallet's `chain` value here is purely a display label ("this address is
  * primarily a Ronin wallet"), not a restriction on which chains actually
  * get scanned. */
