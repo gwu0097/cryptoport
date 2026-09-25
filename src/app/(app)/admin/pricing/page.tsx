@@ -34,6 +34,11 @@ export default async function PricingCoveragePage() {
               of {report.coinHoldings} coin holdings are priced · {report.unpriced} unpriced
             </span>
           </p>
+          {report.locked > 0 && (
+            <p className="mt-1 text-xs text-fg-muted">
+              Not counted: {report.locked} holding(s) left unpriced on purpose because they can&apos;t be moved (Sei accounts not linked to an EVM address).
+            </p>
+          )}
           {causes.length > 0 && (
             <ul className="mt-4 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
               {causes.map(([cause, n]) => (

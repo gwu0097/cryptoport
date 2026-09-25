@@ -3,6 +3,7 @@
 // new user's gaps show up here without anyone reporting them. Pure (no DB).
 
 import { isPositionValue, VENUE_CHAINS, type KeyInput } from "./assetIdentity.ts";
+import { SEI_LOCKED_NOTE } from "./seiLock.ts";
 
 export type GapCause =
   | "exchange-ticker" // an exchange/venue ticker with no mapping
@@ -27,6 +28,7 @@ export const GAP_LABEL: Record<GapCause, string> = {
 
 export interface CoverageHolding extends KeyInput {
   price_key: string | null;
+  display_label?: string | null;
 }
 
 export interface KeyPriceState {
@@ -38,6 +40,13 @@ export interface KeyPriceState {
  * and hand-entered dollar values have no coin, so neither is a gap. */
 export function isCoinHolding(h: CoverageHolding): boolean {
   return h.source !== "manual_usd" && !isPositionValue(h);
+}
+
+/** Left unpriced on purpose — coins that can't be moved (a Sei account
+ * never linked to its EVM address, see lockUnlinkedSei). Listed on their
+ * own, not as a gap. */
+export function isLockedOnPurpose(h: CoverageHolding): boolean {
+  return !!h.display_label?.includes(SEI_LOCKED_NOTE);
 }
 
 /** Why this coin holding has no price, or null when it's priced. */

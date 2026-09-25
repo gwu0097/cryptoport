@@ -17,7 +17,13 @@ import {
   downChains,
   stakingHoldings,
   lockUnlinkedSei,
+  chainsById,
+  parseIbcTrace,
+  withIbcOrigins,
   type CosmosHolding,
+  type DirectoryAsset,
+  type IbcTrace,
+  type OriginChain,
   type CosmosStakingData,
   type DirectoryChain,
 } from "../cosmosMulti";
@@ -49,7 +55,8 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
     .catch(() => null);
   const res = await fetchWithRetry(DIRECTORY_URL);
   if (!res.ok) throw new Error(`cosmos.directory chain list failed: HTTP ${res.status}`);
-  const listed = eligibleChains(((await res.json()) as { chains: Parameters<typeof eligibleChains>[0] }).chains);
+  const raw = ((await res.json()) as { chains: Parameters<typeof eligibleChains>[0] }).chains;
+  const listed = eligibleChains(raw);
   if (listed.length === 0) throw new Error("cosmos.directory returned no eligible chains");
   // Chains the directory lists no healthy endpoint for: read their own
   // chain-registry chain.json for its REST list (small GitHub files, in parallel).
@@ -87,7 +94,20 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
       return r;
     }
   });
-  let holdings = results.flatMap((r) => r.holdings);
+  // IBC tokens (ibc/<hash>) neither registry knows: traced to their home
+  // chain's entry (withIbcOrigins), only for chains that hold such tokens.
+  const byId = chainsById(raw);
+  const channels = new Map<string, Promise<string | null>>();
+  const traced = await mapWithConcurrency(results, 4, async (r) => {
+    if (r.unreachable) return r;
+    const unknown = r.balances.map((b) => b.denom).filter((d) => d.startsWith("ibc/") && !r.chain.assets.get(d)?.coingeckoId);
+    if (unknown.length === 0) return r;
+    const found = await traceIbcDenoms(r.chain, unknown, byId, channels, started, dnsCache);
+    if (found.size === 0) return r;
+    const chain = withIbcOrigins(r.chain, found);
+    return { ...r, chain, holdings: rowsFor(chain, r.balances, r.staking, r.monikers) };
+  });
+  let holdings = traced.flatMap((r) => r.holdings);
   const warnings: string[] = [];
   // Sei is EVM-only since SIP-3: an account never linked to its 0x address
   // can't move its SEI, so those rows are listed but not counted.
@@ -127,6 +147,106 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
 }
 
 type Balance = { denom: string; amount: string };
+
+/** The first of a chain's endpoints that answers `path` with JSON, or null. */
+async function firstJson<T>(urls: readonly string[], path: string, started: number, dnsCache: Map<string, Promise<boolean>>): Promise<T | null> {
+  for (const base of urls) {
+    if (Date.now() - started > SCAN_DEADLINE_MS) return null;
+    if (!(await hostResolves(base, dnsCache))) continue;
+    try {
+      return await getJson<T>(`${base}${path}`);
+    } catch {
+      // next endpoint
+    }
+  }
+  return null;
+}
+
+/** The chain id at the other end of an IBC channel (memoized per sync). */
+function counterparty(
+  chainId: string,
+  hop: IbcTrace["hops"][number],
+  byId: ReadonlyMap<string, OriginChain>,
+  cache: Map<string, Promise<string | null>>,
+  started: number,
+  dnsCache: Map<string, Promise<boolean>>,
+): Promise<string | null> {
+  const key = `${chainId}|${hop.port}|${hop.channel}`;
+  let p = cache.get(key);
+  if (!p) {
+    const chain = byId.get(chainId);
+    p = chain
+      ? firstJson<{ identified_client_state?: { client_state?: { chain_id?: string } } }>(
+          chain.restUrls,
+          `/ibc/core/channel/v1/channels/${hop.channel}/ports/${hop.port}/client_state`,
+          started,
+          dnsCache,
+        ).then((b) => b?.identified_client_state?.client_state?.chain_id ?? null)
+      : Promise.resolve(null);
+    cache.set(key, p);
+  }
+  return p;
+}
+
+/** Each IBC denom's home-chain asset: its trace from the chain it's on (the
+ * current endpoint, else the older one), then its channels hop by hop to the
+ * chain it came from, then that chain's registry entry for the base denom. A
+ * denom that can't be traced is left out (stays "Unrecognized token"). */
+async function traceIbcDenoms(
+  chain: DirectoryChain,
+  denoms: string[],
+  byId: ReadonlyMap<string, OriginChain>,
+  channels: Map<string, Promise<string | null>>,
+  started: number,
+  dnsCache: Map<string, Promise<boolean>>,
+): Promise<Map<string, DirectoryAsset>> {
+  const out = new Map<string, DirectoryAsset>();
+  if (!chain.chainId) return out;
+  const from = chain.chainId;
+  const keplrCache = new Map<string, Promise<Parameters<typeof withKeplrCurrencies>[1]>>();
+  await mapWithConcurrency(denoms, 4, async (denom) => {
+    const hash = denom.slice(4);
+    const trace =
+      parseIbcTrace(await firstJson(chain.restUrls, `/ibc/apps/transfer/v1/denoms/${hash}`, started, dnsCache)) ??
+      parseIbcTrace(await firstJson(chain.restUrls, `/ibc/apps/transfer/v1/denom_traces/${hash}`, started, dnsCache));
+    if (!trace) return;
+    let at: string | null = from;
+    for (const hop of trace.hops) {
+      at = await counterparty(at, hop, byId, channels, started, dnsCache);
+      if (!at) return;
+    }
+    const home = byId.get(at);
+    if (!home) return;
+    const asset = home.assets.get(trace.base);
+    if (asset?.coingeckoId) {
+      out.set(denom, asset);
+      return;
+    }
+    // The home chain's directory entry lacks the coin id (Stride's stINJ,
+    // stJUNO …): Keplr's registry for that chain, as for tokens on the
+    // wallet's own chains (withKeplrCurrencies).
+    const filled = withKeplrCurrencies({ ...EMPTY_CHAIN, assets: home.assets }, await keplrFile(at, keplrCache)).assets.get(trace.base);
+    if (filled) out.set(denom, filled);
+  });
+  return out;
+}
+
+const EMPTY_CHAIN: DirectoryChain = { name: "", chainId: null, prettyName: "", image: null, stakingDenom: null, prefix: "", restUrls: [], needsRegistryApis: false, assets: new Map() };
+
+/** A chain's Keplr registry file (memoized per sync), or null. */
+function keplrFile(chainId: string, cache: Map<string, Promise<Parameters<typeof withKeplrCurrencies>[1]>>): Promise<Parameters<typeof withKeplrCurrencies>[1]> {
+  let p = cache.get(chainId);
+  if (!p) {
+    const file = keplrRegistryFile(chainId);
+    p = file
+      ? fetch(`${KEPLR_RAW}/${file}`, { cache: "no-store", signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) })
+          .then((r) => (r.ok ? (r.json() as Promise<Parameters<typeof withKeplrCurrencies>[1]>) : null))
+          .catch(() => null)
+      : Promise.resolve(null);
+    cache.set(chainId, p);
+  }
+  return p;
+}
 
 /** Staking rows link to where you stake/unstake — the chain's Keplr
  * Dashboard page — when Keplr has one (checked here, once per staked chain

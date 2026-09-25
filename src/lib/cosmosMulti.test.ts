@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bech32 } from "@scure/base";
-import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, type DirectoryChain } from "./cosmosMulti.ts";
+import { eligibleChains, deriveAddress, holdingsFromBalances, toTokenAmount, withRegistryApis, withKeplrCurrencies, withPrices, keplrRegistryFile, stakingHoldings, lockUnlinkedSei, withoutDirectoryProxy, downChains, chainsById, parseIbcTrace, withIbcOrigins, type DirectoryChain } from "./cosmosMulti.ts";
 
 const bytes = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
 const COSMOS = bech32.encode("cosmos", bech32.toWords(bytes));
@@ -171,4 +171,36 @@ test("a chain cosmos.directory marks down is tried only on its own endpoints (Ne
   const enriched = withRegistryApis(neutron, { apis: { rest: [{ address: "https://rest-lb.neutron.org" }] } });
   assert.deepEqual(withoutDirectoryProxy(enriched).restUrls, ["https://rest-lb.neutron.org"]);
   assert.deepEqual(withoutDirectoryProxy(withRegistryApis(neutron, null)).restUrls, [], "no own endpoint: nothing to try");
+});
+
+test("an IBC trace is read from both the current and the older endpoint shape, first hop first", () => {
+  assert.deepEqual(
+    parseIbcTrace({ denom: { base: "uusdc", trace: [{ port_id: "transfer", channel_id: "channel-569" }, { port_id: "transfer", channel_id: "channel-2" }] } }),
+    { base: "uusdc", hops: [{ port: "transfer", channel: "channel-569" }, { port: "transfer", channel: "channel-2" }] },
+  );
+  assert.deepEqual(parseIbcTrace({ denom_trace: { path: "transfer/channel-391", base_denom: "stinj" } }), { base: "stinj", hops: [{ port: "transfer", channel: "channel-391" }] });
+  assert.equal(parseIbcTrace({ code: 12, message: "NotImplemented" }), null);
+  assert.equal(parseIbcTrace(null), null);
+});
+
+test("home chains are indexed by chain id, any coin type (Injective too)", () => {
+  const byId = chainsById([
+    { name: "injective", chain_id: "injective-1", network_type: "mainnet", slip44: 60, assets: [{ denom: "inj", symbol: "INJ", decimals: 18, coingecko_id: "injective-protocol" }] },
+    { name: "testchain", chain_id: "test-1", network_type: "testnet", assets: [] },
+  ]);
+  assert.equal(byId.get("injective-1")?.assets.get("inj")?.coingeckoId, "injective-protocol");
+  assert.equal(byId.has("test-1"), false);
+});
+
+test("an IBC token takes its home asset's decimals and coin id; a known coin id is kept", () => {
+  const chain: DirectoryChain = {
+    name: "cosmoshub", chainId: "cosmoshub-4", prettyName: "Cosmos Hub", image: null, stakingDenom: "uatom", prefix: "cosmos",
+    restUrls: [], needsRegistryApis: false,
+    assets: new Map([["ibc/KNOWN", { denom: "ibc/KNOWN", symbol: "OSMO", decimals: 6, coingeckoId: "osmosis", usd: null, image: null }]]),
+  };
+  const origin = (coingeckoId: string | null, decimals: number | null) => ({ denom: "base", symbol: "AXLUSDC", decimals, coingeckoId, usd: 1, image: null });
+  const out = withIbcOrigins(chain, new Map([["ibc/NEW", origin("axlusdc", 6)], ["ibc/KNOWN", origin("wrong", 6)], ["ibc/NODEC", origin("x", null)]]));
+  assert.deepEqual(out.assets.get("ibc/NEW"), { denom: "ibc/NEW", symbol: "AXLUSDC", decimals: 6, coingeckoId: "axlusdc", usd: null, image: null });
+  assert.equal(out.assets.get("ibc/KNOWN")?.coingeckoId, "osmosis");
+  assert.equal(out.assets.has("ibc/NODEC"), false); // no decimals: an amount can't be shown
 });

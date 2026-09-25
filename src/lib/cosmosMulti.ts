@@ -16,6 +16,7 @@
 
 import "server-only";
 import { bech32 } from "@scure/base";
+import { SEI_LOCKED_NOTE } from "./seiLock.ts";
 
 export interface DirectoryAsset {
   denom: string;
@@ -149,6 +150,97 @@ type RawChain = {
   }[];
 };
 
+const listedRest = (c: RawChain) => (c.best_apis?.rest ?? []).map((r) => r.address?.replace(/\/+$/, "")).filter((u): u is string => !!u);
+
+function parseAssets(c: RawChain): Map<string, DirectoryAsset> {
+  const assets = new Map<string, DirectoryAsset>();
+  for (const a of c.assets ?? []) {
+    if (!a.denom || !a.symbol) continue;
+    assets.set(a.denom, {
+      denom: a.denom,
+      symbol: a.symbol,
+      decimals: typeof a.decimals === "number" ? a.decimals : null,
+      coingeckoId: a.coingecko_id || null,
+      usd: typeof a.prices?.coingecko?.usd === "number" ? a.prices.coingecko.usd : null,
+      image: a.logo_URIs?.png ?? a.image ?? a.logo_URIs?.svg ?? null,
+    });
+  }
+  return assets;
+}
+
+/** Every mainnet chain in the directory by chain id — any coin type, since
+ * an IBC token's home chain can be one a cosmos1 account isn't derivable on
+ * (Injective, Evmos, Dymension). For tracing a token back to its home. */
+export interface OriginChain {
+  restUrls: string[];
+  assets: Map<string, DirectoryAsset>;
+}
+export function chainsById(raw: readonly RawChain[]): Map<string, OriginChain> {
+  const out = new Map<string, OriginChain>();
+  for (const c of raw) {
+    if (!c.name || !c.chain_id || c.network_type !== "mainnet") continue;
+    out.set(c.chain_id, { restUrls: [`https://rest.cosmos.directory/${c.name}`, ...listedRest(c).slice(0, 2)], assets: parseAssets(c) });
+  }
+  return out;
+}
+
+/** An IBC token's original denom and the channels it came through, first
+ * hop first (from the chain it's on now). Reads both the current endpoint's
+ * shape (`/ibc/apps/transfer/v1/denoms/{hash}`, ibc-go v10: `{denom: {base,
+ * trace: [{port_id, channel_id}]}}`) and the older `denom_traces` one
+ * (`{denom_trace: {path: "transfer/channel-0/…", base_denom}}`). */
+export interface IbcTrace {
+  base: string;
+  hops: { port: string; channel: string }[];
+}
+export function parseIbcTrace(body: unknown): IbcTrace | null {
+  const b = body as {
+    denom?: { base?: string; trace?: { port_id?: string; channel_id?: string }[] };
+    denom_trace?: { path?: string; base_denom?: string };
+  } | null;
+  if (b?.denom?.base && Array.isArray(b.denom.trace)) {
+    const hops = b.denom.trace.filter((h) => h.port_id && h.channel_id).map((h) => ({ port: h.port_id!, channel: h.channel_id! }));
+    return hops.length ? { base: b.denom.base, hops } : null;
+  }
+  if (b?.denom_trace?.base_denom && b.denom_trace.path) {
+    const parts = b.denom_trace.path.split("/");
+    if (parts.length % 2 !== 0) return null;
+    const hops = [];
+    for (let i = 0; i < parts.length; i += 2) hops.push({ port: parts[i], channel: parts[i + 1] });
+    return { base: b.denom_trace.base_denom, hops };
+  }
+  return null;
+}
+
+/**
+ * Fills a chain's IBC tokens (ibc/<hash>) from their home chain's registry
+ * entry: decimals, coin id and logo from the asset they really are. The
+ * Cosmos Hub's registry lists almost none of the tokens that arrive over
+ * IBC, so these were "Unrecognized token … (ibc/…)" with no amount — real
+ * USDC, NTRN, stINJ … (2026-09-25). The home chain comes from following the
+ * token's channels, never from its name: the Hub's "uusdc" came from Axelar
+ * (axlUSDC), not Noble. Only fills denoms with no coin id yet; a symbol the
+ * chain already shows is kept.
+ */
+export function withIbcOrigins(chain: DirectoryChain, origins: ReadonlyMap<string, DirectoryAsset>): DirectoryChain {
+  const assets = new Map(chain.assets);
+  for (const [denom, origin] of origins) {
+    const have = assets.get(denom);
+    if (have?.coingeckoId) continue;
+    const decimals = have?.decimals ?? origin.decimals;
+    if (decimals === null) continue;
+    assets.set(denom, {
+      denom,
+      symbol: have?.symbol ?? origin.symbol,
+      decimals,
+      coingeckoId: origin.coingeckoId,
+      usd: null,
+      image: have?.image ?? origin.image,
+    });
+  }
+  return { ...chain, assets };
+}
+
 /** Live mainnet chains whose accounts are derivable from a cosmos1 address
  * (coin type 118), each with REST endpoints to try in order: cosmos.directory's
  * own proxy first, then the chain's listed public endpoints. */
@@ -156,19 +248,8 @@ export function eligibleChains(raw: readonly RawChain[]): DirectoryChain[] {
   const out: DirectoryChain[] = [];
   for (const c of raw) {
     if (!c.name || !c.bech32_prefix || c.slip44 !== 118 || c.status !== "live" || c.network_type !== "mainnet") continue;
-    const listed = (c.best_apis?.rest ?? []).map((r) => r.address?.replace(/\/+$/, "")).filter((u): u is string => !!u);
-    const assets = new Map<string, DirectoryAsset>();
-    for (const a of c.assets ?? []) {
-      if (!a.denom || !a.symbol) continue;
-      assets.set(a.denom, {
-        denom: a.denom,
-        symbol: a.symbol,
-        decimals: typeof a.decimals === "number" ? a.decimals : null,
-        coingeckoId: a.coingecko_id || null,
-        usd: typeof a.prices?.coingecko?.usd === "number" ? a.prices.coingecko.usd : null,
-        image: a.logo_URIs?.png ?? a.image ?? a.logo_URIs?.svg ?? null,
-      });
-    }
+    const listed = listedRest(c);
+    const assets = parseAssets(c);
     out.push({
       name: c.name,
       chainId: c.chain_id ?? null,
@@ -303,7 +384,7 @@ export function holdingsFromBalances(chain: DirectoryChain, balances: readonly {
   return out;
 }
 
-export const SEI_LOCKED_NOTE = "locked: Sei Cosmos account with no linked EVM address (SIP-3)";
+export { SEI_LOCKED_NOTE };
 
 /**
  * Sei went EVM-only (SIP-3): a sei1… account that was never linked to its

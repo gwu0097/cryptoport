@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceDb } from "./supabase";
-import { gapCause, isCoinHolding, type CoverageHolding, type GapCause, type KeyPriceState } from "./pricingCoverage.ts";
+import { gapCause, isCoinHolding, isLockedOnPurpose, type CoverageHolding, type GapCause, type KeyPriceState } from "./pricingCoverage.ts";
 
 export interface CoverageGap {
   cause: GapCause;
@@ -16,6 +16,8 @@ export interface CoverageGap {
 export interface CoverageReport {
   coinHoldings: number;
   unpriced: number;
+  /** Unpriced on purpose (can't be moved); not counted in coinHoldings. */
+  locked: number;
   byCause: Partial<Record<GapCause, number>>;
   gaps: CoverageGap[];
 }
@@ -31,7 +33,7 @@ export async function getPricingCoverage(): Promise<CoverageReport> {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db
       .from("holdings")
-      .select("id, ticker, chain, contract, source, protocol_section, coingecko_id, price_key, qty, wallets!inner(user_id, active)")
+      .select("id, ticker, chain, contract, source, protocol_section, coingecko_id, price_key, qty, display_label, wallets!inner(user_id, active)")
       .eq("wallets.active", true)
       .order("id")
       .range(from, from + 999);
@@ -40,7 +42,8 @@ export async function getPricingCoverage(): Promise<CoverageReport> {
     if (data.length < 1000) break;
   }
 
-  const coins = rows.filter(isCoinHolding);
+  const locked = rows.filter((r) => isCoinHolding(r) && isLockedOnPurpose(r)).length;
+  const coins = rows.filter((r) => isCoinHolding(r) && !isLockedOnPurpose(r));
   const keys = [...new Set(coins.map((r) => r.price_key).filter((k): k is string => !!k))];
   const prices = new Map<string, KeyPriceState>();
   for (let i = 0; i < keys.length; i += 300) {
@@ -66,5 +69,5 @@ export async function getPricingCoverage(): Promise<CoverageReport> {
     groups.set(k, g);
   }
   const gaps = [...groups.values()].map(({ userIds, ...g }) => ({ ...g, users: userIds.size }));
-  return { coinHoldings: coins.length, unpriced: gaps.reduce((s, g) => s + g.holdings, 0), byCause, gaps };
+  return { coinHoldings: coins.length, locked, unpriced: gaps.reduce((s, g) => s + g.holdings, 0), byCause, gaps };
 }

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gapCause, isCoinHolding, type CoverageHolding } from "./pricingCoverage.ts";
+import { gapCause, isCoinHolding, isLockedOnPurpose, type CoverageHolding } from "./pricingCoverage.ts";
+import { SEI_LOCKED_NOTE } from "./seiLock.ts";
 
 const h = (over: Partial<CoverageHolding>): CoverageHolding => ({ ticker: "X", chain: "eth", contract: null, source: "auto", price_key: null, ...over });
 const prices = new Map([
@@ -30,4 +31,9 @@ test("positions and dollar-only rows are not coin holdings", () => {
   assert.equal(isCoinHolding(h({ ticker: "ETH-PERP" })), false);
   assert.equal(isCoinHolding(h({ source: "manual_usd" })), false);
   assert.equal(isCoinHolding(h({ ticker: "ETH" })), true);
+});
+
+test("coins locked on purpose are recognized", () => {
+  assert.equal(isLockedOnPurpose(h({ chain: "sei", display_label: `SEI — ${SEI_LOCKED_NOTE}` })), true);
+  assert.equal(isLockedOnPurpose(h({ chain: "sei", display_label: null })), false);
 });
