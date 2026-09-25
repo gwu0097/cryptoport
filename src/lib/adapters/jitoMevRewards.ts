@@ -14,7 +14,7 @@ const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 interface StakerReward {
   validator_vote_account: string;
   amount: number; // lamports
-  claim_status_account: string;
+  claim_status_account: string | null;
   priority_fee_amount: number | null; // lamports
   priority_fee_claim_status_account: string | null;
 }
@@ -91,6 +91,10 @@ export async function fetchJitoMevRewards(address: string): Promise<{ holdings: 
 
   const items: ClaimableItem[] = [];
   for (const r of rewards) {
+    // No claim-status account yet (Jito sometimes lists a reward before
+    // it's claimable): nothing to check or claim, and a null sent to the
+    // RPC failed the whole lookup ("invalid type: null", 2026-09-25).
+    if (!r.claim_status_account) continue;
     items.push({ voter: r.validator_vote_account, lamports: r.amount, claimStatusAccount: r.claim_status_account });
     if (r.priority_fee_amount && r.priority_fee_claim_status_account) {
       items.push({

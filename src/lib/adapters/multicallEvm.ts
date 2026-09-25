@@ -1,5 +1,14 @@
 import "server-only";
-import { createPublicClient, http, formatUnits, type Address } from "viem";
+import {
+  createPublicClient,
+  http,
+  formatUnits,
+  isAddress,
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
+  type Address,
+} from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
 import {
   fetchNativePrice,
@@ -173,6 +182,62 @@ const CHUNK_CONCURRENCY = 5;
 // built around never doing (see valuation.ts's top comment). Retries the
 // whole chunk up to `attempts` times; whatever's still failing afterward is
 // returned as-is so the caller can surface it rather than hide it.
+/** A balanceOf the token contract itself answered with a revert or no data
+ * (a dead, self-destructed or non-ERC-20 contract): the same every run, so
+ * neither retried nor counted as "unverified" — that count means the RPC
+ * didn't answer. 4 on eth, 1 on matic, 7 on bsc showed on every wallet's
+ * status on every sync (2026-09-25). */
+function isContractFailure(error: unknown): boolean {
+  return (
+    error instanceof BaseError &&
+    !!error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isRetryableFailure(r: any): boolean {
+  return r.status === "failure" && !isContractFailure(r.error);
+}
+
+/** Whether a chain has Multicall3 at the standard address — Merlin doesn't,
+ * so every aggregate3 there "returned no data" and no Merlin token balance
+ * was ever read (2026-09-25). Checked once per chain per server instance. */
+const multicallAvailable = new Map<string, Promise<boolean>>();
+function hasMulticall3(chainId: string, client: ReturnType<typeof createPublicClient>): Promise<boolean> {
+  let p = multicallAvailable.get(chainId);
+  if (!p) {
+    p = client
+      .getCode({ address: MULTICALL3_ADDRESS })
+      .then((code) => !!code && code !== "0x")
+      .catch(() => {
+        multicallAvailable.delete(chainId); // unknown: ask again next time
+        return true;
+      });
+    multicallAvailable.set(chainId, p);
+  }
+  return p;
+}
+
+/** Same result shape as a multicall chunk, one eth_call per token — for a
+ * chain without Multicall3. */
+async function balanceOfEach(
+  client: ReturnType<typeof createPublicClient>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contracts: any[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  return mapWithConcurrency(contracts, 5, async (c) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return { status: "success", result: await client.readContract(c) };
+      } catch (error) {
+        if (isContractFailure(error) || attempt >= 2) return { status: "failure", error };
+        await sleep(500 * (attempt + 1));
+      }
+    }
+  });
+}
+
 async function multicallChunkWithRetry(
   client: ReturnType<typeof createPublicClient>,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -186,13 +251,13 @@ async function multicallChunkWithRetry(
   for (
     let attempt = 1;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    attempt < attempts && results.some((r: any) => r.status === "failure");
+    attempt < attempts && results.some((r: any) => isRetryableFailure(r));
     attempt++
   ) {
     await sleep(500 * attempt);
     const retryIndexes = results
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((r: any, i: number) => (r.status === "failure" ? i : -1))
+      .map((r: any, i: number) => (isRetryableFailure(r) ? i : -1))
       .filter((i) => i !== -1);
     const retryResults = await client.multicall({
       multicallAddress: MULTICALL3_ADDRESS,
@@ -249,26 +314,29 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
   // rows represent the same asset), not by hardcoding the specific
   // sentinel addresses seen so far — that would miss this pattern on any
   // other chain with the same CoinGecko-data quirk.
-  const tokens = (await getRegisteredTokens(chain.id)).filter((t) => t.coingecko_id !== chain.nativeCoingeckoId);
+  // isAddress: CoinGecko's platform lists carry some malformed contract
+  // strings (28 on bsc, 14 on sei, 2026-09-25) no balance call can take.
+  const tokens = (await getRegisteredTokens(chain.id)).filter(
+    (t) => t.coingecko_id !== chain.nativeCoingeckoId && isAddress(t.contract, { strict: false }),
+  );
   const client = createPublicClient({ transport: http(chain.rpc) });
 
   const nativeBalancePromise = client.getBalance({ address });
+  const useMulticall = await hasMulticall3(chain.id, client);
 
   const balanceResults = (
-    await mapWithConcurrency(chunk(tokens, MULTICALL_CHUNK_SIZE), CHUNK_CONCURRENCY, (batch) =>
-      multicallChunkWithRetry(
-        client,
-        batch.map((t) => ({
-          address: t.contract as Address,
-          abi: ERC20_ABI,
-          functionName: "balanceOf",
-          args: [address],
-        })),
-      ),
-    )
+    await mapWithConcurrency(chunk(tokens, MULTICALL_CHUNK_SIZE), CHUNK_CONCURRENCY, (batch) => {
+      const calls = batch.map((t) => ({
+        address: t.contract as Address,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [address],
+      }));
+      return useMulticall ? multicallChunkWithRetry(client, calls) : balanceOfEach(client, calls);
+    })
   ).flat();
 
-  const unverifiedContracts = tokens.filter((_, i) => balanceResults[i].status === "failure").map((t) => t.contract.toLowerCase());
+  const unverifiedContracts = tokens.filter((_, i) => isRetryableFailure(balanceResults[i])).map((t) => t.contract.toLowerCase());
   const unverified = unverifiedContracts.length;
 
   const held = tokens
