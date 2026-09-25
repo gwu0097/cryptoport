@@ -163,10 +163,11 @@ export async function refreshAssetPrices(
 }
 
 /** Prices just the keys that have no price yet or one older than maxAgeMs —
- * after a sync (its own coins) and for an address lookup. A key another
- * wallet's sync priced a minute ago isn't asked again, so a Sync all prices
- * each coin about once. */
-export async function ensureAssetPrices(keys: (string | null | undefined)[], trigger: string, maxAgeMs = 5 * 60 * 1000): Promise<void> {
+ * after a sync (its own coins) and for an address lookup. A Sync all prices
+ * every held coin once up front (primeSyncPricesAction), so each wallet's
+ * call here usually finds everything fresh; 15 minutes covers a whole Sync
+ * all (~3 min). Only a coin nobody has priced yet costs a call. */
+export async function ensureAssetPrices(keys: (string | null | undefined)[], trigger: string, maxAgeMs = 15 * 60 * 1000): Promise<void> {
   const distinct = [...new Set(keys.filter((k): k is string => !!k))];
   if (distinct.length === 0) return;
   const fresh = new Set<string>();

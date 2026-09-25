@@ -23,7 +23,7 @@ import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
-import { refreshAssetPrices, ensureAssetPrices } from "@/lib/adapters/assetPrices";
+import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY } from "@/lib/tokenRegistryRefresh";
@@ -626,6 +626,16 @@ async function keyed<T extends { ticker: string; chain: string | null; contract:
     console.warn(`[pricing] price keys not set (${source}): ${(e as Error).message}`);
     return rows;
   }
+}
+
+/** Called by "Sync all" (components/jobs/SyncQueue.tsx) before its first
+ * wallet: one pricing pass for every held coin (~1-2 CoinGecko calls,
+ * ~3s) when the newest price is over 5 minutes old, so each wallet's own
+ * post-sync pricing finds its coins fresh. Without it every wallet paid
+ * its own small call — 33 in one Sync all (2026-09-25). */
+export async function primeSyncPricesAction(): Promise<void> {
+  await requireUser();
+  await refreshAssetPricesIfOlderThan(5 * 60 * 1000, "sync-all").catch(() => {});
 }
 
 // Every column sync_auto_holdings / sync_cosmos_holdings (schema.sql)

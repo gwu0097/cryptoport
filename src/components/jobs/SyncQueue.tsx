@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { deriveJobStatus, type JobStartResult } from "@/lib/jobStatus";
 import { groupByLane } from "@/lib/syncLanes";
-import { syncExchangeHoldings, syncWalletHoldings } from "@/app/(app)/wallets/actions";
+import { primeSyncPricesAction, syncExchangeHoldings, syncWalletHoldings } from "@/app/(app)/wallets/actions";
 import { notifyJobsComplete } from "./jobActions";
 
 export interface QueuedWallet {
@@ -124,19 +124,28 @@ export function SyncQueueProvider({ children }: { children: ReactNode }) {
       setActive(true);
       setEntries(Object.fromEntries(wallets.map((w) => [w.id, { name: w.name, state: "queued" as const, detail: null }])));
       const lanes = groupByLane(wallets, (w) => w.lane);
-      void Promise.all(
-        lanes.flatMap((lane) => {
-          // N workers pulling from the lane's list, in order.
-          let next = 0;
-          const workers = Math.min(LANE_CONCURRENCY[lane[0].lane] ?? 1, lane.length);
-          return Array.from({ length: workers }, async () => {
-            while (next < lane.length) await runOne(lane[next++]);
-          });
-        }),
-      ).finally(() => {
-        runningRef.current = false;
-        setActive(false);
-      });
+      const runLanes = () =>
+        Promise.all(
+          lanes.flatMap((lane) => {
+            // N workers pulling from the lane's list, in order.
+            let next = 0;
+            const workers = Math.min(LANE_CONCURRENCY[lane[0].lane] ?? 1, lane.length);
+            return Array.from({ length: workers }, async () => {
+              while (next < lane.length) await runOne(lane[next++]);
+            });
+          }),
+        );
+      void (async () => {
+        try {
+          // Every held coin priced once before the first wallet (see
+          // primeSyncPricesAction), so the wallets reuse those prices.
+          await primeSyncPricesAction().catch(() => {});
+          await runLanes();
+        } finally {
+          runningRef.current = false;
+          setActive(false);
+        }
+      })();
     },
     [runOne],
   );
