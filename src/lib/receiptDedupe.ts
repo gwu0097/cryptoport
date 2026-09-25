@@ -20,6 +20,15 @@ export function isTradable(volume24h: number | null | undefined): boolean {
   return typeof volume24h === "number" && Number.isFinite(volume24h) && volume24h >= TRADABLE_MIN_VOLUME_USD;
 }
 
+/** The key whose trading volume says whether a held token is tradable: its
+ * own price_key — or none when it's priced as another coin (`coingecko_id`
+ * set: a receipt CoinGecko doesn't list, valued as its underlying,
+ * multicallEvm.ts). The underlying's volume says nothing about the receipt's
+ * own market, so such a token is never tradable. */
+function ownMarketKey(t: { price_key?: string | null; coingecko_id?: string | null }): string | null {
+  return t.coingecko_id ? null : (t.price_key ?? null);
+}
+
 /** Drops positions whose pool is a token this wallet holds and
  * that token is tradable (the wallet row already counts it).
  * `heldKeys`: receiptKey(chain, contract) -> that wallet token's price_key. */
@@ -40,25 +49,26 @@ export function dropTradableReceiptPositions<T extends { chain: string | null; p
 /** Drops tokens that are the receipt of one of this wallet's
  * DeFi positions and can't be traded (the position row counts it).
  * `poolKeys`: receiptKey(chain, pool_contract) of the wallet's DeFi rows. */
-export function dropUntradableReceiptTokens<T extends { chain: string | null; contract: string | null; price_key?: string | null }>(
+export function dropUntradableReceiptTokens<T extends { chain: string | null; contract: string | null; price_key?: string | null; coingecko_id?: string | null }>(
   tokens: readonly T[],
   poolKeys: ReadonlySet<string>,
   volumeByKey: ReadonlyMap<string, number | null>,
 ): T[] {
   return tokens.filter((t) => {
     if (!t.chain || !t.contract || !poolKeys.has(receiptKey(t.chain, t.contract))) return true;
-    return !!t.price_key && isTradable(volumeByKey.get(t.price_key));
+    const key = ownMarketKey(t);
+    return !!key && isTradable(volumeByKey.get(key));
   });
 }
 
 /** Both sides at once, from one sync's fresh lists (the wallet's tokens and
  * its DeFi positions): each receipt ends up counted exactly once. */
 export function dedupeReceipts<
-  Tok extends { chain: string | null; contract: string | null; price_key?: string | null },
+  Tok extends { chain: string | null; contract: string | null; price_key?: string | null; coingecko_id?: string | null },
   Pos extends { chain: string | null; pool_contract?: string | null },
 >(tokens: readonly Tok[], positions: readonly Pos[], volumeByKey: ReadonlyMap<string, number | null>): { tokens: Tok[]; positions: Pos[] } {
   const held = new Map<string, string | null>();
-  for (const t of tokens) if (t.chain && t.contract) held.set(receiptKey(t.chain, t.contract), t.price_key ?? null);
+  for (const t of tokens) if (t.chain && t.contract) held.set(receiptKey(t.chain, t.contract), ownMarketKey(t));
   const pools = new Set<string>();
   for (const p of positions) if (p.chain && p.pool_contract) pools.add(receiptKey(p.chain, p.pool_contract));
   return {

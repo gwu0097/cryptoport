@@ -1,8 +1,6 @@
 import "server-only";
 import {
   createPublicClient,
-  http,
-  fallback,
   formatUnits,
   isAddress,
   BaseError,
@@ -11,6 +9,7 @@ import {
   type Address,
 } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS, type EvmChain } from "./evmChains";
+import { evmTransport } from "./evmTransport";
 import { fetchTokenImages } from "./coingecko";
 import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
@@ -18,6 +17,9 @@ import { upsertTokenRegistry } from "./tokenRegistry";
 import type { AdapterHolding } from "./types";
 import type { KeepScope } from "../carryForward";
 import { ensureAssetPrices, readAssetPrices } from "./assetPrices";
+import { discoverAlchemyTokens, DISCOVERY_MAX_PAGES } from "./alchemyDiscovery";
+import { readReceiptClaims } from "./receiptTokens";
+import { candidateTokens, classifyHeld, type HeldToken, type ReceiptValuation, type TokenInfo } from "../tokenDiscovery";
 
 // Sub-cent dust only. The spam protection is that CoinGecko must list and price
 // the token; a $5 floor on top of that dropped real small holdings (ENA,
@@ -50,13 +52,7 @@ const ERC20_ABI = [
   },
 ] as const;
 
-interface RegistryToken {
-  contract: string;
-  symbol: string;
-  decimals: number | null;
-  coingecko_id: string | null;
-  image_url: string | null;
-}
+type RegistryToken = Omit<TokenInfo, "listed">;
 
 const REGISTRY_PAGE_SIZE = 1000;
 
@@ -82,6 +78,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
     .from("token_registry")
     .select("contract, symbol, decimals, coingecko_id, image_url", { count: "exact" })
     .eq("chain_id", chainId)
+    .not("coingecko_id", "is", null)
     .order("contract")
     .range(0, REGISTRY_PAGE_SIZE - 1);
   if (firstError) throw new Error(`Failed to load token_registry(${chainId}): ${firstError.message}`);
@@ -99,6 +96,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
           .from("token_registry")
           .select("contract, symbol, decimals, coingecko_id, image_url")
           .eq("chain_id", chainId)
+          .not("coingecko_id", "is", null)
           .order("contract")
           .range(from, from + REGISTRY_PAGE_SIZE - 1);
         if (error) throw new Error(`Failed to load token_registry(${chainId}) page ${pageIndex}: ${error.message}`);
@@ -173,12 +171,6 @@ function isRetryableFailure(r: any): boolean {
   return r.status === "failure" && !isContractFailure(r.error);
 }
 
-/** The chain's RPC, plus its fallbacks when it has any (see
- * EvmChain.fallbackRpcs): a request the primary errors or times out on goes
- * to the next one. */
-export function evmTransport(chain: EvmChain) {
-  return chain.fallbackRpcs?.length ? fallback([chain.rpc, ...chain.fallbackRpcs].map((url) => http(url))) : http(chain.rpc);
-}
 
 /** Whether a chain has Multicall3 at the standard address — Merlin doesn't,
  * so every aggregate3 there "returned no data" and no Merlin token balance
@@ -277,37 +269,102 @@ export interface ChainHoldingsResult {
   /** The (lowercase) contracts behind unverifiedCount — their previous rows
    * are kept (see carryForward.ts) rather than dropped as if sold. */
   unverifiedContracts: string[];
+  /** Held tokens not counted (wallet_discovered_tokens). */
+  unrecognized: UnrecognizedToken[];
+  /** This chain's line in the sync log (sync_runs). */
+  stats: ChainSyncStats;
+}
+
+export interface ChainSyncStats extends ChainDiscovery {
+  chain: string;
+  counted: number;
+  receipt: number;
+  unrecognized: number;
 }
 
 interface ChainScan {
   chain: EvmChain;
-  held: { token: RegistryToken; qty: number }[];
+  held: HeldToken[];
   nativeQty: number | null;
   unverifiedCount: number;
   unverifiedContracts: string[];
+  discovery: ChainDiscovery;
 }
 
-export async function fetchChainHoldings(chain: EvmChain, address: Address): Promise<ChainScan> {
-  // Real, reported bug (confirmed live via a real wallet's holdings, exact
-  // qty match on both sides): some chains' own CoinGecko coins/list entry
-  // for their native gas token ALSO carries a contract address on that
-  // same chain — Mantle's is a 0xdead...0000 sentinel, Celo's native CELO
-  // has genuinely always been a real, first-class ERC-20 contract
-  // alongside being the gas token. refreshTokenRegistry (coingecko.ts)
-  // ingests every (chain, contract) pair CoinGecko reports for a platform
-  // without knowing this, so token_registry ends up with a contract row
-  // whose coingecko_id is the SAME asset the separate nativeBalancePromise
-  // check below already covers — Multicall3's balanceOf on that address
-  // returns the same balance a second time, doubling that holding's value
-  // in every total. Filtered out by coingecko_id (the real signal that two
-  // rows represent the same asset), not by hardcoding the specific
-  // sentinel addresses seen so far — that would miss this pattern on any
-  // other chain with the same CoinGecko-data quirk.
-  // isAddress: CoinGecko's platform lists carry some malformed contract
-  // strings (28 on bsc, 14 on sei, 2026-09-25) no balance call can take.
-  const tokens = (await getRegisteredTokens(chain.id)).filter(
-    (t) => t.coingecko_id !== chain.nativeCoingeckoId && isAddress(t.contract, { strict: false }),
-  );
+/** How a chain's token list was chosen (docs/sync/PLAN.md D1/D4), for the
+ * sync log (sync_runs). */
+export interface ChainDiscovery {
+  source: "alchemy" | "registry";
+  /** Why an Alchemy chain fell back to the registry scan (error or cap). */
+  fallback: string | null;
+  ms: number;
+  pages: number;
+  discovered: number;
+  read: number;
+}
+
+/** A held token the sync doesn't count — kept per wallet, never in totals
+ * (wallet_discovered_tokens). */
+export interface UnrecognizedToken {
+  chain: string;
+  contract: string;
+  symbol: string;
+  decimals: number | null;
+  balanceRaw: string;
+  reason: "unlisted" | "unpriced";
+}
+
+/** Registry rows for specific contracts on a chain (CoinGecko-listed only). */
+async function getRegistryInfo(chainId: string, contracts: string[]): Promise<Omit<TokenInfo, "listed">[]> {
+  const out: Omit<TokenInfo, "listed">[] = [];
+  for (let i = 0; i < contracts.length; i += 150) {
+    const { data, error } = await serviceDb()
+      .from("token_registry")
+      .select("contract, symbol, decimals, coingecko_id, image_url")
+      .eq("chain_id", chainId)
+      .in("contract", contracts.slice(i, i + 150))
+      .not("coingecko_id", "is", null);
+    if (error) throw new Error(`Failed to load token_registry(${chainId}): ${error.message}`);
+    out.push(...(data as Omit<TokenInfo, "listed">[]));
+  }
+  return out;
+}
+
+const SYMBOL_ABI = [{ name: "symbol", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] }] as const;
+
+/**
+ * One chain's held tokens and native balance. Which tokens are read
+ * (docs/sync/PLAN.md D1–D2): on a chain with an Alchemy network, what Alchemy
+ * discovers ∪ what the wallet held there last sync (`previous`); if discovery
+ * fails or hits its page cap, every CoinGecko-listed token as well (today's
+ * scan). Other chains read every listed token, as before. The native coin's
+ * ERC-20 form is never read (candidateTokens). Balances always come from our
+ * own reads.
+ */
+export async function fetchChainHoldings(chain: EvmChain, address: Address, previous: readonly string[] = []): Promise<ChainScan> {
+  const started = Date.now();
+  let discovered: string[] = [];
+  let pages = 0;
+  let fallback: string | null = null;
+  let tokens: TokenInfo[];
+  if (chain.alchemyNetwork) {
+    try {
+      const d = await discoverAlchemyTokens(chain.alchemyNetwork, address);
+      discovered = d.contracts;
+      pages = d.pages;
+      if (d.capped) fallback = `more than ${DISCOVERY_MAX_PAGES * 100} tokens (discovery capped)`;
+    } catch (e) {
+      fallback = (e as Error).message;
+    }
+  }
+  const discoveryMs = Date.now() - started;
+  if (chain.alchemyNetwork && fallback === null) {
+    const wanted = [...new Set([...discovered, ...previous.map((c) => c.toLowerCase())])];
+    tokens = candidateTokens({ discovered, previous, registry: await getRegistryInfo(chain.id, wanted), includeWholeRegistry: false, nativeCoingeckoId: chain.nativeCoingeckoId });
+  } else {
+    tokens = candidateTokens({ discovered, previous, registry: await getRegisteredTokens(chain.id), includeWholeRegistry: true, nativeCoingeckoId: chain.nativeCoingeckoId });
+  }
+  tokens = tokens.filter((t) => isAddress(t.contract, { strict: false }));
   const client = createPublicClient({ transport: evmTransport(chain) });
 
   const nativeBalancePromise = client.getBalance({ address });
@@ -330,75 +387,63 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
 
   const held = tokens
     .map((t, i) => ({ token: t, result: balanceResults[i] }))
-    .filter(
-      (x) => x.result.status === "success" && (x.result.result as unknown as bigint) > BigInt(0),
-    );
+    .filter((x) => x.result.status === "success" && (x.result.result as unknown as bigint) > BigInt(0));
 
-  // Fetch decimals only for held tokens the registry doesn't already know
-  // the decimals for — decimals never change, so this cost is paid once
-  // per token, ever.
-  const needsDecimals = held.filter((x) => x.token.decimals === null);
-  if (needsDecimals.length > 0) {
-    const decimalsResults = (
-      await mapWithConcurrency(
-        chunk(needsDecimals, MULTICALL_CHUNK_SIZE),
-        CHUNK_CONCURRENCY,
-        (batch) =>
-          multicallChunkWithRetry(
-            client,
-            batch.map((x) => ({
-              address: x.token.contract as Address,
-              abi: ERC20_ABI,
-              functionName: "decimals",
-            })),
-          ),
+  // Decimals once per token, ever, for listed tokens (cached in the
+  // registry); unlisted tokens get decimals + symbol read here and are never
+  // written to token_registry — it's CoinGecko's map (docs/sync/PLAN.md D2).
+  const needsMeta = held.filter((x) => x.token.decimals === null || !x.token.listed);
+  if (needsMeta.length > 0) {
+    const metaResults = (
+      await mapWithConcurrency(chunk(needsMeta, MULTICALL_CHUNK_SIZE / 2), CHUNK_CONCURRENCY, (batch) =>
+        multicallChunkWithRetry(
+          client,
+          batch.flatMap((x) => [
+            { address: x.token.contract as Address, abi: ERC20_ABI, functionName: "decimals" },
+            { address: x.token.contract as Address, abi: SYMBOL_ABI, functionName: "symbol" },
+          ]),
+        ),
       )
     ).flat();
-
     const toSave: { contract: string; symbol: string; decimals: number }[] = [];
-    for (let i = 0; i < needsDecimals.length; i++) {
-      const r = decimalsResults[i];
-      if (r.status === "success") {
-        const decimals = r.result as unknown as number;
-        needsDecimals[i].token.decimals = decimals;
-        toSave.push({
-          contract: needsDecimals[i].token.contract,
-          symbol: needsDecimals[i].token.symbol,
-          decimals,
-        });
-      }
-    }
+    needsMeta.forEach((x, i) => {
+      const dec = metaResults[2 * i];
+      const sym = metaResults[2 * i + 1];
+      if (dec?.status === "success") x.token.decimals = Number(dec.result);
+      if (!x.token.listed && sym?.status === "success") x.token.symbol = String(sym.result).slice(0, 64);
+      if (x.token.listed && dec?.status === "success") toSave.push({ contract: x.token.contract, symbol: x.token.symbol, decimals: x.token.decimals! });
+    });
     if (toSave.length > 0) await saveDecimals(chain.id, toSave);
   }
 
-  const priceable = held
-    .filter((x) => x.token.decimals !== null)
-    .map(({ token, result }) => ({ token, qty: Number(formatUnits(result.result as unknown as bigint, token.decimals!)) }));
+  const heldTokens: HeldToken[] = held.map(({ token, result }) => {
+    const raw = result.result as unknown as bigint;
+    return { token, raw, qty: token.decimals === null ? null : Number(formatUnits(raw, token.decimals)) };
+  });
   const nativeBalance = await nativeBalancePromise;
   return {
     chain,
-    held: priceable,
+    held: heldTokens,
     nativeQty: nativeBalance > BigInt(0) ? Number(formatUnits(nativeBalance, 18)) : null,
     unverifiedCount: unverified,
     unverifiedContracts,
+    discovery: { source: chain.alchemyNetwork && fallback === null ? "alchemy" : "registry", fallback, ms: discoveryMs, pages, discovered: discovered.length, read: tokens.length },
   };
 }
 
 /**
  * Turns every chain's scanned balances into holdings with ONE pricing step
- * for the whole wallet (docs/pricing/PLAN.md): every held coin's id and the
- * chains' native coins are priced through asset_prices (ensureAssetPrices
- * fetches only coins not priced in the last few minutes — another wallet's
- * sync, or Refresh prices, usually already has them). It used to price per
- * chain per wallet, ~20 CoinGecko calls a wallet.
- *
- * The spam filter: a token is listed only if CoinGecko prices it (and it's
- * worth more than sub-cent dust, TOKEN_USD_FLOOR).
- * Native coins are always listed (priced or not). If the pricing call fails,
- * coins keep their last stored price; a chain holding tokens that ended up
- * with no price at all is reported (priceError) so its previous rows stay.
+ * for the whole wallet (docs/pricing/PLAN.md): every held coin's id, every
+ * receipt's underlying coin and the chains' native coins are priced through
+ * asset_prices (ensureAssetPrices fetches only coins not priced in the last
+ * few minutes). Each held token is classified (tokenDiscovery.ts
+ * classifyHeld): counted; a DeFi receipt CoinGecko doesn't list, valued as
+ * its underlying coin (receiptTokens.ts reads what it's worth); dust; or
+ * unrecognized — returned for the wallet's list, never in totals. Native
+ * coins are always listed. If pricing fails, a chain holding tokens that
+ * ended up with no price is reported (priceError) so its previous rows stay.
  */
-async function priceScans(scans: ChainScan[]): Promise<Map<string, ChainHoldingsResult>> {
+async function priceScans(scans: ChainScan[], owner: string): Promise<Map<string, ChainHoldingsResult>> {
   const ids = new Set<string>();
   for (const s of scans) {
     for (const { token } of s.held) if (token.coingecko_id) ids.add(token.coingecko_id);
@@ -409,6 +454,27 @@ async function priceScans(scans: ChainScan[]): Promise<Map<string, ChainHoldings
     pricingError = e.message;
   });
   const prices = await readAssetPrices([...ids]);
+
+  // Tokens with no price of their own: are any standard DeFi receipts?
+  const noPrice = scans.flatMap((s) => s.held.filter((h) => !(h.token.coingecko_id && prices.has(h.token.coingecko_id))).map((h) => ({ chain: s.chain.id, contract: h.token.contract })));
+  const claims = noPrice.length > 0 ? await readReceiptClaims(owner, noPrice).catch(() => []) : [];
+  const receipts = new Map<string, ReceiptValuation>();
+  if (claims.length > 0) {
+    const underlying = new Map<string, { id: string; symbol: string }>();
+    for (const chainId of new Set(claims.map((c) => c.chain))) {
+      const rows = await getRegistryInfo(chainId, [...new Set(claims.filter((c) => c.chain === chainId).map((c) => c.asset))]).catch(() => []);
+      for (const r of rows) if (r.coingecko_id) underlying.set(`${chainId}|${r.contract.toLowerCase()}`, { id: r.coingecko_id, symbol: r.symbol });
+    }
+    const underlyingIds = [...new Set([...underlying.values()].map((u) => u.id))].filter((id) => !prices.has(id));
+    if (underlyingIds.length > 0) {
+      await ensureAssetPrices(underlyingIds, "sync").catch(() => {});
+      for (const [id, usd] of await readAssetPrices(underlyingIds)) prices.set(id, usd);
+    }
+    for (const c of claims) {
+      const u = underlying.get(`${c.chain}|${c.asset}`);
+      if (u) receipts.set(`${c.chain}|${c.receipt}`, { underlyingId: u.id, underlyingSymbol: u.symbol, underlyingQty: c.assets });
+    }
+  }
 
   const images = new Map<string, string>();
   const missingImageIds = new Set<string>();
@@ -424,16 +490,37 @@ async function priceScans(scans: ChainScan[]): Promise<Map<string, ChainHoldings
   const out = new Map<string, ChainHoldingsResult>();
   for (const s of scans) {
     const holdings: AdapterHolding[] = [];
+    const unrecognized: UnrecognizedToken[] = [];
     let unpriced = 0;
+    let receiptCount = 0;
     const toCache: { contract: string; symbol: string; image_url: string }[] = [];
-    for (const { token, qty } of s.held) {
-      const price = token.coingecko_id ? prices.get(token.coingecko_id) : undefined;
-      if (price === undefined) {
-        unpriced++;
-        continue; // not on CoinGecko (or never priced yet): not listed — the spam filter
+    for (const h of s.held) {
+      const { token, qty } = h;
+      const c = classifyHeld(h, prices, receipts.get(`${s.chain.id}|${token.contract}`), TOKEN_USD_FLOOR);
+      if (c.kind === "dust") continue;
+      if (c.kind === "unrecognized") {
+        if (token.listed) unpriced++;
+        unrecognized.push({ chain: s.chain.id, contract: token.contract, symbol: token.symbol, decimals: token.decimals, balanceRaw: h.raw.toString(), reason: c.reason });
+        continue;
       }
-      const usd = qty * price;
-      if (usd <= TOKEN_USD_FLOOR) continue;
+      if (c.kind === "receipt") {
+        receiptCount++;
+        // Valued as its underlying coin (owner decision 2026-09-25): the
+        // underlying amount, keyed by the underlying's coin (coingecko_id →
+        // price_key, assetIdentity.ts), labeled with both names.
+        holdings.push({
+          ticker: token.symbol || "?",
+          qty: c.as.underlyingQty,
+          usd_override: null,
+          contract: token.contract,
+          coingecko_id: c.as.underlyingId,
+          category: "token",
+          chain: s.chain.id,
+          icon_url: images.get(c.as.underlyingId) ?? null,
+          display_label: `${token.symbol || "?"} (as ${c.as.underlyingSymbol})`,
+        });
+        continue;
+      }
       const image = token.image_url ?? (token.coingecko_id ? (images.get(token.coingecko_id) ?? null) : null);
       if (!token.image_url && image) toCache.push({ contract: token.contract, symbol: token.symbol, image_url: image });
       // Valued from asset_prices by its key at read time; no stored copy.
@@ -453,6 +540,8 @@ async function priceScans(scans: ChainScan[]): Promise<Map<string, ChainHoldings
     if (toCache.length > 0) await saveImageUrls(s.chain.id, toCache).catch(() => {});
     out.set(s.chain.id, {
       holdings,
+      unrecognized,
+      stats: { chain: s.chain.id, ...s.discovery, counted: holdings.length - receiptCount, receipt: receiptCount, unrecognized: unrecognized.length },
       unverifiedCount: s.unverifiedCount,
       unverifiedContracts: s.unverifiedContracts,
       priceError: pricingError && unpriced > 0 ? pricingError : null,
@@ -483,23 +572,27 @@ export interface EvmChainsResult {
   }[];
   /** Rows the failures above leave unanswered — kept from the last sync. */
   keep: KeepScope[];
+  /** Held tokens not counted, across chains (wallet_discovered_tokens). */
+  unrecognized: UnrecognizedToken[];
+  /** Per chain: how its tokens were found and read (sync_runs). */
+  chainStats: ChainSyncStats[];
 }
 
 type ChainOutcome =
   | ({ chainId: string; ok: true } & ChainHoldingsResult)
   | { chainId: string; ok: false; error: string };
 
-export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChainsResult> {
+export async function fetchEvmChainsHoldings(address: Address, previous: ReadonlyMap<string, readonly string[]> = new Map()): Promise<EvmChainsResult> {
   const scans = await Promise.all(
     EVM_CHAINS.map(async (chain): Promise<ChainScan | { chainId: string; error: string }> => {
       try {
-        return await fetchChainHoldings(chain, address);
+        return await fetchChainHoldings(chain, address, previous.get(chain.id) ?? []);
       } catch (e) {
         return { chainId: chain.id, error: (e as Error).message };
       }
     }),
   );
-  const priced = await priceScans(scans.filter((x): x is ChainScan => "held" in x));
+  const priced = await priceScans(scans.filter((x): x is ChainScan => "held" in x), address);
   const results: ChainOutcome[] = scans.map((x) =>
     "held" in x ? { chainId: x.chain.id, ok: true as const, ...priced.get(x.chain.id)! } : { chainId: x.chainId, ok: false as const, error: x.error },
   );
@@ -542,5 +635,6 @@ export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChain
     }
   }
 
-  return { holdings, failedChains, keep };
+  const okResults = results.filter((r): r is Extract<ChainOutcome, { ok: true }> => r.ok);
+  return { holdings, failedChains, keep, unrecognized: okResults.flatMap((r) => r.unrecognized), chainStats: okResults.map((r) => r.stats) };
 }

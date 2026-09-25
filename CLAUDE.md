@@ -184,6 +184,14 @@ standard interface — ERC-4626, Aave aToken, Compound v3/v2
 within `RECEIPT_MATCH_TOLERANCE`, exactly one match — otherwise both stay. A new
 receipt standard is added there, not special-cased per protocol.
 
+**A receipt CoinGecko doesn't list is valued as its underlying coin** (owner
+decision 2026-09-25): when a held EVM token has no price of its own but reads
+as a standard receipt, the row stores the underlying amount, `coingecko_id` =
+the underlying coin (its `price_key`) and a label like "hUSDB (as USDB)"
+(`multicallEvm.ts` `priceScans`, `tokenDiscovery.ts` `classifyHeld`). Such a row
+is never tradable for the dedupe above: the underlying's volume says nothing
+about the receipt's own market, so its position stays when Zerion has one.
+
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly
 (`adapters/exchangeTickers.ts` `refreshExchangeAssetsIfStale`; rows with
@@ -241,6 +249,31 @@ cascade default auth.uid()` plus RLS `create policy "<table>: owner only" …
 using (user_id = auth.uid())` (as `wallets`, `tags`, `linked_wallets`,
 `portfolio_snapshots`). Shared tables get `grant all … to service_role` and, if
 read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
+
+### 4.7 Which tokens an EVM sync reads
+
+`docs/sync/PLAN.md` is the design. Per chain (`multicallEvm.ts`
+`fetchChainHoldings`):
+- **Discovery:** on chains with an `alchemyNetwork` (`evmChains.ts`),
+  `alchemy_getTokenBalances` lists the contracts the address holds
+  (`adapters/alchemyDiscovery.ts`). It is all-or-nothing: an error, or more
+  than `DISCOVERY_MAX_PAGES` pages, falls back to reading every listed token
+  (`token_registry`), as every other chain does.
+- **What is read:** discovered ∪ the wallet's tokens from the last sync (∪ the
+  whole registry on fallback) — `tokenDiscovery.ts` `candidateTokens`. Balances
+  always come from our own `balanceOf` multicall, never the indexer's number. A
+  listed contract for the chain's native coin (CELO's ERC-20) is skipped, since
+  the native balance already counts it.
+- **What becomes of each held token** (`classifyHeld`): counted; a receipt
+  valued as its underlying (§4.2); dust (≤ `TOKEN_USD_FLOOR`); or
+  unrecognized (unlisted, or listed with no price). Unrecognized tokens go to
+  `wallet_discovered_tokens`, never into totals and never written to
+  `token_registry`; a token unseen for 2 syncs of its chain is removed.
+- Each sync logs per-chain source, fallback, pages, time and counts to
+  `sync_runs`. Check it before changing discovery.
+- A new chain whose Alchemy token API works gets `alchemyNetwork`; any other
+  chain stays on the registry scan until phase 5 (Etherscan/Blockscout).
+(DECISIONS: 2026-09-25 Wallet balance discovery)
 
 ## 5. External APIs — sparing, deliberate, measured
 

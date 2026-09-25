@@ -1,7 +1,7 @@
 import "server-only";
 import { createPublicClient, formatUnits, isAddress, type Address } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS } from "./evmChains";
-import { evmTransport } from "./multicallEvm";
+import { evmTransport } from "./evmTransport";
 import type { ReceiptClaim } from "../receiptDedupe";
 
 // What each held token is worth in its underlying coin, when it's a standard

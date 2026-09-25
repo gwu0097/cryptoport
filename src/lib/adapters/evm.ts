@@ -9,6 +9,7 @@ import { fetchLighterHoldings } from "./lighter";
 import { fetchInitCapitalHoldings } from "./initCapital";
 import type { AdapterHolding } from "./types";
 import { chainScope, protocolScope, type KeepScope } from "../carryForward";
+import type { TokenDiscoveryReport } from "./nonEvmDispatch";
 
 export interface EvmHoldingsResult {
   holdings: AdapterHolding[];
@@ -19,6 +20,8 @@ export interface EvmHoldingsResult {
   /** Rows those failures left unanswered — the sync keeps them from the
    * previous run (carryForward.ts). */
   keep: KeepScope[];
+  /** Tokens held but not counted, and how each chain was read (docs/sync/PLAN.md). */
+  discovery: TokenDiscoveryReport;
 }
 
 /**
@@ -37,7 +40,7 @@ export interface EvmHoldingsResult {
  * treating as a hard failure (leaves previous holdings untouched — see
  * syncWalletHoldings).
  */
-export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResult> {
+export async function fetchEvmHoldings(address: string, previous?: ReadonlyMap<string, readonly string[]>): Promise<EvmHoldingsResult> {
   // Every source but the chain scan is a soft failure: niche/narrow (most
   // EVM wallets never touched Ronin staking, Polymarket or SuperVerse),
   // same "one source's failure never discards another's correctly-fetched
@@ -49,7 +52,7 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
       (e: Error) => ({ holdings: [] as T[], warnings: [`${name}: ${e.message}`], keep: [scope] }),
     );
   const [chainsResult, hyperliquidResult, ...others] = await Promise.all([
-    fetchEvmChainsHoldings(address as Address),
+    fetchEvmChainsHoldings(address as Address, previous),
     fetchHyperliquidHoldings(address).then(
       (r) => ({ ...r, error: null as string | null }),
       (e: Error) => ({
@@ -92,5 +95,5 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     throw new Error(`Every source failed: ${warnings.join("; ")}`);
   }
 
-  return { holdings, warnings, keep };
+  return { holdings, warnings, keep, discovery: { unrecognized: chainsResult.unrecognized, chainStats: chainsResult.chainStats } };
 }

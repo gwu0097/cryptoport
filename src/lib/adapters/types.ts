@@ -53,6 +53,10 @@ export interface AdapterHolding {
    * how a position and the wallet's copy of that token are recognized as
    * the same money (receiptDedupe.ts). */
   pool_contract?: string | null;
+  /** The coin this row is priced as, when it isn't the row's own contract:
+   * a DeFi receipt CoinGecko doesn't list, valued as its underlying coin
+   * (multicallEvm.ts priceScans). Becomes its price_key (assetIdentity.ts). */
+  coingecko_id?: string | null;
   /** Leveraged-position detail — genuinely optional like `protocol` above:
    * only an open perp/futures position has any of these, a plain token or
    * spot DeFi holding correctly omits them all. Currently only

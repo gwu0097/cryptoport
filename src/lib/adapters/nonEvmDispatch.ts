@@ -1,4 +1,5 @@
 import "server-only";
+import type { ChainSyncStats, UnrecognizedToken } from "./multicallEvm";
 import type { KeepScope } from "../carryForward";
 import { fetchJupiterHoldings } from "./jupiter";
 import { fetchSolDefiPositions } from "./solDefiPositions";
@@ -26,6 +27,14 @@ export interface AdapterFetchResult {
   /** Rows a partial failure left unanswered — the sync keeps them from the
    * previous run instead of letting them vanish (carryForward.ts). */
   keep?: KeepScope[];
+  /** EVM wallets only: tokens held but not counted, and how each chain was
+   * read (docs/sync/PLAN.md) — saved to wallet_discovered_tokens / sync_runs. */
+  discovery?: TokenDiscoveryReport;
+}
+
+export interface TokenDiscoveryReport {
+  unrecognized: UnrecognizedToken[];
+  chainStats: ChainSyncStats[];
 }
 
 interface NonEvmDispatchEntry {

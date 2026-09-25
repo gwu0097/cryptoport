@@ -132,6 +132,9 @@ export function resolvePriceKey(h: KeyInput, maps: KeyMaps): string | null {
 
   // Rows that already carry the coin they are (Cosmos registry, manual pick).
   if (h.source === "auto_cosmos" || h.source === "manual_qty") return h.coingecko_id ?? null;
+  // A DeFi receipt valued as its underlying coin (docs/sync/PLAN.md, owner
+  // decision 2026-09-25): the sync sets the underlying's coin on the row.
+  if (h.source === "auto" && h.coingecko_id) return h.coingecko_id;
 
   if (h.chain && EXCHANGES.has(h.chain)) {
     const t = h.ticker.toUpperCase();

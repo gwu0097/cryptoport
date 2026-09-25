@@ -14,7 +14,7 @@ import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
 import { fetchCardanoHoldingsForSync } from "@/lib/adapters/cardano";
 import { fetchCosmosHoldings } from "@/lib/adapters/cosmos";
-import { NON_EVM_DISPATCH, type AdapterFetchResult } from "@/lib/adapters/nonEvmDispatch";
+import { NON_EVM_DISPATCH, type AdapterFetchResult, type TokenDiscoveryReport } from "@/lib/adapters/nonEvmDispatch";
 import { fetchSeiStakingHoldings } from "@/lib/adapters/seiStaking";
 import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
@@ -531,7 +531,7 @@ const SOL_SYNC_NOTE =
 // story (fetchCardanoHoldingsForSync, cached stake address). Every other
 // chain goes through NON_EVM_DISPATCH (nonEvmDispatch.ts) — the single
 // table shared with lookup.ts's "search any address" feature.
-async function fetchAdapterHoldings(chain: string, address: string): Promise<AdapterFetchResult> {
+async function fetchAdapterHoldings(chain: string, address: string, previous?: ReadonlyMap<string, readonly string[]>): Promise<AdapterFetchResult> {
   // Sei is the one chain with two entirely different address formats
   // pointing at two different balances (see cosmos.ts's "SEI" entry) — a
   // bech32 sei1... address can only ever mean the Cosmos-native side,
@@ -541,10 +541,10 @@ async function fetchAdapterHoldings(chain: string, address: string): Promise<Ada
   if (chain === "SEI") {
     const base: AdapterFetchResult = address.startsWith("sei1")
       ? { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] }
-      : await fetchEvmHoldings(address);
+      : await fetchEvmHoldings(address, previous);
     return withSeiStaking(address, base);
   }
-  if (isEvmChainId(chain)) return fetchEvmHoldings(address);
+  if (isEvmChainId(chain)) return fetchEvmHoldings(address, previous);
   const entry = NON_EVM_DISPATCH[chain];
   if (entry) return entry.fetch(address);
   throw new Error(`No sync adapter for chain "${chain}".`);
@@ -595,6 +595,66 @@ async function keyed<T extends { ticker: string; chain: string | null; contract:
   } catch (e) {
     console.warn(`[pricing] price keys not set (${source}): ${(e as Error).message}`);
     return rows;
+  }
+}
+
+/** The token contracts this wallet held on each chain at its last sync — read
+ * again on every sync so an indexer that misses a token can't lose it
+ * (docs/sync/PLAN.md D2). Only plain token rows (never Zerion's auto_defi coin
+ * contracts). A lookup failure just means none (discovery still runs). */
+async function previousTokenContracts(db: Awaited<ReturnType<typeof userDb>>, walletId: string): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const { data, error } = await db
+    .from("holdings")
+    .select("chain, contract")
+    .eq("wallet_id", walletId)
+    .eq("source", "auto")
+    .eq("category", "token")
+    .not("contract", "is", null);
+  if (error) return out;
+  for (const r of data as { chain: string | null; contract: string }[]) {
+    if (r.chain) out.set(r.chain, [...(out.get(r.chain) ?? []), r.contract.toLowerCase()]);
+  }
+  return out;
+}
+
+/** Records a sync's discovery (docs/sync/PLAN.md): the wallet's unrecognized
+ * tokens (upserted; a token not seen on a chain that was read this sync counts
+ * a zero, and is removed after two) and one sync_runs row. Best-effort: a
+ * failure here never fails the sync — it only affects the unrecognized list
+ * and the log. */
+async function saveDiscovery(db: Awaited<ReturnType<typeof userDb>>, walletId: string, d: TokenDiscoveryReport, durationMs: number): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    const sourceOf = new Map(d.chainStats.map((c) => [c.chain, c.source]));
+    const seen = new Set(d.unrecognized.map((u) => `${u.chain}|${u.contract}`));
+    const rows = d.unrecognized.map((u) => ({
+      wallet_id: walletId,
+      chain: u.chain,
+      contract: u.contract,
+      symbol: u.symbol || null,
+      decimals: u.decimals,
+      status: u.reason,
+      source: sourceOf.get(u.chain) ?? "registry",
+      last_balance_raw: u.balanceRaw,
+      zero_syncs: 0,
+      last_seen_at: now,
+    }));
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await db.from("wallet_discovered_tokens").upsert(rows.slice(i, i + 500), { onConflict: "wallet_id,chain,contract" });
+      if (error) throw new Error(error.message);
+    }
+    const readChains = new Set(d.chainStats.map((c) => c.chain));
+    const { data: existing } = await db.from("wallet_discovered_tokens").select("chain, contract, zero_syncs").eq("wallet_id", walletId);
+    const gone = ((existing ?? []) as { chain: string; contract: string; zero_syncs: number }[]).filter((r) => readChains.has(r.chain) && !seen.has(`${r.chain}|${r.contract}`));
+    for (const r of gone) {
+      const q = db.from("wallet_discovered_tokens");
+      if (r.zero_syncs + 1 >= 2) await q.delete().eq("wallet_id", walletId).eq("chain", r.chain).eq("contract", r.contract);
+      else await q.update({ zero_syncs: r.zero_syncs + 1 }).eq("wallet_id", walletId).eq("chain", r.chain).eq("contract", r.contract);
+    }
+    await db.from("sync_runs").insert({ wallet_id: walletId, duration_ms: durationMs, chains: d.chainStats });
+  } catch (e) {
+    console.warn(`[discovery] wallet ${walletId}: ${(e as Error).message}`);
   }
 }
 
@@ -727,6 +787,8 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       let keep: KeepScope[] = [];
       let detectedScriptType: ScriptType | null = wallet.btc_script_type as ScriptType | null;
       let cardanoStakeAddress: string | null = wallet.cardano_stake_address;
+      // EVM wallets: tokens held but not counted, and how each chain was read.
+      let discovery: TokenDiscoveryReport | undefined;
       // An EVM wallet's DeFi positions come from Zerion in the same job, in
       // parallel with the balance scan, so a receipt token and its position
       // are compared on fresh data from one sync (receiptDedupe.ts). Zerion
@@ -753,7 +815,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         ({ holdings: cosmosHoldings, warnings, keep } = await fetchCosmosMultiHoldings(wallet.address!));
         holdings = []; // nothing here for the ticker-priced path below
       } else {
-        ({ holdings, warnings, keep = [] } = await fetchAdapterHoldings(wallet.chain, wallet.address!));
+        ({ holdings, warnings, keep = [], discovery } = await fetchAdapterHoldings(wallet.chain, wallet.address!, await previousTokenContracts(afterDb, walletId)));
       }
 
       let keptStatus = "";
@@ -832,6 +894,7 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         });
         if (defiError) throw new Error(`Failed to save DeFi positions: ${defiError.message}`);
       }
+      if (discovery) await saveDiscovery(afterDb, walletId, discovery, Date.now() - syncStartedAt);
 
       if (wallet.chain === "SOL") {
         await afterDb.from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);

@@ -57,6 +57,16 @@ test("one sync's fresh lists: every receipt is counted exactly once", () => {
   assert.deepEqual(r.positions.map((x) => x.p), ["Stader", "Aave"]); // eETH is tradable: the token counts it
 });
 
+test("a receipt priced as its underlying coin is never tradable: the position counts it", () => {
+  const HUSDB = "0x390b781baf1e6db546cf4e3354b81446947838d2";
+  const vol = new Map<string, number | null>([["usdb", 5_000_000]]);
+  const tokens = [{ t: "hUSDB (as USDB)", chain: "blast", contract: HUSDB, price_key: "usdb", coingecko_id: "usdb" }];
+  const positions = [{ p: "Hyperlock", chain: "blast", pool_contract: HUSDB }];
+  const r = dedupeReceipts(tokens, positions, vol);
+  assert.deepEqual(r.tokens, []); // USDB's volume says nothing about hUSDB's own market
+  assert.deepEqual(r.positions.map((x) => x.p), ["Hyperlock"]);
+});
+
 test("a position is linked to the held receipt only on an exact match", () => {
   const DEGEN = "0x4ed4e862860bed51a9570b96d89af5e1b0efefed";
   const claim = { chain: "base", receipt: MDEGEN, asset: DEGEN, assets: 32074.35 };

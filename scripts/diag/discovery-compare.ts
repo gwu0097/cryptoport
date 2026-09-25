@@ -51,7 +51,8 @@ async function main() {
   if (args.length === 0) throw new Error("usage: discovery-compare.ts <wallet id | 0xaddress> ...");
   const { serviceDb } = await import("../../src/lib/supabase");
   const { EVM_CHAINS, MULTICALL3_ADDRESS } = await import("../../src/lib/adapters/evmChains");
-  const { fetchChainHoldings, evmTransport } = await import("../../src/lib/adapters/multicallEvm");
+  const { fetchChainHoldings } = await import("../../src/lib/adapters/multicallEvm");
+  const { evmTransport } = await import("../../src/lib/adapters/evmTransport");
   const { createPublicClient } = await import("viem");
   const db = serviceDb();
   const chains = EVM_CHAINS.filter((c) => ALCHEMY[c.id]);
@@ -79,7 +80,7 @@ async function main() {
         const s = Date.now();
         try {
           const scan = await fetchChainHoldings(c, address as `0x${string}`);
-          oldPer.set(c.id, { found: new Map(scan.held.map((h) => [h.token.contract.toLowerCase(), BigInt(Math.round(h.qty * 1e6))])), ms: Date.now() - s });
+          oldPer.set(c.id, { found: new Map(scan.held.map((h) => [h.token.contract.toLowerCase(), BigInt(Math.round((h.qty ?? 0) * 1e6))])), ms: Date.now() - s });
         } catch (e) {
           oldPer.set(c.id, { found: new Map(), ms: Date.now() - s, error: (e as Error).message.slice(0, 80) });
         }

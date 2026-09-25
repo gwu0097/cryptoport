@@ -1,7 +1,7 @@
 import "server-only";
 import { createPublicClient, type Address } from "viem";
 import { EVM_CHAINS, MULTICALL3_ADDRESS } from "./evmChains";
-import { evmTransport } from "./multicallEvm";
+import { evmTransport } from "./evmTransport";
 import { initHoldings, type InitPositionAmounts, type TokenInfo } from "../initCapital";
 import type { AdapterHolding } from "./types";
 

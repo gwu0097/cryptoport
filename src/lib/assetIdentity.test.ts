@@ -142,3 +142,10 @@ test("Lighter rows: USDC collateral and spot coins by their coin; perps and pool
   assert.equal(k("ETH-PERP", "Perpetuals"), null);
   assert.equal(k("LIGHTER-POOL", "Yield"), null);
 });
+
+test("a receipt row carrying its underlying coin is priced as that coin", () => {
+  const maps: KeyMaps = { registry: new Map(), overrides: new Map(), venues: new Map() };
+  assert.equal(resolvePriceKey({ ticker: "aTkoWETH", chain: "taiko", contract: "0xacd2e13c933ae1ef97698f00d14117bb70c77ef1", source: "auto", coingecko_id: "weth" }, maps), "weth");
+  // a plain token row without one is still keyed by its own contract
+  assert.equal(resolvePriceKey({ ticker: "X", chain: "taiko", contract: "0xacd2e13c933ae1ef97698f00d14117bb70c77ef1", source: "auto" }, maps), null);
+});

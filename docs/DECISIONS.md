@@ -9,6 +9,21 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-25 — Wallet balance discovery
+
+The sync read every CoinGecko-listed token on every chain (tens of thousands of
+`balanceOf` calls per wallet): slow, blind to unlisted tokens (Blast's hUSDB,
+Taiko's aTkoWETH never showed), and prone to "N balance checks unverified".
+Leaders (Zerion, DeBank/Rabby) ask an indexer what the address holds, then read
+balances. Measured on 20 Alchemy chains (phase 1): Metamask Main 5.9s → 1.9s,
+BizNFT 5.4s → 3.7s; Alchemy missed only $0 dust; vitalik.eth needs 106 pages,
+hence the page cap with a registry fallback. Owner decisions: receipts CoinGecko
+doesn't list are valued as their underlying; unrecognized tokens go to their own
+table (`wallet_discovered_tokens`), never into totals. Phase 3's dry run over
+every EVM wallet (`scripts/diag/discovery-dryrun.ts`) caught a bug before it
+shipped: a receipt priced as its underlying looked "tradable" by the underlying's
+volume, which would have kept the token and dropped its protocol position.
+
 ## 2026-09-25 — Design a core subsystem before building it
 
 In one day three core pieces were rebuilt after their first design hit its
