@@ -6,13 +6,17 @@ import type { AdapterHolding } from "./types";
 import { stakesToHoldings, type SuiStakeGroup } from "../suiStakes";
 import { fetchNaviHoldings } from "./naviLending";
 
-// Sui JSON-RPC endpoints, tried in order until one answers. Mysten's own
+// Sui JSON-RPC endpoints, tried in order until one answers — only ones
+// checked to return a wallet's COMPLETE balances and stakes. Mysten's own
 // public fullnodes dropped JSON-RPC ("deprecated ... migrate to gRPC or
-// GraphQL"), PublicNode answered "no available nodes found" and 503s
-// (failed both Sui wallets' syncs, 2026-09-25), and Nodeinfra lacks the
-// balance/stake indexes. These three answered all four methods used here.
-// Longer term this adapter moves to Sui's GraphQL API.
-const RPCS = ["https://mainnet.suiet.app", "https://sui.blockpi.network/v1/rpc/public", "https://sui-mainnet-endpoint.blockvision.org"];
+// GraphQL") and PublicNode answered "no available nodes found" / 503
+// (failed both Sui wallets' syncs, 2026-09-25). Suiet and BlockPI answer
+// but from stale indexes — 0 balances for a wallet BlockVision shows 15
+// tokens and a stake on — and an incomplete answer would be SAVED as the
+// wallet's holdings, so they must never be fallbacks: a failed request
+// fails the sync (previous holdings kept) instead. Longer term this
+// adapter moves to Sui's GraphQL API.
+const RPCS = ["https://sui-mainnet-endpoint.blockvision.org"];
 const NATIVE_COIN_TYPE = "0x2::sui::SUI";
 // CoinGecko's asset_platforms id for Sui — live-verified via
 // GET /asset_platforms (id: "sui", native_coin_id: "sui"), same convention
