@@ -663,19 +663,27 @@ export async function refreshPrices(
   // then the Solana-miss follow-up below would overwrite that same "done"
   // again at 7.6s — a lane completing, un-completing and re-completing. Its
   // one "done" is written after the merge below (both steps).
-  const [coingecko, coinbaseAndJupiter, evmResults, cosmosResults] = await Promise.all([
-    tracked("coingecko", refreshCoinGeckoTickers(resolved), { results: [], solanaMisses: [] }),
+  //
+  // The Fallback lane's merge needs only the CoinGecko and Coinbase
+  // results, so it runs as soon as those two are in — it used to wait for
+  // every lane (the EVM one takes ~2 min), so "Fallback: running…" showed
+  // for the whole refresh.
+  const coingeckoLane = tracked("coingecko", refreshCoinGeckoTickers(resolved), { results: [], solanaMisses: [] });
+  const fallbackLane = Promise.all([
+    coingeckoLane,
     tracked("coinbase", refreshCoinbaseAndJupiter(residual, existingSources), null, false),
+  ]).then(([coingecko, coinbaseAndJupiter]) =>
+    coinbaseAndJupiter
+      ? tracked("coinbase", mergeCoingeckoAndResidualResults(coingecko, coinbaseAndJupiter, existingSources), [])
+      : coingecko.results,
+  );
+  const [merged, evmResults, cosmosResults] = await Promise.all([
+    fallbackLane,
     tracked("evm", refreshEvmHoldingPrices(), []),
     // Cosmos multi-chain tokens: re-priced by their own CoinGecko id, same
     // idea as the EVM lane (adapters/cosmosMulti.ts).
     tracked("cosmos", refreshCosmosHoldingPrices(), []),
   ]);
-  // Small, second-stage Solana-miss follow-up plus the final result merge —
-  // see mergeCoingeckoAndResidualResults' own doc comment.
-  const merged = coinbaseAndJupiter
-    ? await tracked("coinbase", mergeCoingeckoAndResidualResults(coingecko, coinbaseAndJupiter, existingSources), [])
-    : coingecko.results;
 
   return { results: [...merged, ...evmResults, ...cosmosResults], laneErrors };
 }
