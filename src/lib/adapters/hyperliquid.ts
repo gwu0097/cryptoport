@@ -1,5 +1,6 @@
 import "server-only";
 import { stablecoinFallbackUsd } from "../stablecoinFallback";
+import { perpsUnallocatedUsd } from "../hyperliquidPerps";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
@@ -175,9 +176,14 @@ export async function fetchHyperliquidHoldings(
     });
   }
 
-  const crossEquity = Number(perps.crossMarginSummary.accountValue);
-  const available = crossEquity - (Number.isFinite(withdrawable) ? withdrawable : 0);
-  if (Number.isFinite(available) && available > 0) {
+  // Only what isn't already withdrawable or a position's margin (each
+  // position row below carries its own) — see hyperliquidPerps.ts.
+  const available = perpsUnallocatedUsd(
+    Number(perps.crossMarginSummary.accountValue),
+    withdrawable,
+    perps.assetPositions.filter(({ position }) => Number(position.szi) !== 0).map(({ position }) => Number(position.marginUsed)),
+  );
+  if (available !== null) {
     holdings.push({
       ticker: "USDC",
       qty: available,
