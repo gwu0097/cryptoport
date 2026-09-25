@@ -23,7 +23,7 @@ import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
-import { refreshAssetPrices } from "@/lib/adapters/assetPrices";
+import { refreshAssetPrices, ensureAssetPrices } from "@/lib/adapters/assetPrices";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY } from "@/lib/tokenRegistryRefresh";
@@ -613,7 +613,7 @@ async function withSeiStaking(address: string, base: AdapterFetchResult): Promis
 async function keyed<T extends { ticker: string; chain: string | null; contract: string | null }>(
   rows: T[],
   source: HoldingSource,
-): Promise<T[]> {
+): Promise<(T & { price_key?: string | null })[]> {
   try {
     const out = await withPriceKeys(rows, source);
     // A Solana/Sui token the token list doesn't know yet: refresh the list
@@ -769,14 +769,19 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       }
 
       const status = warnings.length === 0 ? "ok" : `partial — ${[...warnings, keptStatus].filter(Boolean).join("; ")}`;
+      const saved: { price_key?: string | null }[] = cosmosHoldings
+        ? await keyed(cosmosHoldings, "auto_cosmos")
+        : await keyed(holdings, "auto");
       const { error: syncError } = await afterDb.rpc(cosmosHoldings ? "sync_cosmos_holdings" : "sync_auto_holdings", {
         p_wallet_id: walletId,
-        p_holdings: cosmosHoldings
-          ? await keyed(cosmosHoldings, "auto_cosmos")
-          : await keyed(holdings, "auto"),
+        p_holdings: saved,
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
+      // This wallet's coins that have no fresh price yet, in one batched pass
+      // (docs/pricing/PLAN.md) — coins another wallet priced minutes ago are
+      // reused, so a Sync all prices each coin about once.
+      await ensureAssetPrices(saved.map((r) => r.price_key), "sync").catch(() => {});
 
       if (wallet.chain === "SOL") {
         await afterDb.from("wallets").update({ notes: SOL_SYNC_NOTE }).eq("id", walletId);
@@ -1041,11 +1046,13 @@ export async function connectExchange(
 
   // Save what the test call already fetched — a real first sync for free,
   // no need to immediately click "Sync" right after connecting.
+  const firstSync: { price_key?: string | null }[] = await keyed(testResult.holdings, "auto_exchange");
   await db.rpc("sync_exchange_holdings", {
     p_wallet_id: wallet.id,
-    p_holdings: await keyed(testResult.holdings, "auto_exchange"),
+    p_holdings: firstSync,
     p_status: testResult.warnings.length === 0 ? "ok" : `partial — ${testResult.warnings.join("; ")}`,
   });
+  await ensureAssetPrices(firstSync.map((r) => r.price_key), "sync").catch(() => {});
 
   revalidatePath("/wallets");
   redirect(`/wallets/${wallet.id}`);
@@ -1097,12 +1104,14 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
       const { holdings, warnings } = await fetchBalances(conn.key_name, privateKey);
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
 
+      const savedExchange: { price_key?: string | null }[] = await keyed(holdings, "auto_exchange");
       const { error: syncError } = await afterDb.rpc("sync_exchange_holdings", {
         p_wallet_id: walletId,
-        p_holdings: await keyed(holdings, "auto_exchange"),
+        p_holdings: savedExchange,
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
+      await ensureAssetPrices(savedExchange.map((r) => r.price_key), "sync").catch(() => {});
 
       await afterDb
         .from("wallets")

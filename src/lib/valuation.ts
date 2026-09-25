@@ -20,9 +20,12 @@ export interface HoldingValuationInput {
   qty: PostgrestNumeric;
   usd_override: PostgrestNumeric;
   source: HoldingSource;
+  /** The one asset this holding is priced as (docs/pricing/PLAN.md). */
+  price_key?: string | null;
 }
 
-/** ticker -> raw `usd` value from the prices table (or null/undefined if absent) */
+/** price_key -> the asset's one price (asset_prices.usd), or null/undefined
+ * when there's no price. Keyed by asset, never by ticker. */
 export type PriceMap = Record<string, PostgrestNumeric>;
 
 export type Valuation =
@@ -46,50 +49,30 @@ export function parseNumeric(value: PostgrestNumeric): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * One asset, one price (docs/pricing/PLAN.md): a holding with a price_key
+ * is worth qty × that asset's price, everywhere. Without one (or before its
+ * asset has a price), its stored value stands — a protocol position's
+ * value (LP, perps, predictions), or a sync-time value until the next
+ * pricing pass. Otherwise it's unpriced. Never priced by ticker: a ticker
+ * can name several different coins.
+ */
 export function valueHolding(
   holding: HoldingValuationInput,
   prices: PriceMap,
 ): Valuation {
-  // A usd_override always wins, regardless of source: manual_usd rows use it
-  // by definition, and an auto row can carry one too (e.g. the Hyperliquid
-  // adapter pins USDC/USDT0/USDE at $1 this way — no ticker-price lookup
-  // needed for a stablecoin it already knows the value of).
-  const override = parseNumeric(holding.usd_override);
-  if (override !== null) {
-    return { kind: "priced", usd: override };
-  }
-  if (holding.source === "manual_usd") {
-    return { kind: "unpriced", reason: "no_usd_override" };
-  }
-  // A Cosmos multi-chain token is priced only by its own CoinGecko id (its
-  // usd_override, stamped at sync / Refresh prices). Without one it is
-  // unpriced — never looked up by ticker, where a spam or look-alike token
-  // would borrow a real token's price (adapters/cosmosMulti.ts).
-  if (holding.source === "auto_cosmos") {
-    return { kind: "unpriced", reason: "no_price" };
-  }
-
-  // manual_qty | auto
   const qty = parseNumeric(holding.qty);
+  if (holding.price_key && holding.source !== "manual_usd") {
+    const price = parseNumeric(prices[holding.price_key]);
+    if (price !== null && qty !== null) return { kind: "priced", usd: qty * price };
+  }
+
+  const stored = parseNumeric(holding.usd_override);
+  if (stored !== null) return { kind: "priced", usd: stored };
+
+  if (holding.source === "manual_usd") return { kind: "unpriced", reason: "no_usd_override" };
   if (qty === null) return { kind: "unpriced", reason: "no_qty" };
-
-  // KNOWN GAP (not fixed yet, see jupiter.ts's Shield-warning filter for the
-  // one case that is handled): unlike EVM tokens, plain Solana SPL balances
-  // (adapters/jupiter.ts) don't stamp a per-mint usd_override — they fall
-  // through to this ticker lookup. A copycat/spoofed-symbol mint that
-  // *is* sellable (so Shield's NOT_SELLABLE filter doesn't catch it) still
-  // gets priced here off the real asset's ticker (e.g. real ORCA's price
-  // from Coinbase), not its own mint's actual, much-lower price — the same
-  // class of bug CLAUDE.md's EVM usd_override precedent exists to prevent.
-  // Closing this fully means Solana SPL tokens adopt the EVM pattern
-  // (usd_override stamped from Jupiter's own per-mint usdPrice at sync
-  // time) — a real design change (refreshPrices would need a per-mint
-  // Solana repricing path too, so values don't go stale between syncs),
-  // not a one-line patch, so it's flagged here rather than done inline.
-  const price = parseNumeric(prices[holding.ticker]);
-  if (price === null) return { kind: "unpriced", reason: "no_price" };
-
-  return { kind: "priced", usd: qty * price };
+  return { kind: "unpriced", reason: "no_price" };
 }
 
 /**

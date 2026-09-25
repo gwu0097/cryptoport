@@ -28,10 +28,15 @@ async function allHeldKeys(): Promise<string[]> {
   return [...keys];
 }
 
-export async function refreshAssetPrices(trigger: string): Promise<{ requested: number; returned: number; missing: string[] }> {
+/** Prices the given keys (default: every held key + watchlist). */
+export async function refreshAssetPrices(
+  trigger: string,
+  only?: string[],
+): Promise<{ requested: number; returned: number; missing: string[] }> {
   const started = Date.now();
   const db = serviceDb();
-  const keys = await allHeldKeys();
+  const keys = only ?? (await allHeldKeys());
+  if (keys.length === 0) return { requested: 0, returned: 0, missing: [] };
   const bySource = new Map<string, string[]>();
   for (const k of keys) bySource.set(sourceOf(k), [...(bySource.get(sourceOf(k)) ?? []), k]);
 
@@ -155,4 +160,34 @@ export async function refreshAssetPrices(trigger: string): Promise<{ requested: 
     calls,
   });
   return { requested: keys.length, returned: found.length, missing };
+}
+
+/** Prices just the keys that have no price yet or one older than maxAgeMs —
+ * after a sync (its own coins) and for an address lookup. A key another
+ * wallet's sync priced a minute ago isn't asked again, so a Sync all prices
+ * each coin about once. */
+export async function ensureAssetPrices(keys: (string | null | undefined)[], trigger: string, maxAgeMs = 5 * 60 * 1000): Promise<void> {
+  const distinct = [...new Set(keys.filter((k): k is string => !!k))];
+  if (distinct.length === 0) return;
+  const fresh = new Set<string>();
+  for (let i = 0; i < distinct.length; i += 500) {
+    const { data } = await serviceDb()
+      .from("asset_prices")
+      .select("price_key, usd, updated_at")
+      .in("price_key", distinct.slice(i, i + 500))
+      .gte("updated_at", new Date(Date.now() - maxAgeMs).toISOString());
+    for (const r of (data ?? []) as { price_key: string; usd: unknown }[]) if (r.usd !== null) fresh.add(r.price_key);
+  }
+  const stale = distinct.filter((k) => !fresh.has(k));
+  if (stale.length > 0) await refreshAssetPrices(trigger, stale);
+}
+
+/** A full pass when the newest price is older than maxAgeMs — the daily
+ * snapshot's guard against recording stale prices into history. */
+export async function refreshAssetPricesIfOlderThan(maxAgeMs: number, trigger: string): Promise<string> {
+  const { data } = await serviceDb().from("asset_prices").select("updated_at").order("updated_at", { ascending: false, nullsFirst: false }).limit(1);
+  const newest = data?.[0]?.updated_at ? Date.parse(data[0].updated_at as string) : 0;
+  if (Date.now() - newest < maxAgeMs) return "fresh";
+  const r = await refreshAssetPrices(trigger);
+  return `priced ${r.returned}/${r.requested}`;
 }

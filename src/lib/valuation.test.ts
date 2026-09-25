@@ -36,8 +36,8 @@ test("manual_usd with no usd_override is unpriced, not zero", () => {
 });
 
 test("manual_qty with a price multiplies qty * price", () => {
-  const h = holding({ source: "manual_qty", qty: "1.5291763", ticker: "BTC" });
-  const result = valueHolding(h, { BTC: "60000" });
+  const h = holding({ source: "manual_qty", qty: "1.5291763", ticker: "BTC", price_key: "bitcoin" });
+  const result = valueHolding(h, { bitcoin: "60000" });
   assert.equal(result.kind, "priced");
   assert.ok(result.kind === "priced" && Math.abs(result.usd - 91750.578) < 1e-6);
 });
@@ -95,14 +95,14 @@ test("parseNumeric rejects null, undefined, and garbage", () => {
 
 test("aggregate totals priced holdings and reports unpriced count/tickers", () => {
   const holdings: HoldingValuationInput[] = [
-    holding({ source: "manual_qty", ticker: "BTC", qty: "1.5291763" }),
-    holding({ source: "auto", ticker: "ETH", qty: "2" }),
+    holding({ source: "manual_qty", ticker: "BTC", qty: "1.5291763", price_key: "bitcoin" }),
+    holding({ source: "auto", ticker: "ETH", qty: "2", price_key: "ethereum" }),
     holding({ source: "manual_usd", ticker: "USDC", usd_override: "1000" }),
     holding({ source: "auto", ticker: "SPAM", qty: "999999" }), // no price
     holding({ source: "manual_qty", ticker: "DUST", qty: null }), // no qty
   ];
 
-  const prices = { BTC: "60000", ETH: "3000" };
+  const prices = { bitcoin: "60000", ethereum: "3000" };
   const result = aggregate(holdings, prices);
 
   const expectedTotal = 1.5291763 * 60000 + 2 * 3000 + 1000;
@@ -112,8 +112,8 @@ test("aggregate totals priced holdings and reports unpriced count/tickers", () =
 });
 
 test("valueHolding works when qty/price arrive as numbers, not strings", () => {
-  const h = holding({ source: "manual_qty", qty: 1.5291763, ticker: "BTC" });
-  const result = valueHolding(h, { BTC: 60000 });
+  const h = holding({ source: "manual_qty", qty: 1.5291763, ticker: "BTC", price_key: "bitcoin" });
+  const result = valueHolding(h, { bitcoin: 60000 });
   assert.equal(result.kind, "priced");
   assert.ok(result.kind === "priced" && Math.abs(result.usd - 91750.578) < 1e-6);
 });
@@ -126,4 +126,20 @@ test("aggregate never coerces unpriced holdings into the total", () => {
   assert.equal(result.total, 0);
   assert.equal(result.unpricedCount, 1);
   assert.deepEqual(result.unpricedTickers, ["SPAM"]);
+});
+
+test("one asset, one price: never priced by ticker (a ticker can name several coins)", () => {
+  const h = holding({ source: "auto", qty: "10", ticker: "ORCA" }); // no price_key
+  assert.deepEqual(valueHolding(h, { ORCA: "3" }), { kind: "unpriced", reason: "no_price" });
+});
+
+test("the asset's one price wins over a stale sync-time value; the stored value stands only while the asset has no price", () => {
+  const h = holding({ source: "auto", qty: "100", ticker: "HASUI", price_key: "haedal-staked-sui", usd_override: "108.4" });
+  assert.deepEqual(valueHolding(h, { "haedal-staked-sui": "1.2" }), { kind: "priced", usd: 120 });
+  assert.deepEqual(valueHolding(h, {}), { kind: "priced", usd: 108.4 });
+});
+
+test("a protocol position (no price_key) keeps its stored value; a fixed-USD holding ignores any key", () => {
+  assert.deepEqual(valueHolding(holding({ source: "auto", qty: "1", ticker: "METEORA-LP", usd_override: "27.5" }), {}), { kind: "priced", usd: 27.5 });
+  assert.deepEqual(valueHolding(holding({ source: "manual_usd", ticker: "BTC", usd_override: "500", price_key: "bitcoin" }), { bitcoin: "60000" }), { kind: "priced", usd: 500 });
 });

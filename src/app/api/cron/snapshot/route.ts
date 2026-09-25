@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { capturePortfolioSnapshots } from "@/lib/snapshots";
+import { refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
 
 // Iterates every user with at least one active wallet in a single pass —
 // cheap per user (no per-user network calls, just in-memory aggregate()
@@ -23,6 +24,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  // Prices first (decided 2026-09-25, docs/pricing/PLAN.md): a snapshot on
+  // a day nobody opened the app would otherwise record stale values into
+  // history. Only when the newest price is older than 6h (~2 calls/day).
+  const prices = await refreshAssetPricesIfOlderThan(6 * 60 * 60 * 1000, "snapshot").catch((e: Error) => `error: ${e.message}`);
   const result = await capturePortfolioSnapshots();
-  return Response.json(result);
+  return Response.json({ ...result, prices });
 }

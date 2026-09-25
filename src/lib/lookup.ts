@@ -7,6 +7,8 @@ import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
 import { NON_EVM_DISPATCH, detectNonEvmChain } from "./adapters/nonEvmDispatch";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
+import { withPriceKeys } from "./adapters/assetKeys";
+import { ensureAssetPrices } from "./adapters/assetPrices";
 import { defaultChainId } from "./chainNames";
 import type { Chain, Holding } from "./types";
 
@@ -38,11 +40,12 @@ export function detectChain(address: string): Chain | null {
 // Gives every looked-up holding the shape valuateHoldings()/HoldingsTable
 // expect, without a real wallet_id or DB row — this address was never
 // saved anywhere, see lookupWallet's doc comment.
-function toHolding(h: AdapterHolding, index: number): Holding {
+function toHolding(h: AdapterHolding & { price_key: string | null }, index: number): Holding {
   return {
     id: `lookup-${index}`,
     wallet_id: "lookup",
     ticker: h.ticker,
+    price_key: h.price_key,
     qty: h.qty,
     usd_override: h.usd_override,
     source: "auto",
@@ -112,11 +115,17 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
             ? fetchCosmosHoldings("SEI", address).then((holdings) => ({ holdings, warnings: [] }))
             : NON_EVM_DISPATCH[chain].fetch(address);
 
-  const [{ holdings: adapterHoldings, warnings }, prices] = await Promise.all([fetchResult, getPriceMap()]);
+  const { holdings: adapterHoldings, warnings } = await fetchResult;
   if (warnings.length > 0) {
     console.error(`lookupWallet(${chain} ${address}): ${warnings.join("; ")}`);
   }
+  // Priced like any wallet (docs/pricing/PLAN.md): each holding's asset key,
+  // any of those assets without a fresh price priced now (one batched pass),
+  // then qty × the one price.
+  const keyed = await withPriceKeys(adapterHoldings, "auto");
+  await ensureAssetPrices(keyed.map((h) => h.price_key), "lookup").catch(() => {});
+  const prices = await getPriceMap();
 
-  const holdings = adapterHoldings.map(toHolding);
+  const holdings = keyed.map(toHolding);
   return { chain, address, warnings, ...valuateHoldings(holdings, defaultChainId(chain), prices) };
 }

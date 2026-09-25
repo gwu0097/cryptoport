@@ -161,14 +161,25 @@ export const getChainIconMap = cache(async (): Promise<Record<string, string>> =
 // before that page was simplified) — cache() means that's now a
 // structural non-issue rather than something that happens to not be a
 // problem today.
+/** The one price per asset (asset_prices), keyed by price_key — what every
+ * holding is valued from (valuation.ts, docs/pricing/PLAN.md). */
 export const getPriceMap = cache(async (): Promise<PriceMap> => {
+  const prices: PriceMap = {};
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await serviceDb().from("asset_prices").select("price_key, usd").order("price_key").range(from, from + 999);
+    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
+    for (const row of data as { price_key: string; usd: number | string | null }[]) prices[row.price_key] = row.usd;
+    if (data.length < 1000) return prices;
+  }
+});
+
+/** Legacy ticker -> price (the `prices` table). Only transactions still use
+ * it (their rows have no price_key yet — pricing plan phase 3). */
+export const getTickerPriceMap = cache(async (): Promise<Record<string, number | string | null>> => {
   const { data, error } = await serviceDb().from("prices").select("ticker, usd");
   if (error) throw new Error(`Failed to load prices: ${error.message}`);
-
-  const prices: PriceMap = {};
-  for (const row of data as Pick<Price, "ticker" | "usd">[]) {
-    prices[row.ticker] = row.usd;
-  }
+  const prices: Record<string, number | string | null> = {};
+  for (const row of data as Pick<Price, "ticker" | "usd">[]) prices[row.ticker] = row.usd;
   return prices;
 });
 
@@ -278,11 +289,15 @@ export const getContractStatsMap = cache(async (): Promise<PriceStatsMap> => {
 // per-unit "Price" column still wants a number to show instead of a
 // misleading "unpriced" on a row that clearly has a value. Derived only for
 // display; never fed back into valuation.
-function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "ticker">, prices: PriceMap): number | null {
+/** Per-unit price: the asset's one price when it has one, else the stored
+ * value per unit (a position, or a sync-time value awaiting pricing). */
+function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "price_key">, prices: PriceMap): number | null {
+  const assetPrice = holding.price_key ? parseNumeric(prices[holding.price_key]) : null;
+  if (assetPrice !== null) return assetPrice;
   const override = parseNumeric(holding.usd_override);
   const qty = parseNumeric(holding.qty);
   if (override !== null && qty !== null && qty !== 0) return override / qty;
-  return parseNumeric(prices[holding.ticker]);
+  return null;
 }
 
 /** Contract-keyed first, ticker-keyed fallback — EVM holdings are valued
@@ -1003,7 +1018,7 @@ export async function getTransactions(walletId?: string): Promise<TransactionRow
     )
       .order("occurred_at", { ascending: false })
       .limit(500),
-    getPriceMap(),
+    getTickerPriceMap(),
   ]);
   if (error) throw new Error(`Failed to load transactions: ${error.message}`);
 

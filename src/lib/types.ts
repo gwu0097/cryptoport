@@ -162,6 +162,10 @@ export interface Holding {
   id: string;
   wallet_id: string;
   ticker: string;
+  /** The one asset this holding is priced as — a CoinGecko coin id, or a
+   * namespaced long-tail key (docs/pricing/PLAN.md). Null for protocol
+   * positions and unmapped tokens. */
+  price_key: string | null;
   qty: number | string | null;
   usd_override: number | string | null;
   source: HoldingSource;
