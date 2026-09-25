@@ -872,10 +872,9 @@ export interface TransactionRow extends Omit<Transaction, "amount" | "fee"> {
    * amount is worth today, not the value at the time of the transaction
    * (this app has no historical per-transaction pricing) — good enough
    * for "is this worth showing," not for anything that needs to be
-   * exact. Transactions don't carry a `contract` column (unlike
-   * holdings), so this can't disambiguate a ticker collision the way
-   * getContractStatsMap does — a real, accepted precision gap, not an
-   * oversight. */
+   * exact. Transactions don't carry a `contract` column, so a token leg
+   * is matched to the coin its wallet holds under that ticker, and left
+   * unpriced when that's ambiguous. */
   usdValue: number | null;
 }
 
