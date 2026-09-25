@@ -46,7 +46,7 @@ export interface PriceRefreshResult {
 export type { HoldingTickerInfo, ResolvedTicker } from "./priceResolution.ts";
 export { tickerNeedsPricing, splitByCoingeckoResolvability } from "./priceResolution.ts";
 import {
-  tickerNeedsPricing,
+  tickerInfoFor,
   splitByCoingeckoResolvability,
   type HoldingTickerInfo,
   type ResolvedTicker,
@@ -97,38 +97,14 @@ async function getDistinctHoldingTickers(): Promise<HoldingTickerInfo[]> {
     byTicker.get(row.ticker)!.push(row);
   }
 
+  // Only tickers some holding needs a ticker-keyed price for (every other
+  // row is priced by its own usd_override — e.g. a DeFi position valued by
+  // its protocol math at sync time), priced through a row that needs it
+  // (priceResolution.ts's tickerInfoFor).
   const result: HoldingTickerInfo[] = [];
   for (const [ticker, group] of byTicker) {
-    // Real, common case this actually skips: a DeFi position already
-    // priced directly by its own protocol math at sync time (Zerion et
-    // al.) — live-verified this session: 9 of 14 non-exchange residual
-    // tickers were exactly this.
-    if (!tickerNeedsPricing(group)) continue;
-
-    // An explicitly picked coingecko_id (a manual holding added via the
-    // coin picker) is a stronger identity signal than anything inferred
-    // below — it names the exact coin, not just a chain/contract pattern
-    // match — so it's checked first.
-    const explicitIdRow = group.find((r) => r.coingecko_id !== null);
-    const nativeMatch = group.find((r) => {
-      if (r.contract !== null || r.chain === null) return false;
-      const key = resolveCoingeckoKey({ ticker, source: r.source as HoldingSource, contract: null, chain: r.chain });
-      return key !== null && !key.includes(":");
-    });
-    const contractRow = group.find((r) => r.contract !== null);
-    const fallbackRow = group.find((r) => r.chain !== null) ?? group[0];
-    const representative = explicitIdRow ?? nativeMatch ?? contractRow ?? fallbackRow;
-    result.push({
-      ticker,
-      contract: explicitIdRow || nativeMatch ? null : (contractRow?.contract ?? null),
-      chain: representative.chain,
-      coingeckoId: explicitIdRow?.coingecko_id ?? null,
-      // The representative's OWN source, not group[0]'s first-seen source
-      // — a manual_usd row sitting first in the group must not force an
-      // otherwise-resolvable ticker (e.g. one with a real coingecko_id or
-      // a native match) into the residual lane below.
-      source: representative.source,
-    });
+    const info = tickerInfoFor(ticker, group);
+    if (info) result.push(info);
   }
   return result;
 }

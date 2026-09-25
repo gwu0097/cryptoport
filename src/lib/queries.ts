@@ -724,6 +724,8 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
   ]);
 
   const byTicker = new Map<string, AssetGroup>();
+  // Per ticker: the value of the holding the row's price / stats came from.
+  const picks = new Map<string, { price: number; stats: number }>();
   for (const wallet of rows) {
     for (const holding of wallet.holdings) {
       const valuation = valueHolding(holding, prices);
@@ -770,7 +772,19 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
       // `prices` is keyed by that raw, possibly mixed-case string, so an
       // uppercase-key lookup here could miss a real price that only exists
       // under the original casing.
-      if (group.price === null && entry.price !== null) group.price = entry.price;
+      //
+      // The row's price and market stats come from its largest holding that
+      // has them, not whichever holding came first: MORPHO showed a small
+      // Merkl reward position's older price ($2.42) and a day-old ticker
+      // row's +13.89% while its ~$10K Base holding had today's −5.7%
+      // (2026-09-25).
+      const weight = valuation.kind === "priced" ? valuation.usd : 0;
+      const pick = picks.get(key) ?? { price: -1, stats: -1 };
+      picks.set(key, pick);
+      if (entry.price !== null && weight > pick.price) {
+        group.price = entry.price;
+        pick.price = weight;
+      }
       // Contract-keyed first — EVM holdings are valued via usd_override and
       // never touch the ticker-keyed `prices` table (see valuation.ts), so
       // priceStats[ticker] is never populated for them; getContractStatsMap
@@ -794,11 +808,20 @@ export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promi
       const change7d = contractRowStats?.change7d ?? tickerRowStats?.change7d;
       const change30d = contractRowStats?.change30d ?? tickerRowStats?.change30d;
       const marketCap = contractRowStats?.marketCap ?? tickerRowStats?.marketCap;
-      if (group.change24h === null && change24h != null) group.change24h = change24h;
-      if (group.change1h === null && change1h != null) group.change1h = change1h;
-      if (group.change7d === null && change7d != null) group.change7d = change7d;
-      if (group.change30d === null && change30d != null) group.change30d = change30d;
-      if (group.marketCap === null && marketCap != null) group.marketCap = marketCap;
+      if (change24h != null && weight > pick.stats) {
+        group.change24h = change24h;
+        group.change1h = change1h ?? group.change1h;
+        group.change7d = change7d ?? group.change7d;
+        group.change30d = change30d ?? group.change30d;
+        group.marketCap = marketCap ?? group.marketCap;
+        pick.stats = weight;
+      } else {
+        // Windows the chosen holding lacks, from any other holding.
+        if (group.change1h === null && change1h != null) group.change1h = change1h;
+        if (group.change7d === null && change7d != null) group.change7d = change7d;
+        if (group.change30d === null && change30d != null) group.change30d = change30d;
+        if (group.marketCap === null && marketCap != null) group.marketCap = marketCap;
+      }
       // Contract-based id first (a real token_registry.coingecko_id, never
       // guessed); native fallback only when this holding has no contract
       // at all — resolveCoingeckoKey's own contract branch would otherwise

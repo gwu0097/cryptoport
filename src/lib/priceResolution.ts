@@ -42,6 +42,37 @@ export function tickerNeedsPricing(group: { usd_override: string | number | null
   return group.some((r) => r.usd_override === null);
 }
 
+/** The one row a ticker's group is priced through — chosen only among the
+ * rows that actually need a ticker price (usd_override null). It used to
+ * be picked from every row, preferring one with a contract: MORPHO held
+ * on Base (priced per holding at sync) and on Coinbase (needs the ticker
+ * price) picked the Base row, whose EVM contract key the CoinGecko lane
+ * skips — so the Coinbase MORPHO's price stopped updating (2026-09-25).
+ * Null when nothing in the group needs a ticker price. */
+export function tickerInfoFor(
+  ticker: string,
+  group: { contract: string | null; chain: string | null; source: string; coingecko_id: string | null; usd_override: string | number | null }[],
+): HoldingTickerInfo | null {
+  const needing = group.filter((r) => r.usd_override === null);
+  if (needing.length === 0) return null;
+  const explicitIdRow = needing.find((r) => r.coingecko_id !== null);
+  const nativeMatch = needing.find((r) => {
+    if (r.contract !== null || r.chain === null) return false;
+    const key = resolveCoingeckoKey({ ticker, source: r.source as HoldingSource, contract: null, chain: r.chain });
+    return key !== null && !key.includes(":");
+  });
+  const contractRow = needing.find((r) => r.contract !== null);
+  const fallbackRow = needing.find((r) => r.chain !== null) ?? needing[0];
+  const representative = explicitIdRow ?? nativeMatch ?? contractRow ?? fallbackRow;
+  return {
+    ticker,
+    contract: explicitIdRow || nativeMatch ? null : (contractRow?.contract ?? null),
+    chain: representative.chain,
+    coingeckoId: explicitIdRow?.coingecko_id ?? null,
+    source: representative.source,
+  };
+}
+
 export interface ResolvedTicker {
   ticker: string;
   key: string; // "<platform>:<contract>" or a bare coingecko id

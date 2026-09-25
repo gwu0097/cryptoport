@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitByCoingeckoResolvability, tickerNeedsPricing, type HoldingTickerInfo } from "./priceResolution.ts";
+import { splitByCoingeckoResolvability, tickerNeedsPricing, type HoldingTickerInfo, tickerInfoFor } from "./priceResolution.ts";
 
 function ticker(overrides: Partial<HoldingTickerInfo> & { ticker: string; source: string }): HoldingTickerInfo {
   return { contract: null, chain: null, coingeckoId: null, ...overrides };
@@ -81,4 +81,26 @@ test("tickerNeedsPricing: true when at least one holding lacks usd_override", ()
 
 test("tickerNeedsPricing: true for an empty-usd_override single holding", () => {
   assert.equal(tickerNeedsPricing([{ usd_override: null }]), true);
+});
+
+test("tickerInfoFor prices a ticker through a row that needs it, not an EVM contract row priced at sync", () => {
+  const base = { contract: "0xbaa5cc21fd487b8fcc2f632f3f4e8d37262a0842", chain: "base", source: "auto", coingecko_id: null, usd_override: 7975 };
+  const coinbase = { contract: null, chain: "coinbase", source: "auto_exchange", coingecko_id: null, usd_override: null };
+  // MORPHO on Base (usd_override from sync) + on Coinbase (needs the ticker price).
+  assert.deepEqual(tickerInfoFor("MORPHO", [base, base, coinbase]), {
+    ticker: "MORPHO",
+    contract: null,
+    chain: "coinbase",
+    coingeckoId: null,
+    source: "auto_exchange",
+  });
+  assert.equal(tickerInfoFor("MORPHO", [base]), null, "every row priced at sync: nothing to do");
+});
+
+test("tickerInfoFor still prefers a native row over a bridged contract row among rows that need pricing", () => {
+  const scrollEth = { contract: "0x5300000000000000000000000000000000000004", chain: "scrl", source: "manual_qty", coingecko_id: null, usd_override: null };
+  const btcNative = { contract: null, chain: "bitcoin", source: "auto", coingecko_id: null, usd_override: null };
+  const info = tickerInfoFor("BTC", [scrollEth, btcNative]);
+  assert.equal(info?.contract, null);
+  assert.equal(info?.chain, "bitcoin");
 });
