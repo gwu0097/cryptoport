@@ -73,6 +73,7 @@ export default async function WalletDetailPage(
 
   const { wallet, holdings, chainGroups, total, unpricedCount } = detail;
   const addHoldingForWallet = addHolding.bind(null, wallet.id);
+  const unrecognizedSpam = unrecognized.filter((t) => t.spam).length;
   const tagNames = tags.map((t) => t.name);
   // Only a plain/ambiguous-format xpub scan needs "which address format is
   // this" figured out (and cached) at all — a single address or an
@@ -260,6 +261,7 @@ export default async function WalletDetailPage(
           <p className="mt-2 text-sm text-fg-muted">
             <a href="#unrecognized" className="hover:text-fg hover:underline">
               {unrecognized.length} unrecognized token{unrecognized.length === 1 ? "" : "s"} not included
+              {unrecognizedSpam > 0 && ` (${unrecognizedSpam === unrecognized.length ? "all" : unrecognizedSpam} look like spam)`}
             </a>
           </p>
         )}
