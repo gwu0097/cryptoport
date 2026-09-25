@@ -52,8 +52,15 @@ const REGISTRY_CHAIN: Record<string, string> = { "solana-defi": "solana" };
 // table (priceKey.ts only knows real chains).
 export const VENUE_NATIVE: Record<string, { symbol: string; id: string }> = { hyperliquid: { symbol: "HYPE", id: "hyperliquid" } };
 
+// A chain's second protocol coin, beside its native one (NEO's fee token).
+// Safe by ticker only because the chain's adapter emits it solely for the
+// canonical contract (adapters/neo.ts drops spoofed "GAS" tokens).
+const PROTOCOL_COINS: Record<string, Record<string, string>> = { neo: { GAS: "gas" } };
+
 function nativeKey(h: KeyInput): string | null {
   if (!h.chain) return null;
+  const protocolCoin = PROTOCOL_COINS[h.chain]?.[h.ticker.toUpperCase()];
+  if (protocolCoin) return protocolCoin;
   const venue = VENUE_NATIVE[h.chain];
   if (venue) return h.ticker.toUpperCase() === venue.symbol ? venue.id : null;
   const chain = REGISTRY_CHAIN[h.chain] ?? h.chain;

@@ -125,3 +125,10 @@ test("Kraken staking codes resolve to the coin they stake", () => {
   assert.equal(k("ATOM21.S"), "wrong"); // an explicit mapping for the code itself wins
   assert.equal(k("ZZZ.S"), null);
 });
+
+test("NEO's GAS is priced as its own coin, not NEO", () => {
+  const maps: KeyMaps = { registry: new Map(), overrides: new Map(), venues: new Map() };
+  const k = (ticker: string) => resolvePriceKey({ ticker, chain: "neo", contract: null, source: "auto" }, maps);
+  assert.equal(k("GAS"), "gas");
+  assert.equal(k("NEO"), "neo");
+});
