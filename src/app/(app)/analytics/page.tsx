@@ -2,7 +2,6 @@ import { RefreshCw } from "lucide-react";
 import { getUser } from "@/lib/auth";
 import { getActiveWalletsWithHoldings, getValueHistory, getPriceMap, type WalletWithHoldings } from "@/lib/queries";
 import { getPriceHistoryMap } from "@/lib/priceHistory";
-import { resolveCoingeckoKey } from "@/lib/priceKey";
 import { estimateSeries, estimateCoverage, stitchSeries, type PriceHistoryMap } from "@/lib/analytics";
 import { valueHolding, type PriceMap } from "@/lib/valuation";
 import type { Holding } from "@/lib/types";
@@ -92,12 +91,11 @@ export default async function AnalyticsPage({
   const perWalletReal = await Promise.all(wallets.map((w) => getValueHistory(w.id)));
 
   const allHoldings = wallets.flatMap((w) => w.holdings);
-  const keys = [...new Set(allHoldings.map(resolveCoingeckoKey).filter((k): k is string => k !== null))];
-  const priceHistory = await getPriceHistoryMap(keys);
+  const priceHistory = await getPriceHistoryMap(allHoldings);
 
-  // The estimate's date axis is exactly what price_history actually has
-  // cached — never a guessed/generated range — so a missing day shows up
-  // as missing, not silently filled in.
+  // The estimate's date axis is exactly the days that have a stored price
+  // (backfilled history or daily closes) — never a guessed/generated range
+  // — so a missing day shows up as missing, not silently filled in.
   const dates = [...new Set([...priceHistory.values()].flatMap((byDate) => [...byDate.keys()]))].sort();
 
   const options: WalletSeriesOption[] = [

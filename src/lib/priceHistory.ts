@@ -1,8 +1,9 @@
 import "server-only";
 import { serviceDb, userDb } from "./supabase";
 import { fetchDailyHistory } from "./adapters/coingecko";
-import { resolveCoingeckoKey, type PriceKeyInput } from "./priceKey";
-import type { PriceHistoryMap } from "./analytics";
+import { resolveCoingeckoKey } from "./priceKey";
+import { buildHistoryMap, isBackfillableKey, type PriceHistoryMap } from "./analytics";
+import type { Holding } from "./types";
 
 // Live-verified this session: CoinGecko's free/keyless tier throttles a
 // burst of market_chart calls almost immediately (5 rapid calls, then 429
@@ -46,9 +47,11 @@ function sleep(ms: number): Promise<void> {
  * "uncached" and genuinely retried on the next click.
  */
 export async function backfillPriceHistory(
-  holdings: PriceKeyInput[],
+  holdings: Pick<Holding, "price_key">[],
 ): Promise<{ keysFetched: number; keysFailed: number; keysRemaining: number }> {
-  const keys = [...new Set(holdings.map(resolveCoingeckoKey).filter((k): k is string => k !== null))];
+  // Stored under each asset's price_key; only CoinGecko coins have a
+  // history to fetch (jup:/hl:/coinbase: build theirs from daily closes).
+  const keys = [...new Set(holdings.map((h) => h.price_key).filter((k): k is string => !!k && isBackfillableKey(k)))];
   if (keys.length === 0) return { keysFetched: 0, keysFailed: 0, keysRemaining: 0 };
 
   const db = serviceDb();
@@ -88,23 +91,59 @@ export async function backfillPriceHistory(
   return { keysFetched, keysFailed, keysRemaining: uncached.length - processed };
 }
 
-/** Reads cached history for a set of keys — one query (one row per key,
- * see schema.sql's comment on why this isn't one row per day), shaped for
- * analytics.ts's estimateSeries. Through userDb(): price_history's RLS
- * grants select to any authenticated user (it's shared market data, not
- * per-user), same access level as every other read-only lookup table this
- * app has (token_registry, chain_icons). */
-export async function getPriceHistoryMap(keys: string[]): Promise<PriceHistoryMap> {
-  const map: PriceHistoryMap = new Map();
-  if (keys.length === 0) return map;
+type HistoryHolding = Pick<Holding, "ticker" | "source" | "contract" | "chain" | "coingecko_id" | "price_key">;
+
+/** Each held asset's daily prices, keyed by price_key, from three layers
+ * (later ones win for a day both have):
+ *  1. price_history under the holding's pre-price_key history key
+ *     (`platform:contract` or a native coin id) — the 365-day backfills
+ *     made before history moved to price_key, read in place;
+ *  2. price_history under the price_key itself (backfills since);
+ *  3. asset_price_daily — the daily snapshot's close of asset_prices, the
+ *     only history for jup:/hl:/coinbase: assets.
+ * A key with no layer at all is absent (never fetched); a price_history
+ * row with an empty series and no closes is an empty Map (CoinGecko
+ * confirmed it has none) — analytics.ts's estimateCoverage tells them
+ * apart. Through userDb(): both tables are readable by any signed-in
+ * user (shared market data). */
+export async function getPriceHistoryMap(holdings: HistoryHolding[]): Promise<PriceHistoryMap> {
+  const legacyOf = new Map<string, Set<string>>();
+  for (const h of holdings) {
+    if (!h.price_key) continue;
+    const set = legacyOf.get(h.price_key) ?? new Set<string>();
+    const legacy = resolveCoingeckoKey({ ticker: h.ticker, source: h.source, contract: h.contract, chain: h.chain, coingeckoId: h.coingecko_id });
+    if (legacy && legacy !== h.price_key) set.add(legacy);
+    legacyOf.set(h.price_key, set);
+  }
+  const keys = [...legacyOf.keys()];
+  if (keys.length === 0) return new Map();
 
   const db = await userDb();
-  const { data, error } = await db.from("price_history").select("coingecko_key, series").in("coingecko_key", keys);
-  if (error) throw new Error(`Failed to load price history: ${error.message}`);
-
-  for (const row of data as { coingecko_key: string; series: Record<string, number> }[]) {
-    map.set(row.coingecko_key, new Map(Object.entries(row.series)));
+  const historyKeys = [...new Set([...keys, ...[...legacyOf.values()].flatMap((s) => [...s])])];
+  const series = new Map<string, Record<string, number>>();
+  for (let i = 0; i < historyKeys.length; i += 200) {
+    const { data, error } = await db.from("price_history").select("coingecko_key, series").in("coingecko_key", historyKeys.slice(i, i + 200));
+    if (error) throw new Error(`Failed to load price history: ${error.message}`);
+    for (const row of data as { coingecko_key: string; series: Record<string, number> }[]) series.set(row.coingecko_key, row.series);
+  }
+  const closes = new Map<string, [string, number][]>();
+  for (let i = 0; i < keys.length; i += 200) {
+    const batch = keys.slice(i, i + 200);
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db
+        .from("asset_price_daily")
+        .select("price_key, day, usd")
+        .in("price_key", batch)
+        .order("price_key")
+        .order("day")
+        .range(from, from + 999);
+      if (error) throw new Error(`Failed to load daily closes: ${error.message}`);
+      for (const r of data as { price_key: string; day: string; usd: number | string }[]) {
+        closes.set(r.price_key, [...(closes.get(r.price_key) ?? []), [r.day, Number(r.usd)]]);
+      }
+      if (data.length < 1000) break;
+    }
   }
 
-  return map;
+  return buildHistoryMap(legacyOf, series, closes);
 }

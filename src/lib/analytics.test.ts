@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { estimateSeries, estimateCoverage, stitchSeries } from "./analytics.ts";
+import { estimateSeries, estimateCoverage, stitchSeries, buildHistoryMap } from "./analytics.ts";
 
 function history(entries: Record<string, Record<string, number>>) {
   return new Map(Object.entries(entries).map(([key, byDate]) => [key, new Map(Object.entries(byDate))]));
 }
 
 test("estimateSeries multiplies today's qty by each day's historical price", () => {
-  const holdings = [{ ticker: "ETH", source: "auto" as const, contract: null, chain: "eth", qty: 2 }];
+  const holdings = [{ ticker: "ETH", price_key: "ethereum", qty: 2 }];
   const priceHistory = history({ ethereum: { "2026-01-01": 2000, "2026-01-02": 2100 } });
   const result = estimateSeries(holdings, priceHistory, ["2026-01-01", "2026-01-02"]);
   assert.deepEqual(result, [
@@ -17,7 +17,7 @@ test("estimateSeries multiplies today's qty by each day's historical price", () 
 });
 
 test("estimateSeries contributes nothing for a holding missing a price on a given day", () => {
-  const holdings = [{ ticker: "ETH", source: "auto" as const, contract: null, chain: "eth", qty: 2 }];
+  const holdings = [{ ticker: "ETH", price_key: "ethereum", qty: 2 }];
   const priceHistory = history({ ethereum: { "2026-01-01": 2000 } });
   const result = estimateSeries(holdings, priceHistory, ["2026-01-01", "2026-01-02"]);
   assert.deepEqual(result, [
@@ -27,14 +27,14 @@ test("estimateSeries contributes nothing for a holding missing a price on a give
 });
 
 test("estimateSeries excludes an unresolvable holding entirely, not as a zero", () => {
-  const holdings = [{ ticker: "NOTE", source: "manual_usd" as const, contract: null, chain: null, qty: null }];
+  const holdings = [{ ticker: "NOTE", price_key: null, qty: null }];
   const result = estimateSeries(holdings, history({}), ["2026-01-01"]);
   assert.deepEqual(result, [{ date: "2026-01-01", total: 0 }]);
 });
 
 test("estimateCoverage: fully covered holdings (key resolves AND has cached data) report 100%", () => {
   const result = estimateCoverage(
-    [{ ticker: "ETH", source: "auto", contract: null, chain: "eth", qty: 2, currentUsd: 4000 }],
+    [{ ticker: "ETH", price_key: "ethereum", qty: 2, currentUsd: 4000 }],
     history({ ethereum: { "2026-01-01": 2000 } }),
   );
   assert.equal(result.pct, 100);
@@ -47,7 +47,7 @@ test("estimateCoverage: fully covered holdings (key resolves AND has cached data
 
 test("estimateCoverage: a holding with no resolvable key is unresolved, not uncached", () => {
   const result = estimateCoverage(
-    [{ ticker: "NOTE", source: "manual_usd", contract: null, chain: null, qty: null, currentUsd: 500 }],
+    [{ ticker: "NOTE", price_key: null, qty: null, currentUsd: 500 }],
     history({}),
   );
   assert.equal(result.pct, 0);
@@ -62,7 +62,7 @@ test("estimateCoverage: a key that has never been fetched (no row at all) is unc
   // priceHistory.get(key) is undefined — no row in price_history yet.
   // Clicking "Backfill history" again can fetch this one.
   const result = estimateCoverage(
-    [{ ticker: "ETH", source: "auto", contract: null, chain: "eth", qty: 2, currentUsd: 4000 }],
+    [{ ticker: "ETH", price_key: "ethereum", qty: 2, currentUsd: 4000 }],
     history({}),
   );
   assert.equal(result.pct, 0);
@@ -78,7 +78,7 @@ test("estimateCoverage: a key with a cached but empty series is unresolved, not 
   // entirely (it already has a row), so it must NOT be reported as
   // something another click can fix.
   const result = estimateCoverage(
-    [{ ticker: "ETH", source: "auto", contract: null, chain: "eth", qty: 2, currentUsd: 4000 }],
+    [{ ticker: "ETH", price_key: "ethereum", qty: 2, currentUsd: 4000 }],
     history({ ethereum: {} }),
   );
   assert.equal(result.pct, 0);
@@ -147,4 +147,34 @@ test("stitchSeries: an estimated point after the first real date is dropped, not
 test("stitchSeries: an empty real series leaves everything estimated", () => {
   const result = stitchSeries([{ date: "2026-01-01", total: 1 }], []);
   assert.deepEqual(result, [{ date: "2026-01-01", total: 1, kind: "estimated" }]);
+});
+
+test("estimateCoverage: a non-CoinGecko asset with no daily closes yet is unresolved (backfill can't help)", () => {
+  const result = estimateCoverage([{ ticker: "WIF", price_key: "jup:mint", qty: 10, currentUsd: 30 }], history({}));
+  assert.equal(result.uncachedUsd, 0);
+  assert.equal(result.unresolvedUsd, 30);
+});
+
+test("buildHistoryMap: old-key history, then the key's own, then daily closes (later wins); no layer = absent", () => {
+  const map = buildHistoryMap(
+    new Map([
+      ["morpho", new Set(["ethereum:0xmorpho"])],
+      ["jup:mint", new Set<string>()],
+      ["never", new Set<string>()],
+      ["empty", new Set<string>()],
+    ]),
+    new Map<string, Record<string, number>>([
+      ["ethereum:0xmorpho", { "2026-01-01": 1, "2026-01-02": 2 }],
+      ["morpho", { "2026-01-02": 2.5 }],
+      ["empty", {}],
+    ]),
+    new Map([
+      ["morpho", [["2026-01-03", 3]] as [string, number][]],
+      ["jup:mint", [["2026-01-03", 0.5]] as [string, number][]],
+    ]),
+  );
+  assert.deepEqual([...map.get("morpho")!], [["2026-01-01", 1], ["2026-01-02", 2.5], ["2026-01-03", 3]]);
+  assert.deepEqual([...map.get("jup:mint")!], [["2026-01-03", 0.5]]);
+  assert.equal(map.has("never"), false);
+  assert.equal(map.get("empty")!.size, 0); // CoinGecko confirmed none: present but empty
 });

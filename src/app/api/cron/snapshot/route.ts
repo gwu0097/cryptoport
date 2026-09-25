@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { capturePortfolioSnapshots } from "@/lib/snapshots";
-import { refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
+import { recordDailyCloses, refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
 
 // Iterates every user with at least one active wallet in a single pass —
 // cheap per user (no per-user network calls, just in-memory aggregate()
@@ -29,5 +29,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // history. Only when the newest price is older than 6h (~2 calls/day).
   const prices = await refreshAssetPricesIfOlderThan(6 * 60 * 60 * 1000, "snapshot").catch((e: Error) => `error: ${e.message}`);
   const result = await capturePortfolioSnapshots();
-  return Response.json({ ...result, prices });
+  // Each asset's close for the day: Analytics' price history (priceHistory.ts).
+  const closes = await recordDailyCloses().catch((e: Error) => `error: ${e.message}`);
+  return Response.json({ ...result, prices, closes });
 }

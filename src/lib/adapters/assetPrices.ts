@@ -210,3 +210,31 @@ export async function readAssetPrices(keys: string[]): Promise<Map<string, numbe
   }
   return out;
 }
+
+/** Today's (UTC) close for every asset priced in the last 24 hours, into
+ * asset_price_daily — the daily snapshot's record of prices, which is the
+ * price history Analytics reads (priceHistory.ts). An asset whose price is
+ * older than a day gets no close for today rather than a stale one. */
+export async function recordDailyCloses(): Promise<string> {
+  const db = serviceDb();
+  const day = new Date().toISOString().slice(0, 10);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const rows: { price_key: string; day: string; usd: number }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("asset_prices")
+      .select("price_key, usd")
+      .not("usd", "is", null)
+      .gte("updated_at", since)
+      .order("price_key")
+      .range(from, from + 999);
+    if (error) throw new Error(`Failed to read asset prices: ${error.message}`);
+    for (const r of data as { price_key: string; usd: number | string }[]) rows.push({ price_key: r.price_key, day, usd: Number(r.usd) });
+    if (data.length < 1000) break;
+  }
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await db.from("asset_price_daily").upsert(rows.slice(i, i + 500), { onConflict: "price_key,day" });
+    if (error) throw new Error(`Failed to save daily closes: ${error.message}`);
+  }
+  return `${rows.length} closes for ${day}`;
+}

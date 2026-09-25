@@ -2044,3 +2044,18 @@ begin
   where id = p_wallet_id;
 end;
 $$;
+
+-- Pricing phase 3c (2026-09-25): each asset's daily close, written by the
+-- daily snapshot from asset_prices (recordDailyCloses). Analytics' price
+-- history for every asset, and the only one for jup:/hl:/coinbase: keys.
+create table if not exists cryptoport.asset_price_daily (
+  price_key text not null,
+  day       date not null,
+  usd       numeric not null,
+  primary key (price_key, day)
+);
+alter table cryptoport.asset_price_daily enable row level security;
+grant all on cryptoport.asset_price_daily to service_role;
+grant select on cryptoport.asset_price_daily to authenticated;
+create policy "asset_price_daily: readable by all signed-in users"
+  on cryptoport.asset_price_daily for select to authenticated using (true);

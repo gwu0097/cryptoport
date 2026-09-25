@@ -1,18 +1,45 @@
 // Pure logic, no DB, no network — builds the Analytics performance series
 // from already-fetched inputs (current holdings, a cached price-history
-// map, and the real snapshot rows). See priceKey.ts for how a holding maps
-// to the keys used here, and priceHistory.ts for where the price map and
-// snapshot rows come from.
+// map, and the real snapshot rows). History is keyed by each holding's
+// price_key, the same one asset it's valued as today; priceHistory.ts
+// builds the map and says where each series comes from.
 
 import { parseNumeric, type PostgrestNumeric } from "./valuation.ts";
-import { resolveCoingeckoKey, type PriceKeyInput } from "./priceKey.ts";
 
-export interface EstimateHoldingInput extends PriceKeyInput {
+export interface EstimateHoldingInput {
+  ticker: string;
   qty: PostgrestNumeric;
+  price_key: string | null;
 }
 
-/** date (YYYY-MM-DD) -> usd, per coingecko key — see priceHistory.ts's getPriceHistoryMap. */
+/** Only a CoinGecko coin (a key with no namespace) has fetchable history;
+ * jup:/hl:/coinbase: coins build theirs from daily closes only. */
+export const isBackfillableKey = (key: string) => !key.includes(":");
+
+/** date (YYYY-MM-DD) -> usd, per price_key — see priceHistory.ts's getPriceHistoryMap. */
 export type PriceHistoryMap = Map<string, Map<string, number>>;
+
+/** Merges an asset's stored price layers into one date -> usd map per
+ * price_key (later layers win for a day both have): its pre-price_key
+ * history rows (`legacyOf`), its own history row, then its daily closes. A
+ * key with no layer at all is left out (never fetched). */
+export function buildHistoryMap(
+  legacyOf: ReadonlyMap<string, ReadonlySet<string>>,
+  series: ReadonlyMap<string, Record<string, number>>,
+  closes: ReadonlyMap<string, [string, number][]>,
+): PriceHistoryMap {
+  const map: PriceHistoryMap = new Map();
+  for (const [key, legacy] of legacyOf) {
+    const layers = [...[...legacy].map((k) => series.get(k)), series.get(key)].filter((l): l is Record<string, number> => !!l);
+    const daily = closes.get(key) ?? [];
+    if (layers.length === 0 && daily.length === 0) continue;
+    const byDate = new Map<string, number>();
+    for (const layer of layers) for (const [date, usd] of Object.entries(layer)) byDate.set(date, usd);
+    for (const [date, usd] of daily) byDate.set(date, usd);
+    map.set(key, byDate);
+  }
+  return map;
+}
 
 export interface SeriesPoint {
   date: string;
@@ -32,7 +59,7 @@ export function estimateSeries(
   dates: string[],
 ): SeriesPoint[] {
   const priced = holdings
-    .map((h) => ({ qty: parseNumeric(h.qty), key: resolveCoingeckoKey(h) }))
+    .map((h) => ({ qty: parseNumeric(h.qty), key: h.price_key }))
     .filter((h): h is { qty: number; key: string } => h.qty !== null && h.key !== null);
 
   return dates.map((date) => {
@@ -49,12 +76,11 @@ export interface CoverageResult {
   coveredUsd: number;
   totalUsd: number;
   pct: number;
-  /** No resolvable CoinGecko key at all (a manual dollar-figure holding, a
-   * DeFi/LP position with no per-unit market price, a token/chain
-   * combination this app has no mapping for) OR a key that resolved but
-   * CoinGecko has confirmed has no data (a cached row with an empty
-   * series — see priceHistory.ts's 404 handling). Either way, permanent:
-   * backfilling again can never help these. */
+  /** No asset at all (a manual dollar-figure holding, a DeFi/LP position
+   * with no per-unit market price, an unmapped token), an asset CoinGecko
+   * has confirmed has no history (a cached row with an empty series — see
+   * priceHistory.ts's 404 handling), or a non-CoinGecko asset (jup:, hl:,
+   * coinbase:) with no daily closes yet. Backfilling can't help these. */
   unresolvedUsd: number;
   unresolvedTickers: string[];
   /** A key resolves and has genuinely never been fetched (no row in
@@ -90,10 +116,10 @@ export function estimateCoverage(
 
   for (const holding of holdings) {
     totalUsd += holding.currentUsd;
-    const key = resolveCoingeckoKey(holding);
+    const key = holding.price_key;
     const cached = key === null ? undefined : priceHistory.get(key);
 
-    if (cached === undefined && key !== null) {
+    if (cached === undefined && key !== null && isBackfillableKey(key)) {
       uncachedUsd += holding.currentUsd;
       uncached.add(holding.ticker);
     } else if (cached !== undefined && cached.size > 0) {
