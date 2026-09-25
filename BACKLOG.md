@@ -87,6 +87,13 @@ Decisions (2026-09-22) — these supersede the spec where they differ:
 
 Phases: (1) signal engine + chart + watchlist state, read-only, validated against the user's TradingView chart; (2) paper trading; (3) live execution on Hyperliquid via an API (agent) wallet — trade-only, no withdrawal — with per-token size caps, a total-exposure cap, a daily loss stop, a kill switch, one-order-per-signal idempotency, an audit log and notifications.
 
+### Pricing: backup price source for tokens CoinGecko doesn't list — ON HOLD (2026-09-25, owner: "keep it as a backup option, don't use it for now")
+- **The gap**: tokens with a contract but no CoinGecko coin show "—": unlisted EVM tokens from Zerion DeFi rows and Sui tokens. Plus Osmosis-only tokens (BADKID, WOSMO, SAIL) and some Stride liquid-staking tokens (stDYM, stSAGA, stBAND, stISLM). Tracked live on `/admin/pricing` (the coverage report). Most of today's rows are dust or spam; the case for this is other users' long tail.
+- **Backup option (not built): GeckoTerminal** `/networks/{net}/tokens/multi/{addrs}` is free, keyless and separate from the CoinGecko quota (30 calls/min, up to 30 tokens per call). It returns `price_usd` plus `total_reserve_in_usd` (pool liquidity). Plan: key such tokens `dex:<network>:<address>`, add a lane in `refreshAssetPrices`, and **accept a price only with ≥ $10k pool liquidity** (the spam rule: a tiny pool can be set to any price, which is how fake-value airdrops work). Below that, show "—", and the coverage report labels it "No liquid market". Live-checked 2026-09-25: ORBIT (Blast) returned $0.00056 with a $13k pool; HBD (Sui) returned no price with a $5 pool; the Sui "…REWARD" spam wasn't returned at all. Nothing in `src` uses GeckoTerminal yet, so it would be a new external service: confirm scope first.
+- **Checked and ruled out: DefiLlama** `coins.llama.fi/prices/current`. It priced none of the long-tail Sui, Blast or Solana tokens, only coins CoinGecko already has.
+- **Osmosis-only tokens**: `sqs.osmosis.zone/tokens/prices?base=<denom>` prices them in USDC, but returns no liquidity, so it needs a different spam check.
+- **Stride stTokens**: the correct value is Stride's redemption rate × the underlying coin's price (protocol math), not a market lookup.
+
 ### Transactions — chain coverage gaps
 **Raised**: general use, 2026-09-15 through 2026-09-16.
 **Status**: partially resolved (ADA, INJ built); ATOM and NEAR still open; 10 non-EVM chains never researched. Full detail: `project_transactions_chain_backlog.md`.
