@@ -141,8 +141,14 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
     if (image) chainIconRows.push({ chain_id: chainId, image_url: image });
   }
 
-  if (chainIconRows.length > 0) {
-    const { error } = await serviceDb().from("chain_icons").upsert(chainIconRows, { onConflict: "chain_id" });
+  // One row per chain: a chain can be both a CoinGecko platform and a
+  // native-icon chain (Sui, since 2026-09-25), and one upsert can't touch the
+  // same row twice ("ON CONFLICT DO UPDATE command cannot affect row a second
+  // time"). The native coin's icon (pushed last) wins.
+  const iconByChain = new Map(chainIconRows.map((r) => [r.chain_id, r]));
+  const uniqueIconRows = [...iconByChain.values()];
+  if (uniqueIconRows.length > 0) {
+    const { error } = await serviceDb().from("chain_icons").upsert(uniqueIconRows, { onConflict: "chain_id" });
     if (error) throw new Error(`Failed to upsert chain_icons: ${error.message}`);
   }
 
