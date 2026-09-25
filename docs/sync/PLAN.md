@@ -170,7 +170,13 @@ wallets at once — 429s), and Alchemy CU from the dashboard.
    increases from newly found tokens, each named; `wallet-vs-zerion.ts` gaps
    shrink; the D5 log confirms speed and budget.
 4. **Unrecognized tokens UI** + coverage-report entries (value on chains we
-   don't scan; unrecognized counts).
+   don't scan; unrecognized counts). **Done 2026-09-25**: wallet page caption +
+   collapsed list (spam behind a toggle, `tokenSpam.ts`), `/admin/pricing`
+   summary and most-held non-spam candidates. Not done: "value on chains we
+   don't scan" (needs a per-chain source such as Zerion's portfolio call —
+   an extra call per wallet, decide separately), and letting a user pick the
+   coin for an unrecognized token (classification would have to consult
+   `asset_contracts` overrides — its own small change).
 5. **Etherscan / Blockscout discovery** for the chains where phase 1/3 show real
    misses (Taiko first: aTkoWETH). Etherscan needs `startblock` windowing past
    10k records and the stored cursor.

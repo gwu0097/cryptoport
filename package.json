@@ -29,6 +29,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
+    "tlds": "^1.261.0",
     "viem": "^2.56.3"
   },
   "devDependencies": {

@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { Trash, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
+import { getWalletUnrecognizedTokens } from "@/lib/unrecognizedTokensQuery";
+import { UnrecognizedTokensPanel } from "@/components/wallets/UnrecognizedTokensPanel";
 import { isExtendedPublicKey, pinnedWalletChain, externalPortfolioViewer } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
@@ -58,10 +60,11 @@ export default async function WalletDetailPage(
   // throwing — this is the UX decision, those are the safety net.
   if (!(await getUser())) redirect("/login");
 
-  const [detail, tags, priceState] = await Promise.all([
+  const [detail, tags, priceState, unrecognized] = await Promise.all([
     getWalletDetail(id),
     getTags(),
     getPriceRefreshState(),
+    getWalletUnrecognizedTokens(id),
   ]);
   // A signed-in user hitting a wallet RLS hides (someone else's) still 404s
   // — doesn't leak whether the id exists, unchanged from before this page
@@ -253,6 +256,13 @@ export default async function WalletDetailPage(
             total
           </p>
         )}
+        {unrecognized.length > 0 && (
+          <p className="mt-2 text-sm text-fg-muted">
+            <a href="#unrecognized" className="hover:text-fg hover:underline">
+              {unrecognized.length} unrecognized token{unrecognized.length === 1 ? "" : "s"} not included
+            </a>
+          </p>
+        )}
         {wallet.last_refresh_status?.startsWith("error:") && (
           <p className="mt-2 text-sm text-negative">Last sync failed: {wallet.last_refresh_status}</p>
         )}
@@ -274,7 +284,9 @@ export default async function WalletDetailPage(
             actions={<AddHoldingModal addHolding={addHoldingForWallet} />}
           />
         </div>
-      ) : (
+      ) : null}
+      {wallet.mode === "auto" && unrecognized.length > 0 ? <UnrecognizedTokensPanel tokens={unrecognized} /> : null}
+      {wallet.mode === "auto" ? null : (
         <>
         <div className="mb-4">
           <AddHoldingModal addHolding={addHoldingForWallet} defaultTicker={wallet.chain} />

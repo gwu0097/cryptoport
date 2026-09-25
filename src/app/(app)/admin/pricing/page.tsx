@@ -4,6 +4,9 @@ import { GAP_LABEL, type GapCause } from "@/lib/pricingCoverage";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { PricingGapsTable } from "@/components/admin/PricingGapsTable";
+import { getUnrecognizedCoverage } from "@/lib/unrecognizedTokensQuery";
+import { SPAM_LABEL, type SpamSign } from "@/lib/unrecognizedTokens";
+import { UnrecognizedCandidatesTable } from "@/components/admin/UnrecognizedCandidatesTable";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Pricing coverage · Admin · CryptoPort" };
@@ -14,11 +17,14 @@ export const metadata = { title: "Pricing coverage · Admin · CryptoPort" };
  * anyone reporting them, and each fix to the matching rules is measured by
  * this count going down. Positions (LP, perps) and dollar-only rows are
  * valued without a coin and aren't counted. Assets a sync never fetches (a
- * DeFi protocol with no adapter) can't appear here.
+ * DeFi protocol with no adapter) can't appear here. Below it: tokens EVM
+ * discovery found that aren't counted at all (wallet_discovered_tokens —
+ * no CoinGecko listing or no price), with the ones that don't look like
+ * spam listed as candidates to look into.
  */
 export default async function PricingCoveragePage() {
   await requireAdmin();
-  const report = await getPricingCoverage();
+  const [report, unrecognized] = await Promise.all([getPricingCoverage(), getUnrecognizedCoverage()]);
   const pct = report.coinHoldings ? ((report.coinHoldings - report.unpriced) / report.coinHoldings) * 100 : 100;
   const causes = (Object.entries(report.byCause) as [GapCause, number][]).sort((a, b) => b[1] - a[1]);
 
@@ -48,6 +54,38 @@ export default async function PricingCoveragePage() {
                 </li>
               ))}
             </ul>
+          )}
+        </Panel>
+
+        <Panel
+          title="Unrecognized tokens"
+          description="Held by EVM wallets but not counted: no CoinGecko listing, or no price. Found by balance discovery; never in totals."
+        >
+          <p className="text-sm">
+            <span className="text-2xl font-semibold tabular-nums">{unrecognized.tokens}</span>{" "}
+            <span className="text-fg-muted">
+              across {unrecognized.wallets} wallet(s) · {unrecognized.bySpam.none} don&apos;t look like spam
+            </span>
+          </p>
+          <ul className="mt-4 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            {(Object.keys(SPAM_LABEL) as SpamSign[]).map((sign) => (
+              <li key={sign} className="flex justify-between gap-4">
+                <span className="text-fg-muted">Spam: {SPAM_LABEL[sign].toLowerCase()}</span>
+                <span className="tabular-nums">{unrecognized.bySpam[sign]}</span>
+              </li>
+            ))}
+          </ul>
+          {unrecognized.byChain.length > 0 && (
+            <p className="mt-4 text-xs text-fg-muted">
+              By chain (not spam / total):{" "}
+              {unrecognized.byChain.map((c) => `${c.chainName} ${c.notSpam}/${c.tokens}`).join(" · ")}
+            </p>
+          )}
+          {unrecognized.candidates.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-sm text-fg-muted">Most-held tokens that don&apos;t look like spam (top 50):</p>
+              <UnrecognizedCandidatesTable rows={unrecognized.candidates} />
+            </div>
           )}
         </Panel>
 

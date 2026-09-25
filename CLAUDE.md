@@ -280,7 +280,13 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   valued as its underlying (§4.2); dust (≤ `TOKEN_USD_FLOOR`); or
   unrecognized (unlisted, or listed with no price). Unrecognized tokens go to
   `wallet_discovered_tokens`, never into totals and never written to
-  `token_registry`; a token unseen for 2 syncs of its chain is removed.
+  `token_registry`; a token unseen for 2 syncs of its chain is removed. The
+  wallet page lists them ("N unrecognized tokens not included", a collapsed
+  section; `unrecognizedTokensQuery.ts`), with likely spam behind a toggle
+  (`tokenSpam.ts`: a real web domain, a handle or a claim in the symbol, the
+  name of a listed coin on the same chain, or look-alike letters). Symbols
+  render as plain text, never links. `/admin/pricing` summarizes them across
+  users.
 - Each sync logs per-chain source, fallback, pages, time and counts to
   `sync_runs`. Check it before changing discovery.
 - A new chain whose Alchemy token API works gets `alchemyNetwork`; any other
