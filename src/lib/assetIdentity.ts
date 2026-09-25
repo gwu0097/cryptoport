@@ -38,10 +38,12 @@ export interface KeyMaps {
   venues: ReadonlyMap<string, string>;
 }
 
-/** EVM addresses are case-insensitive (lowercased); Solana mints, Sui types
- * and Cosmos denoms are case-sensitive (kept as-is). */
-export const contractKey = (chain: string, contract: string) =>
-  `${chain}|${/^0x[0-9a-f]+$/i.test(contract) ? contract.toLowerCase() : contract}`;
+/** Lowercased for every chain — token_registry's own convention (Solana
+ * mints included, see refreshTokenRegistry), so a lookup here always
+ * matches it. Keeping mints' case made 45 CoinGecko-listed Solana tokens
+ * (USDC, JUP, mSOL …) miss the registry and get a second key (jup:<mint>)
+ * for the same coin (2026-09-25). A `jup:` key itself keeps the real mint. */
+export const contractKey = (chain: string, contract: string) => `${chain}|${contract.toLowerCase()}`;
 export const venueKey = (venue: string, ticker: string) => `${venue}|${ticker.toUpperCase()}`;
 
 // Chains whose holdings are stored under a display-only chain id.

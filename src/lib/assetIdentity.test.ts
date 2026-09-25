@@ -98,3 +98,9 @@ test("NATIVE_BY_SYMBOL: one coin per symbol, no wrapped or ambiguous entries", (
 test("a venue maps its ticker even when the row carries a contract (Polymarket PUSD)", () => {
   assert.equal(resolvePriceKey(h({ ticker: "PUSD", chain: "polymarket", contract: "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB", protocol_section: "Deposit" }), maps), "polymarket-usd");
 });
+
+test("Solana mints match the registry case-insensitively (its keys are lowercase), and jup: keys keep the real mint", () => {
+  const reg: KeyMaps = { ...maps, registry: new Map([[contractKey("solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), "usd-coin"]]) };
+  assert.equal(resolvePriceKey(h({ ticker: "USDC", chain: "solana", contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }), reg), "usd-coin");
+  assert.equal(resolvePriceKey(h({ ticker: "X", chain: "solana", contract: "AbCdMint" }), reg), "jup:AbCdMint");
+});

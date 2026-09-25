@@ -9,6 +9,7 @@
 // real CoinGecko asset_platforms entry, keyed by that platform's own id.
 export const NON_EVM_PLATFORM_IDS: Record<string, string> = {
   solana: "solana",
+  sui: "sui",
   // "solana-defi" is a real, distinct chain_id value some Solana DeFi-
   // position holdings carry (see adapters/nonEvmDispatch.ts) — same
   // CoinGecko platform as plain "solana", just a different label this

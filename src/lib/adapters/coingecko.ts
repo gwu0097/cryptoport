@@ -99,13 +99,17 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
   // sensitive base58 form (Solana addresses ARE case-sensitive, unlike
   // EVM hex), only used to look itself back up via the exact same
   // lowercasing this table's read side already applies everywhere.
-  {
-    const solanaPlatform = NON_EVM_PLATFORM_IDS.solana;
+  // Solana and Sui: the same contract -> coin map for chains outside
+  // EVM_CHAINS (Sui added 2026-09-25 so Sui coin types get a CoinGecko id —
+  // docs/pricing/PLAN.md; a Sui "contract" is its coin type, e.g.
+  // 0x…::hasui::HASUI).
+  for (const chainId of ["solana", "sui"]) {
+    const platform = NON_EVM_PLATFORM_IDS[chainId];
     const rows = coins
-      .filter((c) => c.platforms?.[solanaPlatform])
+      .filter((c) => c.platforms?.[platform])
       .map((c) => ({
-        chain_id: "solana",
-        contract: c.platforms![solanaPlatform].toLowerCase(),
+        chain_id: chainId,
+        contract: c.platforms![platform].toLowerCase(),
         symbol: c.symbol.toUpperCase(),
         coingecko_id: c.id,
         updated_at: new Date().toISOString(),
@@ -114,7 +118,7 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
 
     await upsertTokenRegistry(rows);
 
-    results.push({ chainId: "solana", count: rows.length });
+    results.push({ chainId, count: rows.length });
   }
 
   const chainIconRows = [

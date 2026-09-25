@@ -29,8 +29,7 @@ export async function loadKeyMaps(rows: KeyInput[]): Promise<KeyMaps> {
     if (!r.chain || !r.contract) continue;
     const chain = REGISTRY_CHAIN[r.chain] ?? r.chain;
     const set = byChain.get(chain) ?? new Set<string>();
-    // token_registry stores EVM contracts lowercase; mints/types as-is.
-    set.add(/^0x[0-9a-f]+$/i.test(r.contract) ? r.contract.toLowerCase() : r.contract);
+    set.add(r.contract.toLowerCase()); // token_registry stores every contract lowercase
     byChain.set(chain, set);
   }
 
