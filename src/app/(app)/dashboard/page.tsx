@@ -83,7 +83,12 @@ export default async function DashboardPage({
   // the Holdings movers' own dust cutoff — direct ask: "also do it for
   // the watchlist tokens if i own them," not "if I own a dust-filtered
   // amount of them."
-  const tickerValueMap = new Map(groups.map((g) => [g.ticker.toUpperCase(), g.total]));
+  // Keyed by CoinGecko coin id, never ticker (docs/pricing/PLAN.md): asset
+  // rows are one per coin, and two rows can share a ticker — MORPHO's coin
+  // row (~$10K) and a Merkl rewards position ($4.54) did, and a ticker map
+  // kept the $4.54 (2026-09-25). Summed, in case one coin spans rows.
+  const coinValueMap = new Map<string, number>();
+  for (const g of groups) if (g.coingeckoId) coinValueMap.set(g.coingeckoId, (coinValueMap.get(g.coingeckoId) ?? 0) + g.total);
   const { gainers: holdingsGainers, losers: holdingsLosers } = topMovers(
     holdingsMoversEligible.map((g) => ({
       key: g.tickerKey,
@@ -113,7 +118,7 @@ export default async function DashboardPage({
       // undefined (not 0) when the user doesn't actually hold this ticker
       // — the normal case for most watchlist entries, matching
       // MoverItem.holdingValueUsd's own "undefined means not held" rule.
-      holdingValueUsd: tickerValueMap.get(w.ticker.toUpperCase()),
+      holdingValueUsd: coinValueMap.get(w.coingeckoId),
     })),
   );
 
