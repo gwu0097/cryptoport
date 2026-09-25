@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stakesToHoldings, mistToSui } from "./suiStakes.ts";
+import { stakesToHoldings, mistToSui, normalizeSuiCoinType, estimateStakeReward } from "./suiStakes.ts";
 
 const V = "0x4c27adaf06" + "0".repeat(54);
 
@@ -44,4 +44,21 @@ test("stakes are summed per validator; pending ones are labeled; unstaked ones a
 
 test("mistToSui is exact for large amounts", () => {
   assert.equal(mistToSui(BigInt("123456789012345678")), 123456789.012345678);
+});
+
+test("GraphQL's full-length system package types map back to the short form rows use", () => {
+  assert.equal(normalizeSuiCoinType("0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"), "0x2::sui::SUI");
+  const hasui = "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d::hasui::HASUI";
+  assert.equal(normalizeSuiCoinType(hasui), hasui);
+});
+
+test("stake reward from the pool's exchange rates: the real 300 SUI ZKV stake ≈ 19 SUI (JSON-RPC said 19.004)", () => {
+  const reward = estimateStakeReward(
+    BigInt(300_000_000_000),
+    { sui_amount: "30074028117182834", pool_token_amount: "30008874069696169" }, // epoch 260
+    { sui_balance: "22884148050390339", pool_token_balance: "21473484570836549" },
+  );
+  const sui = Number(reward) / 1e9;
+  assert.ok(sui > 18.9 && sui < 19.1, String(sui));
+  assert.equal(estimateStakeReward(BigInt(5), { sui_amount: "10", pool_token_amount: "10" }, { sui_balance: "9", pool_token_balance: "10" }), BigInt(0), "never negative");
 });

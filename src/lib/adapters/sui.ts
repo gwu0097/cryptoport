@@ -1,22 +1,18 @@
 import "server-only";
 import { protocolScope, type KeepScope } from "../carryForward";
-import { fetchWithRetry, mapWithConcurrency } from "./http";
+import { fetchWithRetry } from "./http";
 import { fetchTokenImages, fetchTokenPrices } from "./coingecko";
 import type { AdapterHolding } from "./types";
-import { stakesToHoldings, type SuiStakeGroup } from "../suiStakes";
+import { stakesToHoldings, normalizeSuiCoinType, estimateStakeReward, type SuiStakeGroup } from "../suiStakes";
 import { fetchNaviHoldings } from "./naviLending";
 
-// Sui JSON-RPC endpoints, tried in order until one answers — only ones
-// checked to return a wallet's COMPLETE balances and stakes. Mysten's own
-// public fullnodes dropped JSON-RPC ("deprecated ... migrate to gRPC or
-// GraphQL") and PublicNode answered "no available nodes found" / 503
-// (failed both Sui wallets' syncs, 2026-09-25). Suiet and BlockPI answer
-// but from stale indexes — 0 balances for a wallet BlockVision shows 15
-// tokens and a stake on — and an incomplete answer would be SAVED as the
-// wallet's holdings, so they must never be fallbacks: a failed request
-// fails the sync (previous holdings kept) instead. Longer term this
-// adapter moves to Sui's GraphQL API.
-const RPCS = ["https://sui-mainnet-endpoint.blockvision.org"];
+// Sui's GraphQL API (Mysten's public endpoint). Sui's public fullnodes
+// dropped JSON-RPC ("deprecated ... migrate to gRPC or GraphQL"), PublicNode
+// went down, and the third-party JSON-RPC endpoints that still answer
+// (Suiet, BlockPI) returned incomplete balances from stale indexes — which
+// would be saved as the wallet's holdings (2026-09-25). GraphQL returned the
+// complete set. A failed query fails the sync (previous holdings kept).
+const GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
 const NATIVE_COIN_TYPE = "0x2::sui::SUI";
 // CoinGecko's asset_platforms id for Sui — live-verified via
 // GET /asset_platforms (id: "sui", native_coin_id: "sui"), same convention
@@ -41,27 +37,70 @@ interface CoinMetadata {
   iconUrl: string | null;
 }
 
-async function rpc<T>(method: string, params: unknown[]): Promise<T> {
-  let lastError: Error | null = null;
-  for (const url of RPCS) {
-    try {
-      const res = await fetchWithRetry(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: "cryptoport", method, params }),
-      });
-      if (!res.ok) throw new Error(`Sui RPC (${method}) failed: HTTP ${res.status} from ${url}`);
-      const body: { result?: T; error?: { message: string } } = await res.json();
-      if (body.error) throw new Error(`Sui RPC (${method}) error from ${url}: ${body.error.message}`);
-      return body.result as T;
-    } catch (e) {
-      lastError = e as Error; // next endpoint
-    }
-  }
-  throw lastError ?? new Error(`Sui RPC (${method}) failed`);
+async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+  const res = await fetchWithRetry(GRAPHQL_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(`Sui GraphQL failed: HTTP ${res.status}`);
+  const body: { data?: T; errors?: { message: string }[] } = await res.json();
+  if (body.errors?.length) throw new Error(`Sui GraphQL error: ${body.errors[0].message}`);
+  if (!body.data) throw new Error("Sui GraphQL returned no data");
+  return body.data;
 }
 
-/** A real HTTPS URL, or null — suix_getCoinMetadata can return a
+interface Page<N> {
+  nodes: N[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+/** Every page of a connection (50 per page, GraphQL's max), capped. */
+async function allPages<N>(fetchPage: (after: string | null) => Promise<Page<N>>, maxPages = 20): Promise<N[]> {
+  const out: N[] = [];
+  let after: string | null = null;
+  for (let i = 0; i < maxPages; i++) {
+    const page: Page<N> = await fetchPage(after);
+    out.push(...page.nodes);
+    if (!page.pageInfo.hasNextPage) return out;
+    after = page.pageInfo.endCursor;
+  }
+  throw new Error("Sui GraphQL: too many pages");
+}
+
+export async function fetchBalances(address: string): Promise<CoinBalance[]> {
+  const nodes = await allPages(async (after) => {
+    const d = await gql<{ address: { balances: Page<{ coinType: { repr: string }; totalBalance: string }> } | null }>(
+      `query($a: SuiAddress!, $after: String) { address(address: $a) { balances(first: 50, after: $after) { nodes { coinType { repr } totalBalance } pageInfo { hasNextPage endCursor } } } }`,
+      { a: address, after },
+    );
+    return d.address?.balances ?? { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } };
+  });
+  return nodes.map((n) => ({ coinType: normalizeSuiCoinType(n.coinType.repr), totalBalance: n.totalBalance }));
+}
+
+// The public endpoint allows 21 "backing store" lookups per request, and a
+// coinMetadata with decimals/symbol/iconUrl costs about two (measured
+// 2026-09-25: 8 per query passes, 10 fails) — so batches of 8.
+const LOOKUPS_PER_QUERY = 8;
+
+/** Metadata for many coin types, LOOKUPS_PER_QUERY per query (one aliased
+ * field each). */
+export async function fetchCoinMetadata(coinTypes: string[]): Promise<Map<string, CoinMetadata | null>> {
+  const out = new Map<string, CoinMetadata | null>();
+  for (let i = 0; i < coinTypes.length; i += LOOKUPS_PER_QUERY) {
+    const batch = coinTypes.slice(i, i + LOOKUPS_PER_QUERY);
+    const vars = Object.fromEntries(batch.map((t, j) => [`t${j}`, t]));
+    const query = `query(${batch.map((_, j) => `$t${j}: String!`).join(", ")}) { ${batch
+      .map((_, j) => `m${j}: coinMetadata(coinType: $t${j}) { decimals symbol iconUrl }`)
+      .join(" ")} }`;
+    const d = await gql<Record<string, CoinMetadata | null>>(query, vars);
+    batch.forEach((t, j) => out.set(t, d[`m${j}`] ?? null));
+  }
+  return out;
+}
+
+/** A real HTTPS URL, or null — a coin's metadata can carry a
  * `data:image/...;base64,...` icon inline (seen live: one coin's metadata
  * carried a >100KB embedded JPEG this way) instead of a hosted URL. Storing
  * that verbatim would bloat this holding's row and every page that renders
@@ -75,11 +114,9 @@ function realIconUrl(iconUrl: string | null): string | null {
  * Every coin type the address holds a nonzero balance of — not just native
  * SUI. Reported directly, with real data: a wallet holding SUI, USDC, and a
  * meme token only showed SUI, because the original version of this adapter
- * only ever called suix_getBalance (a single, native-only balance check).
- * suix_getAllBalances enumerates every coin type Sui itself tracks for an
- * address; suix_getCoinMetadata resolves each type's symbol/decimals/icon
- * (live-verified: both endpoints work against the same PublicNode RPC
- * already in use, no new provider needed).
+ * only ever read the native SUI balance. The address's `balances`
+ * connection (Sui GraphQL) enumerates every coin type Sui tracks for it;
+ * `coinMetadata` resolves each type's symbol/decimals/icon.
  *
  * Non-native coins are priced the same way multicallEvm.ts prices EVM
  * tokens: a real per-*contract* CoinGecko lookup (fetchTokenPrices against
@@ -108,24 +145,15 @@ function realIconUrl(iconUrl: string | null): string | null {
  * third-party coin type is).
  */
 export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[]> {
-  const balances = await rpc<CoinBalance[]>("suix_getAllBalances", [address]);
+  const balances = await fetchBalances(address);
   const held = balances.filter((b) => BigInt(b.totalBalance) > BigInt(0));
   if (held.length === 0) return [];
 
-  const metadataByType = new Map<string, CoinMetadata | null>();
-  await mapWithConcurrency(held, 5, async (b) => {
-    try {
-      const meta = await rpc<CoinMetadata | null>("suix_getCoinMetadata", [b.coinType]);
-      metadataByType.set(b.coinType, meta);
-    } catch {
-      // One coin type's metadata failing to resolve (a malformed/rug'd
-      // token, a transient RPC hiccup) never drops the rest of the
-      // wallet's real, verified balances — same "one source's failure
-      // never discards another's correctly-fetched data" rule this app
-      // applies everywhere else.
-      metadataByType.set(b.coinType, null);
-    }
-  });
+  // A metadata query failing never drops the wallet's real, verified
+  // balances — same "one source's failure never discards another's
+  // correctly-fetched data" rule this app applies everywhere else; a coin
+  // with no metadata is skipped below (no decimals to scale by).
+  const metadataByType = await fetchCoinMetadata(held.map((b) => b.coinType)).catch(() => new Map<string, CoinMetadata | null>());
 
   const nonNativeTypes = held.filter((b) => b.coinType !== NATIVE_COIN_TYPE).map((b) => b.coinType);
   const contractPrices = await fetchTokenPrices(COINGECKO_PLATFORM, nonNativeTypes).catch(() => new Map());
@@ -171,10 +199,11 @@ export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[
 /**
  * A Sui wallet: every coin balance (fetchSuiHoldings), its Navi lending
  * positions (naviLending.ts — deposits live inside the protocol, not as
- * coins), plus its native staking — SUI delegated to validators via suix_getStakes, which never
- * shows up as a coin balance (reported 2026-09-24: a Ledger wallet's 300 SUI
- * staked with ZKV + ~19 SUI rewards, ~$320, was missing). Validator names
- * come from suix_getLatestSuiSystemState. A staking lookup that fails is a
+ * coins), plus its native staking — SUI delegated to validators (the
+ * wallet's StakedSui objects), which never shows up as a coin balance
+ * (reported 2026-09-24: a Ledger wallet's 300 SUI staked with ZKV + ~19 SUI
+ * rewards, ~$320, was missing). Validator names and rates come from the
+ * epoch's active validator set. A staking lookup that fails is a
  * warning, never a reason to drop the wallet's real coin balances.
  */
 export async function fetchSuiWallet(address: string): Promise<{ holdings: AdapterHolding[]; warnings: string[]; keep: KeepScope[] }> {
@@ -199,10 +228,91 @@ export async function fetchSuiWallet(address: string): Promise<{ holdings: Adapt
   };
 }
 
-async function fetchSuiStakeHoldings(address: string): Promise<AdapterHolding[]> {
-  const groups = await rpc<SuiStakeGroup[]>("suix_getStakes", [address]);
-  if (groups.length === 0) return [];
-  const system = await rpc<{ activeValidators: { suiAddress: string; name: string }[] }>("suix_getLatestSuiSystemState", []).catch(() => null);
-  const names = new Map((system?.activeValidators ?? []).map((v) => [v.suiAddress, v.name]));
-  return stakesToHoldings(groups, names, null);
+interface StakeObject {
+  pool_id: string;
+  stake_activation_epoch: string;
+  principal: string;
+}
+
+interface PoolInfo {
+  validatorAddress: string;
+  name: string;
+  sui_balance: string;
+  pool_token_balance: string;
+  exchangeRatesId: string;
+}
+
+/** Native stakes: the wallet's StakedSui objects, each valued with its
+ * validator pool's exchange rates (suiStakes.ts's estimateStakeReward) —
+ * GraphQL has no ready-made "estimated reward" the way suix_getStakes did.
+ * A stake whose rate can't be read keeps its principal, reward unknown. */
+export async function fetchSuiStakeHoldings(address: string): Promise<AdapterHolding[]> {
+  const stakes = await allPages(async (after) => {
+    const d = await gql<{ address: { objects: Page<{ contents: { json: StakeObject } }> } | null }>(
+      `query($a: SuiAddress!, $after: String) { address(address: $a) { objects(filter: { type: "0x3::staking_pool::StakedSui" }, first: 50, after: $after) { nodes { contents { json } } pageInfo { hasNextPage endCursor } } } }`,
+      { a: address, after },
+    );
+    return d.address?.objects ?? { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } };
+  });
+  if (stakes.length === 0) return [];
+
+  // The active validator set (~130, 50 per page): pool id -> validator.
+  let epoch = 0;
+  const validators = await allPages(async (after) => {
+    const d = await gql<{ epoch: { epochId: number; validatorSet: { activeValidators: Page<{ contents: { json: ValidatorJson } }> } } }>(
+      `query($after: String) { epoch { epochId validatorSet { activeValidators(first: 50, after: $after) { nodes { contents { json } } pageInfo { hasNextPage endCursor } } } } }`,
+      { after },
+    );
+    epoch = Number(d.epoch.epochId);
+    return d.epoch.validatorSet.activeValidators;
+  });
+  const pools = new Map<string, PoolInfo>(
+    validators.map(({ contents: { json: v } }) => [
+      v.staking_pool.id,
+      {
+        validatorAddress: v.metadata.sui_address,
+        name: v.metadata.name,
+        sui_balance: v.staking_pool.sui_balance,
+        pool_token_balance: v.staking_pool.pool_token_balance,
+        exchangeRatesId: v.staking_pool.exchange_rates.id,
+      },
+    ]),
+  );
+
+  // Each active stake's activation-epoch exchange rate, one aliased query.
+  const active = stakes.map((s) => s.contents.json).filter((s) => pools.has(s.pool_id) && Number(s.stake_activation_epoch) <= epoch);
+  const rates = new Map<number, { sui_amount: string; pool_token_amount: string } | null>();
+  for (let i = 0; i < active.length; i += LOOKUPS_PER_QUERY) {
+    const batch = active.slice(i, i + LOOKUPS_PER_QUERY);
+    const query = `query { ${batch
+      .map((s, j) => {
+        const key = Buffer.alloc(8);
+        key.writeBigUInt64LE(BigInt(s.stake_activation_epoch));
+        return `r${j}: address(address: "${pools.get(s.pool_id)!.exchangeRatesId}") { dynamicField(name: { type: "u64", bcs: "${key.toString("base64")}" }) { value { ... on MoveValue { json } } } }`;
+      })
+      .join(" ")} }`;
+    const d = await gql<Record<string, { dynamicField: { value: { json: { sui_amount: string; pool_token_amount: string } } } | null } | null>>(query).catch(() => null);
+    batch.forEach((_, j) => rates.set(i + j, d?.[`r${j}`]?.dynamicField?.value?.json ?? null));
+  }
+
+  const groups = new Map<string, SuiStakeGroup>();
+  const names = new Map<string, string>();
+  for (const { contents: { json: s } } of stakes) {
+    const pool = pools.get(s.pool_id);
+    const key = pool?.validatorAddress ?? s.pool_id; // a stake with a validator no longer active
+    if (pool) names.set(key, pool.name);
+    const pending = Number(s.stake_activation_epoch) > epoch;
+    const idx = active.indexOf(s);
+    const rate = idx >= 0 ? rates.get(idx) : null;
+    const reward = pool && rate ? estimateStakeReward(BigInt(s.principal), rate, pool) : null;
+    const g = groups.get(key) ?? { validatorAddress: key, stakes: [] };
+    g.stakes.push({ principal: s.principal, estimatedReward: reward === null ? undefined : reward.toString(), status: pending ? "Pending" : "Active" });
+    groups.set(key, g);
+  }
+  return stakesToHoldings([...groups.values()], names, null);
+}
+
+interface ValidatorJson {
+  metadata: { sui_address: string; name: string };
+  staking_pool: { id: string; sui_balance: string; pool_token_balance: string; exchange_rates: { id: string } };
 }
