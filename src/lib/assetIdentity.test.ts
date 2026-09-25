@@ -132,3 +132,13 @@ test("NEO's GAS is priced as its own coin, not NEO", () => {
   assert.equal(k("GAS"), "gas");
   assert.equal(k("NEO"), "neo");
 });
+
+test("Lighter rows: USDC collateral and spot coins by their coin; perps and pools are position values", () => {
+  const maps: KeyMaps = { registry: new Map(), overrides: new Map(), venues: new Map() };
+  const k = (ticker: string, protocol_section: string) => resolvePriceKey({ ticker, chain: "lighter", contract: null, source: "auto", protocol_section }, maps);
+  assert.equal(k("USDC", "Deposit"), "usd-coin");
+  assert.equal(k("ETH", "Deposit"), "ethereum");
+  assert.equal(k("LIT", "Deposit"), null); // unmapped: its stored index-price value is the fallback
+  assert.equal(k("ETH-PERP", "Perpetuals"), null);
+  assert.equal(k("LIGHTER-POOL", "Yield"), null);
+});

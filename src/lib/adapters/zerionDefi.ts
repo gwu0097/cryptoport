@@ -6,6 +6,7 @@ import { ZERION_PROTOCOL_NAMES as HYPERLIQUID_PROTOCOL_NAMES } from "./hyperliqu
 import { ZERION_PROTOCOL_NAMES as AXIE_PROTOCOL_NAMES } from "./axieStaking";
 import { ZERION_PROTOCOL_NAMES as SUPERVERSE_PROTOCOL_NAMES } from "./superverseStaking";
 import { ZERION_PROTOCOL_NAMES as POLYMARKET_PROTOCOL_NAMES } from "./polymarket";
+import { ZERION_PROTOCOL_NAMES as LIGHTER_PROTOCOL_NAMES } from "./lighter";
 import type { AdapterHolding } from "./types";
 
 const API_BASE = "https://api.zerion.io/v1";
@@ -42,6 +43,7 @@ const NATIVELY_COVERED_PROTOCOLS = new Set([
   ...AXIE_PROTOCOL_NAMES,
   ...SUPERVERSE_PROTOCOL_NAMES,
   ...POLYMARKET_PROTOCOL_NAMES,
+  ...LIGHTER_PROTOCOL_NAMES,
 ]);
 
 export interface ZerionDefiResult {

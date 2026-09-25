@@ -69,7 +69,8 @@ function nativeKey(h: KeyInput): string | null {
 }
 
 // Exchanges (their own balances, by ticker).
-const EXCHANGES = new Set(["coinbase", "kraken", "gemini", "mexc"]);
+// Lighter's account holds coins by ticker the same way (USDC collateral, spot).
+const EXCHANGES = new Set(["coinbase", "kraken", "gemini", "mexc", "lighter"]);
 
 /** A chain's native coin by its symbol (ETH -> ethereum, SOL -> solana,
  * AVAX -> avalanche-2 …), from the chain configs. On an exchange a ticker
@@ -107,7 +108,7 @@ export function krakenStakedBase(ticker: string): string {
 
 const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 // Venues priced by their own tickers (exchange balances; protocol accounts).
-export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket"]);
+export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket", "lighter"]);
 
 /** A stored position value, not a coin quantity: its worth comes from the
  * protocol (LP, perps, prediction shares, leveraged vault) and has no single
@@ -116,7 +117,7 @@ export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hy
 export function isPositionValue(h: KeyInput): boolean {
   const ticker = h.ticker.toUpperCase();
   if (ticker.endsWith("-PERP") || ticker.endsWith("-LP") || ticker.startsWith("KAMINO-")) return true;
-  if (h.chain === "hyperliquid" && (h.protocol_section === "Perpetuals" || h.protocol_section === "Yield")) return true;
+  if ((h.chain === "hyperliquid" || h.chain === "lighter") && (h.protocol_section === "Perpetuals" || h.protocol_section === "Yield")) return true;
   if (h.chain === "polymarket" && h.protocol_section !== "Deposit") return true; // prediction shares
   return false;
 }

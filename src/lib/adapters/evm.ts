@@ -5,6 +5,7 @@ import { fetchHyperliquidHoldings } from "./hyperliquid";
 import { fetchAxieStaking } from "./axieStaking";
 import { fetchPolymarketHoldings } from "./polymarket";
 import { fetchSuperverseStaking } from "./superverseStaking";
+import { fetchLighterHoldings } from "./lighter";
 import type { AdapterHolding } from "./types";
 import { chainScope, protocolScope, type KeepScope } from "../carryForward";
 
@@ -60,6 +61,7 @@ export async function fetchEvmHoldings(address: string): Promise<EvmHoldingsResu
     soft("axie staking", protocolScope("axie staking", "Axie Staking"), fetchAxieStaking(address as Address)),
     soft("polymarket", chainScope("polymarket", "polymarket"), fetchPolymarketHoldings(address)),
     soft("superverse staking", protocolScope("superverse staking", "SuperVerse Staking"), fetchSuperverseStaking(address as Address)),
+    soft("lighter", chainScope("lighter", "lighter"), fetchLighterHoldings(address)),
   ]);
 
   const holdings = [...chainsResult.holdings, ...hyperliquidResult.holdings, ...others.flatMap((o) => o.holdings)];
