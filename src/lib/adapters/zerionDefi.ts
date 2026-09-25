@@ -101,7 +101,15 @@ interface ZerionPosition {
     quantity?: { float?: number | null };
     protocol?: string | null;
     application_metadata?: { name?: string | null; icon?: { url?: string | null } | null; url?: string | null } | null;
-    fungible_info?: { symbol?: string | null; name?: string | null; icon?: { url?: string | null } | null } | null;
+    fungible_info?: {
+      symbol?: string | null;
+      name?: string | null;
+      icon?: { url?: string | null } | null;
+      /** The token's contract on each chain (address null = the chain's native coin). */
+      implementations?: { chain_id?: string | null; address?: string | null }[] | null;
+    } | null;
+    /** deposit | loan | locked | staked | reward | investment | wallet */
+    position_type?: string | null;
   };
   relationships?: { chain?: { data?: { id?: string | null } } };
 }
@@ -130,6 +138,18 @@ interface ZerionPosition {
  * (Kamino, Meteora, Hyperliquid, ...), and for the same reason: a position
  * has no single safe ticker-table lookup the way a plain balance does.
  */
+const SECTIONS: Record<string, string> = {
+  deposit: "Deposit",
+  loan: "Borrowed",
+  locked: "Locked",
+  staked: "Staked",
+  reward: "Rewards",
+  investment: "Investment",
+};
+function sectionFor(positionType: string | null | undefined): string | null {
+  return positionType ? (SECTIONS[positionType] ?? null) : null;
+}
+
 export async function fetchZerionDefiPositions(address: string): Promise<ZerionDefiResult> {
   const warnings: string[] = [];
   const [positionsRes, chainIdMap] = await Promise.all([
@@ -170,16 +190,27 @@ export async function fetchZerionDefiPositions(address: string): Promise<ZerionD
     const protocol = a?.application_metadata?.name ?? a?.protocol ?? "Unknown";
     if (NATIVELY_COVERED_PROTOCOLS.has(protocol.toLowerCase())) continue; // owned by a native adapter, see doc comment above
 
+    // Each Zerion position is one token amount inside a protocol (a
+    // deposit, a stake, rewards, a loan) — a coin quantity, priced by its
+    // coin like any balance (docs/pricing/PLAN.md), so its contract is kept
+    // (null = the chain's native coin). A loan is a debt: negative quantity
+    // and value, so it's subtracted, not counted as owned (it used to be
+    // stored positive, 2026-09-25).
+    const impl = a?.fungible_info?.implementations?.find((i) => i.chain_id === zerionChainId);
+    const isLoan = a?.position_type === "loan";
+    const sign = isLoan ? -1 : 1;
+    const qty = a?.quantity?.float;
     holdings.push({
       ticker,
-      qty: a?.quantity?.float ?? null,
-      usd_override: usd,
-      contract: null,
+      qty: qty == null ? null : sign * Math.abs(qty),
+      usd_override: sign * Math.abs(usd),
+      contract: impl?.address ? impl.address.toLowerCase() : null,
       category: "defi",
       chain: ourChain,
       icon_url: a?.fungible_info?.icon?.url ?? null,
       protocol,
       protocol_url: a?.application_metadata?.url ?? null,
+      protocol_section: sectionFor(a?.position_type),
     });
   }
 

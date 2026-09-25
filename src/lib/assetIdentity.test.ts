@@ -55,7 +55,6 @@ test("protocol positions have no price key (their stored value stands)", () => {
     h({ ticker: "POLY-ABC-0", chain: "polymarket", protocol_section: "Prediction" }),
     h({ ticker: "METEORA-LP", chain: "solana-defi" }),
     h({ ticker: "KAMINO-MULTIPLY", chain: "solana-defi" }),
-    h({ ticker: "ETH", chain: "base", source: "auto_defi" }),
   ]) {
     assert.equal(isPositionValue(x), true, x.ticker);
     assert.equal(resolvePriceKey(x, maps), null, x.ticker);
@@ -103,4 +102,10 @@ test("Solana mints match the registry case-insensitively (its keys are lowercase
   const reg: KeyMaps = { ...maps, registry: new Map([[contractKey("solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), "usd-coin"]]) };
   assert.equal(resolvePriceKey(h({ ticker: "USDC", chain: "solana", contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }), reg), "usd-coin");
   assert.equal(resolvePriceKey(h({ ticker: "X", chain: "solana", contract: "AbCdMint" }), reg), "jup:AbCdMint");
+});
+
+test("a Zerion DeFi row is one coin inside a protocol: priced by its coin (a loan's negative qty makes it a debt)", () => {
+  assert.equal(resolvePriceKey(h({ ticker: "MORPHO", chain: "base", contract: MORPHO, source: "auto_defi" }), maps), "morpho");
+  assert.equal(resolvePriceKey(h({ ticker: "ETH", chain: "eth", source: "auto_defi" }), maps), "ethereum");
+  assert.equal(isPositionValue(h({ ticker: "AVAX", chain: "avax", source: "auto_defi" })), false);
 });

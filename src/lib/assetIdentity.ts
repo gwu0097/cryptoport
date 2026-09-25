@@ -92,10 +92,10 @@ const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket"]);
 
 /** A stored position value, not a coin quantity: its worth comes from the
- * protocol (LP, perps, prediction shares, leveraged vault, a Zerion
- * position) and has no single coin price. Priced by its stored value. */
+ * protocol (LP, perps, prediction shares, leveraged vault) and has no single
+ * coin price. Priced by its stored value. (Zerion DeFi rows are coin
+ * quantities — one token in a protocol — and priced by their coin.) */
 export function isPositionValue(h: KeyInput): boolean {
-  if (h.source === "auto_defi") return true; // Zerion positions: protocol-valued
   const ticker = h.ticker.toUpperCase();
   if (ticker.endsWith("-PERP") || ticker.endsWith("-LP") || ticker.startsWith("KAMINO-")) return true;
   if (h.chain === "hyperliquid" && (h.protocol_section === "Perpetuals" || h.protocol_section === "Yield")) return true;
