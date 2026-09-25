@@ -202,7 +202,7 @@ export async function fetchAlchemyTransactions(
   const contracts = [...new Set(tokenTransfers.map((t) => t.rawContract.address?.toLowerCase()).filter((a): a is string => !!a))];
   let priced = new Map<string, unknown>();
   let spamFilterAvailable = false;
-  if (evmChain && contracts.length > 0) {
+  if (evmChain?.coingeckoPlatform && contracts.length > 0) {
     try {
       priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
       spamFilterAvailable = true;

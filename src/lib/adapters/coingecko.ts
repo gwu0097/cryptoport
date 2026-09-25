@@ -61,10 +61,10 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
 
   for (const chain of EVM_CHAINS) {
     const rows = coins
-      .filter((c) => c.platforms?.[chain.coingeckoPlatform])
+      .filter((c) => chain.coingeckoPlatform && c.platforms?.[chain.coingeckoPlatform])
       .map((c) => ({
         chain_id: chain.id,
-        contract: c.platforms![chain.coingeckoPlatform].toLowerCase(),
+        contract: c.platforms![chain.coingeckoPlatform!].toLowerCase(),
         symbol: c.symbol.toUpperCase(),
         coingecko_id: c.id,
         updated_at: new Date().toISOString(),
@@ -119,7 +119,7 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
   }
 
   const chainIconRows = [
-    ...EVM_CHAINS.map((c) => ({ chain_id: c.id, platformId: c.coingeckoPlatform })),
+    ...EVM_CHAINS.filter((c) => c.coingeckoPlatform).map((c) => ({ chain_id: c.id, platformId: c.coingeckoPlatform! })),
     ...Object.entries(NON_EVM_PLATFORM_IDS).map(([chainId, platformId]) => ({ chain_id: chainId, platformId })),
   ]
     .map((r) => ({ chain_id: r.chain_id, image_url: platformImages.get(r.platformId) }))

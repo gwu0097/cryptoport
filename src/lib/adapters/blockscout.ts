@@ -130,7 +130,7 @@ export async function fetchBlockscoutTransactions(
   ];
   let priced = new Map<string, unknown>();
   let spamFilterAvailable = false;
-  if (evmChain && contracts.length > 0) {
+  if (evmChain?.coingeckoPlatform && contracts.length > 0) {
     try {
       priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
       spamFilterAvailable = true;

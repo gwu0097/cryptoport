@@ -41,8 +41,10 @@ export interface EvmChain {
    * "optimistic-ethereum") — verified against CoinGecko's own
    * /asset_platforms (keyed by chain_identifier, the numeric chain ID, not
    * by guessing slug names). Used to filter coins/list into this chain's
-   * token registry and to look up token prices. */
-  coingeckoPlatform: string;
+   * token registry and to look up token prices. Null when CoinGecko has no
+   * platform for the chain (verified absent, never guessed): its native coin
+   * is still scanned and priced, but no tokens come from the token list. */
+  coingeckoPlatform: string | null;
   /** CoinGecko coin id for this chain's native/gas token — also from
    * /asset_platforms. Not always what you'd guess: Polygon's is
    * "polygon-ecosystem-token" (POL), not "matic-network". */
@@ -387,6 +389,41 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "fantom",
     nativeCoingeckoId: "fantom",
     nativeSymbol: "FTM",
+  },
+  // Added 2026-09-25 after a DeBank comparison (Metamask Main). RPCs, chain
+  // ids and Multicall3 checked live; CoinGecko platform ids from
+  // GeckoTerminal's network list, native coin ids from DefiLlama's chain list.
+  {
+    id: "sonic",
+    name: "Sonic",
+    chainId: 146,
+    rpc: "https://rpc.soniclabs.com",
+    fallbackRpcs: ["https://sonic-rpc.publicnode.com"],
+    coingeckoPlatform: "sonic",
+    nativeCoingeckoId: "sonic-3",
+    nativeSymbol: "S",
+  },
+  {
+    // Gas is ETH (DefiLlama lists the AURORA governance token as its coin).
+    id: "aurora",
+    name: "Aurora",
+    chainId: 1313161554,
+    rpc: "https://mainnet.aurora.dev",
+    fallbackRpcs: ["https://aurora.drpc.org"],
+    coingeckoPlatform: "aurora",
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
+  },
+  {
+    // Not in GeckoTerminal's or DefiLlama's lists: no verified CoinGecko
+    // platform, so native ETH only.
+    id: "dbk",
+    name: "DBK Chain",
+    chainId: 20240603,
+    rpc: "https://rpc.mainnet.dbkchain.io",
+    coingeckoPlatform: null,
+    nativeCoingeckoId: "ethereum",
+    nativeSymbol: "ETH",
   },
 ];
 
