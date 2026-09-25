@@ -231,7 +231,10 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
     // than mixing in the base field for just this one) keeps them on the
     // same basis, even though both should be equivalent here (vs_currency
     // is already fixed to usd for the whole call).
-    const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&price_change_percentage=1h,24h,7d,30d&sparkline=false`;
+    // per_page: /coins/markets returns 100 rows by default even for 250 ids —
+    // without it a batch over 100 silently dropped its smallest coins
+    // (2026-09-25).
+    const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&price_change_percentage=1h,24h,7d,30d&sparkline=false`;
     const res = await coingeckoFetch(url);
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
     const body: {
@@ -286,7 +289,7 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
 
   const fetched: { coingecko_id: string; image_url: string; updated_at: string }[] = [];
   for (const batch of chunk(missing, MARKETS_BATCH_SIZE)) {
-    const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&sparkline=false`;
+    const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&sparkline=false`; // per_page: see fetchMarketStatsByIds
     const res = await coingeckoFetch(url);
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
     const body: { id: string; image?: string }[] = await res.json();
