@@ -1,7 +1,7 @@
 import "server-only";
 import { protocolScope, type KeepScope } from "../carryForward";
 import { fetchWithRetry } from "./http";
-import { fetchTokenImages, fetchTokenPrices } from "./coingecko";
+import { fetchTokenImages } from "./coingecko";
 import type { AdapterHolding } from "./types";
 import { stakesToHoldings, normalizeSuiCoinType, estimateStakeReward, type SuiStakeGroup } from "../suiStakes";
 import { fetchNaviHoldings } from "./naviLending";
@@ -14,10 +14,6 @@ import { fetchNaviHoldings } from "./naviLending";
 // complete set. A failed query fails the sync (previous holdings kept).
 const GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
 const NATIVE_COIN_TYPE = "0x2::sui::SUI";
-// CoinGecko's asset_platforms id for Sui — live-verified via
-// GET /asset_platforms (id: "sui", native_coin_id: "sui"), same convention
-// as chains.ts's coingeckoPlatform used for EVM contract pricing below.
-const COINGECKO_PLATFORM = "sui";
 
 const SUI_ADDRESS_RE = /^0x[0-9a-fA-F]{64}$/;
 
@@ -155,8 +151,6 @@ export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[
   // with no metadata is skipped below (no decimals to scale by).
   const metadataByType = await fetchCoinMetadata(held.map((b) => b.coinType)).catch(() => new Map<string, CoinMetadata | null>());
 
-  const nonNativeTypes = held.filter((b) => b.coinType !== NATIVE_COIN_TYPE).map((b) => b.coinType);
-  const contractPrices = await fetchTokenPrices(COINGECKO_PLATFORM, nonNativeTypes).catch(() => new Map());
 
   const holdings: AdapterHolding[] = [];
   for (const b of held) {
@@ -172,11 +166,10 @@ export async function fetchSuiHoldings(address: string): Promise<AdapterHolding[
     if (!Number.isFinite(qty) || qty <= 0) continue;
 
     const isNative = b.coinType === NATIVE_COIN_TYPE;
-    const priceEntry = isNative ? undefined : contractPrices.get(b.coinType.toLowerCase());
     holdings.push({
       ticker: meta.symbol.toUpperCase(),
       qty,
-      usd_override: priceEntry ? qty * priceEntry.usd : null,
+      usd_override: null, // priced by its asset key after the sync (docs/pricing/PLAN.md)
       contract: isNative ? null : b.coinType,
       category: "token",
       chain: "sui",

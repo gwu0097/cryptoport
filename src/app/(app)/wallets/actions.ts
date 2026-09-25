@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
-import { refreshPrices, refreshTickerPrices, type HoldingTickerInfo } from "@/lib/prices";
+import { refreshPrices } from "@/lib/prices";
 import { ensureExchangeAssetRegistry } from "@/lib/exchangeAssetRegistry";
 import { refreshWatchlistMarketData } from "@/lib/coinMarketData";
 import { captureUserSnapshot } from "@/lib/snapshots";
@@ -499,10 +499,7 @@ export async function addHolding(walletId: string, formData: FormData) {
   // on. usd_override holdings never need pricing at all (valuation.ts
   // bypasses the `prices` table for them entirely), so skip this for
   // those — nothing for it to price.
-  if (kind !== "usd") {
-    const tickerInfo: HoldingTickerInfo = { ticker, contract: null, chain: null, coingeckoId, source: "manual_qty" };
-    await refreshTickerPrices([tickerInfo]).catch(() => {});
-  }
+  if (kind !== "usd") await ensureAssetPrices([coingeckoId], "manual").catch(() => {});
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");
@@ -798,31 +795,6 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       if (wallet.chain === "ADA") updates.cardano_stake_address = cardanoStakeAddress;
       await afterDb.from("wallets").update(updates).eq("id", walletId);
 
-      // Reprice this wallet's own ticker-keyed holdings (plain Solana/BTC/
-      // ADA/Cosmos balances, manual qty rows — anything without its own
-      // usd_override; EVM holdings already got a fresh usd_override from
-      // this same sync, see multicallEvm.ts, so they're filtered out here)
-      // right after a sync, not just on the next manual "Refresh prices"
-      // click elsewhere in the app — a freshly-synced wallet's brand-new
-      // ticker used to just sit unpriced (same class of report that
-      // motivated refreshPricesForWalletAction below). Deliberately NOT
-      // the full global refreshPrices() — see refreshTickerPrices' own doc
-      // comment for why a wallet-scoped pass is the right size here, and
-      // why syncAllWallets firing N of these in parallel (one per wallet)
-      // is safe: each is its own small, independent CoinGecko batch call,
-      // no shared claim/lock to contend over. Awaited inline here (not a
-      // further-nested after()) since it's a small, bounded batch — unlike
-      // scheduleUserSnapshot below, there's no multi-second regression risk
-      // to guard against, and running it before that snapshot capture lets
-      // today's snapshot reflect this wallet's freshly-priced new tickers
-      // instead of a stale/unpriced value for them. Best-effort — a
-      // pricing failure here is real but minor (same tickers just stay
-      // unpriced one sync longer), never worth failing the sync over.
-      const tickersToPrice: HoldingTickerInfo[] = holdings
-        .filter((h) => h.usd_override === null)
-        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto" }));
-      await refreshTickerPrices(tickersToPrice).catch(() => {});
-
       // Nested after(), registered only now that holdings are actually
       // saved — not called unconditionally alongside the outer after()
       // above, which would let it start reading (stale, pre-sync)
@@ -909,26 +881,19 @@ export async function syncWalletDefi(walletId: string): Promise<JobStartResult> 
       const { holdings, warnings } = await fetchZerionDefiPositions(wallet.address!);
       const status = warnings.length === 0 ? "ok" : `partial — ${warnings.join("; ")}`;
 
+      const savedDefi: { price_key?: string | null }[] = await keyed(holdings, "auto_defi");
       const { error: syncError } = await afterDb.rpc("sync_defi_holdings", {
         p_wallet_id: walletId,
-        p_holdings: await keyed(holdings, "auto_defi"),
+        p_holdings: savedDefi,
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save DeFi holdings: ${syncError.message}`);
+      await ensureAssetPrices(savedDefi.map((r) => r.price_key), "sync").catch(() => {});
 
       await afterDb
         .from("wallets")
         .update({ defi_sync_duration_ms: Date.now() - syncStartedAt })
         .eq("id", walletId);
-
-      // Reprice this wallet's own newly-synced DeFi tickers — usually a
-      // no-op (Zerion already stamps usd_override on every position), but
-      // covers the rare row where value came back null and qty didn't —
-      // same reasoning and same scoped path as syncWalletHoldings above.
-      const tickersToPrice: HoldingTickerInfo[] = holdings
-        .filter((h) => h.usd_override === null)
-        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto" }));
-      await refreshTickerPrices(tickersToPrice).catch(() => {});
 
       scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
     } catch (e) {
@@ -1123,19 +1088,6 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
       // reprice below so a brand-new exchange connection's very first sync
       // gets the coverage benefit immediately, not one sync cycle later.
       await ensureExchangeAssetRegistry();
-
-      // Same scoped reprice as syncWalletHoldings/syncWalletDefi — spot
-      // balances go through the shared ticker table (usd_override is
-      // always null for these, see coinbaseAdvancedTrade.ts), so a
-      // brand-new currency this sync introduced needs this to ever show a
-      // price. source is "auto_exchange" here (not "auto"), matching
-      // holdings.source for these rows — that's what lets
-      // splitByCoingeckoResolvability's own auto_exchange-only branch
-      // actually apply to them.
-      const tickersToPrice: HoldingTickerInfo[] = holdings
-        .filter((h) => h.usd_override === null)
-        .map((h) => ({ ticker: h.ticker, contract: h.contract, chain: h.chain, coingeckoId: null, source: "auto_exchange" }));
-      await refreshTickerPrices(tickersToPrice).catch(() => {});
 
       scheduleUserSnapshot(user.id, [`/wallets/${walletId}`]);
     } catch (e) {

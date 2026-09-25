@@ -5,14 +5,12 @@ import { serviceDb } from "../supabase";
 import { chainScope, type KeepScope } from "../carryForward";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchMarketsByIds } from "./coingecko";
-import { cachedCoinPrices } from "./coinCache";
 import {
   eligibleChains,
   deriveAddress,
   holdingsFromBalances,
   withRegistryApis,
   withKeplrCurrencies,
-  withPrices,
   keplrRegistryFile,
   keplrDashboardUrl,
   withoutDirectoryProxy,
@@ -114,17 +112,8 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
       .map((r): KeepScope => ({ label: `${r.chain.prettyName} staking`, owns: (h) => h.chain === r.chain.name && h.category === "defi" })),
   ];
 
-  // Identified tokens cosmos.directory had no price for: CoinGecko by id, in
-  // one batched call (shared 60s cache) — only when there are any.
-  const needPrice = [...new Set(holdings.filter((h) => h.coingecko_id && h.usd_override === null && h.qty !== null).map((h) => h.coingecko_id!))];
-  if (needPrice.length > 0) {
-    try {
-      // coin_cache: another sync's price from the last few minutes is reused.
-      holdings = withPrices(holdings, await cachedCoinPrices(needPrice));
-    } catch (e) {
-      warnings.push(`CoinGecko prices unavailable for ${needPrice.length} token(s): ${(e as Error).message}`);
-    }
-  }
+  // Tokens cosmos.directory had no price for are priced by their asset key
+  // after the sync (docs/pricing/PLAN.md) — no CoinGecko call here.
   if (unreachable.length > 0) {
     warnings.push(
       `${unreachable.length} of ${chains.length} Cosmos chains couldn't be reached (their tokens may be missing): ${unreachable.slice(0, 12).join(", ")}${unreachable.length > 12 ? ", …" : ""}`,

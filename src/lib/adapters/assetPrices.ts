@@ -191,3 +191,14 @@ export async function refreshAssetPricesIfOlderThan(maxAgeMs: number, trigger: s
   const r = await refreshAssetPrices(trigger);
   return `priced ${r.returned}/${r.requested}`;
 }
+
+/** The stored price of each key that has one (asset_prices.usd). */
+export async function readAssetPrices(keys: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (let i = 0; i < keys.length; i += 500) {
+    const { data, error } = await serviceDb().from("asset_prices").select("price_key, usd").in("price_key", keys.slice(i, i + 500)).not("usd", "is", null);
+    if (error) throw new Error(`Failed to read asset prices: ${error.message}`);
+    for (const r of data as { price_key: string; usd: number | string }[]) out.set(r.price_key, Number(r.usd));
+  }
+  return out;
+}

@@ -1,6 +1,6 @@
 import "server-only";
 import { createPublicClient, http, formatUnits, encodeFunctionData, decodeFunctionResult, type Address } from "viem";
-import { fetchTokenPrices, fetchTokenImages } from "./coingecko";
+import { fetchTokenImages } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
 const RPC_URL = "https://api.roninchain.com/rpc";
@@ -84,11 +84,9 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
   // it used to throw and drop 385 AXS from the wallet entirely
   // (2026-09-24). Refresh prices' EVM lane (refreshEvmHoldingPrices)
   // re-prices these rows later by (chain, contract, qty).
-  const [prices, images] = await Promise.all([
-    fetchTokenPrices("ronin", [AXS_CONTRACT]).catch(() => new Map<string, { usd: number }>()),
-    fetchTokenImages([AXS_COINGECKO_ID]).catch(() => new Map<string, string>()),
-  ]);
-  const price = prices.get(AXS_CONTRACT.toLowerCase());
+  // Priced by its asset key after the sync (docs/pricing/PLAN.md) — no
+  // sync-time price call.
+  const images = await fetchTokenImages([AXS_COINGECKO_ID]).catch(() => new Map<string, string>());
   const icon = images.get(AXS_COINGECKO_ID) ?? null;
 
   const holdings: AdapterHolding[] = [];
@@ -97,7 +95,7 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
     holdings.push({
       ticker: "AXS",
       qty,
-      usd_override: price ? qty * price.usd : null,
+      usd_override: null,
       contract: AXS_CONTRACT,
       category: "defi",
       chain: "ron",
@@ -113,7 +111,7 @@ export async function fetchAxieStaking(address: Address): Promise<AdapterHolding
     holdings.push({
       ticker: "AXS",
       qty,
-      usd_override: price ? qty * price.usd : null,
+      usd_override: null,
       contract: AXS_CONTRACT,
       category: "defi",
       chain: "ron",

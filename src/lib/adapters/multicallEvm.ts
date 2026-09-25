@@ -17,8 +17,7 @@ import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
 import type { AdapterHolding } from "./types";
 import type { KeepScope } from "../carryForward";
-import { splitByFreshness, SYNC_PRICE_MAX_AGE_MS } from "../priceCache";
-import { cachedCoinPrices } from "./coinCache";
+import { ensureAssetPrices, readAssetPrices } from "./assetPrices";
 
 const TOKEN_USD_FLOOR = 5;
 // Multicall3 calldata/response size is bounded by the RPC node's own
@@ -308,7 +307,15 @@ export interface ChainHoldingsResult {
   unverifiedContracts: string[];
 }
 
-export async function fetchChainHoldings(chain: EvmChain, address: Address): Promise<ChainHoldingsResult> {
+interface ChainScan {
+  chain: EvmChain;
+  held: { token: RegistryToken; qty: number }[];
+  nativeQty: number | null;
+  unverifiedCount: number;
+  unverifiedContracts: string[];
+}
+
+export async function fetchChainHoldings(chain: EvmChain, address: Address): Promise<ChainScan> {
   // Real, reported bug (confirmed live via a real wallet's holdings, exact
   // qty match on both sides): some chains' own CoinGecko coins/list entry
   // for their native gas token ALSO carries a contract address on that
@@ -392,161 +399,94 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     if (toSave.length > 0) await saveDecimals(chain.id, toSave);
   }
 
-  const priceable = held.filter((x) => x.token.decimals !== null);
-  // Prices another wallet's sync fetched in the last few minutes are reused
-  // (token_registry.price_usd/price_at, see priceCache.ts); only the rest
-  // are asked of CoinGecko — a Sync all prices each chain about once.
-  // A failed price call is "no answer", not "no price": it used to throw
-  // and take this chain's native balance down with it (2026-09-24).
-  const now = Date.now();
-  const { fresh, stale } = splitByFreshness(priceable, (x) => x.token.price_at, now, SYNC_PRICE_MAX_AGE_MS);
-  const prices = new Map<string, { usd: number; change24h: number | null; marketCap: number | null }>();
-  for (const { token } of fresh) {
-    if (token.price_usd === null) continue; // cached "no CoinGecko price"
-    prices.set(token.contract.toLowerCase(), {
-      usd: Number(token.price_usd),
-      change24h: token.change_24h_pct === null ? null : Number(token.change_24h_pct),
-      marketCap: token.market_cap === null ? null : Number(token.market_cap),
-    });
-  }
-  let priceError: string | null = null;
-  if (stale.length > 0) {
-    const live = await fetchTokenPrices(
-      chain.coingeckoPlatform,
-      stale.map((x) => x.token.contract),
-    ).catch((e: Error) => {
-      priceError = e.message;
-      return null;
-    });
-    if (live) {
-      for (const [contract, price] of live) prices.set(contract, price);
-      // Cache this answer for the next wallet (null = CoinGecko had none).
-      await upsertTokenRegistry(
-        stale.map(({ token }) => ({
-          chain_id: chain.id,
-          contract: token.contract,
-          symbol: token.symbol,
-          price_usd: live.get(token.contract.toLowerCase())?.usd ?? null,
-          price_at: new Date(now).toISOString(),
-        })),
-      ).catch((e: Error) => console.warn(`[multicallEvm] price cache save (${chain.id}) failed: ${e.message}`));
-    }
-  }
-
-  const included: { token: RegistryToken; qty: number; usd: number; change24h: number | null; marketCap: number | null }[] = [];
-  for (const { token, result } of priceable) {
-    const price = prices.get(token.contract.toLowerCase());
-    if (price === undefined) continue; // no live price — dropped, see doc comment above
-    const qty = Number(formatUnits(result.result as unknown as bigint, token.decimals!));
-    const usd = qty * price.usd;
-    if (usd <= TOKEN_USD_FLOOR) continue;
-    included.push({ token, qty, usd, change24h: price.change24h, marketCap: price.marketCap });
-  }
-
-  // Volatile, unlike decimals/images above — written every sync regardless
-  // of whether token_registry already had a value, so a token's 24h change
-  // never goes stale between refreshTokenRegistry runs.
-  try {
-    const changeRows = included.map(({ token, change24h, marketCap }) => ({
-      contract: token.contract,
-      symbol: token.symbol,
-      change_24h_pct: change24h,
-      market_cap: marketCap,
-    }));
-    if (changeRows.length > 0) await saveMarketStats(chain.id, changeRows);
-  } catch {
-    // Same "cosmetic, never take down real balance data" reasoning as the
-    // icon try/catch below.
-  }
-
+  const priceable = held
+    .filter((x) => x.token.decimals !== null)
+    .map(({ token, result }) => ({ token, qty: Number(formatUnits(result.result as unknown as bigint, token.decimals!)) }));
   const nativeBalance = await nativeBalancePromise;
-  let native: { qty: number; usd: number | null } | null = null;
-  if (nativeBalance > BigInt(0)) {
-    // No price (none listed, or CoinGecko unreachable) keeps the balance,
-    // unpriced; Refresh prices' EVM lane fills it in. It used to drop the
-    // row entirely.
-    const nativePrice = await cachedCoinPrices([chain.nativeCoingeckoId])
-      .then((m) => m.get(chain.nativeCoingeckoId) ?? null)
-      .catch(() => null);
-    const qty = Number(formatUnits(nativeBalance, 18));
-    const usd = nativePrice === null ? null : qty * nativePrice;
-    // TOKEN_USD_FLOOR deliberately does NOT apply here, unlike the ERC20
-    // check above — that floor exists to filter spam/copycat tokens with
-    // fake wash-traded liquidity, a risk that's structurally impossible
-    // for a chain's own native currency (there's exactly one RON per
-    // Ronin wallet, not an unbounded set of spoofable native-look-alikes).
-    // Real bug, caught live: a wallet's genuine 54 RON (~$2.89) balance
-    // was silently dropped by this floor, with no warning surfaced
-    // anywhere — a small real balance is exactly the "unknown/small
-    // still real data" case CLAUDE.md's Data Correctness rule protects.
-    native = { qty, usd };
+  return {
+    chain,
+    held: priceable,
+    nativeQty: nativeBalance > BigInt(0) ? Number(formatUnits(nativeBalance, 18)) : null,
+    unverifiedCount: unverified,
+    unverifiedContracts,
+  };
+}
+
+/**
+ * Turns every chain's scanned balances into holdings with ONE pricing step
+ * for the whole wallet (docs/pricing/PLAN.md): every held coin's id and the
+ * chains' native coins are priced through asset_prices (ensureAssetPrices
+ * fetches only coins not priced in the last few minutes — another wallet's
+ * sync, or Refresh prices, usually already has them). It used to price per
+ * chain per wallet, ~20 CoinGecko calls a wallet.
+ *
+ * The spam filter is unchanged: a token is listed only if CoinGecko prices
+ * it and it's worth more than TOKEN_USD_FLOOR (see the doc comment above).
+ * Native coins are always listed (priced or not). If the pricing call fails,
+ * coins keep their last stored price; a chain holding tokens that ended up
+ * with no price at all is reported (priceError) so its previous rows stay.
+ */
+async function priceScans(scans: ChainScan[]): Promise<Map<string, ChainHoldingsResult>> {
+  const ids = new Set<string>();
+  for (const s of scans) {
+    for (const { token } of s.held) if (token.coingecko_id) ids.add(token.coingecko_id);
+    if (s.nativeQty !== null) ids.add(s.chain.nativeCoingeckoId);
+  }
+  let pricingError: string | null = null;
+  await ensureAssetPrices([...ids], "sync").catch((e: Error) => {
+    pricingError = e.message;
+  });
+  const prices = await readAssetPrices([...ids]);
+
+  const images = new Map<string, string>();
+  const missingImageIds = new Set<string>();
+  for (const s of scans) {
+    for (const { token } of s.held) if (!token.image_url && token.coingecko_id && prices.has(token.coingecko_id)) missingImageIds.add(token.coingecko_id);
+    if (s.nativeQty !== null) missingImageIds.add(s.chain.nativeCoingeckoId);
+  }
+  // Logos are cosmetic (and cached for good in coin_cache): never fail a sync.
+  if (missingImageIds.size > 0) {
+    for (const [id, url] of await fetchTokenImages([...missingImageIds]).catch(() => new Map<string, string>())) images.set(id, url);
   }
 
-  // Logos, batched: only for tokens actually ending up in `holdings` (not
-  // every registered token) and only those token_registry doesn't already
-  // have a cached image_url for — see saveImageUrls above. Native tokens
-  // (no token_registry row to cache against) are always re-fetched fresh;
-  // there are only ~15 distinct native ids across every configured chain,
-  // cheap enough not to need a cache table of its own.
-  //
-  // Wrapped so icon fetching/caching can never take down this chain's real
-  // balance data — a failure here (CoinGecko hiccup, a save error) just
-  // means this sync's holdings render without icons, not that the chain
-  // gets reported as failed and its holdings dropped. Learned the hard way:
-  // an earlier bug in saveImageUrls threw on every call, which silently
-  // wiped real holdings via the per-chain failure path in
-  // fetchEvmChainsHoldings before this try/catch existed.
-  let fetchedImages = new Map<string, string>();
-  try {
-    const missingImageIds = new Set<string>();
-    for (const { token } of included) {
-      if (!token.image_url && token.coingecko_id) missingImageIds.add(token.coingecko_id);
+  const out = new Map<string, ChainHoldingsResult>();
+  for (const s of scans) {
+    const holdings: AdapterHolding[] = [];
+    let unpriced = 0;
+    const toCache: { contract: string; symbol: string; image_url: string }[] = [];
+    for (const { token, qty } of s.held) {
+      const price = token.coingecko_id ? prices.get(token.coingecko_id) : undefined;
+      if (price === undefined) {
+        unpriced++;
+        continue; // not on CoinGecko (or never priced yet): not listed — the spam filter
+      }
+      const usd = qty * price;
+      if (usd <= TOKEN_USD_FLOOR) continue;
+      const image = token.image_url ?? (token.coingecko_id ? (images.get(token.coingecko_id) ?? null) : null);
+      if (!token.image_url && image) toCache.push({ contract: token.contract, symbol: token.symbol, image_url: image });
+      holdings.push({ ticker: token.symbol, qty, usd_override: usd, contract: token.contract, category: "token", chain: s.chain.id, icon_url: image });
     }
-    if (native) missingImageIds.add(chain.nativeCoingeckoId);
-
-    if (missingImageIds.size > 0) fetchedImages = await fetchTokenImages([...missingImageIds]);
-
-    const toCache = included
-      .filter(({ token }) => !token.image_url && token.coingecko_id && fetchedImages.has(token.coingecko_id))
-      .map(({ token }) => ({
-        contract: token.contract,
-        symbol: token.symbol,
-        image_url: fetchedImages.get(token.coingecko_id!)!,
-      }));
-    if (toCache.length > 0) await saveImageUrls(chain.id, toCache);
-  } catch {
-    // Icons are cosmetic — swallow and continue with whatever cached
-    // image_urls token_registry already had (fetchedImages may be partially
-    // populated above; that's fine, imageFor() below falls back to null).
-  }
-
-  function imageFor(token: RegistryToken): string | null {
-    return token.image_url ?? (token.coingecko_id ? (fetchedImages.get(token.coingecko_id) ?? null) : null);
-  }
-
-  const holdings: AdapterHolding[] = included.map(({ token, qty, usd }) => ({
-    ticker: token.symbol,
-    qty,
-    usd_override: usd,
-    contract: token.contract,
-    category: "token",
-    chain: chain.id,
-    icon_url: imageFor(token),
-  }));
-
-  if (native) {
-    holdings.push({
-      ticker: chain.nativeSymbol,
-      qty: native.qty,
-      usd_override: native.usd,
-      contract: null,
-      category: "token",
-      chain: chain.id,
-      icon_url: fetchedImages.get(chain.nativeCoingeckoId) ?? null,
+    if (s.nativeQty !== null) {
+      const price = prices.get(s.chain.nativeCoingeckoId);
+      holdings.push({
+        ticker: s.chain.nativeSymbol,
+        qty: s.nativeQty,
+        usd_override: price === undefined ? null : s.nativeQty * price,
+        contract: null,
+        category: "token",
+        chain: s.chain.id,
+        icon_url: images.get(s.chain.nativeCoingeckoId) ?? null,
+      });
+    }
+    if (toCache.length > 0) await saveImageUrls(s.chain.id, toCache).catch(() => {});
+    out.set(s.chain.id, {
+      holdings,
+      unverifiedCount: s.unverifiedCount,
+      unverifiedContracts: s.unverifiedContracts,
+      priceError: pricingError && unpriced > 0 ? pricingError : null,
     });
   }
-
-  return { holdings, unverifiedCount: unverified, priceError, unverifiedContracts };
+  return out;
 }
 
 export interface EvmChainsResult {
@@ -578,14 +518,18 @@ type ChainOutcome =
   | { chainId: string; ok: false; error: string };
 
 export async function fetchEvmChainsHoldings(address: Address): Promise<EvmChainsResult> {
-  const results: ChainOutcome[] = await Promise.all(
-    EVM_CHAINS.map(async (chain): Promise<ChainOutcome> => {
+  const scans = await Promise.all(
+    EVM_CHAINS.map(async (chain): Promise<ChainScan | { chainId: string; error: string }> => {
       try {
-        return { chainId: chain.id, ok: true, ...(await fetchChainHoldings(chain, address)) };
+        return await fetchChainHoldings(chain, address);
       } catch (e) {
-        return { chainId: chain.id, ok: false, error: (e as Error).message };
+        return { chainId: chain.id, error: (e as Error).message };
       }
     }),
+  );
+  const priced = await priceScans(scans.filter((x): x is ChainScan => "held" in x));
+  const results: ChainOutcome[] = scans.map((x) =>
+    "held" in x ? { chainId: x.chain.id, ok: true as const, ...priced.get(x.chain.id)! } : { chainId: x.chainId, ok: false as const, error: x.error },
   );
 
   const holdings = results.flatMap((r) => (r.ok ? r.holdings : []));

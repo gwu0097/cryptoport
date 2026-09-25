@@ -1,7 +1,7 @@
 import "server-only";
 import { createPublicClient, http, formatUnits, encodeFunctionData, decodeFunctionResult, type Address } from "viem";
 import { EVM_CHAINS } from "./evmChains";
-import { fetchTokenPrices, fetchTokenImages } from "./coingecko";
+import { fetchTokenImages } from "./coingecko";
 import type { AdapterHolding } from "./types";
 
 // Reused from evmChains.ts's own "eth" entry rather than re-hardcoded here
@@ -100,16 +100,13 @@ export async function fetchSuperverseStaking(address: Address): Promise<AdapterH
 
   if (stakedRaw > BigInt(0)) {
     // Price/icon failure keeps the position, unpriced (same as axieStaking.ts).
-    const [prices, images] = await Promise.all([
-      fetchTokenPrices(ETH_CHAIN.coingeckoPlatform, [SUPER_CONTRACT]).catch(() => new Map<string, { usd: number }>()),
-      fetchTokenImages([SUPER_COINGECKO_ID]).catch(() => new Map<string, string>()),
-    ]);
-    const price = prices.get(SUPER_CONTRACT.toLowerCase());
+    // Priced by its asset key after the sync (docs/pricing/PLAN.md).
+    const images = await fetchTokenImages([SUPER_COINGECKO_ID]).catch(() => new Map<string, string>());
     const qty = Number(formatUnits(stakedRaw, 18));
     holdings.push({
       ticker: "SUPER",
       qty,
-      usd_override: price ? qty * price.usd : null,
+      usd_override: null,
       contract: SUPER_CONTRACT,
       category: "defi",
       chain: ETH_CHAIN.id,
