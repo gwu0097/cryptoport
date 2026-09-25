@@ -23,6 +23,8 @@ import { serviceDb } from "../supabase";
 import { upsertTokenRegistry } from "./tokenRegistry";
 import type { AdapterHolding } from "./types";
 import type { KeepScope } from "../carryForward";
+import { splitByFreshness, SYNC_PRICE_MAX_AGE_MS } from "../priceCache";
+import { cachedCoinPrices } from "./coinCache";
 
 const TOKEN_USD_FLOOR = 5;
 // Multicall3 calldata/response size is bounded by the RPC node's own
@@ -57,6 +59,12 @@ interface RegistryToken {
   decimals: number | null;
   coingecko_id: string | null;
   image_url: string | null;
+  // Sync-time price cache (priceCache.ts): the last CoinGecko price and when
+  // it was fetched (price_usd null + price_at set = "CoinGecko had none").
+  price_usd: number | string | null;
+  price_at: string | null;
+  change_24h_pct: number | string | null;
+  market_cap: number | string | null;
 }
 
 const REGISTRY_PAGE_SIZE = 1000;
@@ -81,7 +89,7 @@ const REGISTRY_PAGE_SIZE = 1000;
 async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
   const { data: firstPage, error: firstError, count } = await serviceDb()
     .from("token_registry")
-    .select("contract, symbol, decimals, coingecko_id, image_url", { count: "exact" })
+    .select("contract, symbol, decimals, coingecko_id, image_url, price_usd, price_at, change_24h_pct, market_cap", { count: "exact" })
     .eq("chain_id", chainId)
     .order("contract")
     .range(0, REGISTRY_PAGE_SIZE - 1);
@@ -98,7 +106,7 @@ async function getRegisteredTokens(chainId: string): Promise<RegistryToken[]> {
         const from = pageIndex * REGISTRY_PAGE_SIZE;
         const { data, error } = await serviceDb()
           .from("token_registry")
-          .select("contract, symbol, decimals, coingecko_id, image_url")
+          .select("contract, symbol, decimals, coingecko_id, image_url, price_usd, price_at, change_24h_pct, market_cap")
           .eq("chain_id", chainId)
           .order("contract")
           .range(from, from + REGISTRY_PAGE_SIZE - 1);
@@ -391,16 +399,45 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
   }
 
   const priceable = held.filter((x) => x.token.decimals !== null);
+  // Prices another wallet's sync fetched in the last few minutes are reused
+  // (token_registry.price_usd/price_at, see priceCache.ts); only the rest
+  // are asked of CoinGecko — a Sync all prices each chain about once.
   // A failed price call is "no answer", not "no price": it used to throw
   // and take this chain's native balance down with it (2026-09-24).
+  const now = Date.now();
+  const { fresh, stale } = splitByFreshness(priceable, (x) => x.token.price_at, now, SYNC_PRICE_MAX_AGE_MS);
+  const prices = new Map<string, { usd: number; change24h: number | null; marketCap: number | null }>();
+  for (const { token } of fresh) {
+    if (token.price_usd === null) continue; // cached "no CoinGecko price"
+    prices.set(token.contract.toLowerCase(), {
+      usd: Number(token.price_usd),
+      change24h: token.change_24h_pct === null ? null : Number(token.change_24h_pct),
+      marketCap: token.market_cap === null ? null : Number(token.market_cap),
+    });
+  }
   let priceError: string | null = null;
-  const prices = await fetchTokenPrices(
-    chain.coingeckoPlatform,
-    priceable.map((x) => x.token.contract),
-  ).catch((e: Error) => {
-    priceError = e.message;
-    return new Map<string, { usd: number; change24h: number | null; marketCap: number | null }>();
-  });
+  if (stale.length > 0) {
+    const live = await fetchTokenPrices(
+      chain.coingeckoPlatform,
+      stale.map((x) => x.token.contract),
+    ).catch((e: Error) => {
+      priceError = e.message;
+      return null;
+    });
+    if (live) {
+      for (const [contract, price] of live) prices.set(contract, price);
+      // Cache this answer for the next wallet (null = CoinGecko had none).
+      await upsertTokenRegistry(
+        stale.map(({ token }) => ({
+          chain_id: chain.id,
+          contract: token.contract,
+          symbol: token.symbol,
+          price_usd: live.get(token.contract.toLowerCase())?.usd ?? null,
+          price_at: new Date(now).toISOString(),
+        })),
+      ).catch((e: Error) => console.warn(`[multicallEvm] price cache save (${chain.id}) failed: ${e.message}`));
+    }
+  }
 
   const included: { token: RegistryToken; qty: number; usd: number; change24h: number | null; marketCap: number | null }[] = [];
   for (const { token, result } of priceable) {
@@ -434,7 +471,9 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address): Pro
     // No price (none listed, or CoinGecko unreachable) keeps the balance,
     // unpriced; Refresh prices' EVM lane fills it in. It used to drop the
     // row entirely.
-    const nativePrice = await fetchNativePrice(chain.nativeCoingeckoId).catch(() => null);
+    const nativePrice = await cachedCoinPrices([chain.nativeCoingeckoId])
+      .then((m) => m.get(chain.nativeCoingeckoId) ?? null)
+      .catch(() => null);
     const qty = Number(formatUnits(nativeBalance, 18));
     const usd = nativePrice === null ? null : qty * nativePrice;
     // TOKEN_USD_FLOOR deliberately does NOT apply here, unlike the ERC20

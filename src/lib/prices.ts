@@ -7,6 +7,7 @@ import { refreshCosmosHoldingPrices } from "./adapters/cosmosMulti.ts";
 import { fetchTokenPrices, fetchMarketStatsByIds } from "./adapters/coingecko.ts";
 import { EVM_CHAINS } from "./adapters/evmChains.ts";
 import { resolveCoingeckoKey } from "./priceKey.ts";
+import { isFresh, SYNC_PRICE_MAX_AGE_MS } from "./priceCache.ts";
 import { mapWithConcurrency } from "./adapters/http.ts";
 import { getExchangeAssetRegistry } from "./exchangeAssetRegistry.ts";
 import type { HoldingSource } from "./types.ts";
@@ -498,7 +499,21 @@ async function mergeCoingeckoAndResidualResults(
  * is fresh when only a few tickers were touched would be exactly the
  * misleading-staleness-number the Data Correctness rule forbids.
  */
-export async function refreshTickerPrices(tickers: HoldingTickerInfo[]): Promise<PriceRefreshResult[]> {
+export async function refreshTickerPrices(requested: HoldingTickerInfo[]): Promise<PriceRefreshResult[]> {
+  // A ticker priced in the last few minutes (by another wallet's sync, or
+  // Refresh prices) isn't asked again — five Solana wallets syncing in a
+  // row used to price SOL five times (priceCache.ts).
+  const distinct = [...new Set(requested.map((t) => t.ticker))];
+  const { data: priced } = distinct.length
+    ? await serviceDb().from("prices").select("ticker, usd, updated_at").in("ticker", distinct)
+    : { data: [] };
+  const now = Date.now();
+  const recent = new Set(
+    ((priced ?? []) as { ticker: string; usd: unknown; updated_at: string | null }[])
+      .filter((r) => r.usd !== null && isFresh(r.updated_at, now, SYNC_PRICE_MAX_AGE_MS))
+      .map((r) => r.ticker),
+  );
+  const tickers = requested.filter((t) => !recent.has(t.ticker));
   if (tickers.length === 0) return [];
   const [existingSources, exchangeRegistry] = await Promise.all([
     getExistingPriceSourcesFor([...new Set(tickers.map((t) => t.ticker))]),

@@ -1747,3 +1747,19 @@ create table cryptoport.liquid_staking_tokens (
 );
 alter table cryptoport.liquid_staking_tokens enable row level security;
 grant all on cryptoport.liquid_staking_tokens to service_role;
+
+-- Sync-time CoinGecko cache (2026-09-25): native coin prices/logos keyed by
+-- CoinGecko id, and a short-lived contract price on token_registry, so a
+-- Sync all prices each chain about once instead of once per wallet
+-- (lib/priceCache.ts, adapters/coinCache.ts).
+create table cryptoport.coin_cache (
+  coingecko_id text primary key,
+  usd          numeric,
+  usd_at       timestamptz,
+  image_url    text,
+  updated_at   timestamptz not null default now()
+);
+alter table cryptoport.coin_cache enable row level security;
+grant all on cryptoport.coin_cache to service_role;
+alter table cryptoport.token_registry add column if not exists price_usd numeric;
+alter table cryptoport.token_registry add column if not exists price_at timestamptz;

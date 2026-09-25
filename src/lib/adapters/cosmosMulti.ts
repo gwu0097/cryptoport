@@ -5,6 +5,7 @@ import { serviceDb } from "../supabase";
 import { chainScope, type KeepScope } from "../carryForward";
 import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { fetchMarketsByIds } from "./coingecko";
+import { cachedCoinPrices } from "./coinCache";
 import {
   eligibleChains,
   deriveAddress,
@@ -118,8 +119,8 @@ export async function fetchCosmosMultiHoldings(cosmosAddress: string): Promise<{
   const needPrice = [...new Set(holdings.filter((h) => h.coingecko_id && h.usd_override === null && h.qty !== null).map((h) => h.coingecko_id!))];
   if (needPrice.length > 0) {
     try {
-      const markets = await fetchMarketsByIds(needPrice);
-      holdings = withPrices(holdings, new Map(markets.map((m) => [m.id, m.price])));
+      // coin_cache: another sync's price from the last few minutes is reused.
+      holdings = withPrices(holdings, await cachedCoinPrices(needPrice));
     } catch (e) {
       warnings.push(`CoinGecko prices unavailable for ${needPrice.length} token(s): ${(e as Error).message}`);
     }
