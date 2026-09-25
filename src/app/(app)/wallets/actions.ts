@@ -25,90 +25,13 @@ import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/car
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { refreshAssetPrices } from "@/lib/adapters/assetPrices";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
-import { refreshTokenRegistry, searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
-import { refreshLiquidStakingTokens } from "@/lib/adapters/liquidStakingRegistry";
+import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
+import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY } from "@/lib/tokenRegistryRefresh";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 
-/** The actual work — same shape as runPriceRefresh below: never throws,
- * a failure is recorded as token_registry_state's own status instead. */
-async function runTokenRegistryRefresh(): Promise<void> {
-  try {
-    const results = await refreshTokenRegistry();
-    const totalCount = results.reduce((sum, r) => sum + r.count, 0);
-    // Rides along (the Assets page's liquid staking combine view); a
-    // failure here is noted in the status, never fails the registry refresh.
-    const lst = await refreshLiquidStakingTokens().then(
-      (r) => `${r.tokens} liquid staking tokens`,
-      (e: Error) => `liquid staking tokens failed: ${e.message}`,
-    );
-    const { error } = await serviceDb()
-      .from("token_registry_state")
-      .update({
-        refreshed_at: new Date().toISOString(),
-        status: `ok (${totalCount} tokens across ${results.length} chains; ${lst})`,
-      })
-      .eq("id", 1);
-    if (error) throw new Error(`Failed to record token registry refresh: ${error.message}`);
-  } catch (e) {
-    await serviceDb()
-      .from("token_registry_state")
-      .update({ status: `error: ${(e as Error).message}` })
-      .eq("id", 1);
-  }
-}
-
-// The EVM sync (evm.ts -> multicallEvm.ts) reads on-chain balances only for
-// tokens already in cryptoport.token_registry — this is what populates it,
-// from CoinGecko's coins/list. Manual/on-demand rather than automatic: it's
-// slow (every EVM chain's full token list, tens of thousands of rows for
-// Ethereum) and registry data doesn't need to be fresher than "before your
-// next EVM wallet sync."
-//
-// Used to be awaited directly with zero status tracking — a documented
-// CLAUDE.md "known offender," the last Server Action in this app not
-// following the after()/CAS-claim/JobButton pattern every sync/refresh
-// action now does (see syncWalletHoldings for the original of this
-// pattern). Same compare-and-set claim on a new token_registry_state
-// singleton row (this data is global, not per-user, same as
-// price_refresh_state) — lets a second click/tab/user agree on whether a
-// refresh is genuinely already running, and recovers one stuck at
-// "refreshing" if an earlier run's after() got killed by the platform's
-// time limit.
-export async function refreshTokenRegistryAction(): Promise<JobStartResult> {
-  const requestedAt = Date.now();
-  // No cross-tenant data risk (token_registry is global, serviceDb()-only)
-  // but it's expensive and rate-limit-sensitive shared state — not
-  // something to leave open to an unauthenticated, unlimited trigger now
-  // that every page (and its buttons) renders for a guest too.
-  await requireUser();
-
-  const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
-  const { data: claimed, error: markError } = await serviceDb()
-    .from("token_registry_state")
-    .update({ status: "refreshing", started_at: new Date(requestedAt).toISOString() })
-    .eq("id", 1)
-    .or(`status.neq.refreshing,status.is.null,started_at.lt.${staleBefore}`)
-    .select("id");
-  if (markError) throw new Error(`Failed to start token registry refresh: ${markError.message}`);
-  if (!claimed || claimed.length === 0) {
-    return { started: false, reason: "A token list refresh is already running." };
-  }
-
-  after(async () => {
-    await runTokenRegistryRefresh();
-    revalidatePath("/wallets");
-  });
-
-  // No kickoff-time revalidatePath here (there used to be one) — see
-  // JobPoller.tsx's own doc comment: the client cache now gets purged once,
-  // reliably, when the poller confirms this job actually finished, not the
-  // instant it starts (before anything has changed). useJob's own busy
-  // state is already fully client-driven and never depended on this.
-  return { started: true };
-}
 
 // Prices are global (touches the shared `prices` table plus every EVM
 // holding's usd_override — never just one wallet), so every page that
@@ -692,7 +615,16 @@ async function keyed<T extends { ticker: string; chain: string | null; contract:
   source: HoldingSource,
 ): Promise<T[]> {
   try {
-    return await withPriceKeys(rows, source);
+    const out = await withPriceKeys(rows, source);
+    // A Solana/Sui token the token list doesn't know yet: refresh the list
+    // in the background, at most once a day (lib/tokenRegistryRefresh.ts),
+    // so it maps on the next pass. EVM wallets can't meet unknown tokens —
+    // their sync only checks tokens already on the list.
+    const unmapped = out.some(
+      (r) => r.contract && (r.chain === "solana" || r.chain === "solana-defi" || r.chain === "sui") && (!r.price_key || r.price_key.startsWith("jup:")),
+    );
+    if (unmapped) after(() => refreshTokenRegistryIfStale(TOKEN_LIST_DAILY).catch(() => {}));
+    return out;
   } catch (e) {
     console.warn(`[pricing] price keys not set (${source}): ${(e as Error).message}`);
     return rows;

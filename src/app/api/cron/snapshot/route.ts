@@ -1,14 +1,13 @@
 import type { NextRequest } from "next/server";
 import { capturePortfolioSnapshots } from "@/lib/snapshots";
-import { refreshLiquidStakingTokensIfStale } from "@/lib/adapters/liquidStakingRegistry";
 
 // Iterates every user with at least one active wallet in a single pass —
 // cheap per user (no per-user network calls, just in-memory aggregate()
 // over already-fetched holdings/prices) — so 60s is generous headroom, not
 // tight like refreshTokenRegistryAction/refreshPricesAction's 300s (those
 // make real per-token network calls).
-// 120, not 60: the weekly liquid staking token refresh below (~10
-// CoinGecko calls, with backoff on a 429) rides along with this daily run.
+// The liquid staking list's weekly refresh moved to the token list's own
+// cron (/api/cron/token-registry, 2026-09-25).
 export const maxDuration = 120;
 
 /**
@@ -25,8 +24,5 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   const result = await capturePortfolioSnapshots();
-  // Weekly (it's a no-op while the table is under a week old); its own
-  // failure never fails the snapshot run.
-  const liquidStaking = await refreshLiquidStakingTokensIfStale().catch((e: Error) => `error: ${e.message}`);
-  return Response.json({ ...result, liquidStaking });
+  return Response.json(result);
 }

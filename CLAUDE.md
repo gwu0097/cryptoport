@@ -289,8 +289,9 @@ per-wallet sync freshness (`wallets.last_refresh_at`/`last_refresh_status`).
   violation; fixed by moving to the same `after()` pattern.) `after()`
   still shares the route's `maxDuration` budget and can call
   `revalidatePath`. Known remaining offenders that have this same shape
-  and haven't been fixed yet: `refreshPricesAction`,
-  `refreshTokenRegistryAction`.
+  and haven't been fixed yet: `refreshPricesAction`. (The token list has
+  no action at all anymore: it refreshes itself — weekly cron, and after a
+  sync meets an unknown Solana/Sui token — see lib/tokenRegistryRefresh.ts.)
 
 ## UI conventions
 

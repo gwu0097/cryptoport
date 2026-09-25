@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { getWalletsWithTotals, getTags, getPriceRefreshState, getTokenRegistryState } from "@/lib/queries";
+import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
-import { TokenRegistryRefreshButton } from "@/components/TokenRegistryRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { buttonClass } from "@/components/ui/Button";
@@ -11,7 +10,7 @@ import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
 import { WalletsFilterProvider } from "@/components/wallets/WalletsFilterProvider";
 import { WalletsTotalValue } from "@/components/wallets/WalletsTotalValue";
-import { refreshPricesAction, refreshTokenRegistryAction } from "./actions";
+import { refreshPricesAction } from "./actions";
 
 // Without this, Next prerenders "/wallets" once at build time (it has no
 // runtime APIs or cookies to force dynamic rendering the old way) and Vercel
@@ -19,17 +18,15 @@ import { refreshPricesAction, refreshTokenRegistryAction } from "./actions";
 // whose entire job is showing current wallet values.
 export const dynamic = "force-dynamic";
 
-// refreshTokenRegistryAction pulls CoinGecko's full coin list (tens of
-// thousands of rows across every configured chain) — same reasoning as the
-// per-wallet sync's maxDuration in wallets/[id]/page.tsx.
+// Refresh prices and the per-wallet syncs started from this page run in
+// after() inside its invocation — same reasoning as wallets/[id]/page.tsx.
 export const maxDuration = 300;
 
 export default async function WalletsPage() {
-  const [{ wallets, grand }, tags, priceState, tokenRegistryState, user] = await Promise.all([
+  const [{ wallets, grand }, tags, priceState, user] = await Promise.all([
     getWalletsWithTotals(),
     getTags(),
     getPriceRefreshState(),
-    getTokenRegistryState(),
     getUser(),
   ]);
   const tagNames = tags.map((t) => t.name);
@@ -51,7 +48,6 @@ export default async function WalletsPage() {
               </Link>
               <SyncAllWalletsButton wallets={wallets} />
               <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
-              <TokenRegistryRefreshButton tokenRegistryState={tokenRegistryState} refresh={refreshTokenRegistryAction} />
             </>
           )
         }

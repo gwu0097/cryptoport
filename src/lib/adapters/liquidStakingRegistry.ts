@@ -7,10 +7,9 @@ import { categoryBase, type LiquidStakingToken } from "../liquidStaking";
 // cryptoport.liquid_staking_tokens: every member of CoinGecko's liquid
 // staking categories — what the Assets page's "Combine liquid staking
 // tokens" view (liquidStaking.ts) folds into base coins. Slow-changing
-// shared reference data (CLAUDE.md caching rule 2): refreshed weekly by the
-// snapshot cron and with "Refresh token list", never on a page load.
-
-const REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+// shared reference data (CLAUDE.md caching rule 2): refreshed with the token
+// list (lib/tokenRegistryRefresh.ts — weekly cron, or after a sync meets an
+// unknown Solana/Sui token), never on a page load.
 
 /** CoinGecko's liquid staking/restaking token categories, by name: the
  * coin-specific ones ("Liquid Staked ETH", "Liquid Restaked SOL") and the
@@ -49,19 +48,6 @@ export async function refreshLiquidStakingTokens(): Promise<{ tokens: number; ca
   return { tokens: payload.length, categories: categories.length };
 }
 
-/** Refreshes only when the table is empty or older than a week — the
- * snapshot cron calls this daily. */
-export async function refreshLiquidStakingTokensIfStale(): Promise<{ tokens: number; categories: number } | "fresh"> {
-  const { data, error } = await serviceDb()
-    .from("liquid_staking_tokens")
-    .select("updated_at")
-    .order("updated_at", { ascending: false })
-    .limit(1);
-  if (error) throw new Error(`Failed to read liquid staking tokens: ${error.message}`);
-  const last = data?.[0]?.updated_at as string | undefined;
-  if (last && Date.now() - new Date(last).getTime() < REFRESH_AFTER_MS) return "fresh";
-  return refreshLiquidStakingTokens();
-}
 
 /** The whole table (a few hundred rows), deduped per request. Empty on a
  * read failure: the Assets page then just shows tokens uncombined. */
