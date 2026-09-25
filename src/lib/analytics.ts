@@ -106,6 +106,17 @@ export interface CoverageResult {
 export function estimateCoverage(
   holdings: (EstimateHoldingInput & { currentUsd: number })[],
   priceHistory: PriceHistoryMap,
+  opts: {
+    /** The estimate only draws days before this (the first real
+     * snapshot): a price only from this day on — a daily close — doesn't
+     * cover anything the estimate shows (2026-09-25: today's closes made
+     * the caption read 99% when ~80% of value had past prices). */
+    before?: string;
+    /** Keys with a backfill row (price_history), fetched or confirmed
+     * empty; defaults to "has any entry in priceHistory". Daily closes
+     * don't count: a coin with only closes can still be backfilled. */
+    fetched?: ReadonlySet<string>;
+  } = {},
 ): CoverageResult {
   let coveredUsd = 0;
   let totalUsd = 0;
@@ -118,12 +129,14 @@ export function estimateCoverage(
     totalUsd += holding.currentUsd;
     const key = holding.price_key;
     const cached = key === null ? undefined : priceHistory.get(key);
+    const hasPast = !!cached && [...cached.keys()].some((date) => opts.before === undefined || date < opts.before);
+    const fetched = key !== null && (opts.fetched ? opts.fetched.has(key) : cached !== undefined);
 
-    if (cached === undefined && key !== null && isBackfillableKey(key)) {
+    if (hasPast) {
+      coveredUsd += holding.currentUsd;
+    } else if (key !== null && isBackfillableKey(key) && !fetched) {
       uncachedUsd += holding.currentUsd;
       uncached.add(holding.ticker);
-    } else if (cached !== undefined && cached.size > 0) {
-      coveredUsd += holding.currentUsd;
     } else {
       unresolvedUsd += holding.currentUsd;
       unresolved.add(holding.ticker);

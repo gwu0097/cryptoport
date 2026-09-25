@@ -32,14 +32,19 @@ function buildOption(
   holdings: Holding[],
   prices: PriceMap,
   priceHistory: PriceHistoryMap,
+  fetched: ReadonlySet<string>,
   dates: string[],
   real: { date: string; total: number }[],
 ): WalletSeriesOption {
   const estimated = estimateSeries(holdings, priceHistory, dates);
   const points = stitchSeries(estimated, real);
+  // The estimate draws only days before the first real snapshot (today,
+  // if there is none yet).
+  const before = real.reduce((min, p) => (p.date < min ? p.date : min), new Date().toISOString().slice(0, 10));
   const coverage = estimateCoverage(
     holdings.map((h) => ({ ...h, currentUsd: currentUsd(h, prices) })),
     priceHistory,
+    { before, fetched },
   );
   return {
     id,
@@ -91,7 +96,7 @@ export default async function AnalyticsPage({
   const perWalletReal = await Promise.all(wallets.map((w) => getValueHistory(w.id)));
 
   const allHoldings = wallets.flatMap((w) => w.holdings);
-  const priceHistory = await getPriceHistoryMap(allHoldings);
+  const { history: priceHistory, fetched } = await getPriceHistoryMap(allHoldings);
 
   // The estimate's date axis is exactly the days that have a stored price
   // (backfilled history or daily closes) — never a guessed/generated range
@@ -99,9 +104,9 @@ export default async function AnalyticsPage({
   const dates = [...new Set([...priceHistory.values()].flatMap((byDate) => [...byDate.keys()]))].sort();
 
   const options: WalletSeriesOption[] = [
-    buildOption("all", "All wallets", null, allHoldings, prices, priceHistory, dates, globalReal),
+    buildOption("all", "All wallets", null, allHoldings, prices, priceHistory, fetched, dates, globalReal),
     ...wallets.map((w, i) =>
-      buildOption(w.id, w.name, w.address, w.holdings, prices, priceHistory, dates, perWalletReal[i]),
+      buildOption(w.id, w.name, w.address, w.holdings, prices, priceHistory, fetched, dates, perWalletReal[i]),
     ),
   ];
 

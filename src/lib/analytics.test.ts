@@ -178,3 +178,20 @@ test("buildHistoryMap: old-key history, then the key's own, then daily closes (l
   assert.equal(map.has("never"), false);
   assert.equal(map.get("empty")!.size, 0); // CoinGecko confirmed none: present but empty
 });
+
+test("estimateCoverage: a price only from the real-snapshot start on (a daily close) covers nothing; an unfetched coin stays backfillable", () => {
+  const holdings = [
+    { ticker: "ETH", price_key: "ethereum", qty: 2, currentUsd: 4000 },
+    { ticker: "WIF", price_key: "jup:mint", qty: 10, currentUsd: 30 },
+    { ticker: "BTC", price_key: "bitcoin", qty: 1, currentUsd: 100 },
+  ];
+  const priceHistory = history({
+    ethereum: { "2026-09-25": 2000 }, // close only
+    "jup:mint": { "2026-09-25": 3 }, // close only, not backfillable
+    bitcoin: { "2026-08-01": 90, "2026-09-25": 100 }, // backfilled
+  });
+  const result = estimateCoverage(holdings, priceHistory, { before: "2026-09-14", fetched: new Set(["bitcoin"]) });
+  assert.equal(result.coveredUsd, 100);
+  assert.deepEqual(result.uncachedTickers, ["ETH"]);
+  assert.deepEqual(result.unresolvedTickers, ["WIF"]);
+});

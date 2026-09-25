@@ -101,12 +101,11 @@ type HistoryHolding = Pick<Holding, "ticker" | "source" | "contract" | "chain" |
  *  2. price_history under the price_key itself (backfills since);
  *  3. asset_price_daily — the daily snapshot's close of asset_prices, the
  *     only history for jup:/hl:/coinbase: assets.
- * A key with no layer at all is absent (never fetched); a price_history
- * row with an empty series and no closes is an empty Map (CoinGecko
- * confirmed it has none) — analytics.ts's estimateCoverage tells them
- * apart. Through userDb(): both tables are readable by any signed-in
+ * `fetched` names the keys with a backfill row (under either name), which
+ * analytics.ts's estimateCoverage uses to tell "backfill can still help"
+ * from "CoinGecko has none". Through userDb(): both tables are readable by any signed-in
  * user (shared market data). */
-export async function getPriceHistoryMap(holdings: HistoryHolding[]): Promise<PriceHistoryMap> {
+export async function getPriceHistoryMap(holdings: HistoryHolding[]): Promise<{ history: PriceHistoryMap; fetched: Set<string> }> {
   const legacyOf = new Map<string, Set<string>>();
   for (const h of holdings) {
     if (!h.price_key) continue;
@@ -116,7 +115,7 @@ export async function getPriceHistoryMap(holdings: HistoryHolding[]): Promise<Pr
     legacyOf.set(h.price_key, set);
   }
   const keys = [...legacyOf.keys()];
-  if (keys.length === 0) return new Map();
+  if (keys.length === 0) return { history: new Map(), fetched: new Set() };
 
   const db = await userDb();
   const historyKeys = [...new Set([...keys, ...[...legacyOf.values()].flatMap((s) => [...s])])];
@@ -145,5 +144,8 @@ export async function getPriceHistoryMap(holdings: HistoryHolding[]): Promise<Pr
     }
   }
 
-  return buildHistoryMap(legacyOf, series, closes);
+  // Keys with a backfill row (under either name) — analytics.ts's
+  // estimateCoverage: daily closes alone don't make a coin "fetched".
+  const fetched = new Set(keys.filter((k) => series.has(k) || [...legacyOf.get(k)!].some((l) => series.has(l))));
+  return { history: buildHistoryMap(legacyOf, series, closes), fetched };
 }
