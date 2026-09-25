@@ -216,7 +216,7 @@ the status says so. A new adapter or soft-failing source must declare one.
 ### 4.4 DeFi positions: native adapters first, Zerion fills the gaps
 
 An EVM wallet's one Sync (`syncWalletHoldings`) fetches its balances, the native
-protocol adapters (Hyperliquid, Lighter, Axie, SuperVerse, Polymarket, …) and Zerion's
+protocol adapters (Hyperliquid, Lighter, INIT Capital, Axie, SuperVerse, Polymarket, …) and Zerion's
 DeFi positions (`adapters/zerionDefi.ts`) in the same job — there is no separate
 DeFi sync. **Zerion only covers protocols no native adapter owns:** each native
 adapter exports the protocol names Zerion uses for it (`ZERION_PROTOCOL_NAMES`),
