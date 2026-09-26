@@ -43,11 +43,12 @@ export function planPriceWrites(
 }
 
 /** The source a key is priced from — one per key, by its namespace. */
-export function sourceOf(priceKey: string): "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter" | "fiat" {
+export function sourceOf(priceKey: string): "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter" | "aster" | "fiat" {
   if (priceKey.startsWith("fiat:")) return "fiat";
   if (priceKey.startsWith("jup:")) return "jupiter";
   if (priceKey.startsWith("hl:") || priceKey.startsWith("hlperp:")) return "hyperliquid"; // spot token / perp mark (perpPositions.ts)
   if (priceKey.startsWith("coinbase:")) return "coinbase";
   if (priceKey.startsWith("lighterperp:")) return "lighter"; // a Lighter perp's mark (perpPositions.ts)
+  if (priceKey.startsWith("asterperp:")) return "aster"; // an Aster perp's mark
   return "coingecko";
 }

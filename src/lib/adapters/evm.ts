@@ -6,6 +6,7 @@ import { fetchAxieStaking } from "./axieStaking";
 import { fetchPolymarketHoldings } from "./polymarket";
 import { fetchSuperverseStaking } from "./superverseStaking";
 import { fetchLighterHoldings } from "./lighter";
+import { fetchAsterHoldings } from "./aster";
 import { fetchInitCapitalHoldings } from "./initCapital";
 import type { AdapterHolding } from "./types";
 import { chainScope, protocolScope, type KeepScope } from "../carryForward";
@@ -66,6 +67,10 @@ export async function fetchEvmHoldings(address: string, previous?: ReadonlyMap<s
     soft("polymarket", chainScope("polymarket", "polymarket"), fetchPolymarketHoldings(address)),
     soft("superverse staking", protocolScope("superverse staking", "SuperVerse Staking"), fetchSuperverseStaking(address as Address)),
     soft("lighter", chainScope("lighter", "lighter"), fetchLighterHoldings(address)),
+    fetchAsterHoldings(address).then(
+      (r) => ({ holdings: r.holdings, warnings: r.warnings, keep: [] as KeepScope[] }),
+      (e: Error) => ({ holdings: [] as AdapterHolding[], warnings: [`aster: ${e.message}`], keep: [chainScope("aster", "aster")] }),
+    ),
     soft("init capital", protocolScope("init capital", "INIT Capital"), fetchInitCapitalHoldings(address)),
   ]);
 

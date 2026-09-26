@@ -31,6 +31,7 @@ test("one source per key, by namespace", () => {
   assert.equal(sourceOf("jup:J1toso1"), "jupiter");
   assert.equal(sourceOf("hlperp:LIT"), "hyperliquid"); // a perp's mark price, not a CoinGecko id
   assert.equal(sourceOf("lighterperp:BTC"), "lighter");
+  assert.equal(sourceOf("asterperp:BTCUSDT"), "aster");
   assert.equal(sourceOf("hl:PURR"), "hyperliquid");
   assert.equal(sourceOf("coinbase:LRDS"), "coinbase");
 });

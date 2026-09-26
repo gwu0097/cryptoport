@@ -40,16 +40,18 @@ export interface CurrentPnl {
 // venues' position rows are "<SYMBOL>-PERP" (adapters/hyperliquid.ts,
 // lighter.ts). A new venue is one entry here plus its lane in
 // adapters/assetPrices.ts.
-const MARK_PREFIX: Record<string, string> = { hyperliquid: "hlperp:", lighter: "lighterperp:" };
+const MARK_PREFIX: Record<string, string> = { hyperliquid: "hlperp:", lighter: "lighterperp:", aster: "asterperp:" };
 
 /** Every perp-mark key prefix (the holdings reads load these rows). */
 export const MARK_KEY_PREFIXES: readonly string[] = Object.values(MARK_PREFIX);
 
 /** The asset_prices key holding a position's venue mark price, or null when
- * the venue isn't covered yet. */
-export function markKeyFor(p: { chain: string | null; ticker: string }): string | null {
+ * the venue isn't covered yet. Aster markets are keyed by their symbol
+ * ("BTCUSDT", the row's `contract`): one base trades against several quotes. */
+export function markKeyFor(p: { chain: string | null; ticker: string; contract?: string | null }): string | null {
   const prefix = p.chain ? MARK_PREFIX[p.chain] : undefined;
   if (!prefix || !p.ticker.endsWith("-PERP")) return null;
+  if (p.chain === "aster") return p.contract ? `${prefix}${p.contract}` : null;
   return `${prefix}${p.ticker.slice(0, -"-PERP".length)}`;
 }
 
@@ -114,12 +116,26 @@ export function withCurrentPnl<
 // ---- Open positions (the Dashboard section and its "Refresh positions") ----
 
 /** Venues whose accounts "Refresh positions" re-reads: each is one account
- * call per wallet (adapters/hyperliquid.ts, lighter.ts, polymarket.ts), and a
- * wallet's rows for that venue are replaced as a whole — positions, cash and
- * margin together, so totals stay right (on Hyperliquid and Lighter a
- * position's PnL lands in the account's cash rows, not the position's). */
-export const POSITION_VENUES = ["hyperliquid", "lighter", "polymarket"] as const;
+ * call per wallet, and that venue's rows for the wallet are replaced as a
+ * whole — positions, cash and margin together, so totals stay right (on
+ * Hyperliquid, Lighter and Aster a position's PnL lands in the account's cash
+ * rows, not the position's). A venue's rows are its `chain`, narrowed to one
+ * `protocol` where the chain is shared (Solana DeFi). `wallet`: which wallets
+ * have it (an EVM address, or a Solana one). */
+export const POSITION_VENUES = [
+  { id: "hyperliquid", chain: "hyperliquid", protocol: null, wallet: "evm" },
+  { id: "lighter", chain: "lighter", protocol: null, wallet: "evm" },
+  { id: "aster", chain: "aster", protocol: null, wallet: "evm" },
+  { id: "polymarket", chain: "polymarket", protocol: null, wallet: "evm" },
+  { id: "jupiter-perps", chain: "solana-defi", protocol: "Jupiter Perps", wallet: "solana" },
+  { id: "jupiter-prediction", chain: "solana-defi", protocol: "Jupiter Prediction", wallet: "solana" },
+] as const;
 export type PositionVenue = (typeof POSITION_VENUES)[number];
+
+/** Whether a row belongs to a venue (its chain, and protocol when set). */
+export function venueOwns(v: PositionVenue, row: { chain: string | null; protocol?: string | null }): boolean {
+  return row.chain === v.chain && (v.protocol === null || row.protocol === v.protocol);
+}
 
 /** An open position: a leveraged perp (any venue), or a prediction-market
  * position still worth something (a market lost or at 0 isn't open). */
@@ -134,10 +150,6 @@ export function isOpenPosition(h: {
 }
 
 /** Which of a wallet's venues have an open position, from its stored rows. */
-export function venuesWithOpenPositions(rows: readonly Parameters<typeof isOpenPosition>[0][]): PositionVenue[] {
-  const venues = new Set<PositionVenue>();
-  for (const r of rows) {
-    if (r.chain && (POSITION_VENUES as readonly string[]).includes(r.chain) && isOpenPosition(r)) venues.add(r.chain as PositionVenue);
-  }
-  return [...venues];
+export function venuesWithOpenPositions(rows: readonly (Parameters<typeof isOpenPosition>[0] & { protocol?: string | null })[]): PositionVenue[] {
+  return POSITION_VENUES.filter((v) => rows.some((r) => venueOwns(v, r) && isOpenPosition(r)));
 }

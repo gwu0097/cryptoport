@@ -6,7 +6,9 @@
 // USDe; Polymarket's PUSD, 1:1 USDC-redeemable). Adding one needs the same check.
 // Pure.
 
-export const DOLLAR_FALLBACK_STABLECOINS: ReadonlySet<string> = new Set(["USDC", "USDT0", "USDE", "PUSD"]);
+// USDH: Hyperliquid's native dollar stablecoin, the margin of several HIP-3
+// perp markets (0.9994 USDC on Hyperliquid spot, 2026-09-26).
+export const DOLLAR_FALLBACK_STABLECOINS: ReadonlySet<string> = new Set(["USDC", "USDT0", "USDE", "USDH", "PUSD"]);
 
 /** qty × $1 for a listed stablecoin, else null (never a guess). */
 export function stablecoinFallbackUsd(ticker: string, qty: number): number | null {

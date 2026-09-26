@@ -1,6 +1,6 @@
 import "server-only";
 import { stablecoinFallbackUsd } from "../stablecoinFallback";
-import { perpsUnallocatedUsd } from "../hyperliquidPerps";
+import { perpAccountRows, type PerpAccountState } from "../hyperliquidPerps";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
@@ -19,26 +19,7 @@ const BASE_URL = "https://api.hyperliquid.xyz/info";
 // construction rather than by an incidental chain-mapping gap.
 export const ZERION_PROTOCOL_NAMES = ["hyperliquid"];
 
-interface HyperliquidPosition {
-  coin: string;
-  szi: string;
-  entryPx: string;
-  liquidationPx: string | null;
-  unrealizedPnl: string;
-  marginUsed: string;
-  leverage: { type: string; value: number };
-  // A fraction, not a percentage (live-verified: a real -0.0134 PnL on a
-  // 4.97 margin position reported returnOnEquity -0.0026789, matching
-  // -0.0134/4.967826 almost exactly) — ×100 at the call site below to match
-  // Polymarket's percentPnl, which is already in percentage-point form.
-  returnOnEquity: string;
-}
-
-interface ClearinghouseState {
-  crossMarginSummary: { accountValue: string };
-  withdrawable: string;
-  assetPositions: { type: string; position: HyperliquidPosition }[];
-}
+type ClearinghouseState = PerpAccountState;
 
 interface SpotBalance {
   coin: string;
@@ -86,6 +67,30 @@ async function fetchVaultName(vaultAddress: string): Promise<string> {
   }
 }
 
+// HIP-3 markets and their collateral change rarely (a new market is a
+// governance/stake event): listed once per process per HIP3_TTL_MS — perpDexs,
+// each market's meta (its collateral token index) and spotMeta (token names).
+const HIP3_TTL_MS = 10 * 60_000;
+let hip3Cache: { at: number; markets: { dex: string; label: string; collateral: string }[] } | null = null;
+
+export async function hip3Markets(): Promise<{ dex: string; label: string; collateral: string }[]> {
+  if (hip3Cache && Date.now() - hip3Cache.at < HIP3_TTL_MS) return hip3Cache.markets;
+  const [dexs, spotMeta] = await Promise.all([
+    postInfo<({ name: string; fullName?: string } | null)[]>({ type: "perpDexs" }),
+    postInfo<{ tokens: { index: number; name: string }[] }>({ type: "spotMeta" }),
+  ]);
+  const tokenName = new Map(spotMeta.tokens.map((t) => [t.index, t.name]));
+  const named = dexs.filter((d): d is { name: string; fullName?: string } => !!d?.name);
+  const markets = await Promise.all(
+    named.map(async (d) => {
+      const meta = await postInfo<{ collateralToken?: number }>({ type: "meta", dex: d.name });
+      return { dex: d.name, label: d.fullName?.trim() || d.name, collateral: tokenName.get(meta.collateralToken ?? 0) ?? "USDC" };
+    }),
+  );
+  hip3Cache = { at: Date.now(), markets };
+  return markets;
+}
+
 /**
  * Hyperliquid's account is really four buckets DeBank's own UI already
  * separates (Deposit / Perpetuals / Yield / Rewards — matched here via
@@ -117,7 +122,7 @@ async function fetchVaultName(vaultAddress: string): Promise<string> {
 export async function fetchHyperliquidHoldings(
   address: string,
 ): Promise<{ holdings: AdapterHolding[]; warnings: string[]; keep: KeepScope[] }> {
-  const [perps, spot, vaultsResult, referralResult] = await Promise.all([
+  const [perps, spot, vaultsResult, referralResult, hip3] = await Promise.all([
     postInfo<ClearinghouseState>({ type: "clearinghouseState", user: address }),
     postInfo<SpotClearinghouseState>({ type: "spotClearinghouseState", user: address }),
     // Optional extras: a failure is a warning and keeps their previous
@@ -125,6 +130,14 @@ export async function fetchHyperliquidHoldings(
     // equity from the wallet with no warning at all.
     postInfo<VaultEquity[]>({ type: "userVaultEquities", user: address }).catch((e: Error) => e),
     postInfo<ReferralState>({ type: "referral", user: address }).catch((e: Error) => e),
+    // HIP-3 markets (builder-deployed perps, e.g. tradeXYZ): each is its own
+    // account with its own margin, so money there isn't in the main account
+    // (checked 2026-09-26: a trader's main + xyz + other markets matched
+    // Hyperliquid's own perps total). One call per market; a market that
+    // fails keeps its previous rows.
+    hip3Markets()
+      .then((markets) => Promise.all(markets.map(async (m) => ({ m, state: await postInfo<ClearinghouseState>({ type: "clearinghouseState", user: address, dex: m.dex }).catch((e: Error) => e) }))))
+      .catch((e: Error) => e),
   ]);
   const warnings: string[] = [];
   const keep: KeepScope[] = [];
@@ -135,6 +148,16 @@ export async function fetchHyperliquidHoldings(
     return null;
   };
   const vaults = extra(vaultsResult, "Yield", "vaults") ?? [];
+  // A HIP-3 market's rows (kept when its read fails): its positions
+  // ("xyz:TSLA-PERP") and its two cash rows ("XYZ · Withdrawable" /
+  // "XYZ · Available", hyperliquidPerps.ts perpAccountRows). With no market
+  // given, every HIP-3 market's rows.
+  const isHip3CashLabel = (label: string | null | undefined, market?: string) =>
+    !!label && (market === undefined ? / · (Withdrawable|Available)$/.test(label) : label === `${market} · Withdrawable` || label === `${market} · Available`);
+  const hip3Scope = (m: { dex: string; label: string } | null): KeepScope => ({
+    label: `hyperliquid ${m ? m.label : "HIP-3 markets"}`,
+    owns: (h) => h.chain === "hyperliquid" && (m ? h.ticker.startsWith(`${m.dex}:`) || isHip3CashLabel(h.display_label, m.label) : /^[a-z0-9]+:/.test(h.ticker) || isHip3CashLabel(h.display_label)),
+  });
   const referral = extra(referralResult, "Rewards", "referral rewards");
 
   const holdings: AdapterHolding[] = [];
@@ -159,78 +182,22 @@ export async function fetchHyperliquidHoldings(
     });
   }
 
-  const withdrawable = Number(perps.withdrawable);
-  if (Number.isFinite(withdrawable) && withdrawable > 0) {
-    holdings.push({
-      ticker: "USDC",
-      qty: withdrawable,
-      usd_override: stablecoinFallbackUsd("USDC", withdrawable),
-      contract: null,
-      category: "defi",
-      chain: "hyperliquid",
-      icon_url: null,
-      protocol: "Hyperliquid",
-      protocol_url: null,
-      protocol_section: "Deposit",
-      display_label: "Perps Withdrawable",
-    });
-  }
+  holdings.push(...perpAccountRows(perps, "USDC", null));
 
-  // Only what isn't already withdrawable or a position's margin (each
-  // position row below carries its own) — see hyperliquidPerps.ts.
-  const available = perpsUnallocatedUsd(
-    Number(perps.crossMarginSummary.accountValue),
-    withdrawable,
-    perps.assetPositions.filter(({ position }) => Number(position.szi) !== 0).map(({ position }) => Number(position.marginUsed)),
-  );
-  if (available !== null) {
-    holdings.push({
-      ticker: "USDC",
-      qty: available,
-      usd_override: stablecoinFallbackUsd("USDC", available),
-      contract: null,
-      category: "defi",
-      chain: "hyperliquid",
-      icon_url: null,
-      protocol: "Hyperliquid",
-      protocol_url: null,
-      protocol_section: "Deposit",
-      display_label: "Perps Available",
-    });
-  }
-
-  for (const { position } of perps.assetPositions) {
-    const size = Number(position.szi);
-    if (!Number.isFinite(size) || size === 0) continue;
-    const margin = Number(position.marginUsed);
-    if (!Number.isFinite(margin)) continue;
-    // Every open position is shown regardless of PnL size — the point is
-    // visibility into what's open, not just ones currently moving; a
-    // freshly-opened or perfectly flat position still has real leverage/
-    // liquidation risk worth seeing.
-    const pnl = Number.isFinite(Number(position.unrealizedPnl)) ? Number(position.unrealizedPnl) : 0;
-    const liqPx = position.liquidationPx !== null ? Number(position.liquidationPx) : null;
-    const roe = Number(position.returnOnEquity);
-    const pnlPercent = Number.isFinite(roe) ? roe * 100 : null;
-
-    holdings.push({
-      ticker: `${position.coin}-PERP`,
-      qty: Math.abs(size),
-      usd_override: margin,
-      contract: null,
-      category: "defi",
-      chain: "hyperliquid",
-      icon_url: null,
-      protocol: "Hyperliquid",
-      protocol_url: null,
-      protocol_section: "Perpetuals",
-      position_side: size > 0 ? "long" : "short",
-      position_leverage: Number.isFinite(position.leverage?.value) ? position.leverage.value : null,
-      position_entry_price: Number.isFinite(Number(position.entryPx)) ? Number(position.entryPx) : null,
-      position_liquidation_price: liqPx !== null && Number.isFinite(liqPx) ? liqPx : null,
-      position_pnl_usd: pnl,
-      position_pnl_percent: pnlPercent,
-    });
+  if (hip3 instanceof Error) {
+    warnings.push(`hyperliquid HIP-3 markets: ${hip3.message}`);
+    keep.push(hip3Scope(null));
+  } else {
+    for (const { m, state } of hip3) {
+      if (state instanceof Error) {
+        warnings.push(`hyperliquid ${m.label}: ${state.message}`);
+        keep.push(hip3Scope(m));
+        continue;
+      }
+      const rows = perpAccountRows(state, m.collateral, { label: m.label });
+      for (const r of rows) if (r.usd_override === null) warnings.push(`hyperliquid ${m.label}: ${m.collateral} margin isn't a listed stablecoin — unpriced`);
+      holdings.push(...rows);
+    }
   }
 
   for (const v of vaults) {
@@ -276,7 +243,11 @@ export async function fetchHyperliquidHoldings(
   // else icons are resolved in this app: a failure here never drops real
   // balance data, holdings just render with their letter-avatar fallback.
   const iconTicker = (h: AdapterHolding) => (h.ticker.endsWith("-PERP") ? h.ticker.slice(0, -5) : h.ticker);
-  const icons = await resolveTickerIcons(holdings.map(iconTicker)).catch(() => new Map<string, string>());
+  // HIP-3 positions ("xyz:TSLA") are stocks/commodities, not coins:
+  // CoinGecko has no logo for them, and the bare symbol would match an
+  // unrelated token's. Not looked up.
+  const isHip3 = (h: AdapterHolding) => /^[a-z0-9]+:/.test(h.ticker);
+  const icons = await resolveTickerIcons(holdings.filter((h) => !isHip3(h)).map(iconTicker)).catch(() => new Map<string, string>());
   for (const holding of holdings) {
     holding.icon_url = icons.get(iconTicker(holding).toUpperCase()) ?? null;
   }
@@ -311,17 +282,23 @@ export async function fetchHyperliquidSpotPrices(): Promise<Map<string, { usd: n
   return out;
 }
 
-/** Every Hyperliquid perp's MARK price (what Hyperliquid computes unrealized
- * PnL with) and 24h change, in one metaAndAssetCtxs call — keyed by perp name
- * ("LIT", "kPEPE"). Used for open positions' live PnL (perpPositions.ts). */
-export async function fetchHyperliquidPerpMarks(): Promise<Map<string, { usd: number; change24h: number | null }>> {
-  const [meta, ctxs] = await postInfo<[{ universe: { name: string }[] }, { markPx?: string; prevDayPx?: string }[]]>({ type: "metaAndAssetCtxs" });
+/** Hyperliquid perps' MARK prices (what Hyperliquid computes unrealized PnL
+ * with) and 24h change, keyed by perp name ("LIT", "kPEPE", "xyz:TSLA") —
+ * one metaAndAssetCtxs call per market asked for: "" is the main market,
+ * anything else a HIP-3 market ("xyz"). Used for open positions' live PnL
+ * (perpPositions.ts). */
+export async function fetchHyperliquidPerpMarks(markets: readonly string[] = [""]): Promise<Map<string, { usd: number; change24h: number | null }>> {
   const out = new Map<string, { usd: number; change24h: number | null }>();
-  meta.universe.forEach((u, i) => {
-    const usd = Number(ctxs[i]?.markPx);
-    if (!Number.isFinite(usd) || usd <= 0) return;
-    const prev = Number(ctxs[i]?.prevDayPx);
-    out.set(u.name, { usd, change24h: Number.isFinite(prev) && prev > 0 ? ((usd - prev) / prev) * 100 : null });
-  });
+  await Promise.all(
+    [...new Set(markets)].map(async (dex) => {
+      const [meta, ctxs] = await postInfo<[{ universe: { name: string }[] }, { markPx?: string; prevDayPx?: string }[]]>(dex ? { type: "metaAndAssetCtxs", dex } : { type: "metaAndAssetCtxs" });
+      meta.universe.forEach((u, i) => {
+        const usd = Number(ctxs[i]?.markPx);
+        if (!Number.isFinite(usd) || usd <= 0) return;
+        const prev = Number(ctxs[i]?.prevDayPx);
+        out.set(u.name, { usd, change24h: Number.isFinite(prev) && prev > 0 ? ((usd - prev) / prev) * 100 : null });
+      });
+    }),
+  );
   return out;
 }

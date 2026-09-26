@@ -19,6 +19,8 @@ const LIT: PositionInput = {
 test("mark keys: Hyperliquid and Lighter perps", () => {
   assert.equal(markKeyFor(LIT), "hlperp:LIT");
   assert.equal(markKeyFor({ chain: "lighter", ticker: "BTC-PERP" }), "lighterperp:BTC");
+  assert.equal(markKeyFor({ chain: "aster", ticker: "BTC-PERP", contract: "BTCUSDT" }), "asterperp:BTCUSDT");
+  assert.equal(markKeyFor({ chain: "hyperliquid", ticker: "xyz:TSLA-PERP" }), "hlperp:xyz:TSLA");
   assert.equal(markKeyFor({ chain: "solana-defi", ticker: "SOL-PERP" }), null);
   assert.equal(markKeyFor({ chain: "hyperliquid", ticker: "USDC" }), null);
 });
@@ -78,15 +80,16 @@ test("open positions: perps, and prediction positions still worth something", ()
   assert.equal(isOpenPosition({ chain: "hyperliquid", protocol_section: "Deposit", usd_override: 100 }), false);
 });
 
-test("venues to re-read: only those with an open position on a covered venue", () => {
+test("venues to re-read: only those with an open position; a shared chain narrows by protocol", () => {
   assert.deepEqual(
     venuesWithOpenPositions([
       { chain: "hyperliquid", position_side: "long" },
       { chain: "hyperliquid", protocol_section: "Deposit", usd_override: 100 },
       { chain: "polymarket", protocol_section: "Prediction", usd_override: 0 },
       { chain: "lighter", protocol_section: "Deposit", usd_override: 600 }, // cash only, no position
-      { chain: "solana-defi", position_side: "short" }, // Jupiter Perps: not re-read here
-    ]),
-    ["hyperliquid"],
+      { chain: "solana-defi", protocol: "Jupiter Perps", position_side: "short" },
+      { chain: "solana-defi", protocol: "Kamino", position_side: "long" }, // not a covered venue
+    ]).map((v) => v.id),
+    ["hyperliquid", "jupiter-perps"],
   );
 });

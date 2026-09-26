@@ -18,6 +18,7 @@ export const CHAIN_NAMES: Record<string, string> = {
   ETH: "Ethereum",
   hyperliquid: "Hyperliquid",
   lighter: "Lighter",
+  aster: "Aster",
   polymarket: "Polymarket",
   "solana-defi": "Solana DeFi",
   // Exchange "chain" — not a real chain, but holdings/wallets use the same

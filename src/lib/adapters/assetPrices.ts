@@ -4,6 +4,7 @@ import { fetchMarketStatsByIds } from "./coingecko";
 import { fetchTokenInfo } from "./jupiter";
 import { fetchHyperliquidSpotPrices, fetchHyperliquidPerpMarks } from "./hyperliquid";
 import { fetchLighterPerpMarks } from "./lighter";
+import { fetchAsterPerpMarks } from "./aster";
 import { markKeyFor } from "../perpPositions";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange } from "../coinbase";
 import { mapWithConcurrency } from "./http";
@@ -25,9 +26,9 @@ async function allHeldKeys(): Promise<string[]> {
   }
   // Open perp positions' mark prices (live PnL, perpPositions.ts) — only
   // when a position is open, so no call is made otherwise.
-  const { data: positions, error: positionsError } = await db.from("holdings").select("chain, ticker").not("position_side", "is", null);
+  const { data: positions, error: positionsError } = await db.from("holdings").select("chain, ticker, contract").not("position_side", "is", null);
   if (positionsError) throw new Error(`Failed to read open positions: ${positionsError.message}`);
-  for (const r of positions as { chain: string | null; ticker: string }[]) {
+  for (const r of positions as { chain: string | null; ticker: string; contract: string | null }[]) {
     const k = markKeyFor(r);
     if (k) keys.add(k);
   }
@@ -38,7 +39,7 @@ async function allHeldKeys(): Promise<string[]> {
 }
 
 /** One source's progress through a pass ("Refresh prices" shows it live). */
-export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter";
+export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter" | "aster";
 export type OnLane = (lane: PricingLane, status: "running" | "done" | "error") => void;
 
 /** Prices the given keys (default: every held key + watchlist). Each source
@@ -113,10 +114,13 @@ export async function refreshAssetPrices(
         // made only for the kinds actually requested.
         const spotKeys = hl.filter((k) => k.startsWith("hl:"));
         const perpKeys = hl.filter((k) => k.startsWith("hlperp:"));
-        calls.hyperliquid = (spotKeys.length > 0 ? 1 : 0) + (perpKeys.length > 0 ? 1 : 0);
+        // A perp key's market: "hlperp:xyz:TSLA" is HIP-3 market "xyz",
+        // "hlperp:LIT" the main one ("").
+        const perpMarkets = [...new Set(perpKeys.map((k) => (k.slice("hlperp:".length).includes(":") ? k.slice("hlperp:".length).split(":")[0] : "")))];
+        calls.hyperliquid = (spotKeys.length > 0 ? 1 : 0) + perpMarkets.length;
         const [spot, perps] = await Promise.all([
           spotKeys.length > 0 ? fetchHyperliquidSpotPrices() : new Map<string, { usd: number; change24h: number | null }>(),
-          perpKeys.length > 0 ? fetchHyperliquidPerpMarks() : new Map<string, { usd: number; change24h: number | null }>(),
+          perpKeys.length > 0 ? fetchHyperliquidPerpMarks(perpMarkets) : new Map<string, { usd: number; change24h: number | null }>(),
         ]);
         for (const k of spotKeys) {
           const p = spot.get(k.slice(3));
@@ -160,6 +164,21 @@ export async function refreshAssetPrices(
           const p = marks.get(symbol);
           if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "lighter" });
           assets.push({ price_key: k, symbol: `${symbol}-PERP`, name: null, image_url: null, updated_at: nowIso() });
+        }
+      }),
+    );
+  }
+  const aster = bySource.get("aster") ?? [];
+  if (aster.length) {
+    lanes.push(
+      lane("aster", aster, async () => {
+        calls.aster = 1;
+        const marks = await fetchAsterPerpMarks();
+        for (const k of aster) {
+          const symbol = k.slice("asterperp:".length);
+          const p = marks.get(symbol);
+          if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "aster" });
+          assets.push({ price_key: k, symbol, name: null, image_url: null, updated_at: nowIso() });
         }
       }),
     );

@@ -9,6 +9,24 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Perp coverage: Hyperliquid HIP-3 markets, Aster, Jupiter in Refresh positions
+
+Owner: every perp and prediction venue we scan should land in Open positions;
+build out major missing ones. Rankings (Sep 2026, 24h volume): Hyperliquid,
+tradeXYZ, Aster, ApeX, Lighter; prediction: Kalshi overall, Polymarket 96%+
+on-chain. tradeXYZ is a HIP-3 market on Hyperliquid with its own margin
+account — the adapter read only the main market, so HIP-3 money was missing
+from totals, not just positions. Now all 11 Hyperliquid markets are read
+(collateral USDC/USDH/USDe/USDT0; USDH added to the $1 stablecoin list); five
+live HIP-3 traders' totals matched Hyperliquid's own perps total to the cent
+on four and +0.18% on one, after switching "Available" from cross-margin
+equity to the whole account's (isolated positions had left it short, −17% on
+one). Aster via its public by-address RPC (aster_getBalance; unit-tested on
+its documented shape — no Aster account among ours to check live). ApeX,
+edgeX and Kalshi need the user's API keys: a separate, exchange-style
+feature, not built. Jupiter Perps / Prediction join Refresh positions through
+a protocol filter on replace_venue_holdings.
+
 ## 2026-09-26 — Open positions on the Dashboard, live PnL from the venue's mark
 
 Owner: show every open perp position on the Dashboard so users are aware of

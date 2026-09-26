@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 import type { OpenPosition } from "@/lib/queries";
 import { refreshOpenPositions } from "@/app/(app)/dashboard/actions";
 import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
@@ -15,6 +15,7 @@ type SortKey = "position" | "value" | "pnl";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:openPositionsSort";
+const COLLAPSED_KEY = "cryptoport:openPositionsCollapsed";
 const DEFAULT_SORT: Sort = { key: "value", dir: "desc" };
 
 function sortValue(p: OpenPosition, key: SortKey): number | string {
@@ -71,6 +72,7 @@ function RefreshPositionsButton() {
  */
 export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPosition[]; asOfLabel: string }) {
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
+  const [collapsed, setCollapsed] = usePersistedState<boolean>(COLLAPSED_KEY, false);
   const { key: sortKey, dir: sortDir } = sort;
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -85,22 +87,46 @@ export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPo
   const known = positions.filter((p) => p.pnlUsd !== null);
   const total = known.reduce((s, p) => s + (p.pnlUsd as number), 0);
   const unknown = positions.length - known.length;
+  // Margin locked in perps, and what prediction positions are worth — the
+  // two kinds of money at risk here (a prediction has no margin).
+  const perps = positions.filter((p) => p.kind === "perp");
+  const margin = perps.reduce((s, p) => s + (p.valueUsd ?? 0), 0);
+  const predictions = positions.filter((p) => p.kind === "prediction");
+  const predictionValue = predictions.reduce((s, p) => s + (p.valueUsd ?? 0), 0);
 
   return (
     <div className="mb-4 rounded-xl border border-border bg-surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-fg">
+        {/* The header toggles the table; the totals stay visible collapsed. */}
+        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="text-left">
+          <h2 className="flex items-center gap-1.5 text-base font-semibold text-fg">
+            <ChevronRight className={`size-4 text-fg-muted transition-transform ${collapsed ? "" : "rotate-90"}`} aria-hidden="true" />
             Open positions <span className="font-normal text-fg-muted">({positions.length})</span>
           </h2>
-          <p className="mt-1 text-sm">
-            <span className="text-fg-muted">Unrealized PnL </span>
-            <span className={`font-semibold tabular-nums ${tone(known.length ? total : null)}`}>{known.length ? formatUsdSigned(total) : "—"}</span>
-            {unknown > 0 && <span className="text-xs text-warning"> ({unknown} without PnL)</span>}
+          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 pl-5.5 text-sm">
+            <span>
+              <span className="text-fg-muted">Unrealized PnL </span>
+              <span className={`font-semibold tabular-nums ${tone(known.length ? total : null)}`}>{known.length ? formatUsdSigned(total) : "—"}</span>
+              {unknown > 0 && <span className="text-xs text-warning"> ({unknown} without PnL)</span>}
+            </span>
+            {perps.length > 0 && (
+              <span>
+                <span className="text-fg-muted">Total margin </span>
+                <span className="font-semibold tabular-nums text-fg">{formatUsd(margin)}</span>
+              </span>
+            )}
+            {predictions.length > 0 && (
+              <span>
+                <span className="text-fg-muted">In predictions </span>
+                <span className="font-semibold tabular-nums text-fg">{formatUsd(predictionValue)}</span>
+              </span>
+            )}
           </p>
-        </div>
+        </button>
         <RefreshPositionsButton />
       </div>
+      {!collapsed && (
+        <>
       <p className="mt-2 text-xs text-fg-muted">{asOfLabel} Values are already counted in each wallet&apos;s total (a perp at its margin).</p>
       <div className="mt-4 overflow-x-auto">
         <table className={tableClass}>
@@ -154,6 +180,8 @@ export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPo
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   );
 }

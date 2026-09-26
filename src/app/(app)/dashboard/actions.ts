@@ -8,9 +8,12 @@ import { mapWithConcurrency } from "@/lib/adapters/http";
 import { fetchHyperliquidHoldings } from "@/lib/adapters/hyperliquid";
 import { fetchLighterHoldings } from "@/lib/adapters/lighter";
 import { fetchPolymarketHoldings } from "@/lib/adapters/polymarket";
+import { fetchAsterHoldings } from "@/lib/adapters/aster";
+import { fetchJupiterPerps } from "@/lib/adapters/jupiterPerps";
+import { fetchJupiterPrediction } from "@/lib/adapters/jupiterPrediction";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { carryForward, type KeepableRow, type KeepScope } from "@/lib/carryForward";
-import { venuesWithOpenPositions, type PositionVenue } from "@/lib/perpPositions";
+import { venueOwns, venuesWithOpenPositions, type PositionVenue } from "@/lib/perpPositions";
 import type { AdapterHolding } from "@/lib/adapters/types";
 
 export interface PositionsRefreshResult {
@@ -30,17 +33,27 @@ type StoredRow = AdapterHolding & KeepableRow;
  * a Hyperliquid read that failed (vaults, referral rewards) keeps its previous
  * rows, as in the sync (carryForward.ts). Throws if the account can't be read. */
 async function freshVenueRows(venue: PositionVenue, address: string, previous: StoredRow[]): Promise<AdapterHolding[]> {
-  if (venue === "hyperliquid") {
-    const r = await fetchHyperliquidHoldings(address);
-    return carryForward(r.holdings as StoredRow[], previous, r.keep as KeepScope[]).holdings;
+  switch (venue.id) {
+    case "hyperliquid": {
+      const r = await fetchHyperliquidHoldings(address);
+      return carryForward(r.holdings as StoredRow[], previous, r.keep as KeepScope[]).holdings;
+    }
+    case "lighter":
+      return fetchLighterHoldings(address);
+    case "aster":
+      return (await fetchAsterHoldings(address)).holdings;
+    case "polymarket":
+      return fetchPolymarketHoldings(address);
+    case "jupiter-perps":
+      return (await fetchJupiterPerps(address)).holdings;
+    case "jupiter-prediction":
+      return (await fetchJupiterPrediction(address)).holdings;
   }
-  if (venue === "lighter") return fetchLighterHoldings(address);
-  return fetchPolymarketHoldings(address);
 }
 
 /**
  * "Refresh positions" on the Dashboard: re-reads only the venue accounts
- * (Hyperliquid, Lighter, Polymarket) where the user has an open position, one
+ * (perpPositions.ts POSITION_VENUES) where the user has an open position, one
  * account call each, and replaces that venue's rows for that wallet —
  * positions, cash and margin together, so wallet totals stay right (a perp's
  * PnL lands in its account's cash rows). No chain scan, no price refresh, no
@@ -56,20 +69,29 @@ export async function refreshOpenPositions(): Promise<PositionsRefreshResult> {
 
   type Wallet = { id: string; name: string; chain: string; address: string | null; holdings: (StoredRow & { source: string })[] };
   const tasks = (data as Wallet[]).flatMap((w) => {
-    if (!w.address || !isEvmChainId(w.chain)) return [];
+    const kind = w.chain === "SOL" ? "solana" : isEvmChainId(w.chain) ? "evm" : null;
+    if (!w.address || !kind) return [];
     const auto = w.holdings.filter((h) => h.source === "auto");
-    return venuesWithOpenPositions(auto).map((venue) => ({ wallet: w, venue, previous: auto.filter((h) => h.chain === venue) }));
+    return venuesWithOpenPositions(auto)
+      .filter((venue) => venue.wallet === kind)
+      .map((venue) => ({ wallet: w, venue, previous: auto.filter((h) => venueOwns(venue, h)) }));
   });
 
   const results = await mapWithConcurrency(tasks, 4, async ({ wallet, venue, previous }) => {
     try {
-      const rows = (await freshVenueRows(venue, wallet.address!, previous)).filter((h) => h.chain === venue);
+      const rows = (await freshVenueRows(venue, wallet.address!, previous)).filter((h) => venueOwns(venue, h));
       const keyed = await withPriceKeys(rows, "auto");
-      const { error: rpcError } = await db.rpc("replace_venue_holdings", { p_wallet_id: wallet.id, p_chain: venue, p_holdings: keyed });
+      // p_protocol only for a venue that shares its chain (replace_venue_holdings v2).
+      const { error: rpcError } = await db.rpc("replace_venue_holdings", {
+        p_wallet_id: wallet.id,
+        p_chain: venue.chain,
+        p_holdings: keyed,
+        ...(venue.protocol ? { p_protocol: venue.protocol } : {}),
+      });
       if (rpcError) throw new Error(rpcError.message);
       return null;
     } catch (e) {
-      return `${wallet.name} · ${venue}: ${(e as Error).message}`;
+      return `${wallet.name} · ${venue.id}: ${(e as Error).message}`;
     }
   });
 
