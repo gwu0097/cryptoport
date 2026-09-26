@@ -56,7 +56,7 @@ export default async function TrendFinderPage({
 
       {/* Always rendered, not just in the empty state — the nav link back
           to this page always lands on the bare route (same convention as
-          Wallets/Analytics/Transactions' own top nav item), so this is
+          Wallets/Performance/Transactions' own top nav item), so this is
           what makes "switch tabs, come back" actually recoverable rather
           than starting over from a blank picker every time. */}
       <TrendRecentSearches />

@@ -4,14 +4,14 @@
 // blocked-storage discipline as usePersistedState.ts.
 //
 // Namespaced rather than one shared list: "recently viewed on
-// wallets/[id]" and "recently selected in Analytics' wallet picker" are
+// wallets/[id]" and "recently selected in Performance' wallet picker" are
 // genuinely different histories — a wallet you keep checking performance
 // on isn't necessarily one you keep opening the detail page for, and
 // conflating them would make either list less useful as a shortcut.
 
 // Default cap, overridable per call (see recordRecentWallet's `maxRecent`
 // param) — Trend Finder's "recent searches" wants 5, every existing
-// namespace (Wallets, Analytics, Transactions) keeps the original 4.
+// namespace (Wallets, Performance, Transactions) keeps the original 4.
 const DEFAULT_MAX_RECENT = 4;
 
 export interface RecentWallet {
@@ -22,7 +22,7 @@ export interface RecentWallet {
 // "wallets" keeps its original, pre-namespacing key literal (rather than
 // moving to the "cryptoport:recent:wallets" shape every other namespace
 // gets) so this change doesn't silently wipe out lists already saved in
-// someone's browser from before Analytics got its own namespace.
+// someone's browser from before Performance got its own namespace.
 function storageKey(namespace: string): string {
   return namespace === "wallets" ? "cryptoport:recentWallets" : `cryptoport:recent:${namespace}`;
 }
@@ -48,7 +48,7 @@ export const RECENT_WALLETS_CHANGED_EVENT = "cryptoport:recent-wallets-changed";
  * Also dispatches a window event so CollapsibleNavItem can pick up the
  * change immediately: the `storage` event only fires in *other* tabs, not
  * the one that made the write, so without this the sidebar's "Recent"
- * list for a namespace whose recorder never changes `pathname` (Analytics
+ * list for a namespace whose recorder never changes `pathname` (Performance
  * — see RecentWalletsNav.tsx) wouldn't update until the next navigation. */
 export function recordRecentWallet(namespace: string, wallet: RecentWallet, maxRecent: number = DEFAULT_MAX_RECENT): void {
   try {

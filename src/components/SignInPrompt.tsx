@@ -6,7 +6,7 @@ import { AuthButtons } from "./AuthButtons";
  * preview (wallets/new's form, settings' account-specific panels) — same
  * visual shape as ComingSoon.tsx (icon + centered message in a Panel).
  * Every other data page (Dashboard, Portfolio, Wallets, Assets, DeFi,
- * Analytics) instead renders its real layout for guests with one
+ * Performance) instead renders its real layout for guests with one
  * GuestBanner (a compact version of this same sign-up/log-in pair) plus
  * honest "log in to see this" placeholders per section — see GuestBanner's
  * own doc comment and CLAUDE.md's UI conventions note. */

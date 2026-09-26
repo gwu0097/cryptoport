@@ -1,4 +1,4 @@
-// Pure logic, no DB, no network — builds the Analytics performance series
+// Pure logic, no DB, no network — builds the Performance performance series
 // from already-fetched inputs (current holdings, a cached price-history
 // map, and the real snapshot rows). History is keyed by each holding's
 // price_key, the same one asset it's valued as today; priceHistory.ts

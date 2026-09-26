@@ -1,5 +1,5 @@
 // Pure SVG scale/path math (+ the date-range slicing below) — no React, no
-// DOM. Both were extracted from Analytics' PerformanceChart once a second
+// DOM. Both were extracted from Performance' PerformanceChart once a second
 // caller (Dashboard's ValueHistoryChart, via the shared ValueChart
 // component both now render through) needed the identical logic —
 // CLAUDE.md's stated threshold for pulling shared code out.
@@ -33,7 +33,7 @@ export function areaPath(points: ChartPoint[], width: number, height: number): s
 }
 
 /** A generic date-keyed point — the shape ValueChart.tsx's range slicing
- * needs, satisfied by both Analytics' StitchedPoint (date/total/kind) and
+ * needs, satisfied by both Performance' StitchedPoint (date/total/kind) and
  * Dashboard's own {date, total, kind: "real"} mapping. */
 export interface DatedValuePoint {
   date: string;
@@ -42,7 +42,7 @@ export interface DatedValuePoint {
 export type ChartRangeKey = "7d" | "30d" | "90d" | "1y" | "all";
 
 /** Same 5 presets for every chart that shows a date-keyed value series —
- * extracted from Analytics' PerformanceChart (the first place this
+ * extracted from Performance' PerformanceChart (the first place this
  * existed) once Dashboard's ValueHistoryChart needed the identical range
  * picker, not a second hand-copied set of options. */
 export const CHART_RANGES: { key: ChartRangeKey; label: string; days: number | null }[] = [

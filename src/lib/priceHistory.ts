@@ -2,7 +2,7 @@ import "server-only";
 import { serviceDb, userDb } from "./supabase";
 import { fetchDailyHistory } from "./adapters/coingecko";
 import { resolveCoingeckoKey } from "./priceKey";
-import { buildHistoryMap, isBackfillableKey, type PriceHistoryMap } from "./analytics";
+import { buildHistoryMap, isBackfillableKey, type PriceHistoryMap } from "./performance";
 import type { Holding } from "./types";
 
 // Live-verified this session: CoinGecko's free/keyless tier throttles a
@@ -14,7 +14,7 @@ import type { Holding } from "./types";
 const SPACING_MS = 3000;
 const BACKFILL_DAYS = 365;
 
-// Runs inside analytics/actions.ts's after() callback, sharing that
+// Runs inside performance/actions.ts's after() callback, sharing that
 // route's maxDuration=300s budget with everything else the request does.
 // Stops starting new fetches once this much time has elapsed rather than
 // capping at a fixed key count — a fixed count risked exceeding
@@ -34,7 +34,7 @@ function sleep(ms: number): Promise<void> {
 /**
  * Fills cryptoport.price_history for as many distinct CoinGecko keys
  * among today's holdings as fit in TIME_BUDGET_MS — an explicit,
- * user-triggered action (see analytics/actions.ts), not something that
+ * user-triggered action (see performance/actions.ts), not something that
  * runs on every page load. Safe to click again: only still-uncached keys
  * are considered each time.
  *

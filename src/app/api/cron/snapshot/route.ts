@@ -30,7 +30,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // history. Only when the newest price is older than 6h (~2 calls/day).
   const prices = await refreshAssetPricesIfOlderThan(6 * 60 * 60 * 1000, "snapshot").catch((e: Error) => `error: ${e.message}`);
   const result = await capturePortfolioSnapshots();
-  // Each asset's close for the day: Analytics' price history (priceHistory.ts).
+  // Each asset's close for the day: Performance' price history (priceHistory.ts).
   const closes = await recordDailyCloses().catch((e: Error) => `error: ${e.message}`);
   // The Signals candle cache keeps only what someone viewed in the last two
   // weeks (smc/candleStore.ts).

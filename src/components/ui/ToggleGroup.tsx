@@ -3,7 +3,7 @@
 import { Button } from "./Button";
 
 /** A row of mutually-exclusive pill buttons (e.g. chart range presets:
- * 7D/30D/90D/1Y/All) — extracted from Analytics' PerformanceChart once
+ * 7D/30D/90D/1Y/All) — extracted from Performance' PerformanceChart once
  * Dashboard's ValueHistoryChart needed the identical control (see
  * ValueChart.tsx, which both now share). */
 export function ToggleGroup<T extends string>({

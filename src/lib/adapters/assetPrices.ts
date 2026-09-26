@@ -282,7 +282,7 @@ export async function readAssetPrices(keys: string[]): Promise<Map<string, numbe
 
 /** Today's (UTC) close for every asset priced in the last 24 hours, into
  * asset_price_daily — the daily snapshot's record of prices, which is the
- * price history Analytics reads (priceHistory.ts). An asset whose price is
+ * price history Performance reads (priceHistory.ts). An asset whose price is
  * older than a day gets no close for today rather than a stale one. */
 export async function recordDailyCloses(): Promise<string> {
   const db = serviceDb();

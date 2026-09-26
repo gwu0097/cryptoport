@@ -32,6 +32,6 @@ export async function backfillHistoryAction() {
 
   after(async () => {
     await backfillPriceHistory(holdings);
-    revalidatePath("/analytics");
+    revalidatePath("/performance");
   });
 }

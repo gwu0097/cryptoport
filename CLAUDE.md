@@ -19,7 +19,8 @@ owner's.
 - **The Dashboard is a lens, not a workshop.** `/dashboard` only presents data
   other pages already compute (`AssetGroup`, `portfolio_snapshots`, …). If a
   Dashboard request needs a new metric, aggregation or data source, say so and
-  build it as its own page first (Analytics owns historical/derived math), then
+  build it as its own page first (Performance owns historical value math;
+  `/analytics` is reserved for a real analysis page, not built yet), then
   have the Dashboard consume it. (DECISIONS: before 2026-09-22 Dashboard is a
   lens)
 - **The screener ("Fundamentals" in the UI) is a verified research dataset with
@@ -234,7 +235,7 @@ token (`tokenRegistryRefresh.ts`). `/admin/pricing` (`pricingCoverage.ts`) lists
 every unpriced holding across all users by cause; Settings → "Exchange coin
 mappings" shows each user how their exchange tickers were matched.
 
-**History.** Analytics keys price history by `price_key` (`priceHistory.ts`
+**History.** Performance keys price history by `price_key` (`priceHistory.ts`
 `getPriceHistoryMap`): old `price_history` rows under the pre-price_key key,
 rows under the key itself, and `asset_price_daily` (the daily snapshot's close,
 `recordDailyCloses`). Backfill fetches CoinGecko coins only.

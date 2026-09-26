@@ -7,7 +7,7 @@ const RANGE_STORAGE_KEY = "cryptoport:dashboardRange";
 
 /**
  * Dashboard's own value-history panel — renders through the same shared
- * ValueChart as Analytics' PerformanceChart (range picker + Robinhood-
+ * ValueChart as Performance' PerformanceChart (range picker + Robinhood-
  * style hover scrub, see that component's own doc comment for why this
  * exists as one shared piece rather than two). portfolio_snapshots only
  * accumulates one row per day (see snapshots.ts), so this will only ever
@@ -16,7 +16,7 @@ const RANGE_STORAGE_KEY = "cryptoport:dashboardRange";
  * return everything available until real history actually spans that far.
  *
  * Every point here is real (this app's daily snapshot cron), never
- * estimated — Dashboard doesn't do the pre-history backfill Analytics
+ * estimated — Dashboard doesn't do the pre-history backfill Performance
  * does — so `kind: "real"` on every point is a fixed mapping, not
  * something this page's data ever varies.
  */

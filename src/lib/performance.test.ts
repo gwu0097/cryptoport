@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { estimateSeries, estimateCoverage, stitchSeries, buildHistoryMap } from "./analytics.ts";
+import { estimateSeries, estimateCoverage, stitchSeries, buildHistoryMap } from "./performance.ts";
 
 function history(entries: Record<string, Record<string, number>>) {
   return new Map(Object.entries(entries).map(([key, byDate]) => [key, new Map(Object.entries(byDate))]));

@@ -45,7 +45,7 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
       { href: "/portfolio", label: "Portfolio", icon: Briefcase },
       { href: "/wallets", label: "Wallets", icon: Wallet },
       { href: "/assets", label: "Assets", icon: Coins },
-      { href: "/analytics", label: "Analytics", icon: ChartLine },
+      { href: "/performance", label: "Performance", icon: ChartLine },
       { href: "/defi", label: "DeFi", icon: Layers },
       { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
     ],
@@ -157,7 +157,7 @@ function NavItemRow({
       />
     );
   }
-  if (item.href === "/analytics") {
+  if (item.href === "/performance") {
     return (
       <CollapsibleNavItem
         item={item}
@@ -166,8 +166,8 @@ function NavItemRow({
         onLinkClick={onLinkClick}
         namespace="analyticsWallets"
         openStorageKey="cryptoport:recentAnalyticsWalletsOpen"
-        linkFor={(w) => `/analytics?wallet=${w.id}`}
-        // Analytics' own wallet selection lives in PerformanceChart's
+        linkFor={(w) => `/performance?wallet=${w.id}`}
+        // Performance' own wallet selection lives in PerformanceChart's
         // client state, not observable from here — no honest way to
         // tell which recent entry (if any) is "active" from the nav
         // alone, so this never highlights one rather than guessing.
@@ -186,10 +186,10 @@ function NavItemRow({
         openStorageKey="cryptoport:recentTransactionsWalletsOpen"
         linkFor={(w) => `/transactions?wallet=${w.id}`}
         // Transactions' wallet selection is a real ?wallet= query
-        // param (unlike Analytics' client-state one), but `pathname`
+        // param (unlike Performance' client-state one), but `pathname`
         // here is path-only — no search params threaded through
         // Sidebar/MobileNav to compare against. Same honest
-        // "can't tell from here, don't guess" call as Analytics
+        // "can't tell from here, don't guess" call as Performance
         // rather than plumbing searchParams through two more
         // components just for this highlight.
         isRecentActive={() => false}
@@ -205,7 +205,7 @@ function NavItemRow({
  * renders NAV_GROUPS as labeled sections (a plain muted heading, not
  * collapsible — every item stays one click away, this is purely visual
  * chunking, see that array's own doc comment for why grouped at all).
- * Wallets/Analytics/Transactions still render via CollapsibleNavItem (same
+ * Wallets/Performance/Transactions still render via CollapsibleNavItem (same
  * row, plus a recent-wallets disclosure chevron each, in their own
  * namespace — see recentWallets.ts) instead of the plain NavLink every
  * other item gets — unchanged by grouping, just moved into NavItemRow so

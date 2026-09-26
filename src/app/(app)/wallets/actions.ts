@@ -45,9 +45,9 @@ function revalidateAllPriceConsumers() {
   revalidatePath("/defi");
   revalidatePath("/dashboard");
   // Now that a price refresh also writes today's snapshot (see
-  // captureUserSnapshot), Analytics' own value-history chart needs
+  // captureUserSnapshot), Performance' own value-history chart needs
   // revalidating too — it wasn't a price consumer before this.
-  revalidatePath("/analytics");
+  revalidatePath("/performance");
   // Watchlist coins are priced in the same pass (see runPriceRefresh).
   revalidatePath("/watchlist");
 }
@@ -130,7 +130,7 @@ function scheduleUserSnapshot(userId: string, extraPaths: string[] = []) {
     try {
       await captureUserSnapshot(userId);
       revalidatePath("/dashboard");
-      revalidatePath("/analytics");
+      revalidatePath("/performance");
       for (const path of extraPaths) revalidatePath(path);
     } catch {
       // swallowed — see comment above
@@ -937,11 +937,11 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
       revalidatePath(`/wallets/${walletId}`);
       revalidatePath("/wallets");
       // Now that a successful sync also writes today's snapshot (see
-      // captureUserSnapshot above), Dashboard/Analytics need revalidating
+      // captureUserSnapshot above), Dashboard/Performance need revalidating
       // too — harmless to call even on a failed sync (the snapshot write
       // just didn't happen, so there's nothing new for these to pick up).
       revalidatePath("/dashboard");
-      revalidatePath("/analytics");
+      revalidatePath("/performance");
     }
   });
 
@@ -1130,7 +1130,7 @@ export async function syncExchangeHoldings(walletId: string): Promise<JobStartRe
       revalidatePath(`/wallets/${walletId}`);
       revalidatePath("/wallets");
       revalidatePath("/dashboard");
-      revalidatePath("/analytics");
+      revalidatePath("/performance");
     }
   });
 

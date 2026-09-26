@@ -13,7 +13,7 @@ import type { NavItemData } from "./navItems";
  * trailing edge that expands up to 4 of them nested underneath. The
  * disclosure toggle lives on the row it discloses rather than a separate
  * "Recent" label, matching a standard collapsible-tree sidebar. Used for
- * both Wallets (recently-viewed wallet detail pages) and Analytics
+ * both Wallets (recently-viewed wallet detail pages) and Performance
  * (recently-selected wallets in its performance-chart picker) — genuinely
  * different histories, see recentWallets.ts's own note on why they're
  * namespaced rather than shared.
@@ -26,7 +26,7 @@ import type { NavItemData } from "./navItems";
  *
  * Re-reads `namespace`'s list on every `pathname` change (covers the
  * common case, e.g. visiting a new /wallets/[id]) and also on a
- * same-tab `RECENT_WALLETS_CHANGED_EVENT` (covers Analytics: selecting a
+ * same-tab `RECENT_WALLETS_CHANGED_EVENT` (covers Performance: selecting a
  * wallet in PerformanceChart's combobox records a recent entry without
  * any pathname or route change, since that selection lives in client
  * state, not the URL — a pathname-only read would leave the sidebar

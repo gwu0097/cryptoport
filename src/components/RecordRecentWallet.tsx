@@ -11,7 +11,7 @@ import { recordRecentWallet } from "@/lib/recentWallets";
  * defaults to "wallets" (wallets/[id]/page.tsx's own original call site,
  * from before any other page needed this) — Transactions passes
  * "transactionsWallets" so its own recent list stays genuinely separate,
- * same reasoning recentWallets.ts already gives for Analytics' namespace.
+ * same reasoning recentWallets.ts already gives for Performance' namespace.
  *
  * `maxRecent` — omit for the original 4-item cap; Trend Finder's own
  * recent-searches namespace passes 5 (see recordRecentWallet's own doc

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { StitchedPoint } from "@/lib/analytics";
+import type { StitchedPoint } from "@/lib/performance";
 import { formatUsd } from "@/lib/format";
 import { recordRecentWallet } from "@/lib/recentWallets";
 import { usePersistedState } from "../usePersistedState";
@@ -166,7 +166,7 @@ export function PerformanceChart({
 }: {
   options: WalletSeriesOption[];
   /** From the page's own `?wallet=` search param — set by the sidebar's
-   * "Recent" analytics-wallet links, which have no client state to hand
+   * "Recent" Performance-wallet links, which have no client state to hand
    * off directly (see navItems.tsx). Wins over whatever was persisted
    * from a previous visit, and itself becomes the new persisted choice. */
   initialWalletId?: string;
@@ -197,7 +197,7 @@ export function PerformanceChart({
   const selected = options.find((o) => o.id === walletId) ?? options[0];
 
   useEffect(() => {
-    // Records this as a recently-selected Analytics wallet — see
+    // Records this as a recently-selected Performance wallet — see
     // recentWallets.ts, and CollapsibleNavItem's "analyticsWallets"
     // namespace in the sidebar. "All wallets" isn't a specific wallet, so
     // it's excluded (mirrors wallets/[id]/page.tsx's RecordRecentWallet,

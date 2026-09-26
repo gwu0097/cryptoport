@@ -46,7 +46,7 @@ function longDate(isoDate: string): string {
  * point the cursor is nearest, with a vertical guide line + dot on the
  * chart — no floating tooltip box (avoids the positioning-near-cursor-
  * without-clipping problem entirely). Shared by Dashboard's
- * ValueHistoryChart and Analytics' PerformanceChart — the second of those
+ * ValueHistoryChart and Performance' PerformanceChart — the second of those
  * to need this exact control is what triggered extracting it here (see
  * chart.ts's own doc comment) rather than a second hand-copied version.
  *

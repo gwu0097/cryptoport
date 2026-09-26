@@ -7,7 +7,7 @@ import type { Holding } from "./types";
 /**
  * Captures one row per user into cryptoport.portfolio_snapshots, and one
  * row per wallet into cryptoport.wallet_snapshots — the Dashboard's
- * value-history chart and Analytics' per-wallet breakdown are both built
+ * value-history chart and Performance' per-wallet breakdown are both built
  * entirely from these. This is the bulk, once-a-day writer (see the cron
  * route this is called from) that guarantees every user gets at least one
  * snapshot per day regardless of whether they open the app — see

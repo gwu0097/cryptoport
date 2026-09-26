@@ -840,13 +840,13 @@ export interface PortfolioHistoryPoint {
 /**
  * Real daily value history: no `walletId` reads cryptoport.portfolio_snapshots
  * (the Dashboard trend chart), a `walletId` reads cryptoport.wallet_snapshots
- * (Analytics' per-wallet breakdown) — both written by the same once-a-day
+ * (Performance' per-wallet breakdown) — both written by the same once-a-day
  * Vercel Cron (see src/lib/snapshots.ts, the only writer of either table).
  * Through userDb() in both cases: each table's RLS policy scopes a select
  * to the caller's own rows, same as every other per-user read in this
  * file. Empty until the cron has run at least once since these tables were
  * created — there is no real backfill possible; see analytics.ts for the
- * estimated series Analytics stitches in front of this.
+ * estimated series Performance stitches in front of this.
  */
 /** `opts.userId` — admin-only read path, see getWalletsWithTotals' own doc
  * comment for the pattern. Only meaningful for the no-`walletId` (user-

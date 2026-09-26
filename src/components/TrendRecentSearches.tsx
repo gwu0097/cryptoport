@@ -9,11 +9,11 @@ const NAMESPACE = "trendFinderSearches";
 /**
  * The direct fix for "switch tabs, come back, the last search is gone" —
  * the Trend Finder nav link always lands on the bare, param-less route
- * (same convention as Wallets/Analytics/Transactions' own top-level nav
+ * (same convention as Wallets/Performance/Transactions' own top-level nav
  * link, which never remembers "the last one you looked at" either — see
  * RecentWalletsNav.tsx), so the way back isn't remembering the URL, it's
  * making the last few searches one click away again. Reuses the same
- * namespaced localStorage list Wallets/Analytics/Transactions already use
+ * namespaced localStorage list Wallets/Performance/Transactions already use
  * (see recentWallets.ts) rather than a new mechanism — recorded by
  * <RecordRecentWallet namespace="trendFinderSearches" maxRecent={5}> once
  * a seed resolves (trend-finder/page.tsx).
