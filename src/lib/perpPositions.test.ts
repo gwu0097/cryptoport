@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { currentPnl, markKeyFor, totalPnl, withCurrentPnl, type PositionInput } from "./perpPositions.ts";
+import { currentPnl, isOpenPosition, markKeyFor, totalPnl, venuesWithOpenPositions, withCurrentPnl, type PositionInput } from "./perpPositions.ts";
 import { lighterHoldings } from "./lighter.ts";
 
 // BizNFT's LIT long as synced 2026-09-26 13:05 UTC.
@@ -68,4 +68,25 @@ test("a Lighter position, as the sync stores it, gets live PnL from its Lighter 
   assert.equal(markKeyFor(row), "lighterperp:ETH");
   const live = withCurrentPnl(row, "2026-09-26T13:00:00Z", new Map([["lighterperp:ETH", { usd: 2700, at: "2026-09-26T14:00:00Z" }]]));
   assert.equal(live.position_pnl_usd, 0.5 * (2700 - 2600));
+});
+
+test("open positions: perps, and prediction positions still worth something", () => {
+  assert.equal(isOpenPosition({ chain: "hyperliquid", position_side: "long" }), true);
+  assert.equal(isOpenPosition({ chain: "polymarket", protocol_section: "Prediction", usd_override: "12.5" }), true);
+  assert.equal(isOpenPosition({ chain: "polymarket", protocol_section: "Prediction", usd_override: 0 }), false); // lost / worthless
+  assert.equal(isOpenPosition({ chain: "polymarket", protocol_section: "Deposit", usd_override: 100 }), false);
+  assert.equal(isOpenPosition({ chain: "hyperliquid", protocol_section: "Deposit", usd_override: 100 }), false);
+});
+
+test("venues to re-read: only those with an open position on a covered venue", () => {
+  assert.deepEqual(
+    venuesWithOpenPositions([
+      { chain: "hyperliquid", position_side: "long" },
+      { chain: "hyperliquid", protocol_section: "Deposit", usd_override: 100 },
+      { chain: "polymarket", protocol_section: "Prediction", usd_override: 0 },
+      { chain: "lighter", protocol_section: "Deposit", usd_override: 600 }, // cash only, no position
+      { chain: "solana-defi", position_side: "short" }, // Jupiter Perps: not re-read here
+    ]),
+    ["hyperliquid"],
+  );
 });

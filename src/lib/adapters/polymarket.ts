@@ -46,6 +46,7 @@ interface PolymarketPosition {
   currentValue: number;
   cashPnl: number;
   percentPnl: number; // already a percentage (e.g. 83.6119, not 0.836119)
+  avgPrice: number; // average price paid per share (0–1)
   title: string;
   outcome: string;
   icon: string | null;
@@ -154,6 +155,7 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
       // "informational, not summed into the total" treatment as a perp's
       // PnL (usd_override above is already the position's real current
       // value, not margin, so nothing else needs to account for this).
+      position_entry_price: Number.isFinite(p.avgPrice) ? p.avgPrice : null, // average price paid per share
       position_pnl_usd: Number.isFinite(p.cashPnl) ? p.cashPnl : null,
       position_pnl_percent: Number.isFinite(p.percentPnl) ? p.percentPnl : null,
     });

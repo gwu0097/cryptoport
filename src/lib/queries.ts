@@ -1,5 +1,5 @@
 import "server-only";
-import { MARK_KEY_PREFIXES, markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
+import { MARK_KEY_PREFIXES, isOpenPosition, markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
 import { cache } from "react";
 import { serviceDb, userDb } from "./supabase";
 import { getUser } from "./auth";
@@ -506,7 +506,9 @@ export async function getWalletDetail(id: string, opts?: { userId: string }): Pr
 
   const { holdings: stored, ...rest } = wallet as WalletWithTags & { holdings: Holding[] };
   // Open positions show live PnL when a mark is newer than this sync.
-  const holdings = stored.map((h) => withCurrentPnl(h, rest.last_refresh_at, marks));
+  // Each row's own write time: a venue refreshed alone ("Refresh positions")
+  // is newer than the wallet's last full sync.
+  const holdings = stored.map((h) => withCurrentPnl(h, h.updated_at ?? rest.last_refresh_at, marks));
   return {
     wallet: rest,
     ...valuateHoldings(holdings, defaultChainId(rest.chain), prices, assetStats),
@@ -533,7 +535,9 @@ export const getActiveWalletsWithHoldings = cache(async (opts?: { userId: string
   const [{ data, error }, marks] = await Promise.all([opts ? query.eq("user_id", opts.userId) : query, getPerpMarks()]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
   // Open positions show live PnL when a mark is newer than the wallet's sync.
-  return (data as WalletWithHoldings[]).map((w) => ({ ...w, holdings: w.holdings.map((h) => withCurrentPnl(h, w.last_refresh_at, marks)) }));
+  // Each row's own write time: a venue refreshed alone ("Refresh positions")
+  // is newer than the wallet's last full sync.
+  return (data as WalletWithHoldings[]).map((w) => ({ ...w, holdings: w.holdings.map((h) => withCurrentPnl(h, h.updated_at ?? w.last_refresh_at, marks)) }));
 });
 
 export interface AssetsResult {
@@ -1034,28 +1038,36 @@ export async function getAllWatchlistItems(): Promise<WatchlistRow[]> {
 }
 
 export interface OpenPosition {
+  kind: "perp" | "prediction";
   walletId: string;
   walletName: string;
   ticker: string;
+  /** A prediction's market and outcome ("Will X happen? — Yes"). */
+  label: string | null;
   venue: string | null;
-  side: "long" | "short";
+  side: "long" | "short" | null;
+  /** Contracts for a perp, shares for a prediction. */
   size: number | null;
+  /** Perp: average entry. Prediction: average price paid per share. */
   entryPrice: number | null;
+  /** Perp: the venue's mark. Prediction: the current share price. */
   markPrice: number | null;
   leverage: number | null;
   liquidationPrice: number | null;
-  /** The position's value in totals (margin) — already in its wallet's total. */
-  marginUsd: number | null;
+  /** The value in totals — a perp's margin, a prediction's current value —
+   * already in its wallet's total. */
+  valueUsd: number | null;
   pnlUsd: number | null;
   pnlPercent: number | null;
-  /** When the PnL figure is from: the refresh's mark, or the wallet's sync. */
+  /** When the PnL figure is from: a mark fetched after the row, or the row's
+   * own sync / positions refresh. */
   pnlAsOf: string | null;
 }
 
-/** Every open perp position the signed-in user has synced, across active
- * wallets, with PnL as of the newest of its sync and the last Refresh prices
- * (perpPositions.ts). Nothing is fetched from a venue: a position opened or
- * closed since the last sync shows up on the next sync. */
+/** Every open position the signed-in user has synced (perps on any venue,
+ * prediction-market positions still worth something), across active wallets,
+ * with PnL as of the newest of its row and the last price refresh
+ * (perpPositions.ts). Nothing is fetched from a venue here. */
 export async function getOpenPositions(): Promise<OpenPosition[]> {
   if (!(await getUser())) return [];
   const [wallets, marks] = await Promise.all([getActiveWalletsWithHoldings(), getPerpMarks()]);
@@ -1063,25 +1075,27 @@ export async function getOpenPositions(): Promise<OpenPosition[]> {
   const out: OpenPosition[] = [];
   for (const w of wallets) {
     for (const h of w.holdings) {
-      if (!h.position_side) continue;
+      if (!isOpenPosition(h)) continue;
+      const rowAt = h.updated_at ?? w.last_refresh_at;
+      const base = { walletId: w.id, walletName: w.name, ticker: h.ticker, venue: h.protocol, size: num(h.qty), entryPrice: num(h.position_entry_price), valueUsd: num(h.usd_override), pnlUsd: num(h.position_pnl_usd), pnlPercent: num(h.position_pnl_percent) };
+      if (!h.position_side) {
+        const size = num(h.qty);
+        const value = num(h.usd_override);
+        out.push({ ...base, kind: "prediction", label: h.display_label, side: null, markPrice: size && value !== null ? value / size : null, leverage: null, liquidationPrice: null, pnlAsOf: rowAt });
+        continue;
+      }
       const key = markKeyFor(h);
       const mark = key ? marks.get(key) : undefined;
-      const live = !!mark && (!w.last_refresh_at || Date.parse(mark.at) > Date.parse(w.last_refresh_at));
+      const live = !!mark && (!rowAt || Date.parse(mark.at) > Date.parse(rowAt));
       out.push({
-        walletId: w.id,
-        walletName: w.name,
-        ticker: h.ticker,
-        venue: h.protocol,
+        ...base,
+        kind: "perp",
+        label: null,
         side: h.position_side,
-        size: num(h.qty),
-        entryPrice: num(h.position_entry_price),
         markPrice: mark?.usd ?? null,
         leverage: num(h.position_leverage),
         liquidationPrice: num(h.position_liquidation_price),
-        marginUsd: num(h.usd_override),
-        pnlUsd: num(h.position_pnl_usd),
-        pnlPercent: num(h.position_pnl_percent),
-        pnlAsOf: live ? mark!.at : w.last_refresh_at,
+        pnlAsOf: live ? mark!.at : rowAt,
       });
     }
   }

@@ -166,7 +166,7 @@ export default async function DashboardPage({
       {user && positions.length > 0 && (
         <OpenPositionsPanel
           positions={positions}
-          asOfLabel={`PnL as of ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"} — Refresh prices updates it from the venue's mark price; a position opened or closed since shows up on the wallet's next sync.`}
+          asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
         />
       )}
 

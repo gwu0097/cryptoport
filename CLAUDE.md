@@ -179,8 +179,14 @@ Price column is that mark ("—" without one: margin ÷ size isn't a price).
 Every holdings read shows
 size × (mark − entry) when that mark is newer than the wallet's sync
 (`withCurrentPnl` in `getWalletDetail` / `getActiveWalletsWithHoldings`), and
-the Dashboard's Open positions section lists them. Nothing re-reads the
-venue: opened or closed positions appear on the next sync.
+the Dashboard's Open positions section lists them, with Polymarket positions
+still worth something (`isOpenPosition`). Its **Refresh positions** button
+(`dashboard/actions.ts` `refreshOpenPositions`) re-reads only the venue
+accounts with an open position (`POSITION_VENUES`: Hyperliquid, Lighter,
+Polymarket — one call each) and replaces that venue's rows for the wallet
+(`replace_venue_holdings`), cash and margin included, so totals stay right;
+no chain scan, no price refresh, and the wallet's `last_refresh_at` is left
+alone. Whether a mark is newer is judged per row (`holdings.updated_at`).
 
 **A receipt token and its protocol position count once** (`receiptDedupe.ts`,
 `dedupeReceipts`). A liquid staking or vault receipt (MaticX, eETH) that the

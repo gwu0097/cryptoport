@@ -25,6 +25,15 @@ orderBookDetails carries every market's mark price in one call), and a
 position's Price column shows the mark instead of margin ÷ size, which had
 read LIT-PERP at $0.96 against a $4.79 market.
 
+Then "Refresh positions" (owner: positions are what some users watch most
+closely; don't spend a full price refresh on them): re-reading only the venue
+accounts with an open position and replacing that venue's rows is exact and
+keeps totals right (on Hyperliquid and Lighter PnL lands in the account's cash
+rows, so recomputing PnL alone couldn't). Measured: BizNFT's Hyperliquid and
+Polymarket accounts in 2.0 s together. The dry run also exposed a leak in the
+shared logo cache: symbols CoinGecko doesn't know (LQNA, LICKO) were searched
+again on every sync; "no logo" is now cached and re-checked after 30 days.
+
 ## 2026-09-26 — Transaction history: errors were read as "no transactions"
 
 Every transaction source turned its errors into [], and the sync deletes a

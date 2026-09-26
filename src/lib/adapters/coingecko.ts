@@ -369,23 +369,39 @@ async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, 
  * ticker, which is exactly the case fetchTokenImagesBySymbol's own doc
  * comment already flags as icon-only/cosmetic risk.
  */
+// A symbol CoinGecko has no coin for is remembered too (image_url null), so
+// it isn't searched again on every sync — two Hyperliquid spot tokens (LQNA,
+// LICKO) cost a CoinGecko call on every sync of one wallet (2026-09-26).
+// Checked again after this long, in case CoinGecko lists it later.
+const NO_ICON_RECHECK_MS = 30 * 24 * 60 * 60 * 1000;
+
 export async function resolveTickerIcons(tickers: string[]): Promise<Map<string, string>> {
   const distinct = [...new Set(tickers.map((t) => t.toUpperCase()))];
   const icons = new Map<string, string>();
   if (distinct.length === 0) return icons;
 
-  const { data, error } = await serviceDb().from("ticker_icons").select("ticker, image_url").in("ticker", distinct);
+  const { data, error } = await serviceDb().from("ticker_icons").select("ticker, image_url, updated_at").in("ticker", distinct);
   if (error) throw new Error(`Failed to load ticker_icons: ${error.message}`);
-  for (const row of data as { ticker: string; image_url: string }[]) icons.set(row.ticker, row.image_url);
+  const knownNone = new Set<string>();
+  for (const row of data as { ticker: string; image_url: string | null; updated_at: string }[]) {
+    if (row.image_url) icons.set(row.ticker, row.image_url);
+    else if (Date.now() - Date.parse(row.updated_at) < NO_ICON_RECHECK_MS) knownNone.add(row.ticker);
+  }
 
-  const missing = distinct.filter((t) => !icons.has(t));
+  const missing = distinct.filter((t) => !icons.has(t) && !knownNone.has(t));
   if (missing.length > 0) {
     const fetched = await fetchTokenImagesBySymbol(missing);
     if (fetched.size > 0) {
-      const rows = [...fetched].map(([ticker, image_url]) => ({ ticker, image_url }));
+      const rows = [...fetched].map(([ticker, image_url]) => ({ ticker, image_url, updated_at: new Date().toISOString() }));
       const { error: upsertError } = await serviceDb().from("ticker_icons").upsert(rows, { onConflict: "ticker" });
       if (upsertError) throw new Error(`Failed to cache ticker_icons: ${upsertError.message}`);
       for (const [ticker, url] of fetched) icons.set(ticker, url);
+    }
+    const none = missing.filter((t) => !fetched.has(t)).map((ticker) => ({ ticker, image_url: null, updated_at: new Date().toISOString() }));
+    if (none.length > 0) {
+      // Best-effort: a failure only means asking again next time.
+      const { error: noneError } = await serviceDb().from("ticker_icons").upsert(none, { onConflict: "ticker" });
+      if (noneError) console.warn(`[icons] couldn't remember ${none.length} symbol(s) without a logo: ${noneError.message}`);
     }
   }
 

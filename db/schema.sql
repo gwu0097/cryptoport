@@ -2115,3 +2115,63 @@ create table if not exists cryptoport.hl_candle_cache (
 create index if not exists hl_candle_cache_last_used on cryptoport.hl_candle_cache (last_used_at);
 alter table cryptoport.hl_candle_cache enable row level security;
 grant all on cryptoport.hl_candle_cache to service_role;
+
+-- "Refresh positions" (Dashboard): replaces ONE venue's auto rows for one
+-- wallet (e.g. its Hyperliquid account: positions, cash and margin together)
+-- in one transaction, without touching the wallet's other rows or its
+-- last_refresh_at (the rest of the wallet wasn't re-read). Same columns and
+-- owner check as sync_auto_holdings.
+create or replace function cryptoport.replace_venue_holdings(
+  p_wallet_id uuid,
+  p_chain text,
+  p_holdings jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to refresh wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto' and chain = p_chain;
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
+     position_pnl_percent, display_label, protocol_section)
+  select
+    h->>'price_key',
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    p_chain,
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric,
+    (h->>'position_pnl_percent')::numeric,
+    h->>'display_label',
+    h->>'protocol_section'
+  from jsonb_array_elements(p_holdings) as h;
+end;
+$$;
+grant execute on function cryptoport.replace_venue_holdings(uuid, text, jsonb) to authenticated;
+
+-- A symbol CoinGecko has no logo for is remembered (image_url null, re-checked
+-- after 30 days — coingecko.ts resolveTickerIcons) instead of searched again
+-- on every sync.
+alter table cryptoport.ticker_icons alter column image_url drop not null;

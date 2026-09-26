@@ -110,3 +110,34 @@ export function withCurrentPnl<
   );
   return c.source === "mark" ? { ...h, position_pnl_usd: c.pnlUsd, position_pnl_percent: c.pnlPercent } : h;
 }
+
+// ---- Open positions (the Dashboard section and its "Refresh positions") ----
+
+/** Venues whose accounts "Refresh positions" re-reads: each is one account
+ * call per wallet (adapters/hyperliquid.ts, lighter.ts, polymarket.ts), and a
+ * wallet's rows for that venue are replaced as a whole — positions, cash and
+ * margin together, so totals stay right (on Hyperliquid and Lighter a
+ * position's PnL lands in the account's cash rows, not the position's). */
+export const POSITION_VENUES = ["hyperliquid", "lighter", "polymarket"] as const;
+export type PositionVenue = (typeof POSITION_VENUES)[number];
+
+/** An open position: a leveraged perp (any venue), or a prediction-market
+ * position still worth something (a market lost or at 0 isn't open). */
+export function isOpenPosition(h: {
+  chain: string | null;
+  position_side?: string | null;
+  protocol_section?: string | null;
+  usd_override?: number | string | null;
+}): boolean {
+  if (h.position_side) return true;
+  return h.protocol_section === "Prediction" && Number(h.usd_override ?? 0) > 0;
+}
+
+/** Which of a wallet's venues have an open position, from its stored rows. */
+export function venuesWithOpenPositions(rows: readonly Parameters<typeof isOpenPosition>[0][]): PositionVenue[] {
+  const venues = new Set<PositionVenue>();
+  for (const r of rows) {
+    if (r.chain && (POSITION_VENUES as readonly string[]).includes(r.chain) && isOpenPosition(r)) venues.add(r.chain as PositionVenue);
+  }
+  return [...venues];
+}
