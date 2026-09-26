@@ -53,12 +53,21 @@ export interface EvmChain {
    * nativeCoingeckoId since CoinGecko's coin id and the conventional
    * trading symbol aren't always the same string. */
   nativeSymbol: string;
-  /** Alchemy network whose token API discovers this chain's holdings
-   * (adapters/alchemyDiscovery.ts). Checked live per chain (2026-09-25) —
-   * never derived from the transaction path's ALCHEMY_HOSTS. Absent: the
-   * chain is scanned against CoinGecko's token list (the registry). */
-  alchemyNetwork?: string;
+  /** Where a sync learns which tokens a wallet holds on this chain
+   * (adapters/tokenDiscovery.ts, docs/sync/PLAN.md D1): an indexer that lists
+   * held tokens. Each was checked live per chain (2026-09-25) — never derived
+   * from the transaction path's host lists. Absent: the chain is scanned
+   * against CoinGecko's token list (the registry). */
+  discovery?: DiscoverySource;
 }
+
+/** Alchemy's token API (a network name); a Blockscout explorer's token list
+ * (its host); or Etherscan's multichain API (free tier: transfer history, by
+ * this chain's chainId). */
+export type DiscoverySource =
+  | { source: "alchemy"; network: string }
+  | { source: "blockscout"; host: string }
+  | { source: "etherscan" };
 
 export const EVM_CHAINS: EvmChain[] = [
   {
@@ -69,7 +78,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "ethereum",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "eth-mainnet",
+    discovery: { source: "alchemy", network: "eth-mainnet" },
   },
   {
     id: "base",
@@ -79,7 +88,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "base",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "base-mainnet",
+    discovery: { source: "alchemy", network: "base-mainnet" },
   },
   {
     id: "arb",
@@ -93,7 +102,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "arbitrum-one",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "arb-mainnet",
+    discovery: { source: "alchemy", network: "arb-mainnet" },
   },
   {
     id: "op",
@@ -103,7 +112,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "optimistic-ethereum",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "opt-mainnet",
+    discovery: { source: "alchemy", network: "opt-mainnet" },
   },
   {
     id: "matic",
@@ -113,7 +122,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "polygon-pos",
     nativeCoingeckoId: "polygon-ecosystem-token",
     nativeSymbol: "POL",
-    alchemyNetwork: "polygon-mainnet",
+    discovery: { source: "alchemy", network: "polygon-mainnet" },
   },
   {
     id: "avax",
@@ -123,7 +132,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "avalanche",
     nativeCoingeckoId: "avalanche-2",
     nativeSymbol: "AVAX",
-    alchemyNetwork: "avax-mainnet",
+    discovery: { source: "alchemy", network: "avax-mainnet" },
   },
   {
     id: "bsc",
@@ -133,7 +142,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "binance-smart-chain",
     nativeCoingeckoId: "binancecoin",
     nativeSymbol: "BNB",
-    alchemyNetwork: "bnb-mainnet",
+    discovery: { source: "alchemy", network: "bnb-mainnet" },
   },
   {
     id: "linea",
@@ -143,7 +152,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "linea",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "linea-mainnet",
+    discovery: { source: "alchemy", network: "linea-mainnet" },
   },
   {
     id: "scrl",
@@ -153,7 +162,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "scroll",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "scroll-mainnet",
+    discovery: { source: "alchemy", network: "scroll-mainnet" },
   },
   {
     id: "blast",
@@ -163,7 +172,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "blast",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "blast-mainnet",
+    discovery: { source: "alchemy", network: "blast-mainnet" },
   },
   {
     id: "mnt",
@@ -173,6 +182,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "mantle",
     nativeCoingeckoId: "mantle",
     nativeSymbol: "MNT",
+    discovery: { source: "etherscan" },
   },
   {
     id: "taiko",
@@ -182,6 +192,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "taiko",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
+    discovery: { source: "etherscan" },
   },
   {
     id: "xdai",
@@ -191,7 +202,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "xdai",
     nativeCoingeckoId: "xdai",
     nativeSymbol: "XDAI",
-    alchemyNetwork: "gnosis-mainnet",
+    discovery: { source: "alchemy", network: "gnosis-mainnet" },
   },
   {
     id: "celo",
@@ -201,7 +212,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "celo",
     nativeCoingeckoId: "celo",
     nativeSymbol: "CELO",
-    alchemyNetwork: "celo-mainnet",
+    discovery: { source: "alchemy", network: "celo-mainnet" },
   },
   {
     id: "opbnb",
@@ -211,6 +222,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "opbnb",
     nativeCoingeckoId: "binancecoin",
     nativeSymbol: "BNB",
+    discovery: { source: "etherscan" },
   },
   {
     id: "zksync",
@@ -220,7 +232,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "zksync",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "zksync-mainnet",
+    discovery: { source: "alchemy", network: "zksync-mainnet" },
   },
   {
     id: "manta",
@@ -244,6 +256,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "mode",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
+    discovery: { source: "blockscout", host: "explorer.mode.network" },
   },
   {
     id: "merlin",
@@ -253,6 +266,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "merlin-chain",
     nativeCoingeckoId: "wrapped-bitcoin",
     nativeSymbol: "WBTC",
+    discovery: { source: "blockscout", host: "scan.merlinchain.io" },
   },
   {
     id: "zetachain",
@@ -262,7 +276,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "zetachain",
     nativeCoingeckoId: "zetachain",
     nativeSymbol: "ZETA",
-    alchemyNetwork: "zetachain-mainnet",
+    discovery: { source: "alchemy", network: "zetachain-mainnet" },
   },
   {
     id: "metis",
@@ -272,6 +286,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "metis-andromeda",
     nativeCoingeckoId: "metis-token",
     nativeSymbol: "METIS",
+    discovery: { source: "blockscout", host: "andromeda-explorer.metis.io" },
   },
   {
     id: "pulsechain",
@@ -290,6 +305,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "fraxtal",
     nativeCoingeckoId: "frax-share",
     nativeSymbol: "FRAX",
+    discovery: { source: "etherscan" },
   },
   {
     id: "unichain",
@@ -299,7 +315,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "unichain",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "unichain-mainnet",
+    discovery: { source: "alchemy", network: "unichain-mainnet" },
   },
   {
     id: "berachain",
@@ -309,7 +325,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "berachain",
     nativeCoingeckoId: "berachain-bera",
     nativeSymbol: "BERA",
-    alchemyNetwork: "berachain-mainnet",
+    discovery: { source: "alchemy", network: "berachain-mainnet" },
   },
   {
     id: "cronos",
@@ -341,6 +357,7 @@ export const EVM_CHAINS: EvmChain[] = [
     // Assets page (reported 2026-09-24).
     nativeCoingeckoId: "sei-network",
     nativeSymbol: "SEI",
+    discovery: { source: "etherscan" },
   },
   {
     id: "chiliz",
@@ -359,7 +376,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "soneium",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "soneium-mainnet",
+    discovery: { source: "alchemy", network: "soneium-mainnet" },
   },
   {
     id: "ron",
@@ -369,7 +386,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "ronin",
     nativeCoingeckoId: "ronin",
     nativeSymbol: "RON",
-    alchemyNetwork: "ronin-mainnet",
+    discovery: { source: "alchemy", network: "ronin-mainnet" },
   },
   {
     id: "rbh",
@@ -379,7 +396,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "robinhood",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "robinhood-mainnet",
+    discovery: { source: "alchemy", network: "robinhood-mainnet" },
   },
   // Added 2026-09-25 after a DeBank/Zerion comparison found real balances on
   // them. RPCs, chain ids and Multicall3 checked live; CoinGecko platform ids
@@ -403,7 +420,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "zora-network",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
-    alchemyNetwork: "zora-mainnet",
+    discovery: { source: "alchemy", network: "zora-mainnet" },
   },
   {
     id: "ftm",
@@ -427,6 +444,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "sonic",
     nativeCoingeckoId: "sonic-3",
     nativeSymbol: "S",
+    discovery: { source: "etherscan" },
   },
   {
     // Gas is ETH (DefiLlama lists the AURORA governance token as its coin).
@@ -438,6 +456,7 @@ export const EVM_CHAINS: EvmChain[] = [
     coingeckoPlatform: "aurora",
     nativeCoingeckoId: "ethereum",
     nativeSymbol: "ETH",
+    discovery: { source: "blockscout", host: "explorer.mainnet.aurora.dev" },
   },
   {
     // Not in GeckoTerminal's or DefiLlama's lists: no verified CoinGecko

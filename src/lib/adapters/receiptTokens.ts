@@ -10,11 +10,19 @@ import type { ReceiptClaim } from "../receiptDedupe";
 // Tried in this order, all in one multicall per chain (a token that isn't a
 // receipt just fails every probe):
 //   ERC-4626 vault      asset()                    → convertToAssets(balance)
-//   Aave v2/v3 aToken   UNDERLYING_ASSET_ADDRESS() → balance (1:1; forks too)
+//   Aave v2/v3 aToken   UNDERLYING_ASSET_ADDRESS() → balance (1:1; forks too),
+//                       only if it also answers RESERVE_TREASURY_ADDRESS()
 //   Compound v3 Comet   baseToken()                → balance (1:1)
 //   Compound v2 cToken  underlying()               → balance × exchangeRateStored() / 1e18
 // A second multicall reads the conversion (4626 / cToken) and the underlying
 // coin's decimals. Any failure yields no claim for that token — never a guess.
+// A debt token is never a claim: Aave's variable/stable debt tokens answer
+// UNDERLYING_ASSET_ADDRESS() exactly like an aToken, but they also answer
+// borrowAllowance(), which is part of the debt-token interface
+// (ICreditDelegationToken) and which aTokens don't have; aTokens answer
+// RESERVE_TREASURY_ADDRESS(), which debt tokens don't (checked live on Aave
+// v3 Arbitrum, Mode, Taiko and Avalanche, 2026-09-25). Counting one would
+// turn a loan into a holding (variableDebtWrsETH on Mode showed as +$3).
 
 const ABI = [
   { type: "function", name: "asset", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -25,6 +33,8 @@ const ABI = [
   { type: "function", name: "convertToAssets", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "exchangeRateStored", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+  { type: "function", name: "RESERVE_TREASURY_ADDRESS", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "borrowAllowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
 type Kind = "erc4626" | "aave" | "comet" | "ctoken";
@@ -51,19 +61,25 @@ export async function readReceiptClaims(owner: string, tokens: readonly { chain:
         const client = createPublicClient({ transport: evmTransport(chain) });
         const call = (calls: unknown[]) => client.multicall({ multicallAddress: MULTICALL3_ADDRESS, contracts: calls as never }) as Promise<Result[]>;
         const list = [...contracts] as Address[];
-        const per = PROBES.length + 1; // the probes + balanceOf
+        const per = PROBES.length + 3; // the probes + balanceOf + the aToken and debt-token checks
         const first = await call(
           list.flatMap((t) => [
             ...PROBES.map((p) => ({ address: t, abi: ABI, functionName: p.fn })),
             { address: t, abi: ABI, functionName: "balanceOf", args: [owner as Address] },
+            { address: t, abi: ABI, functionName: "RESERVE_TREASURY_ADDRESS" },
+            { address: t, abi: ABI, functionName: "borrowAllowance", args: [owner as Address, owner as Address] },
           ]),
         );
         const found = list.flatMap((token, i) => {
           const r = first.slice(i * per, (i + 1) * per);
           const balance = r[PROBES.length];
+          const isAToken = r[PROBES.length + 1].status === "success";
+          const isDebt = r[PROBES.length + 2].status === "success";
+          if (isDebt) return []; // a loan, never a holding
           if (balance.status !== "success" || (balance.result as bigint) <= BigInt(0)) return [];
-          const hit = PROBES.findIndex((_, j) => {
+          const hit = PROBES.findIndex((p, j) => {
             const probe = r[j];
+            if (p.kind === "aave" && !isAToken) return false;
             return probe.status === "success" && isAddress(String(probe.result));
           });
           if (hit === -1) return [];

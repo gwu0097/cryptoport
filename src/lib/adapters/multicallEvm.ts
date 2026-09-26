@@ -17,7 +17,7 @@ import { upsertTokenRegistry } from "./tokenRegistry";
 import type { AdapterHolding } from "./types";
 import type { KeepScope } from "../carryForward";
 import { ensureAssetPrices, readAssetPrices } from "./assetPrices";
-import { discoverAlchemyTokens, DISCOVERY_MAX_PAGES } from "./alchemyDiscovery";
+import { discoverTokens, replacesRegistry, DISCOVERY_MAX_PAGES } from "./tokenDiscovery";
 import { readReceiptClaims } from "./receiptTokens";
 import { candidateTokens, classifyHeld, type HeldToken, type ReceiptValuation, type TokenInfo } from "../tokenDiscovery";
 
@@ -294,8 +294,9 @@ interface ChainScan {
 /** How a chain's token list was chosen (docs/sync/PLAN.md D1/D4), for the
  * sync log (sync_runs). */
 export interface ChainDiscovery {
-  source: "alchemy" | "registry";
-  /** Why an Alchemy chain fell back to the registry scan (error or cap). */
+  source: "alchemy" | "blockscout" | "etherscan" | "registry";
+  /** Why a chain with a discovery source fell back to the registry scan
+   * (error or cap). */
   fallback: string | null;
   ms: number;
   pages: number;
@@ -334,8 +335,9 @@ const SYMBOL_ABI = [{ name: "symbol", type: "function", stateMutability: "view",
 
 /**
  * One chain's held tokens and native balance. Which tokens are read
- * (docs/sync/PLAN.md D1–D2): on a chain with an Alchemy network, what Alchemy
- * discovers ∪ what the wallet held there last sync (`previous`); if discovery
+ * (docs/sync/PLAN.md D1–D2): on a chain with a discovery source (Alchemy,
+ * Blockscout or Etherscan — adapters/tokenDiscovery.ts), what it discovers ∪
+ * what the wallet held there last sync (`previous`); if discovery
  * fails or hits its page cap, every CoinGecko-listed token as well (today's
  * scan). Other chains read every listed token, as before. The native coin's
  * ERC-20 form is never read (candidateTokens). Balances always come from our
@@ -347,18 +349,19 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address, prev
   let pages = 0;
   let fallback: string | null = null;
   let tokens: TokenInfo[];
-  if (chain.alchemyNetwork) {
+  const discovery = discoverTokens(chain, address);
+  if (discovery) {
     try {
-      const d = await discoverAlchemyTokens(chain.alchemyNetwork, address);
+      const d = await discovery;
       discovered = d.contracts;
       pages = d.pages;
-      if (d.capped) fallback = `more than ${DISCOVERY_MAX_PAGES * 100} tokens (discovery capped)`;
+      if (d.capped) fallback = `more than ~${DISCOVERY_MAX_PAGES * 100} tokens (discovery capped)`;
     } catch (e) {
       fallback = (e as Error).message;
     }
   }
   const discoveryMs = Date.now() - started;
-  if (chain.alchemyNetwork && fallback === null) {
+  if (discovery && fallback === null && replacesRegistry(chain)) {
     const wanted = [...new Set([...discovered, ...previous.map((c) => c.toLowerCase())])];
     tokens = candidateTokens({ discovered, previous, registry: await getRegistryInfo(chain.id, wanted), includeWholeRegistry: false, nativeCoingeckoId: chain.nativeCoingeckoId });
   } else {
@@ -427,7 +430,7 @@ export async function fetchChainHoldings(chain: EvmChain, address: Address, prev
     nativeQty: nativeBalance > BigInt(0) ? Number(formatUnits(nativeBalance, 18)) : null,
     unverifiedCount: unverified,
     unverifiedContracts,
-    discovery: { source: chain.alchemyNetwork && fallback === null ? "alchemy" : "registry", fallback, ms: discoveryMs, pages, discovered: discovered.length, read: tokens.length },
+    discovery: { source: chain.discovery && fallback === null ? chain.discovery.source : "registry", fallback, ms: discoveryMs, pages, discovered: discovered.length, read: tokens.length },
   };
 }
 

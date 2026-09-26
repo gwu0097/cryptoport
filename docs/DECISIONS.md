@@ -9,6 +9,22 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-25 — Discovery beyond Alchemy (phase 5)
+
+The 18 chains Alchemy doesn't index were checked live: Blockscout's token list
+works on Mode, Metis, Aurora and Merlin; Etherscan's free tier has no balance
+endpoint (addresstokenbalance is API Pro) but its transfer history works on
+Taiko, Mantle, opBNB, Fraxtal, Sonic and Sei; Taiko's, Manta's and
+PulseChain's Blockscout hosts are dead or blocked. Etherscan's free key allows
+3 calls/second: all 13 EVM wallets at once queued the last one 27 s, so
+Etherscan discovery adds to the registry scan instead of replacing it and is
+skipped when the queue is too long; Sync all's two-at-a-time EVM lane ran with
+no skips. Found BizNFT's aTkoWETH on Taiko (the last DeBank gap). The dry run
+also caught Aave debt tokens being read as receipts (variableDebtWrsETH on
+Mode, +$3): debt tokens answer UNDERLYING_ASSET_ADDRESS like aTokens, so the
+reader now rejects anything answering borrowAllowance and requires aTokens to
+answer RESERVE_TREASURY_ADDRESS.
+
 ## 2026-09-25 — Jupiter Perps from Jupiter's perps API
 
 Jupiter's portfolio API (beta) returned "Discriminant 225 out of range" for its

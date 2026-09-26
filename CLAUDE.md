@@ -190,7 +190,9 @@ as a standard receipt, the row stores the underlying amount, `coingecko_id` =
 the underlying coin (its `price_key`) and a label like "hUSDB (as USDB)"
 (`multicallEvm.ts` `priceScans`, `tokenDiscovery.ts` `classifyHeld`). Such a row
 is never tradable for the dedupe above: the underlying's volume says nothing
-about the receipt's own market, so its position stays when Zerion has one.
+about the receipt's own market, so its position stays when Zerion has one. A
+debt token (Aave variable/stable debt — it answers `borrowAllowance`) is never
+read as a receipt: a loan is not a holding (`receiptTokens.ts`).
 
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly
@@ -266,11 +268,17 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
 
 `docs/sync/PLAN.md` is the design. Per chain (`multicallEvm.ts`
 `fetchChainHoldings`):
-- **Discovery:** on chains with an `alchemyNetwork` (`evmChains.ts`),
-  `alchemy_getTokenBalances` lists the contracts the address holds
-  (`adapters/alchemyDiscovery.ts`). It is all-or-nothing: an error, or more
-  than `DISCOVERY_MAX_PAGES` pages, falls back to reading every listed token
-  (`token_registry`), as every other chain does.
+- **Discovery:** each chain's `discovery` source (`evmChains.ts`,
+  `adapters/tokenDiscovery.ts`) lists the contracts the address holds —
+  Alchemy's token API (20 chains) or a Blockscout explorer's token list (Mode,
+  Metis, Aurora, Merlin) replace the registry scan; Etherscan's transfer
+  history (Taiko, Mantle, opBNB, Fraxtal, Sonic, Sei) only adds to it, because
+  its free key allows 3 calls/second app-wide (`adapters/etherscanFetch.ts`
+  paces every Etherscan call, discovery and Transactions alike; a wallet that
+  would wait over 5 s skips it for that sync). All-or-nothing: an error, or
+  more than the page cap, falls back to reading every listed token
+  (`token_registry`), as chains with no source do. A new source is checked
+  live per chain before it's added.
 - **What is read:** discovered ∪ the wallet's tokens from the last sync (∪ the
   whole registry on fallback) — `tokenDiscovery.ts` `candidateTokens`. Balances
   always come from our own `balanceOf` multicall, never the indexer's number. A
@@ -289,8 +297,10 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   users.
 - Each sync logs per-chain source, fallback, pages, time and counts to
   `sync_runs`. Check it before changing discovery.
-- A new chain whose Alchemy token API works gets `alchemyNetwork`; any other
-  chain stays on the registry scan until phase 5 (Etherscan/Blockscout).
+- A new chain gets a `discovery` source when one is checked live (Alchemy
+  first, then Blockscout, then Etherscan); otherwise it stays on the registry
+  scan (Manta, PulseChain, Fantom, Cronos, Kava, Chiliz, Polygon zkEVM, DBK as
+  of 2026-09-25 — no working free source).
 (DECISIONS: 2026-09-25 Wallet balance discovery)
 
 ## 5. External APIs — sparing, deliberate, measured

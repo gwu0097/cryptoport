@@ -178,8 +178,13 @@ wallets at once — 429s), and Alchemy CU from the dashboard.
    coin for an unrecognized token (classification would have to consult
    `asset_contracts` overrides — its own small change).
 5. **Etherscan / Blockscout discovery** for the chains where phase 1/3 show real
-   misses (Taiko first: aTkoWETH). Etherscan needs `startblock` windowing past
-   10k records and the stored cursor.
+   misses (Taiko first: aTkoWETH). **Done 2026-09-25**: Blockscout on Mode,
+   Metis, Aurora, Merlin; Etherscan transfer history (additive, paced,
+   skipped past a 5 s queue) on Taiko, Mantle, opBNB, Fraxtal, Sonic, Sei. No
+   block cursor: it wouldn't cut the call count (one per chain per sync either
+   way); a wallet past 10,000 transfers on a chain is capped and falls back.
+   Still registry-only: Manta, PulseChain, Fantom, Cronos, Kava, Chiliz,
+   Polygon zkEVM, DBK (no working free source found).
 6. **Generated chain catalog** (chainlist + Multicall3 + CoinGecko platform +
    live checks) — only after discovery makes an extra chain cheap.
 

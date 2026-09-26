@@ -1,10 +1,9 @@
 import "server-only";
-import { fetchWithRetry } from "./http";
+import { etherscanFetch } from "./etherscanFetch";
 import { EVM_CHAINS } from "./evmChains";
 import { fetchTokenPrices } from "./coingecko";
 import type { AdapterTransaction } from "./types";
 
-const API_BASE = "https://api.etherscan.io/v2/api";
 const API_KEY = process.env.ETHERSCAN_API_KEY;
 
 /**
@@ -85,10 +84,9 @@ interface EtherscanTokenRow {
 
 async function callEtherscan<T>(chainId: number, params: Record<string, string>): Promise<T[]> {
   if (!API_KEY) return [];
-  const qs = new URLSearchParams({ chainid: String(chainId), apikey: API_KEY, ...params });
-  const res = await fetchWithRetry(`${API_BASE}?${qs.toString()}`);
-  if (!res.ok) throw new Error(`Etherscan (chain ${chainId}) failed: HTTP ${res.status}`);
-  const body: { status: string; message: string; result: unknown } = await res.json();
+  // Paced and retried on Etherscan's 3/sec limit, shared with token
+  // discovery (etherscanFetch.ts).
+  const body = await etherscanFetch(chainId, params);
   // status "0" covers both "genuinely nothing found" and a real failure
   // (bad key, rate limit) — Etherscan uses the same shape for both. Either
   // way this is exactly the "cosmetic, don't take down the rest of the
