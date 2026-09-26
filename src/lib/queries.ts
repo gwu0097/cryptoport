@@ -217,6 +217,8 @@ export interface AssetStats {
   change7d: number | null;
   change30d: number | null;
   marketCap: number | null;
+  /** 24h trading volume across markets (CoinGecko coins only). */
+  volume24h: number | null;
   updatedAt: string | null;
   source: string | null;
   symbol: string | null;
@@ -233,7 +235,7 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
   for (let from = 0; ; from += 1000) {
     const { data, error } = await serviceDb()
       .from("asset_prices")
-      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, updated_at, source")
+      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, volume_24h, updated_at, source")
       .order("price_key")
       .range(from, from + 999);
     if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
@@ -245,6 +247,7 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
         change7d: num(r.change_7d),
         change30d: num(r.change_30d),
         marketCap: num(r.market_cap),
+        volume24h: num(r.volume_24h),
         updatedAt: (r.updated_at as string | null) ?? null,
         source: (r.source as string | null) ?? null,
         symbol: null,

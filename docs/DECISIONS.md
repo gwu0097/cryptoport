@@ -9,6 +9,28 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Analytics: attribution, risk profile, holdings in context
+
+The old Analytics page only charted value over time, so it became Performance
+and `/analytics` was rebuilt as analysis (owner: "design it how you think").
+Allocation by chain and coin already lives on Assets, so it isn't repeated.
+
+- **Attribution is holdings-based**, from each asset's own 24h/7d/30d change
+  against the live total minus the snapshot from that day. We keep no
+  per-asset daily quantities, so trades and deposits can't be split apart;
+  "everything else" says so instead of guessing. Adding wallets shows up
+  there (the owner's 7d: +$19k price, +$235k everything else).
+- **Risk uses the last 90 days that have prices**, not 90 calendar days: the
+  stored history has a gap (backfills end 2026-09-11, daily closes start
+  2026-09-25), and a return is only taken between consecutive days. Assets
+  with under 80% of those days are listed as not modeled, never zero-filled.
+  BTC is the benchmark because it's what a crypto portfolio's swings track
+  (the owner's beta: 1.01 and 1.06).
+- **Flags are observations with fixed thresholds** (`FLAG_THRESHOLDS`), not
+  signals — the same line the screener and signals hold.
+- Possible next step: a daily per-asset quantity snapshot would allow exact
+  attribution (trades vs deposits); it needs a table and its own plan.
+
 ## 2026-09-26 — Refresh positions streams each account as it returns
 
 The owner asked for Refresh positions to fill in the way Rabby/DeBank's sync

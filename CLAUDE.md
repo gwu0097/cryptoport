@@ -19,9 +19,8 @@ owner's.
 - **The Dashboard is a lens, not a workshop.** `/dashboard` only presents data
   other pages already compute (`AssetGroup`, `portfolio_snapshots`, …). If a
   Dashboard request needs a new metric, aggregation or data source, say so and
-  build it as its own page first (Performance owns historical value math;
-  `/analytics` is reserved for a real analysis page, not built yet), then
-  have the Dashboard consume it. (DECISIONS: before 2026-09-22 Dashboard is a
+  build it as its own page first (Performance owns historical value math,
+  Analytics owns derived analysis), then have the Dashboard consume it. (DECISIONS: before 2026-09-22 Dashboard is a
   lens)
 - **The screener ("Fundamentals" in the UI) is a verified research dataset with
   a risk filter, not a signal.** No new capability until evidence supports it.
@@ -30,6 +29,15 @@ owner's.
   (wallets, holdings, watchlist); the Encyclopedia reads it only through
   `src/lib/screener/assetView.ts` (`getAssetFundamentals`) and
   `src/lib/screener/labels.ts`.
+- **Analytics** (`/analytics`, `src/lib/analyticsQuery.ts` → pure
+  `src/lib/analytics/`) reads only stored data, no external call: what moved
+  the portfolio (`attribution.ts`: price moves on today's holdings from
+  `asset_prices` changes vs the live total minus that day's
+  `portfolio_snapshots` row; the rest is "everything else", never split
+  further), its risk (`risk.ts`: today's holdings over the last 90 days with
+  daily prices, benchmarked to BTC's history; an asset without enough history
+  is named as not modeled) and each holding's context (`holdingContext.ts`:
+  fixed-threshold flags — observations, not advice).
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
