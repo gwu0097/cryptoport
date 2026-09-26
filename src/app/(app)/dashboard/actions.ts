@@ -13,7 +13,8 @@ import { fetchJupiterPerps } from "@/lib/adapters/jupiterPerps";
 import { fetchJupiterPrediction } from "@/lib/adapters/jupiterPrediction";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { carryForward, type KeepableRow, type KeepScope } from "@/lib/carryForward";
-import { venueOwns, venuesWithOpenPositions, type PositionVenue } from "@/lib/perpPositions";
+import { venueOwns, venuesToRefresh, type PositionVenue } from "@/lib/perpPositions";
+import { markVenueActivity, readVenueActivity } from "@/lib/venueActivity";
 import type { AdapterHolding } from "@/lib/adapters/types";
 
 export interface PositionsRefreshResult {
@@ -55,7 +56,9 @@ async function freshVenueRows(venue: PositionVenue, address: string, previous: S
 
 /**
  * "Refresh positions" on the Dashboard: re-reads only the venue accounts
- * (perpPositions.ts POSITION_VENUES) where the user has an open position, one
+ * (perpPositions.ts POSITION_VENUES) where the user has an open position — or
+ * had one in the last 30 days (wallet_venue_activity), so a position opened
+ * after the last one closed is still found — one
  * account call each, and replaces that venue's rows for that wallet —
  * positions, cash and margin together, so wallet totals stay right (a perp's
  * PnL lands in its account's cash rows). No chain scan, no price refresh, no
@@ -70,11 +73,15 @@ export async function refreshOpenPositions(): Promise<PositionsRefreshResult> {
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
 
   type Wallet = { id: string; name: string; chain: string; address: string | null; holdings: (StoredRow & { source: string })[] };
+  // Venues with an open position now, plus those that had one in the last 30
+  // days — a position opened after the last one closed is still found.
+  const activity = await readVenueActivity(db, (data as Wallet[]).map((w) => w.id));
+  const now = Date.now();
   const tasks = (data as Wallet[]).flatMap((w) => {
     const kind = w.chain === "SOL" ? "solana" : isEvmChainId(w.chain) ? "evm" : null;
     if (!w.address || !kind) return [];
     const auto = w.holdings.filter((h) => h.source === "auto");
-    return venuesWithOpenPositions(auto)
+    return venuesToRefresh(auto, activity.get(w.id) ?? new Map(), now)
       .filter((venue) => venue.wallet === kind)
       .map((venue) => ({ wallet: w, venue, previous: auto.filter((h) => venueOwns(venue, h)) }));
   });
@@ -94,6 +101,7 @@ export async function refreshOpenPositions(): Promise<PositionsRefreshResult> {
         ...(venue.protocol ? { p_protocol: venue.protocol } : {}),
       });
       if (rpcError) throw new Error(rpcError.message);
+      await markVenueActivity(db, wallet.id, rows);
       return null;
     } catch (e) {
       return `${wallet.name} · ${venue.id}: ${(e as Error).message}`;

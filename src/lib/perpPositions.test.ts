@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { currentPnl, isOpenPosition, markKeyFor, totalPnl, venuesWithOpenPositions, withCurrentPnl, type PositionInput } from "./perpPositions.ts";
+import { currentPnl, isOpenPosition, markKeyFor, totalPnl, venuesToRefresh, venuesWithOpenPositions, withCurrentPnl, type PositionInput } from "./perpPositions.ts";
 import { lighterHoldings } from "./lighter.ts";
 
 // BizNFT's LIT long as synced 2026-09-26 13:05 UTC.
@@ -92,4 +92,16 @@ test("venues to re-read: only those with an open position; a shared chain narrow
     ]).map((v) => v.id),
     ["hyperliquid", "jupiter-perps"],
   );
+});
+
+test("refresh set: open positions now, plus venues with a position in the last 30 days", () => {
+  const now = Date.parse("2026-09-26T12:00:00Z");
+  const day = 24 * 60 * 60 * 1000;
+  const rows = [{ chain: "hyperliquid", position_side: "long" as const }, { chain: "lighter", protocol_section: "Deposit", usd_override: 600 }];
+  const recent = new Map([
+    ["lighter", new Date(now - 3 * day).toISOString()], // last position closed 3 days ago: still read
+    ["aster", new Date(now - 31 * day).toISOString()], // quiet for 31 days: dropped
+  ]);
+  assert.deepEqual(venuesToRefresh(rows, recent, now).map((v) => v.id), ["hyperliquid", "lighter"]);
+  assert.deepEqual(venuesToRefresh([], new Map(), now), []); // never traded: nothing read
 });

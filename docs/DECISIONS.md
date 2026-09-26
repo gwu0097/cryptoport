@@ -9,6 +9,16 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Refresh positions keeps a venue for 30 days after its last position
+
+Refresh positions only read venues with an open position stored, so closing
+the last position on a venue and opening a new one later went unseen until a
+full wallet sync. Owner's idea: keep such wallets in the refresh, dropped after
+a quiet period. Made per wallet AND venue (wallet_venue_activity, last time a
+position was seen), so a Hyperliquid-only trader's Lighter/Aster/Polymarket
+accounts aren't pulled. 30 days over 14: each extra read is one light call and
+only on a click, and it covers a trader pausing a few weeks.
+
 ## 2026-09-26 — Perp coverage: Hyperliquid HIP-3 markets, Aster, Jupiter in Refresh positions
 
 Owner: every perp and prediction venue we scan should land in Open positions;

@@ -153,3 +153,26 @@ export function isOpenPosition(h: {
 export function venuesWithOpenPositions(rows: readonly (Parameters<typeof isOpenPosition>[0] & { protocol?: string | null })[]): PositionVenue[] {
   return POSITION_VENUES.filter((v) => rows.some((r) => venueOwns(v, r) && isOpenPosition(r)));
 }
+
+/** How long a venue account stays in "Refresh positions" after its last open
+ * position: closing the last position and opening a new one days later is
+ * still found without a full wallet sync. Past this, the venue is read again
+ * only by a full sync (which re-marks it when it shows a position). */
+export const RECENT_POSITION_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** The venues "Refresh positions" reads for one wallet: those with an open
+ * position in its stored rows, plus those that had one within the window
+ * (`lastPositionAt`: venue id → ISO time, from wallet_venue_activity). */
+export function venuesToRefresh(
+  rows: readonly (Parameters<typeof isOpenPosition>[0] & { protocol?: string | null })[],
+  lastPositionAt: ReadonlyMap<string, string>,
+  nowMs: number,
+  windowMs: number = RECENT_POSITION_WINDOW_MS,
+): PositionVenue[] {
+  const open = new Set(venuesWithOpenPositions(rows).map((v) => v.id));
+  return POSITION_VENUES.filter((v) => {
+    if (open.has(v.id)) return true;
+    const at = lastPositionAt.get(v.id);
+    return at !== undefined && nowMs - Date.parse(at) <= windowMs;
+  });
+}

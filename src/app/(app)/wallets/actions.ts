@@ -19,6 +19,7 @@ import { fetchSeiStakingHoldings } from "@/lib/adapters/seiStaking";
 import { fetchCosmosMultiHoldings } from "@/lib/adapters/cosmosMulti";
 import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
+import { markVenueActivity } from "@/lib/venueActivity";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
 import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, readAssetVolumes, type OnLane } from "@/lib/adapters/assetPrices";
 import { dedupeReceipts, dropUntradableReceiptTokens, linkReceiptPositions, receiptKey, type ReceiptClaim } from "@/lib/receiptDedupe";
@@ -886,6 +887,9 @@ export async function syncWalletHoldings(walletId: string, forceFullScan = false
         p_status: status,
       });
       if (syncError) throw new Error(`Failed to save synced holdings: ${syncError.message}`);
+      // Venues showing an open position stay in "Refresh positions" for 30
+      // days after it closes (venueActivity.ts).
+      if (!cosmosHoldings) await markVenueActivity(afterDb, walletId, saved as AdapterHolding[]);
       if (defiSaved) {
         const { error: defiError } = await afterDb.rpc("sync_defi_holdings", {
           p_wallet_id: walletId,

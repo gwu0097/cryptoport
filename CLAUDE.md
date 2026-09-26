@@ -182,7 +182,9 @@ size × (mark − entry) when that mark is newer than the wallet's sync
 the Dashboard's Open positions section lists them, with Polymarket positions
 still worth something (`isOpenPosition`). Its **Refresh positions** button
 (`dashboard/actions.ts` `refreshOpenPositions`) re-reads only the venue
-accounts with an open position (`POSITION_VENUES`: Hyperliquid incl. its HIP-3 markets, Lighter, Aster,
+accounts with an open position, or one in the last 30 days
+(`venuesToRefresh`, `wallet_venue_activity`, written by every sync and
+refresh that sees a position) (`POSITION_VENUES`: Hyperliquid incl. its HIP-3 markets, Lighter, Aster,
 Polymarket, Jupiter Perps, Jupiter Prediction — one call each) and replaces
 that venue's rows for the wallet (`replace_venue_holdings`, narrowed by
 protocol on a shared chain), cash and margin included, so totals stay right;

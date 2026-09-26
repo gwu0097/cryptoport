@@ -2350,3 +2350,22 @@ begin
   from jsonb_array_elements(p_holdings) as h;
 end;
 $$;
+
+-- When each wallet's venue account (Hyperliquid, Lighter, Aster, Polymarket,
+-- Jupiter Perps/Prediction) last showed an open position. "Refresh positions"
+-- keeps re-reading a venue for 30 days after that (perpPositions.ts
+-- venuesToRefresh), so closing the last position and opening a new one is
+-- still found without a full wallet sync; a venue quiet longer is read only by
+-- a full sync, which marks it again. Written by the sync and the refresh.
+create table if not exists cryptoport.wallet_venue_activity (
+  user_id          uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  wallet_id        uuid not null references cryptoport.wallets(id) on delete cascade,
+  venue            text not null,
+  last_position_at timestamptz not null,
+  primary key (wallet_id, venue)
+);
+alter table cryptoport.wallet_venue_activity enable row level security;
+grant all on cryptoport.wallet_venue_activity to service_role;
+grant select, insert, update, delete on cryptoport.wallet_venue_activity to authenticated;
+create policy "wallet_venue_activity: owner only" on cryptoport.wallet_venue_activity
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
