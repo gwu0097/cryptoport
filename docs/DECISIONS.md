@@ -9,6 +9,17 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Refresh positions streams each account as it returns
+
+The owner asked for Refresh positions to fill in the way Rabby/DeBank's sync
+does — totals visibly counting up as each source returns — instead of one
+wait for the slowest account. The Server Action became a route handler
+(`api/positions/refresh`) that streams one NDJSON line per account, read back
+from the rows it just saved (so what streams in is what the page shows after
+its final refresh). A route handler rather than a streaming Server Action: it
+stays out of the per-tab action queue (§6), and a plain `fetch` body reader is
+the simplest stream a client can consume. No schema change.
+
 ## 2026-09-26 — Refresh positions keeps a venue for 30 days after its last position
 
 Refresh positions only read venues with an open position stored, so closing

@@ -1,5 +1,5 @@
 import "server-only";
-import { MARK_KEY_PREFIXES, isOpenPosition, markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
+import { MARK_KEY_PREFIXES, POSITION_VENUES, isOpenPosition, markKeyFor, venueOwns, withCurrentPnl, type Mark } from "./perpPositions";
 import { nearestTpsl } from "./tpsl";
 import { cache } from "react";
 import { serviceDb, userDb } from "./supabase";
@@ -1046,6 +1046,9 @@ export interface OpenPosition {
   kind: "perp" | "prediction";
   walletId: string;
   walletName: string;
+  /** perpPositions.ts POSITION_VENUES id — the account a streamed refresh
+   * replaces this position's row as part of. */
+  venueId: string | null;
   ticker: string;
   /** A prediction's market and outcome ("Will X happen? — Yes"). */
   label: string | null;
@@ -1071,41 +1074,50 @@ export interface OpenPosition {
   tpsl: { tp: number | null; sl: number | null; more: number } | null;
 }
 
-/** Every open position the signed-in user has synced (perps on any venue,
- * prediction-market positions still worth something), across active wallets,
- * with PnL as of the newest of its row and the last price refresh
- * (perpPositions.ts). Nothing is fetched from a venue here. */
+/** One wallet's open positions from its rows (perps on any venue, prediction
+ * positions still worth something), with PnL as of the newest of its row and
+ * the last price refresh (perpPositions.ts). Shared by the Dashboard's read
+ * and the streaming "Refresh positions" (api/positions/refresh). */
+export function openPositionsOf(
+  w: { id: string; name: string; last_refresh_at: string | null },
+  holdings: readonly Holding[],
+  marks: ReadonlyMap<string, Mark>,
+): OpenPosition[] {
+  const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const out: OpenPosition[] = [];
+  for (const h of holdings) {
+    if (!isOpenPosition(h)) continue;
+    const rowAt = h.updated_at ?? w.last_refresh_at;
+    const venueId = POSITION_VENUES.find((v) => venueOwns(v, h))?.id ?? null;
+    const base = { walletId: w.id, walletName: w.name, venueId, ticker: h.ticker, venue: h.protocol, size: num(h.qty), entryPrice: num(h.position_entry_price), valueUsd: num(h.usd_override), pnlUsd: num(h.position_pnl_usd), pnlPercent: num(h.position_pnl_percent) };
+    if (!h.position_side) {
+      const size = num(h.qty);
+      const value = num(h.usd_override);
+      out.push({ ...base, kind: "prediction", label: h.display_label, side: null, markPrice: size && value !== null ? value / size : null, leverage: null, liquidationPrice: null, pnlAsOf: rowAt, tpsl: null });
+      continue;
+    }
+    const key = markKeyFor(h);
+    const mark = key ? marks.get(key) : undefined;
+    const live = !!mark && (!rowAt || Date.parse(mark.at) > Date.parse(rowAt));
+    out.push({
+      ...base,
+      kind: "perp",
+      label: null,
+      side: h.position_side,
+      markPrice: mark?.usd ?? null,
+      leverage: num(h.position_leverage),
+      liquidationPrice: num(h.position_liquidation_price),
+      pnlAsOf: live ? mark!.at : rowAt,
+      tpsl: Array.isArray(h.position_tpsl) ? nearestTpsl(h.position_tpsl, h.position_side) : null,
+    });
+  }
+  return out;
+}
+
+/** Every open position the signed-in user has synced, across active wallets.
+ * Nothing is fetched from a venue here. */
 export async function getOpenPositions(): Promise<OpenPosition[]> {
   if (!(await getUser())) return [];
   const [wallets, marks] = await Promise.all([getActiveWalletsWithHoldings(), getPerpMarks()]);
-  const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === "" ? null : Number(v));
-  const out: OpenPosition[] = [];
-  for (const w of wallets) {
-    for (const h of w.holdings) {
-      if (!isOpenPosition(h)) continue;
-      const rowAt = h.updated_at ?? w.last_refresh_at;
-      const base = { walletId: w.id, walletName: w.name, ticker: h.ticker, venue: h.protocol, size: num(h.qty), entryPrice: num(h.position_entry_price), valueUsd: num(h.usd_override), pnlUsd: num(h.position_pnl_usd), pnlPercent: num(h.position_pnl_percent) };
-      if (!h.position_side) {
-        const size = num(h.qty);
-        const value = num(h.usd_override);
-        out.push({ ...base, kind: "prediction", label: h.display_label, side: null, markPrice: size && value !== null ? value / size : null, leverage: null, liquidationPrice: null, pnlAsOf: rowAt, tpsl: null });
-        continue;
-      }
-      const key = markKeyFor(h);
-      const mark = key ? marks.get(key) : undefined;
-      const live = !!mark && (!rowAt || Date.parse(mark.at) > Date.parse(rowAt));
-      out.push({
-        ...base,
-        kind: "perp",
-        label: null,
-        side: h.position_side,
-        markPrice: mark?.usd ?? null,
-        leverage: num(h.position_leverage),
-        liquidationPrice: num(h.position_liquidation_price),
-        pnlAsOf: live ? mark!.at : rowAt,
-        tpsl: Array.isArray(h.position_tpsl) ? nearestTpsl(h.position_tpsl, h.position_side) : null,
-      });
-    }
-  }
-  return out;
+  return wallets.flatMap((w) => openPositionsOf(w, w.holdings, marks));
 }

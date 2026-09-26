@@ -181,7 +181,7 @@ size × (mark − entry) when that mark is newer than the wallet's sync
 (`withCurrentPnl` in `getWalletDetail` / `getActiveWalletsWithHoldings`), and
 the Dashboard's Open positions section lists them, with Polymarket positions
 still worth something (`isOpenPosition`). Its **Refresh positions** button
-(`dashboard/actions.ts` `refreshOpenPositions`) re-reads only the venue
+(`api/positions/refresh` → `positionsRefresh.ts`) re-reads only the venue
 accounts with an open position, or one in the last 30 days
 (`venuesToRefresh`, `wallet_venue_activity`, written by every sync and
 refresh that sees a position) (`POSITION_VENUES`: Hyperliquid incl. its HIP-3 markets, Lighter, Aster,
@@ -189,7 +189,10 @@ Polymarket, Jupiter Perps, Jupiter Prediction — one call each) and replaces
 that venue's rows for the wallet (`replace_venue_holdings`, narrowed by
 protocol on a shared chain), cash and margin included, so totals stay right;
 no chain scan, no price refresh, and the wallet's `last_refresh_at` is left
-alone. Whether a mark is newer is judged per row (`holdings.updated_at`). Each
+alone. It streams: every account is read at once and each one's positions are
+sent as one NDJSON line the moment it's saved, so the section's rows and
+totals update account by account (`OpenPositionsPanel` `streamRefresh`), then
+`router.refresh()` re-renders the page. Whether a mark is newer is judged per row (`holdings.updated_at`). Each
 position also carries its TP/SL orders (`holdings.position_tpsl`, `tpsl.ts`):
 Hyperliquid's reduce-only trigger orders (read only for markets with a
 position) and Jupiter Perps' tpslRequests; `[]` = none set, null = not known

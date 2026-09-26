@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronRight, RefreshCw } from "lucide-react";
 import type { OpenPosition } from "@/lib/queries";
-import { refreshOpenPositions } from "@/app/(app)/dashboard/actions";
 import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { SortableHeader } from "@/components/ui/SortableHeader";
@@ -32,45 +32,103 @@ function sortValue(p: OpenPosition, key: SortKey): number | string {
 const tone = (n: number | null) => (n === null ? "text-fg-muted" : n > 0 ? "text-positive" : n < 0 ? "text-negative" : "text-fg");
 const price = (n: number | null) => (n === null ? "—" : formatPrice(n));
 
-/** Re-reads the venue accounts that have an open position (dashboard/actions.ts). */
-function RefreshPositionsButton() {
-  const [pending, start] = useTransition();
-  const [note, setNote] = useState<string | null>(null);
-  return (
-    <div className="flex flex-col items-end gap-1">
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={pending}
-        title="Re-reads only the exchange accounts with an open position (one call each) — no chain scan, no price refresh."
-        onClick={() =>
-          start(async () => {
-            try {
-              const r = await refreshOpenPositions();
-              setNote(r.failed.length ? `Couldn't refresh ${r.failed.join("; ")} — shown as last synced.` : null);
-            } catch (e) {
-              setNote(`Refresh failed: ${(e as Error).message}`);
-            }
-          })
-        }
-      >
-        <RefreshCw className={`size-3.5 ${pending ? "animate-spin" : ""}`} aria-hidden="true" />
-        {pending ? "Refreshing positions…" : "Refresh positions"}
-      </Button>
-      {note && <p className="max-w-xs text-right text-xs text-warning">{note}</p>}
-    </div>
-  );
+type Progress = { done: number; total: number; failed: string[] };
+
+/** One streamed line from api/positions/refresh. */
+type RefreshLine =
+  | { type: "start"; total: number; accounts: { walletId: string; walletName: string; venueId: string }[] }
+  | { type: "account"; walletId: string; venueId: string; ok: true; positions: OpenPosition[] }
+  | { type: "account"; walletId: string; venueId: string; ok: false; error: string }
+  | { type: "end" };
+
+const accountKey = (walletId: string, venueId: string | null) => `${walletId}|${venueId}`;
+
+/**
+ * Runs "Refresh positions" (api/positions/refresh): each venue account's
+ * positions arrive the moment its read finishes, one JSON line each, and go
+ * straight to `onAccount` — so rows and totals update account by account
+ * instead of after the slowest one.
+ */
+async function streamRefresh(
+  onStart: (total: number, names: Map<string, string>) => void,
+  onLine: (line: Extract<RefreshLine, { type: "account" }>) => void,
+): Promise<void> {
+  const res = await fetch("/api/positions/refresh", { method: "POST", cache: "no-store" });
+  if (!res.ok || !res.body) throw new Error(res.status === 401 ? "Sign in again" : `HTTP ${res.status}`);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += value;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const text of lines) {
+      if (!text.trim()) continue;
+      const line = JSON.parse(text) as RefreshLine;
+      if (line.type === "start") onStart(line.total, new Map(line.accounts.map((a) => [accountKey(a.walletId, a.venueId), a.walletName])));
+      else if (line.type === "account") onLine(line);
+    }
+    if (done) return;
+  }
 }
 
 /**
  * Every open position across the user's wallets — perps (Hyperliquid, Lighter,
  * Jupiter) and prediction-market positions (Polymarket) — so none is out of
  * sight. Reads what the syncs stored. "Refresh positions" re-reads just those
- * venue accounts; Refresh prices updates perp PnL from the venue's mark
+ * venue accounts, and each account's rows and the totals update as its read
+ * returns (streamRefresh); Refresh prices updates perp PnL from the venue's mark
  * (perpPositions.ts). Values are already in each wallet's total; nothing here
  * adds to the Dashboard total.
  */
-export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPosition[]; asOfLabel: string }) {
+export function OpenPositionsPanel({ positions: initial, asOfLabel }: { positions: OpenPosition[]; asOfLabel: string }) {
+  const router = useRouter();
+  // The rows shown: the server's, replaced account by account while a refresh
+  // streams in, and reset whenever the server sends new ones.
+  const [positions, setPositions] = useState(initial);
+  const [shownInitial, setShownInitial] = useState(initial);
+  if (shownInitial !== initial) {
+    setShownInitial(initial);
+    setPositions(initial);
+  }
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [updated, setUpdated] = useState<ReadonlySet<string>>(new Set());
+  const [note, setNote] = useState<string | null>(null);
+  const refreshing = progress !== null;
+
+  async function refresh() {
+    setNote(null);
+    setUpdated(new Set());
+    setProgress({ done: 0, total: 0, failed: [] });
+    let names = new Map<string, string>();
+    const failed: string[] = [];
+    try {
+      await streamRefresh(
+        (total, accountNames) => {
+          names = accountNames;
+          setProgress({ done: 0, total, failed: [] });
+        },
+        (line) => {
+          const key = accountKey(line.walletId, line.venueId);
+          if (line.ok) {
+            setPositions((prev) => [...prev.filter((p) => accountKey(p.walletId, p.venueId) !== key), ...line.positions]);
+            setUpdated((prev) => new Set(prev).add(key));
+          } else {
+            failed.push(`${names.get(key) ?? "a wallet"} · ${line.venueId} (${line.error})`);
+          }
+          setProgress((prev) => prev && { ...prev, done: prev.done + 1, failed: [...failed] });
+        },
+      );
+      if (failed.length) setNote(`Couldn't refresh ${failed.join("; ")} — shown as last synced.`);
+    } catch (e) {
+      setNote(`Refresh failed: ${(e as Error).message}`);
+    }
+    setProgress(null);
+    // Wallet totals and the rest of the page re-render from the saved rows.
+    router.refresh();
+    setTimeout(() => setUpdated(new Set()), 2000);
+  }
+
   const [sort, setSort] = usePersistedState<Sort>(STORAGE_KEY, DEFAULT_SORT);
   const [collapsed, setCollapsed] = usePersistedState<boolean>(COLLAPSED_KEY, false);
   const { key: sortKey, dir: sortDir } = sort;
@@ -123,7 +181,24 @@ export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPo
             )}
           </p>
         </button>
-        <RefreshPositionsButton />
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={refreshing}
+            title="Re-reads only the exchange accounts with an open position (one call each) — no chain scan, no price refresh."
+            onClick={refresh}
+          >
+            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
+            {refreshing ? "Refreshing positions…" : "Refresh positions"}
+          </Button>
+          {progress && progress.total > 0 && (
+            <p className="text-xs tabular-nums text-fg-muted">
+              {progress.done} of {progress.total} accounts updated
+            </p>
+          )}
+          {note && <p className="max-w-xs text-right text-xs text-warning">{note}</p>}
+        </div>
       </div>
       {!collapsed && (
         <>
@@ -143,7 +218,10 @@ export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPo
           </thead>
           <tbody>
             {sorted.map((p) => (
-              <tr key={`${p.walletId}|${p.venue}|${p.label ?? p.ticker}|${p.side}`} className={trClass}>
+              <tr
+                key={`${p.walletId}|${p.venue}|${p.label ?? p.ticker}|${p.side}`}
+                className={`${trClass} transition-colors duration-700 ${updated.has(accountKey(p.walletId, p.venueId)) ? "bg-accent/10" : ""}`}
+              >
                 <td className={tdClass}>
                   {p.kind === "perp" ? (
                     <>
