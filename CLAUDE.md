@@ -185,7 +185,7 @@ still worth something (`isOpenPosition`). Its **Refresh positions** button
 accounts with an open position (`POSITION_VENUES`: Hyperliquid incl. its HIP-3 markets, Lighter, Aster,
 Polymarket, Jupiter Perps, Jupiter Prediction — one call each) and replaces
 that venue's rows for the wallet (`replace_venue_holdings`, narrowed by
-protocol on a shared chain)
+protocol on a shared chain), cash and margin included, so totals stay right;
 no chain scan, no price refresh, and the wallet's `last_refresh_at` is left
 alone. Whether a mark is newer is judged per row (`holdings.updated_at`).
 
