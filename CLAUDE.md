@@ -473,6 +473,11 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
 - **Mobile from the start:** secondary columns append `hideOnMobileClass` to the
   existing cell class; every table is wrapped in `overflow-x-auto`; the mobile
   nav drawer shares `navItems.tsx` with the sidebar.
+- **The sidebar and the mobile drawer share one layout:** pinned header,
+  links in their own scroll area (`min-h-0 flex-1 overflow-y-auto
+  overscroll-contain`), Admin/Settings pinned at the bottom; heights in `dvh`
+  (mobile toolbars), the drawer's footer padded for the iPhone home
+  indicator. The page scrolls separately.
 
 ## 8. Schema changes
 

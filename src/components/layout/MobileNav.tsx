@@ -46,15 +46,23 @@ export function MobileNav({ isAdmin }: { isAdmin: boolean }) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-40 md:hidden">
+        // h-dvh: the dynamic viewport height, so iOS Safari's toolbars never
+        // hide the bottom of the drawer.
+        <div className="fixed inset-x-0 top-0 z-40 h-dvh md:hidden">
           <button
             type="button"
             aria-label="Close menu"
             onClick={() => setOpen(false)}
             className="absolute inset-0 bg-black/60"
           />
-          <nav className="absolute inset-y-0 left-0 flex w-64 max-w-[80vw] flex-col gap-1 border-r border-border bg-surface p-3">
-            <div className="mb-2 flex items-center justify-between px-1">
+          {/* Same layout as Sidebar.tsx: header pinned, the links scroll on
+              their own (min-h-0 + overflow-y-auto; overscroll-contain so the
+              scroll doesn't chain to the page), Admin/Settings pinned at the
+              bottom above the iPhone home indicator. The drawer used to have
+              no scroll area, so links below the screen's height couldn't be
+              reached (reported 2026-09-26). */}
+          <nav className="absolute inset-y-0 left-0 flex w-64 max-w-[80vw] flex-col border-r border-border bg-surface">
+            <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-3">
               <span className="text-sm font-semibold tracking-tight text-fg">
                 Crypto<span className="text-accent">Port</span>
               </span>
@@ -67,10 +75,10 @@ export function MobileNav({ isAdmin }: { isAdmin: boolean }) {
                 <X className="size-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="flex flex-1 flex-col gap-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-3 pb-3">
               <NavItemsList pathname={pathname} onLinkClick={() => setOpen(false)} />
             </div>
-            <div className="mt-auto flex flex-col gap-1 pt-3">
+            <div className="flex shrink-0 flex-col gap-1 border-t border-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               {isAdmin && (
                 <NavLink {...ADMIN_ITEM} active={isActive(pathname, ADMIN_ITEM.href)} onClick={() => setOpen(false)} />
               )}
