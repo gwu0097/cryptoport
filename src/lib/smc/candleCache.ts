@@ -70,3 +70,11 @@ export function candlesFrom(e: CandleEntry, wantFromSec: number): Candle[] {
   const completed = e.completed.filter((c) => c.t >= wantFromSec);
   return e.forming ? [...completed, e.forming] : completed;
 }
+
+/** The entry without completed candles older than `keepFromSec` (they only
+ * accumulate as bars close). The window it covers shrinks to match, so a
+ * later request for older candles is a full fetch, never a silent gap. */
+export function trimEntry(e: CandleEntry, keepFromSec: number): CandleEntry {
+  if (keepFromSec <= e.coverFromSec) return e;
+  return { ...e, completed: e.completed.filter((c) => c.t >= keepFromSec), coverFromSec: keepFromSec };
+}

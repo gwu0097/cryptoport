@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { capturePortfolioSnapshots } from "@/lib/snapshots";
+import { deleteUnusedCandles } from "@/lib/smc/candleStore";
 import { recordDailyCloses, refreshAssetPricesIfOlderThan } from "@/lib/adapters/assetPrices";
 
 // Iterates every user with at least one active wallet in a single pass —
@@ -31,5 +32,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const result = await capturePortfolioSnapshots();
   // Each asset's close for the day: Analytics' price history (priceHistory.ts).
   const closes = await recordDailyCloses().catch((e: Error) => `error: ${e.message}`);
-  return Response.json({ ...result, prices, closes });
+  // The Signals candle cache keeps only what someone viewed in the last two
+  // weeks (smc/candleStore.ts).
+  const candleCacheDeleted = await deleteUnusedCandles().catch((e: Error) => `error: ${e.message}`);
+  return Response.json({ ...result, prices, closes, candleCacheDeleted });
 }

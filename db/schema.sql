@@ -2112,3 +2112,22 @@ grant all on cryptoport.wallet_discovered_tokens to service_role;
 grant select, insert, update, delete on cryptoport.wallet_discovered_tokens to authenticated;
 create policy "wallet_discovered_tokens: owner only" on cryptoport.wallet_discovered_tokens
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- Shared completed-candle cache for /signals (Hyperliquid candleSnapshot).
+-- One row per coin + timeframe; completed candles packed as float64 binary
+-- (t, o, h, l, c, n per candle, 48 bytes each). Rows unused for 14 days are
+-- deleted by the daily snapshot cron. Server-only (service role): no
+-- per-user data, no policies.
+create table if not exists cryptoport.hl_candle_cache (
+  coin            text not null,
+  tf              text not null,          -- "1H" | "4H" | "1D"
+  bar_seconds     integer not null,
+  cover_from_sec  bigint not null,        -- window start the entry covers
+  fetched_at_sec  bigint not null,
+  candles         bytea not null,         -- completed candles, ascending
+  forming         jsonb,                  -- the candle forming at fetch time
+  last_used_at    timestamptz not null default now(),
+  primary key (coin, tf)
+);
+create index if not exists hl_candle_cache_last_used on cryptoport.hl_candle_cache (last_used_at);
+alter table cryptoport.hl_candle_cache enable row level security;
+grant all on cryptoport.hl_candle_cache to service_role;

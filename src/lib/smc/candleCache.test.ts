@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyFetch, candlesFrom, isFresh, planFetch, SETTLE_SEC, type CandleEntry } from "./candleCache.ts";
+import { trimEntry, applyFetch, candlesFrom, isFresh, planFetch, SETTLE_SEC, type CandleEntry } from "./candleCache.ts";
 import type { Candle } from "./engine.ts";
 
 const H = 3600;
@@ -73,4 +73,13 @@ test("a longer window than cached triggers a full fetch; a shorter one is served
   const cs = candlesFrom(e, now - 300 * H);
   assert.ok(cs[0].t >= now - 300 * H);
   assert.equal(cs.at(-1)!.t, 4_000 * H, "ends with the forming candle");
+});
+
+test("trimming drops old candles and narrows the covered window, so older asks refetch", () => {
+  const e: CandleEntry = { barSeconds: 3600, completed: [0, 1, 2, 3].map((k) => ({ t: k * 3600, o: 1, h: 1, l: 1, c: 1 })), forming: null, coverFromSec: 0, fetchedAtSec: 4 * 3600 + 60 };
+  const t = trimEntry(e, 2 * 3600);
+  assert.deepEqual(t.completed.map((c) => c.t), [7200, 10800]);
+  assert.equal(t.coverFromSec, 7200);
+  assert.equal(planFetch(t, 0, e.fetchedAtSec).kind, "full");
+  assert.equal(trimEntry(e, -1), e); // nothing older than the window: unchanged
 });

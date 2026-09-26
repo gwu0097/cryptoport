@@ -18,16 +18,18 @@ import {
   RateLimitedError,
   type WeightMeter,
 } from "./hyperliquid";
-import { applyFetch, candlesFrom, planFetch, type CandleEntry, type FetchPlan } from "./candleCache";
+import { applyFetch, candlesFrom, isFresh, planFetch, trimEntry, type CandleEntry, type FetchPlan } from "./candleCache";
+import { readEntries, writeEntries } from "./candleStore";
 
 const DAY_MS = 86_400_000;
 
 // ---- Completed-candle cache -------------------------------------------------
-// Where: this server process's memory. Completed candles never change, so the
-// cache is exact (candleCache.ts); it needs no DB table/DDL, no storage, no
-// extra round trip; Vercel reuses warm instances, so repeat loads hit it, and
-// a cold instance just pays what every load used to. Keyed (coin, interval),
-// shared by every indicator (they all read the same candles).
+// Two tiers. Completed candles never change, so both are exact
+// (candleCache.ts). This process's memory answers first; on a miss or an
+// entry a bar close has made stale, the shared table (candleStore.ts) is read
+// once per load for every coin at once — another instance may have fetched
+// them already — and whichever copy is newer wins. New fetches are written
+// back to both. Keyed (coin, interval), shared by every indicator.
 const MAX_ENTRIES = 400;
 const store = new Map<string, CandleEntry>();
 
@@ -36,6 +38,31 @@ function remember(key: string, e: CandleEntry) {
   store.set(key, e);
   while (store.size > MAX_ENTRIES) store.delete(store.keys().next().value!);
 }
+
+/** Fills this process's cache from the shared table for the coins it can't
+ * answer exactly right now. A failed read just means fetching from
+ * Hyperliquid, as before. */
+async function warm(coins: readonly string[], tf: ChartTimeframe): Promise<void> {
+  const { interval } = TIMEFRAMES[tf];
+  const nowSec = Math.floor(Date.now() / 1000);
+  const need = coins.filter((c) => {
+    const e = store.get(`${c}:${interval}`);
+    return !e || !isFresh(e, nowSec);
+  });
+  if (need.length === 0) return;
+  try {
+    for (const [coin, shared] of await readEntries(need, tf)) {
+      const key = `${coin}:${interval}`;
+      const mine = store.get(key);
+      if (!mine || shared.fetchedAtSec > mine.fetchedAtSec) remember(key, shared);
+    }
+  } catch (e) {
+    console.warn(`[signals] ${(e as Error).message}`);
+  }
+}
+
+/** Candles fetched during one load, written to the shared table at its end. */
+type Pending = { coin: string; entry: CandleEntry }[];
 
 export interface CandleLoad {
   candles: Candle[];
@@ -50,7 +77,7 @@ export interface CandleLoad {
  * still exact, else fetching only what's new. `liveForming`: the chart wants
  * the forming candle's current high/low/close, so it always fetches from the
  * last completed candle (~21 weight) even on a cache hit. */
-async function loadCandles(coin: string, tf: ChartTimeframe, wantFromSec: number, meter: WeightMeter, liveForming = false): Promise<CandleLoad> {
+async function loadCandles(coin: string, tf: ChartTimeframe, wantFromSec: number, meter: WeightMeter, pending: Pending, liveForming = false): Promise<CandleLoad> {
   const { interval, candleSeconds } = TIMEFRAMES[tf];
   const key = `${coin}:${interval}`;
   const nowSec = Math.floor(Date.now() / 1000);
@@ -60,8 +87,13 @@ async function loadCandles(coin: string, tf: ChartTimeframe, wantFromSec: number
   if (plan.kind === "hit") return { candles: candlesFrom(e!, wantFromSec), asOfSec: nowSec, stale: null, plan: "hit" };
   try {
     const fetched = await fetchCandles(coin, interval, plan.fromSec * 1000, nowSec * 1000, [meter]);
-    const next = applyFetch(e, plan, fetched, candleSeconds, nowSec);
+    // Only the longest window anyone reads is kept (the chart's), so an entry
+    // can't grow without bound as bars close.
+    const next = trimEntry(applyFetch(e, plan, fetched, candleSeconds, nowSec), nowSec - (TIMEFRAMES[tf].historyDays * DAY_MS) / 1000);
     remember(key, next);
+    // Shared only when completed candles changed: a chart's forming-candle
+    // refresh alone doesn't rewrite the row.
+    if (plan.kind === "full" || !e || next.completed.at(-1)?.t !== e.completed.at(-1)?.t) pending.push({ coin, entry: next });
     return { candles: candlesFrom(next, wantFromSec), asOfSec: nowSec, stale: null, plan: plan.kind };
   } catch (err) {
     if (!(err instanceof RateLimitedError) || !e || e.coverFromSec > wantFromSec) throw err;
@@ -102,8 +134,11 @@ function stateLookbackSec(ind: IndicatorId, tf: ChartTimeframe): number {
 /** Full chart history for the chart view (cached completed candles + a live forming candle). */
 export async function getIndicatorChart(ind: IndicatorId, coin: string, tf: ChartTimeframe): Promise<IndicatorChartData> {
   const meter = newMeter();
+  await warm([coin], tf);
   const nowSec = Math.floor(Date.now() / 1000);
-  const load = await loadCandles(coin, tf, nowSec - (TIMEFRAMES[tf].historyDays * DAY_MS) / 1000, meter, true);
+  const pending: Pending = [];
+  const load = await loadCandles(coin, tf, nowSec - (TIMEFRAMES[tf].historyDays * DAY_MS) / 1000, meter, pending, true);
+  writeEntries(tf, pending);
   const view = viewFor(ind, load.candles, tf, load.asOfSec, formatPrice);
   logLoad(`chart ${ind} ${coin} ${tf}`, meter, { cache: load.plan, stale: load.stale !== null });
   return {
@@ -158,6 +193,9 @@ export async function computeWatchlistRows(
   const mids = await fetchAllMids().catch(() => null);
   let retryAtSec: number | null = null;
   const plans: Record<string, number> = {};
+  const coins = items.map((i) => perpNameFor(i.ticker, perps)).filter((c): c is string => c !== null);
+  await warm(coins, tf);
+  const pending: Pending = [];
   const rows = await mapWithConcurrency(items, 4, async (item): Promise<WatchlistSignalRow> => {
     const coin = perpNameFor(item.ticker, perps);
     const empty = {
@@ -175,7 +213,7 @@ export async function computeWatchlistRows(
     };
     if (!coin) return { ...empty, error: null };
     try {
-      const load = await loadCandles(coin, tf, nowSec - stateLookbackSec(ind, tf), meter);
+      const load = await loadCandles(coin, tf, nowSec - stateLookbackSec(ind, tf), meter, pending);
       plans[load.plan] = (plans[load.plan] ?? 0) + 1;
       const view = viewFor(ind, load.candles, tf, load.asOfSec, formatPrice);
       if (load.stale) {
@@ -201,6 +239,7 @@ export async function computeWatchlistRows(
       return { ...empty, error: (e as Error).message };
     }
   });
+  writeEntries(tf, pending);
   logLoad(`watchlist ${ind} ${tf} (${items.length} tokens)`, meter, { ...plans, allMids: mids !== null });
   return { rows, computedAt, retryAtSec };
 }

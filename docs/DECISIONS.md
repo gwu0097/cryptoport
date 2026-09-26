@@ -9,6 +9,19 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Signals candle cache: shared in Supabase, packed
+
+A day and a half of real /signals loads (signals_load_log, 121 loads, 9 server
+instances, 18 Hyperliquid 429s) replayed through the candle-cache planner: a
+per-instance memory cache would have answered 55% of candle requests (61% less
+Hyperliquid weight) — instances didn't live past a bar close, so 45% were cold
+full fetches; a shared cache answered 74% (81% less). The owner chose shared,
+conditional on the 500 MB database limit: one row per coin+timeframe with
+candles packed as float64 binary (~5-8 MB for the 93 combinations seen, ~50 MB
+if every Hyperliquid perp were viewed), each trimmed to its timeframe's window,
+rows unused 14 days deleted daily. Memory stays the first tier. The load log
+and its instrumentation are removed.
+
 ## 2026-09-25 — Discovery beyond Alchemy (phase 5)
 
 The 18 chains Alchemy doesn't index were checked live: Blockscout's token list
