@@ -3,7 +3,7 @@
 // price refresh stores the venue's current MARK price under a position key
 // (asset_prices, e.g. "hlperp:LIT"). Whichever is newer is shown: the synced
 // PnL, or size × (mark − entry) — the venue's own unrealized-PnL formula
-// (Hyperliquid: position size × (mark − entry), signed by side). Display
+// (Hyperliquid and Lighter: position size × (mark − entry), signed by side). Display
 // only: a position is valued at its margin in every total, and on Hyperliquid
 // the account's cash already moves with PnL, so adding PnL would count it
 // twice. Pure.
@@ -36,11 +36,21 @@ export interface CurrentPnl {
   asOf: string | null;
 }
 
+// Venue → the asset_prices namespace its perp marks are stored under. Both
+// venues' position rows are "<SYMBOL>-PERP" (adapters/hyperliquid.ts,
+// lighter.ts). A new venue is one entry here plus its lane in
+// adapters/assetPrices.ts.
+const MARK_PREFIX: Record<string, string> = { hyperliquid: "hlperp:", lighter: "lighterperp:" };
+
+/** Every perp-mark key prefix (the holdings reads load these rows). */
+export const MARK_KEY_PREFIXES: readonly string[] = Object.values(MARK_PREFIX);
+
 /** The asset_prices key holding a position's venue mark price, or null when
- * the venue isn't covered yet. Hyperliquid rows are "<COIN>-PERP". */
+ * the venue isn't covered yet. */
 export function markKeyFor(p: { chain: string | null; ticker: string }): string | null {
-  if (p.chain === "hyperliquid" && p.ticker.endsWith("-PERP")) return `hlperp:${p.ticker.slice(0, -"-PERP".length)}`;
-  return null;
+  const prefix = p.chain ? MARK_PREFIX[p.chain] : undefined;
+  if (!prefix || !p.ticker.endsWith("-PERP")) return null;
+  return `${prefix}${p.ticker.slice(0, -"-PERP".length)}`;
 }
 
 export function currentPnl(p: PositionInput, mark: Mark | undefined): CurrentPnl {

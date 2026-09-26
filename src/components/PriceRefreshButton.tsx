@@ -15,11 +15,12 @@ const PHASE_LABELS: Record<string, string> = {
   jupiter: "Jupiter",
   hyperliquid: "Hyperliquid",
   coinbase: "Coinbase",
+  lighter: "Lighter",
 };
 
 // Fixed order (not object insertion order, which JSONB round-tripping
 // doesn't guarantee).
-const PHASE_ORDER = ["coingecko", "jupiter", "hyperliquid", "coinbase"];
+const PHASE_ORDER = ["coingecko", "jupiter", "hyperliquid", "coinbase", "lighter"];
 
 function formatMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;

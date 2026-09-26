@@ -1,5 +1,5 @@
 import "server-only";
-import { markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
+import { MARK_KEY_PREFIXES, markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
 import { cache } from "react";
 import { serviceDb, userDb } from "./supabase";
 import { getUser } from "./auth";
@@ -181,12 +181,16 @@ export const getChainIconMap = cache(async (): Promise<Record<string, string>> =
 // problem today.
 /** The one price per asset (asset_prices), keyed by price_key — what every
  * holding is valued from (valuation.ts, docs/pricing/PLAN.md). */
-/** Open perp positions' venue mark prices ("hlperp:<COIN>" rows of
+/** Open perp positions' venue mark prices ("hlperp:<COIN>" / "lighterperp:<SYM>" rows of
  * asset_prices, written by Refresh prices only while a position is open),
  * with when each was fetched — perpPositions.ts decides whether a mark is
  * newer than the position's sync. Cached per request. */
 export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
-  const { data, error } = await serviceDb().from("asset_prices").select("price_key, usd, updated_at").like("price_key", "hlperp:%").not("usd", "is", null);
+  const { data, error } = await serviceDb()
+    .from("asset_prices")
+    .select("price_key, usd, updated_at")
+    .or(MARK_KEY_PREFIXES.map((p) => `price_key.like.${p}%`).join(","))
+    .not("usd", "is", null);
   if (error) throw new Error(`Failed to load perp marks: ${error.message}`);
   return new Map((data as { price_key: string; usd: number | string; updated_at: string }[]).map((r) => [r.price_key, { usd: Number(r.usd), at: r.updated_at }]));
 });
@@ -258,8 +262,18 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
 });
 
 /** Per-unit price: the asset's one price when it has one, else the stored
- * value per unit (a position, or a sync-time value awaiting pricing). */
-function effectivePrice(holding: Pick<Holding, "usd_override" | "qty" | "price_key">, prices: PriceMap): number | null {
+ * value per unit (a prediction share, or a sync-time value awaiting
+ * pricing). A leveraged position's value is its margin, so value ÷ size
+ * isn't a price (LIT-PERP showed $0.96 at a $4.79 mark): it gets the venue's
+ * mark price when Refresh prices has stored one, else none. */
+function effectivePrice(
+  holding: Pick<Holding, "usd_override" | "qty" | "price_key" | "chain" | "ticker" | "position_side">,
+  prices: PriceMap,
+): number | null {
+  if (holding.position_side) {
+    const key = markKeyFor(holding);
+    return key ? parseNumeric(prices[key]) : null;
+  }
   const assetPrice = holding.price_key ? parseNumeric(prices[holding.price_key]) : null;
   if (assetPrice !== null) return assetPrice;
   const override = parseNumeric(holding.usd_override);

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { currentPnl, markKeyFor, totalPnl, withCurrentPnl, type PositionInput } from "./perpPositions.ts";
+import { lighterHoldings } from "./lighter.ts";
 
 // BizNFT's LIT long as synced 2026-09-26 13:05 UTC.
 const LIT: PositionInput = {
@@ -15,8 +16,9 @@ const LIT: PositionInput = {
   syncedAt: "2026-09-26T13:05:48Z",
 };
 
-test("mark keys: Hyperliquid perps only, for now", () => {
+test("mark keys: Hyperliquid and Lighter perps", () => {
   assert.equal(markKeyFor(LIT), "hlperp:LIT");
+  assert.equal(markKeyFor({ chain: "lighter", ticker: "BTC-PERP" }), "lighterperp:BTC");
   assert.equal(markKeyFor({ chain: "solana-defi", ticker: "SOL-PERP" }), null);
   assert.equal(markKeyFor({ chain: "hyperliquid", ticker: "USDC" }), null);
 });
@@ -47,4 +49,23 @@ test("holding rows: an open position's PnL is replaced only by a newer mark; oth
   assert.equal(withCurrentPnl(row, "2026-09-26T15:00:00Z", marks), row); // synced after the mark
   const spot = { chain: "hyperliquid", ticker: "HYPE", qty: 1, usd_override: null };
   assert.equal(withCurrentPnl(spot, null, marks), spot);
+});
+
+test("a Lighter position, as the sync stores it, gets live PnL from its Lighter mark", () => {
+  const [row] = lighterHoldings(
+    [
+      {
+        account_type: 0,
+        index: 1,
+        available_balance: "0",
+        total_asset_value: "1000",
+        positions: [{ symbol: "ETH", sign: 1, position: "0.5", avg_entry_price: "2600", position_value: "1341", unrealized_pnl: "41", liquidation_price: "0", initial_margin_fraction: "10.00", margin_mode: 0, allocated_margin: "0" }],
+      },
+    ],
+    new Map(),
+    new Map(),
+  ).filter((h) => h.position_side);
+  assert.equal(markKeyFor(row), "lighterperp:ETH");
+  const live = withCurrentPnl(row, "2026-09-26T13:00:00Z", new Map([["lighterperp:ETH", { usd: 2700, at: "2026-09-26T14:00:00Z" }]]));
+  assert.equal(live.position_pnl_usd, 0.5 * (2700 - 2600));
 });

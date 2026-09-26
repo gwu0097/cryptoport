@@ -171,8 +171,12 @@ dollar balances), as a last resort; any other coin without a price shows "—".
 **Open perp positions' live PnL is display only** (`perpPositions.ts`). A
 position is valued at its margin (`usd_override`) in every total; on
 Hyperliquid the account's cash already moves with PnL, so PnL is never added.
-Refresh prices stores the venue's mark under `hlperp:<COIN>` (only while a
-position is open, one Hyperliquid call); every holdings read shows
+Refresh prices stores the venue's mark under `hlperp:<COIN>` (Hyperliquid) or
+`lighterperp:<SYMBOL>` (Lighter) — only while a position on that venue is
+open, one call per venue; a new venue is an entry in `perpPositions.ts`
+`MARK_PREFIX` plus its lane in `adapters/assetPrices.ts`. The position's
+Price column is that mark ("—" without one: margin ÷ size isn't a price).
+Every holdings read shows
 size × (mark − entry) when that mark is newer than the wallet's sync
 (`withCurrentPnl` in `getWalletDetail` / `getActiveWalletsWithHoldings`), and
 the Dashboard's Open positions section lists them. Nothing re-reads the

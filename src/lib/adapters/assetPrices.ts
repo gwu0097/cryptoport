@@ -3,6 +3,7 @@ import { serviceDb } from "../supabase";
 import { fetchMarketStatsByIds } from "./coingecko";
 import { fetchTokenInfo } from "./jupiter";
 import { fetchHyperliquidSpotPrices, fetchHyperliquidPerpMarks } from "./hyperliquid";
+import { fetchLighterPerpMarks } from "./lighter";
 import { markKeyFor } from "../perpPositions";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange } from "../coinbase";
 import { mapWithConcurrency } from "./http";
@@ -37,7 +38,7 @@ async function allHeldKeys(): Promise<string[]> {
 }
 
 /** One source's progress through a pass ("Refresh prices" shows it live). */
-export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase";
+export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter";
 export type OnLane = (lane: PricingLane, status: "running" | "done" | "error") => void;
 
 /** Prices the given keys (default: every held key + watchlist). Each source
@@ -145,6 +146,21 @@ export async function refreshAssetPrices(
             errors.set(k, (e as Error).message);
           }
         });
+      }),
+    );
+  }
+  const lighter = bySource.get("lighter") ?? [];
+  if (lighter.length) {
+    lanes.push(
+      lane("lighter", lighter, async () => {
+        calls.lighter = 1;
+        const marks = await fetchLighterPerpMarks();
+        for (const k of lighter) {
+          const symbol = k.slice("lighterperp:".length);
+          const p = marks.get(symbol);
+          if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "lighter" });
+          assets.push({ price_key: k, symbol: `${symbol}-PERP`, name: null, image_url: null, updated_at: nowIso() });
+        }
       }),
     );
   }

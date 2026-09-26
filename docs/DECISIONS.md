@@ -20,7 +20,10 @@ newer than the sync. Checked live: our figure matched Hyperliquid's own
 unrealizedPnl to the cent on both of BizNFT's positions (PONS −$72.43, while
 the synced figure still said −$9.16). Applied in the shared holdings reads, so
 the wallet and DeFi pages show the same number as the Dashboard (the rule that
-a new metric isn't born on the Dashboard).
+a new metric isn't born on the Dashboard). Same day: Lighter added (its
+orderBookDetails carries every market's mark price in one call), and a
+position's Price column shows the mark instead of margin ÷ size, which had
+read LIT-PERP at $0.96 against a $4.79 market.
 
 ## 2026-09-26 — Transaction history: errors were read as "no transactions"
 

@@ -28,6 +28,23 @@ async function getJson<T>(path: string): Promise<{ status: number; body: T | nul
   return { status: res.status, body };
 }
 
+/** Every Lighter perp market's MARK price (what Lighter computes unrealized
+ * PnL with) and 24h change, in one orderBookDetails call, keyed by symbol
+ * ("BTC", "1000TOSHI"). Used for open positions' live PnL (perpPositions.ts).
+ * Checked live 2026-09-26: BTC mark 83,891.9 vs last trade 83,893.3. */
+export async function fetchLighterPerpMarks(): Promise<Map<string, { usd: number; change24h: number | null }>> {
+  type Details = { order_book_details?: { symbol: string; market_type: string; mark_price: string; daily_price_change: number | null }[] };
+  const { status, body } = await getJson<Details>("/orderBookDetails");
+  if (status !== 200 || !body?.order_book_details) throw new Error(`Lighter market details failed: HTTP ${status}`);
+  const out = new Map<string, { usd: number; change24h: number | null }>();
+  for (const m of body.order_book_details) {
+    const usd = Number(m.mark_price);
+    if (m.market_type !== "perp" || !Number.isFinite(usd) || usd <= 0) continue;
+    out.set(m.symbol, { usd, change24h: typeof m.daily_price_change === "number" && Number.isFinite(m.daily_price_change) ? m.daily_price_change : null });
+  }
+  return out;
+}
+
 async function poolPrice(index: number): Promise<LighterPoolPrice | null> {
   type Pools = { public_pools?: { account_index: number; name: string; account_type: number; total_asset_value: string; total_spot_value: string; total_shares: number }[] };
   // The listing starts below `index`; the LIT staking pool only appears under filter=stake.

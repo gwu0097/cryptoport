@@ -300,7 +300,10 @@ export function HoldingsTable({
                   "this is where that number came from" when it isn't. Same
                   reasoning excludes the mobile-inline 24h% below for a
                   manual_usd row — no real price context, no real 24h either. */}
-              {holding.source === "manual_usd" ? "—" : holding.price !== null ? formatUsd(holding.price) : "unpriced"}
+              {/* A leveraged position without a stored mark has no price to
+                  show (its value is its margin, not a price) — "—", not
+                  "unpriced": it is valued. */}
+              {holding.source === "manual_usd" || (holding.position_side && holding.price === null) ? "—" : holding.price !== null ? formatUsd(holding.price) : "unpriced"}
               {holding.source !== "manual_usd" && (
                 // 24h has its own dedicated column at sm+ (hideOnMobileClass
                 // below) — this is mobile-only (sm:hidden), tucked next to
