@@ -142,6 +142,10 @@ const STATIC_CHAIN_ICONS: Record<string, string> = {
   // Coinbase above. CoinGecko does track Polymarket's own governance/points
   // token, whose logo doubles as the brand mark here.
   polymarket: "https://coin-images.coingecko.com/coins/images/70290/large/poly.png",
+  // Lighter (perps DEX, its own "chain" in holdings: adapters/lighter.ts) —
+  // same reasoning as Polymarket: CoinGecko's logo for Lighter's own LIT
+  // token (coin id "lighter") is the brand mark.
+  lighter: "https://coin-images.coingecko.com/coins/images/71121/large/lighter.png?1765888098",
   // Same "CEX, not a chain, so no asset_platform" reasoning as Coinbase —
   // CoinGecko also tracks Kraken/Gemini/MEXC as exchanges with their own
   // logos. CoinGecko's own exchange id for MEXC is "mxc" (a legacy
