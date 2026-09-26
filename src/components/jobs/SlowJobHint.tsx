@@ -28,10 +28,16 @@ function Elapsed({ lastDurationMs, startedAt }: { lastDurationMs: number | null;
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     const t0 = Date.now();
-    setMountedAt(t0);
-    setNow(t0);
+    // Set from timer callbacks, not synchronously in the effect.
+    const first = setTimeout(() => {
+      setMountedAt(t0);
+      setNow(Date.now());
+    }, 0);
     const t = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(t);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
   }, []);
   if (mountedAt === null || now === null) return null;
   const serverStart = startedAt ? Date.parse(startedAt) : NaN;
