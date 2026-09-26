@@ -1,7 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
-import { EVM_CHAINS } from "./evmChains";
-import { fetchTokenPrices } from "./coingecko";
+import { listedContracts } from "./tokenListing";
 import type { AdapterTransaction } from "./types";
 
 /**
@@ -34,6 +33,7 @@ export const BLOCKSCOUT_HOSTS: Record<string, string> = {
   metis: "andromeda-explorer.metis.io",
   xdai: "gnosisscan.io",
   ron: "explorer.roninchain.com",
+  aurora: "explorer.mainnet.aurora.dev", // checked 2026-09-25 (token discovery)
 };
 
 interface BlockscoutAddressRef {
@@ -67,6 +67,12 @@ interface BlockscoutTokenTransferItem {
 
 async function fetchPage<T>(host: string, path: string): Promise<T[]> {
   const res = await fetchWithRetry(`https://${host}${path}`);
+  // An address this explorer has never seen: 404 {"message":"Not found"} —
+  // no history, not a failure.
+  if (res.status === 404) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    if (body?.message === "Not found") return [];
+  }
   if (!res.ok) throw new Error(`Blockscout (${host}) failed: HTTP ${res.status}`);
   const body: { items?: T[] } = await res.json();
   return body.items ?? [];
@@ -124,15 +130,14 @@ export async function fetchBlockscoutTransactions(
   // Fails open, not closed — same reasoning as etherscan.ts's identical
   // guard: a CoinGecko hiccup here must never take down this chain's real
   // transaction data.
-  const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
   const contracts = [
     ...new Set(tokens.filter((t) => t.total && t.token.address_hash).map((t) => t.token.address_hash.toLowerCase())),
   ];
-  let priced = new Map<string, unknown>();
+  let listed = new Set<string>();
   let spamFilterAvailable = false;
-  if (evmChain?.coingeckoPlatform && contracts.length > 0) {
+  if (contracts.length > 0) {
     try {
-      priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
+      listed = await listedContracts(evmChainId, contracts);
       spamFilterAvailable = true;
     } catch {
       // swallowed — see comment above
@@ -147,7 +152,7 @@ export async function fetchBlockscoutTransactions(
     // missing field here is plausible; skip that one row rather than let
     // it throw and take down every other row this chain actually has.
     if (!row.token.address_hash || !row.from?.hash || !row.to?.hash) continue;
-    if (spamFilterAvailable && !priced.has(row.token.address_hash.toLowerCase())) continue;
+    if (spamFilterAvailable && !listed.has(row.token.address_hash.toLowerCase())) continue;
     const from = row.from.hash.toLowerCase();
     const to = row.to.hash.toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";

@@ -1,5 +1,6 @@
 "use server";
 
+import { txSyncStatus } from "@/lib/transactionSources";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { userDb } from "@/lib/supabase";
@@ -59,7 +60,7 @@ export async function syncWalletTransactions(walletId: string): Promise<JobStart
     // reasoning as syncWalletHoldings.
     const afterDb = await userDb();
     try {
-      const { transactions, attemptedChains } = await fetchWalletTransactions(
+      const { transactions, attemptedChains, failedChains, unsupportedChains } = await fetchWalletTransactions(
         walletId,
         wallet.chain,
         wallet.address!,
@@ -124,7 +125,7 @@ export async function syncWalletTransactions(walletId: string): Promise<JobStart
 
       await afterDb
         .from("wallets")
-        .update({ tx_synced_at: new Date().toISOString(), tx_sync_status: `ok (${dbRows.length})` })
+        .update({ tx_synced_at: new Date().toISOString(), tx_sync_status: txSyncStatus(dbRows.length, failedChains, unsupportedChains) })
         .eq("id", walletId);
     } catch (e) {
       await afterDb

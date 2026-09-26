@@ -223,6 +223,14 @@ failure returns a `KeepScope` (`src/lib/carryForward.ts`: `chainScope`,
 the status says so. A new adapter or soft-failing source must declare one.
 (DECISIONS: 2026-09-24)
 
+**An error is never an empty result.** A source that fails throws (or
+returns a failure); only an answer that really says "nothing here" is `[]`
+(Etherscan's "No transactions found", Blockscout's 404 "Not found").
+Transaction history follows the same rule: each chain tries its sources in
+order (`transactionSources.ts` `txSourcesFor`: Alchemy, Etherscan,
+Blockscout) and a chain none of them answers keeps its saved rows, named in
+the status (`txSyncStatus`). (DECISIONS: 2026-09-26 Transaction history)
+
 ### 4.4 DeFi positions: native adapters first, Zerion fills the gaps
 
 An EVM wallet's one Sync (`syncWalletHoldings`) fetches its balances, the native

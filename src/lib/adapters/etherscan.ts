@@ -1,7 +1,6 @@
 import "server-only";
 import { etherscanFetch } from "./etherscanFetch";
-import { EVM_CHAINS } from "./evmChains";
-import { fetchTokenPrices } from "./coingecko";
+import { listedContracts } from "./tokenListing";
 import type { AdapterTransaction } from "./types";
 
 const API_KEY = process.env.ETHERSCAN_API_KEY;
@@ -47,6 +46,7 @@ export const ETHERSCAN_EXPLORERS: Record<string, { chainId: number; base: string
   berachain: { chainId: 80094, base: "https://berascan.com" },
   blast: { chainId: 81457, base: "https://blastscan.io" },
   taiko: { chainId: 167000, base: "https://taikoscan.io" },
+  sonic: { chainId: 146, base: "https://sonicscan.org" }, // free tier, checked 2026-09-25 (token discovery)
 };
 
 /** Chains from ETHERSCAN_EXPLORERS above that are permanently gated behind
@@ -88,11 +88,13 @@ async function callEtherscan<T>(chainId: number, params: Record<string, string>)
   // discovery (etherscanFetch.ts).
   const body = await etherscanFetch(chainId, params);
   // status "0" covers both "genuinely nothing found" and a real failure
-  // (bad key, rate limit) — Etherscan uses the same shape for both. Either
-  // way this is exactly the "cosmetic, don't take down the rest of the
-  // sync for one chain's hiccup" reasoning multicallEvm.ts already applies
-  // to change24h/market cap: an empty result, never a thrown error.
-  if (body.status === "0") return [];
+  // (a rate limit, a paid-only chain, a bad key). Only the first is empty; the
+  // rest throw, so the chain's saved history is kept and the sync says so —
+  // an error returned as [] used to erase it (2026-09-26).
+  if (body.status === "0") {
+    if (body.message === "No transactions found") return [];
+    throw new Error(`Etherscan (chain ${chainId}): ${String(typeof body.result === "string" ? body.result : body.message).slice(0, 120)}`);
+  }
   return Array.isArray(body.result) ? (body.result as T[]) : [];
 }
 
@@ -166,13 +168,12 @@ export async function fetchEvmTransactions(
   // lookup itself fails, every token leg is kept unfiltered rather than
   // every one being wrongly treated as spam. spamFilterAvailable tracks
   // which of those two states applied.
-  const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
   const contracts = [...new Set(tokens.filter((r) => r.contractAddress).map((r) => r.contractAddress.toLowerCase()))];
-  let priced = new Map<string, unknown>();
+  let listed = new Set<string>();
   let spamFilterAvailable = false;
-  if (evmChain?.coingeckoPlatform && contracts.length > 0) {
+  if (contracts.length > 0) {
     try {
-      priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
+      listed = await listedContracts(evmChainId, contracts);
       spamFilterAvailable = true;
     } catch {
       // swallowed — see comment above
@@ -181,7 +182,7 @@ export async function fetchEvmTransactions(
 
   for (const row of tokens) {
     if (!row.contractAddress) continue; // no contract to identify or price this leg by — can't be shown honestly
-    if (spamFilterAvailable && !priced.has(row.contractAddress.toLowerCase())) continue;
+    if (spamFilterAvailable && !listed.has(row.contractAddress.toLowerCase())) continue;
     const from = (row.from ?? "").toLowerCase();
     const to = (row.to ?? "").toLowerCase();
     const direction = to === lower && from === lower ? "self" : to === lower ? "in" : from === lower ? "out" : "unknown";

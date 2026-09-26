@@ -9,6 +9,22 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Transaction history: errors were read as "no transactions"
+
+Every transaction source turned its errors into [], and the sync deletes a
+queried chain's rows before saving the fresh ones — so a failure erased that
+chain's history. Checked live: 10 of the chains routed to Alchemy fail every
+time (Transfers API not offered: Mantle, opBNB, Sei, Fraxtal, Mode, Metis,
+Cronos; not enabled: Taiko, Merlin, Chiliz), and on Scroll, zkSync, Linea and
+Avalanche Alchemy returns transfers with `metadata: null`, which the adapter
+skipped — those chains had shown no history since they moved to Alchemy.
+Now: failures throw, each chain tries Alchemy → Etherscan → Blockscout,
+missing block times are looked up in one batched call, and a chain nothing
+answers keeps its rows (status "partial — kept from last sync: …"). The
+spam filter reads token_registry instead of calling CoinGecko per chain per
+sync. Metamask Main went from 0 rows on Scroll/Linea/Avalanche/Blast to
+128/72/39/60.
+
 ## 2026-09-26 — Signals candle cache: shared in Supabase, packed
 
 A day and a half of real /signals loads (signals_load_log, 121 loads, 9 server

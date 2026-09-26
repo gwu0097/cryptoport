@@ -1,9 +1,8 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
-import { EVM_CHAINS } from "./evmChains";
 import { ETHERSCAN_EXPLORERS } from "./etherscan";
 import { BLOCKSCOUT_HOSTS } from "./blockscout";
-import { fetchTokenPrices } from "./coingecko";
+import { listedContracts } from "./tokenListing";
 import type { AdapterTransaction } from "./types";
 
 const API_KEY = process.env.ALCHEMY_API_KEY;
@@ -18,28 +17,14 @@ const API_KEY = process.env.ALCHEMY_API_KEY;
  * seconds at the time — a gap on that specific transaction, not a general
  * lag.
  *
- * Expanded to every EVM chain this app tracks that Alchemy actually
- * supports (29 of 32 — live-verified subdomain-by-subdomain, cross-checked
- * against Alchemy's own published network list), a deliberate choice made
- * after discussing the tradeoff directly: this consolidates every chain
- * onto one provider/budget instead of keeping Etherscan (proven reliable,
- * genuinely independent free tier) as a separate fallback for the 13
- * chains it already covered without issue. transactionDispatch.ts's own
- * priority order still tries Etherscan/Blockscout for anything NOT listed
- * here, so that fallback isn't deleted, just no longer reached for any
- * chain currently in EVM_CHAINS.
- *
- * Not supported by Alchemy at all (confirmed against its own network
- * list, not just a failed guess): PulseChain, Manta, Kava — these three
- * have no transaction-history source of any kind today.
- *
- * IMPORTANT: many of these networks return a real "X_MAINNET is not
- * enabled for this app" error until enabled in the Alchemy dashboard (App
- * → Networks) — this list assumes every needed network gets turned on
- * there; fetchAlchemyTransactions below returns an empty array (a
- * transaction-fetch failure, not a hard sync failure — see evm.ts's own
- * soft-failure treatment) for a chain that isn't enabled yet, same as one
- * with no coverage at all, rather than throwing.
+ * Only the networks where alchemy_getAssetTransfers actually answers
+ * (checked live 2026-09-26 against every network this app tracks): the
+ * others answer "EAPIs not enabled on specified network" (Mantle, opBNB, Sei,
+ * Fraxtal, Mode, Metis, Cronos — the Transfers API isn't offered there) or
+ * "not enabled for this app" (Taiko, Merlin, Chiliz), and are routed to
+ * Etherscan or Blockscout by transactionDispatch.ts. A failure here throws,
+ * so the dispatcher can try the chain's next source and never reads an
+ * error as "no transactions".
  */
 export const ALCHEMY_HOSTS: Record<string, string> = {
   base: "base-mainnet",
@@ -49,28 +34,19 @@ export const ALCHEMY_HOSTS: Record<string, string> = {
   matic: "polygon-mainnet",
   blast: "blast-mainnet",
   celo: "celo-mainnet",
-  mnt: "mantle-mainnet",
-  opbnb: "opbnb-mainnet",
-  sei: "sei-mainnet",
-  taiko: "taiko-mainnet",
   unichain: "unichain-mainnet",
   berachain: "berachain-mainnet",
-  fraxtal: "frax-mainnet",
   op: "opt-mainnet",
   zksync: "zksync-mainnet",
   scrl: "scroll-mainnet",
-  mode: "mode-mainnet",
   zetachain: "zetachain-mainnet",
-  metis: "metis-mainnet",
-  merlin: "merlin-mainnet",
   ron: "ronin-mainnet",
   xdai: "gnosis-mainnet",
   bsc: "bnb-mainnet",
   avax: "avax-mainnet",
   rbh: "robinhood-mainnet",
-  chiliz: "chiliz-mainnet",
-  cronos: "cronos-mainnet",
   soneium: "soneium-mainnet",
+  zora: "zora-mainnet",
 };
 
 // Public explorer URL per chain, for the tx-row "view on explorer" link —
@@ -88,6 +64,7 @@ const EXTRA_EXPLORER_BASE: Record<string, string> = {
   // more commonly-cached older URL.
   cronos: "https://explorer.cronos.com",
   soneium: "https://soneium.blockscout.com",
+  zora: "https://explorer.zora.energy",
 };
 
 function explorerBaseFor(evmChainId: string): string {
@@ -122,11 +99,36 @@ interface AlchemyTransfer {
   asset: string | null;
   category: string;
   rawContract: { address: string | null };
-  // Nullable despite withMetadata:true in the request — real bug, caught
-  // live: zkSync returned metadata: null for at least one real transfer.
-  // No other field this app reads is documented or observed to have the
-  // same gap, but this one genuinely does.
+  blockNum: string; // hex
+  // Null despite withMetadata:true on several networks — Scroll, zkSync,
+  // Linea and Avalanche return it null for every transfer (checked
+  // 2026-09-26). Skipping those rows left those chains with no history at
+  // all, so the block's time is looked up instead (blockTimes below).
   metadata: { blockTimestamp: string } | null;
+}
+
+/** Block number (hex) → ISO time, for transfers Alchemy returned without
+ * metadata: one JSON-RPC batch of eth_getBlockByNumber per 50 blocks on the
+ * same network. Throws on any failure (the chain then tries its next source). */
+async function blockTimes(host: string, blockNums: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const unique = [...new Set(blockNums)];
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50);
+    const res = await fetchWithRetry(`https://${host}.g.alchemy.com/v2/${API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(batch.map((b, j) => ({ jsonrpc: "2.0", id: j, method: "eth_getBlockByNumber", params: [b, false] }))),
+    });
+    if (!res.ok) throw new Error(`Alchemy (${host}) block times: HTTP ${res.status}`);
+    const body = (await res.json()) as { id: number; result?: { timestamp: string } | null; error?: { message: string } }[];
+    for (const r of Array.isArray(body) ? body : []) {
+      if (r.result?.timestamp) out.set(batch[r.id], new Date(Number(BigInt(r.result.timestamp)) * 1000).toISOString());
+    }
+    const missing = batch.filter((b) => !out.has(b));
+    if (missing.length > 0) throw new Error(`Alchemy (${host}) block times: ${missing.length} block(s) not returned`);
+  }
+  return out;
 }
 
 async function call(host: string, method: string, params: unknown[]): Promise<AlchemyTransfer[]> {
@@ -173,52 +175,43 @@ export async function fetchAlchemyTransactions(
     maxCount: MAX_COUNT_HEX,
     order: "desc",
   };
-  let outgoing: AlchemyTransfer[];
-  let incoming: AlchemyTransfer[];
-  try {
-    [outgoing, incoming] = await Promise.all([
-      call(host, "alchemy_getAssetTransfers", [{ ...baseParams, fromAddress: address }]),
-      call(host, "alchemy_getAssetTransfers", [{ ...baseParams, toAddress: address }]),
-    ]);
-  } catch {
-    // Real, live-hit case, not hypothetical: a network listed in
-    // ALCHEMY_HOSTS but not yet enabled in the Alchemy dashboard (App →
-    // Networks) throws "X_MAINNET is not enabled for this app" or "EAPIs
-    // not enabled on specified network" — a real HTTP error, not an empty
-    // result. transactionDispatch.ts's mapWithConcurrency has no per-item
-    // catch of its own, so letting this propagate would fail every chain
-    // in the same Promise.all, not just this one — same "one chain's
-    // failure never takes down another's correctly-fetched data" rule
-    // etherscan.ts/blockscout.ts already follow, just needed here too.
-    return [];
-  }
+  // A failure throws (a network whose Transfers API isn't on, a network
+  // error): the dispatcher tries the chain's next source, and if none works
+  // keeps its saved history. It used to return [], which the sync read as
+  // "no transactions" and erased the chain's rows (2026-09-26).
+  const [outgoing, incoming] = await Promise.all([
+    call(host, "alchemy_getAssetTransfers", [{ ...baseParams, fromAddress: address }]),
+    call(host, "alchemy_getAssetTransfers", [{ ...baseParams, toAddress: address }]),
+  ]);
 
   const byId = new Map<string, AlchemyTransfer>();
   for (const t of [...outgoing, ...incoming]) byId.set(t.uniqueId, t);
   const transfers = [...byId.values()];
 
-  const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId);
   const tokenTransfers = transfers.filter((t) => t.category === "erc20");
   const contracts = [...new Set(tokenTransfers.map((t) => t.rawContract.address?.toLowerCase()).filter((a): a is string => !!a))];
-  let priced = new Map<string, unknown>();
+  let listed = new Set<string>();
   let spamFilterAvailable = false;
-  if (evmChain?.coingeckoPlatform && contracts.length > 0) {
+  if (contracts.length > 0) {
     try {
-      priced = await fetchTokenPrices(evmChain.coingeckoPlatform, contracts);
+      listed = await listedContracts(evmChainId, contracts);
       spamFilterAvailable = true;
     } catch {
       // fails open — see etherscan.ts's identical guard's own reasoning
     }
   }
 
+  const times = await blockTimes(host, transfers.filter((t) => !t.metadata).map((t) => t.blockNum));
+
   const results: AdapterTransaction[] = [];
   for (const t of transfers) {
-    if (t.value === null || !t.from || !t.metadata) continue; // no honest amount/counterparty/timestamp to show
+    const occurredAt = t.metadata?.blockTimestamp ?? times.get(t.blockNum);
+    if (t.value === null || !t.from || !occurredAt) continue; // no honest amount/counterparty/timestamp to show
     const isNative = t.category === "external";
     if (!isNative) {
       const contract = t.rawContract.address?.toLowerCase();
       if (!contract) continue;
-      if (spamFilterAvailable && !priced.has(contract)) continue;
+      if (spamFilterAvailable && !listed.has(contract)) continue;
     }
 
     const from = t.from.toLowerCase();
@@ -228,7 +221,7 @@ export async function fetchAlchemyTransactions(
     results.push({
       txHash: t.hash,
       chain: evmChainId,
-      occurredAt: t.metadata.blockTimestamp,
+      occurredAt,
       direction,
       ticker: isNative ? nativeSymbol : t.asset,
       amount: t.value,

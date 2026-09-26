@@ -12,6 +12,7 @@ import { isExtendedPublicKey } from "../walletDisplay";
 import { mapWithConcurrency } from "./http";
 import { serviceDb } from "../supabase";
 import type { AdapterTransaction } from "./types";
+import { txSourcesFor, type TxSource } from "../transactionSources";
 
 /** Whether this app has *any* transaction-history source wired up for a
  * wallet's chain — BTC/SOL/ADA/INJ always do, an EVM wallet does too
@@ -66,6 +67,11 @@ export interface WalletTransactionsResult {
    * upsert only touches rows present in the new result and never deletes
    * ones that dropped out). */
   attemptedChains: string[];
+  /** Chains every source failed for this sync: their saved rows are kept
+   * (never erased by an error read as "no transactions"). */
+  failedChains: { chain: string; error: string }[];
+  /** Held chains with no transaction-history source at all. */
+  unsupportedChains: string[];
 }
 
 export async function fetchWalletTransactions(
@@ -79,12 +85,12 @@ export async function fetchWalletTransactions(
     const addresses = isExtendedPublicKey(address)
       ? (await scanExtendedKey(address, { cachedScriptType: btcScriptType })).addresses
       : [address];
-    if (addresses.length === 0) return { transactions: [], attemptedChains: [] };
-    return { transactions: await fetchBitcoinTransactions(addresses), attemptedChains: ["bitcoin"] };
+    if (addresses.length === 0) return { transactions: [], attemptedChains: [], failedChains: [], unsupportedChains: [] };
+    return { transactions: await fetchBitcoinTransactions(addresses), attemptedChains: ["bitcoin"], failedChains: [], unsupportedChains: [] };
   }
 
   if (chain === "SOL") {
-    return { transactions: await fetchSolanaTransactions(address), attemptedChains: ["solana"] };
+    return { transactions: await fetchSolanaTransactions(address), attemptedChains: ["solana"], failedChains: [], unsupportedChains: [] };
   }
 
   if (chain === "ADA") {
@@ -97,11 +103,11 @@ export async function fetchWalletTransactions(
     const transactions = cardanoStakeAddress
       ? await fetchCardanoTransactions(cardanoStakeAddress)
       : await fetchCardanoTransactionsByAddress(address);
-    return { transactions, attemptedChains: ["cardano"] };
+    return { transactions, attemptedChains: ["cardano"], failedChains: [], unsupportedChains: [] };
   }
 
   if (chain === "INJ") {
-    return { transactions: await fetchInjectiveTransactions(address), attemptedChains: ["injective"] };
+    return { transactions: await fetchInjectiveTransactions(address), attemptedChains: ["injective"], failedChains: [], unsupportedChains: [] };
   }
 
   if (isEvmChainId(chain)) {
@@ -124,49 +130,50 @@ export async function fetchWalletTransactions(
     if (error) throw new Error(`Failed to load wallet chains: ${error.message}`);
 
     const heldChains = [...new Set((data as { chain: string }[]).map((r) => r.chain))];
-    // Three independent free sources, dispatched to whichever actually
-    // covers a given chain, each chain attempted by exactly one of them
-    // (no double-fetch): Alchemy first for every chain it's known to cover
-    // (see alchemy.ts's own doc comment — expanded from just "base" to 29
-    // of this app's 32 EVM chains, a deliberate consolidation decision),
-    // then Etherscan where it's genuinely free (see FREE_TIER_UNSUPPORTED)
-    // for whatever's left, then Blockscout as the final fallback.
-    const alchemyChains = heldChains.filter((c) => c in ALCHEMY_HOSTS);
-    const etherscanChains = heldChains.filter(
-      (c) => c in ETHERSCAN_EXPLORERS && !FREE_TIER_UNSUPPORTED.has(c) && !alchemyChains.includes(c),
+    // Each chain tries its sources in order (transactionSources.ts) until one
+    // answers. A source failing — an Alchemy network without its Transfers
+    // API, an Etherscan rate limit, a Blockscout outage — passes the chain
+    // on; if none answers, the chain is reported failed and its saved rows
+    // are kept. Every source used to turn its errors into [], which the sync
+    // then read as "no transactions" and erased the chain's history
+    // (2026-09-26). Chains run 3 at a time; Etherscan is paced app-wide
+    // (etherscanFetch.ts).
+    const covered = {
+      alchemy: new Set(Object.keys(ALCHEMY_HOSTS)),
+      etherscan: new Set(Object.keys(ETHERSCAN_EXPLORERS).filter((c) => !FREE_TIER_UNSUPPORTED.has(c))),
+      blockscout: new Set(Object.keys(BLOCKSCOUT_HOSTS)),
+    };
+    const fetchFrom = (source: TxSource, evmChainId: string, nativeSymbol: string) =>
+      source === "alchemy"
+        ? fetchAlchemyTransactions(evmChainId, address, nativeSymbol)
+        : source === "etherscan"
+          ? fetchEvmTransactions(evmChainId, address, nativeSymbol)
+          : fetchBlockscoutTransactions(evmChainId, address, nativeSymbol);
+    const unsupportedChains = heldChains.filter((c) => isEvmChainId(c) && txSourcesFor(c, covered).length === 0);
+    const results = await mapWithConcurrency(
+      heldChains.filter((c) => txSourcesFor(c, covered).length > 0),
+      3,
+      async (evmChainId): Promise<{ chain: string; txs: AdapterTransaction[] } | { chain: string; error: string }> => {
+        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
+        const errors: string[] = [];
+        for (const source of txSourcesFor(evmChainId, covered)) {
+          try {
+            return { chain: evmChainId, txs: await fetchFrom(source, evmChainId, evmChain.nativeSymbol) };
+          } catch (e) {
+            errors.push(`${source}: ${(e as Error).message}`);
+          }
+        }
+        return { chain: evmChainId, error: errors.join(" / ") };
+      },
     );
-    const blockscoutChains = heldChains.filter(
-      (c) => c in BLOCKSCOUT_HOSTS && !etherscanChains.includes(c) && !alchemyChains.includes(c),
-    );
-
-    // Each per-chain call wrapped in its own catch — real bug, caught
-    // live: mapWithConcurrency has no per-item error handling of its own,
-    // so one chain throwing (a network not yet enabled in Alchemy's
-    // dashboard, a transient Etherscan/Blockscout hiccup) would reject the
-    // whole Promise.all for that source, discarding every OTHER chain's
-    // already-fetched, correct data in the same batch. Same "one source's
-    // failure never discards another's correctly-fetched data" rule this
-    // app applies everywhere else, just needed at the per-chain level here
-    // rather than only the per-source level.
-    const [alchemyResults, etherscanResults, blockscoutResults] = await Promise.all([
-      mapWithConcurrency(alchemyChains, 2, (evmChainId) => {
-        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-        return fetchAlchemyTransactions(evmChainId, address, evmChain.nativeSymbol).catch(() => []);
-      }),
-      mapWithConcurrency(etherscanChains, 2, (evmChainId) => {
-        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-        return fetchEvmTransactions(evmChainId, address, evmChain.nativeSymbol).catch(() => []);
-      }),
-      mapWithConcurrency(blockscoutChains, 3, (evmChainId) => {
-        const evmChain = EVM_CHAINS.find((c) => c.id === evmChainId)!;
-        return fetchBlockscoutTransactions(evmChainId, address, evmChain.nativeSymbol).catch(() => []);
-      }),
-    ]);
+    const ok = results.filter((r): r is { chain: string; txs: AdapterTransaction[] } => "txs" in r);
     return {
-      transactions: [...alchemyResults.flat(), ...etherscanResults.flat(), ...blockscoutResults.flat()],
-      attemptedChains: [...alchemyChains, ...etherscanChains, ...blockscoutChains],
+      transactions: ok.flatMap((r) => r.txs),
+      attemptedChains: ok.map((r) => r.chain),
+      failedChains: results.filter((r): r is { chain: string; error: string } => "error" in r),
+      unsupportedChains,
     };
   }
 
-  return { transactions: [], attemptedChains: [] }; // no free source researched/wired up for this chain yet
+  return { transactions: [], attemptedChains: [], failedChains: [], unsupportedChains: [] }; // no free source researched/wired up for this chain yet
 }
