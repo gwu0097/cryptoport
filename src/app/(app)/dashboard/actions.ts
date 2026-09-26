@@ -69,10 +69,10 @@ async function freshVenueRows(venue: PositionVenue, address: string, previous: S
 export async function refreshOpenPositions(): Promise<PositionsRefreshResult> {
   await requireUser();
   const db = await userDb();
-  const { data, error } = await db.from("wallets").select(`id, name, chain, address, holdings(${ROW_COLUMNS}, source)`).eq("active", true);
+  const { data, error } = await db.from("wallets").select(`id, name, chain, address, holdings(${ROW_COLUMNS}, source, updated_at)`).eq("active", true);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
 
-  type Wallet = { id: string; name: string; chain: string; address: string | null; holdings: (StoredRow & { source: string })[] };
+  type Wallet = { id: string; name: string; chain: string; address: string | null; holdings: (StoredRow & { source: string; updated_at?: string })[] };
   // Venues with an open position now, plus those that had one in the last 30
   // days — a position opened after the last one closed is still found.
   const activity = await readVenueActivity(db, (data as Wallet[]).map((w) => w.id));
@@ -101,6 +101,11 @@ export async function refreshOpenPositions(): Promise<PositionsRefreshResult> {
         ...(venue.protocol ? { p_protocol: venue.protocol } : {}),
       });
       if (rpcError) throw new Error(rpcError.message);
+      // The venue had a position at least until it was last read: a position
+      // that closed since still counts, as of that read (else closing the
+      // last position would drop the venue from the next refresh at once).
+      const lastRead = previous.map((h) => (h as { updated_at?: string }).updated_at).filter((t): t is string => !!t).sort().at(-1);
+      if (lastRead) await markVenueActivity(db, wallet.id, previous, lastRead);
       await markVenueActivity(db, wallet.id, rows);
       return null;
     } catch (e) {

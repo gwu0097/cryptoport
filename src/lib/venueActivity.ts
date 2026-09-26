@@ -13,11 +13,12 @@ import { venuesWithOpenPositions } from "./perpPositions";
 type Db = Awaited<ReturnType<typeof userDb>>;
 type Row = Parameters<typeof venuesWithOpenPositions>[0][number];
 
-/** Marks now as the last time each venue in `rows` had an open position. */
-export async function markVenueActivity(db: Db, walletId: string, rows: readonly Row[]): Promise<void> {
+/** Marks `at` (default now) as the last time each venue in `rows` had an
+ * open position. */
+export async function markVenueActivity(db: Db, walletId: string, rows: readonly Row[], at: string = new Date().toISOString()): Promise<void> {
   const venues = venuesWithOpenPositions(rows);
   if (venues.length === 0) return;
-  const now = new Date().toISOString();
+  const now = at;
   const { error } = await db
     .from("wallet_venue_activity")
     .upsert(venues.map((v) => ({ wallet_id: walletId, venue: v.id, last_position_at: now })), { onConflict: "wallet_id,venue" });
