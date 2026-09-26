@@ -23,6 +23,8 @@ export interface PositionsRefreshResult {
   failed: string[];
 }
 
+const MAX_PARALLEL = 10;
+
 // The columns a kept row is re-saved with (replace_venue_holdings inserts these).
 const ROW_COLUMNS =
   "ticker, qty, usd_override, contract, category, chain, icon_url, protocol, protocol_url, position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd, position_pnl_percent, display_label, protocol_section";
@@ -77,7 +79,10 @@ export async function refreshOpenPositions(): Promise<PositionsRefreshResult> {
       .map((venue) => ({ wallet: w, venue, previous: auto.filter((h) => venueOwns(venue, h)) }));
   });
 
-  const results = await mapWithConcurrency(tasks, 4, async ({ wallet, venue, previous }) => {
+  // Every account at once (up to MAX_PARALLEL): they're different wallets and
+  // venues, each one light call, so the refresh takes as long as the slowest
+  // account, not their sum (4 accounts: 0.9 s, 2026-09-26).
+  const results = await mapWithConcurrency(tasks, MAX_PARALLEL, async ({ wallet, venue, previous }) => {
     try {
       const rows = (await freshVenueRows(venue, wallet.address!, previous)).filter((h) => venueOwns(venue, h));
       const keyed = await withPriceKeys(rows, "auto");

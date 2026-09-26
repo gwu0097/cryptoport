@@ -68,27 +68,44 @@ async function fetchVaultName(vaultAddress: string): Promise<string> {
 }
 
 // HIP-3 markets and their collateral change rarely (a new market is a
-// governance/stake event): listed once per process per HIP3_TTL_MS — perpDexs,
-// each market's meta (its collateral token index) and spotMeta (token names).
-const HIP3_TTL_MS = 10 * 60_000;
-let hip3Cache: { at: number; markets: { dex: string; label: string; collateral: string }[] } | null = null;
+// governance/stake event), so both are remembered per process for
+// HIP3_TTL_MS. The market NAMES gate the account reads (one quick perpDexs
+// call); each market's collateral (its meta's token index, named by
+// spotMeta) is looked up alongside that market's account read, not before it
+// — a cold start cost 0.86 s of serial lookups first (2026-09-26).
+const HIP3_TTL_MS = 60 * 60_000;
+let hip3NamesCache: { at: number; markets: { dex: string; label: string }[] } | null = null;
+const collateralCache = new Map<string, { at: number; name: string }>();
+let spotNamesCache: { at: number; names: Map<number, string> } | null = null;
 
-export async function hip3Markets(): Promise<{ dex: string; label: string; collateral: string }[]> {
-  if (hip3Cache && Date.now() - hip3Cache.at < HIP3_TTL_MS) return hip3Cache.markets;
-  const [dexs, spotMeta] = await Promise.all([
-    postInfo<({ name: string; fullName?: string } | null)[]>({ type: "perpDexs" }),
-    postInfo<{ tokens: { index: number; name: string }[] }>({ type: "spotMeta" }),
-  ]);
-  const tokenName = new Map(spotMeta.tokens.map((t) => [t.index, t.name]));
-  const named = dexs.filter((d): d is { name: string; fullName?: string } => !!d?.name);
-  const markets = await Promise.all(
-    named.map(async (d) => {
-      const meta = await postInfo<{ collateralToken?: number }>({ type: "meta", dex: d.name });
-      return { dex: d.name, label: d.fullName?.trim() || d.name, collateral: tokenName.get(meta.collateralToken ?? 0) ?? "USDC" };
-    }),
-  );
-  hip3Cache = { at: Date.now(), markets };
+async function hip3MarketNames(): Promise<{ dex: string; label: string }[]> {
+  if (hip3NamesCache && Date.now() - hip3NamesCache.at < HIP3_TTL_MS) return hip3NamesCache.markets;
+  const dexs = await postInfo<({ name: string; fullName?: string } | null)[]>({ type: "perpDexs" });
+  const markets = dexs.filter((d): d is { name: string; fullName?: string } => !!d?.name).map((d) => ({ dex: d.name, label: d.fullName?.trim() || d.name }));
+  hip3NamesCache = { at: Date.now(), markets };
   return markets;
+}
+
+async function spotTokenNames(): Promise<Map<number, string>> {
+  if (spotNamesCache && Date.now() - spotNamesCache.at < HIP3_TTL_MS) return spotNamesCache.names;
+  const meta = await postInfo<{ tokens: { index: number; name: string }[] }>({ type: "spotMeta" });
+  spotNamesCache = { at: Date.now(), names: new Map(meta.tokens.map((t) => [t.index, t.name])) };
+  return spotNamesCache.names;
+}
+
+async function hip3Collateral(dex: string): Promise<string> {
+  const hit = collateralCache.get(dex);
+  if (hit && Date.now() - hit.at < HIP3_TTL_MS) return hit.name;
+  const [meta, names] = await Promise.all([postInfo<{ collateralToken?: number }>({ type: "meta", dex }), spotTokenNames()]);
+  const name = names.get(meta.collateralToken ?? 0) ?? "USDC";
+  collateralCache.set(dex, { at: Date.now(), name });
+  return name;
+}
+
+/** Every HIP-3 market with its collateral (both cached, see above). */
+export async function hip3Markets(): Promise<{ dex: string; label: string; collateral: string }[]> {
+  const markets = await hip3MarketNames();
+  return Promise.all(markets.map(async (m) => ({ ...m, collateral: await hip3Collateral(m.dex) })));
 }
 
 /**
@@ -135,8 +152,20 @@ export async function fetchHyperliquidHoldings(
     // (checked 2026-09-26: a trader's main + xyz + other markets matched
     // Hyperliquid's own perps total). One call per market; a market that
     // fails keeps its previous rows.
-    hip3Markets()
-      .then((markets) => Promise.all(markets.map(async (m) => ({ m, state: await postInfo<ClearinghouseState>({ type: "clearinghouseState", user: address, dex: m.dex }).catch((e: Error) => e) }))))
+    hip3MarketNames()
+      .then((markets) =>
+        Promise.all(
+          markets.map(async (named) => {
+            // The account and the market's collateral, fetched together.
+            const [state, collateral] = await Promise.all([
+              postInfo<ClearinghouseState>({ type: "clearinghouseState", user: address, dex: named.dex }).catch((e: Error) => e),
+              hip3Collateral(named.dex).catch((e: Error) => e),
+            ]);
+            if (collateral instanceof Error) return { m: { ...named, collateral: "USDC" }, state: collateral };
+            return { m: { ...named, collateral }, state };
+          }),
+        ),
+      )
       .catch((e: Error) => e),
   ]);
   const warnings: string[] = [];
