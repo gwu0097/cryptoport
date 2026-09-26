@@ -10,6 +10,8 @@
 // its margin alone, which is right for Hyperliquid only because Hyperliquid's
 // cross-margin cash balance already includes unrealized PnL (hyperliquid.ts).
 
+import { jupiterTpsl, type JupiterTpslRequest, type TpslOrder } from "./tpsl.ts";
+
 export interface JupiterPerpsApiPosition {
   asset: string;
   assetMint: string;
@@ -22,6 +24,8 @@ export interface JupiterPerpsApiPosition {
   liquidationPriceUsd: string;
   pnlAfterFeesUsd: string;
   pnlAfterFeesPct: string;
+  /** The position's TP/SL requests (tpsl.ts jupiterTpsl). */
+  tpslRequests?: JupiterTpslRequest[];
 }
 
 export interface JupiterPerpsRow {
@@ -35,6 +39,7 @@ export interface JupiterPerpsRow {
   liquidationPrice: number | null;
   pnlUsd: number | null;
   pnlPercent: number | null;
+  tpsl: TpslOrder[] | null;
 }
 
 const MICRO = 1e6;
@@ -82,6 +87,7 @@ export function perpsRows(positions: readonly JupiterPerpsApiPosition[]): { rows
       liquidationPrice: micro(p.liquidationPriceUsd),
       pnlUsd: micro(p.pnlAfterFeesUsd),
       pnlPercent: plain(p.pnlAfterFeesPct),
+      tpsl: Array.isArray(p.tpslRequests) ? jupiterTpsl(p.tpslRequests) : null,
     });
   }
   return { rows, unreadable };

@@ -692,7 +692,7 @@ export async function primeSyncPricesAction(): Promise<void> {
 // Every column sync_auto_holdings / sync_cosmos_holdings (schema.sql)
 // inserts — a kept row (carryForward.ts) is re-saved with all of them.
 const AUTO_KEEP_COLUMNS =
-  "ticker, qty, usd_override, contract, category, chain, icon_url, protocol, protocol_url, position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd, position_pnl_percent, display_label, protocol_section";
+  "ticker, qty, usd_override, contract, category, chain, icon_url, protocol, protocol_url, position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd, position_pnl_percent, position_tpsl, display_label, protocol_section";
 const COSMOS_KEEP_COLUMNS =
   "ticker, qty, usd_override, contract, category, chain, icon_url, coingecko_id, display_label, protocol, protocol_url, protocol_section";
 

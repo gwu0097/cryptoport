@@ -136,6 +136,7 @@ export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPo
               <th className={`${thClass} ${hideOnMobileClass}`}>Size</th>
               <th className={`${thClass} ${hideOnMobileClass}`}>Entry → Now</th>
               <th className={`${thClass} ${hideOnMobileClass}`}>Liq. price</th>
+              <th className={`${thClass} ${hideOnMobileClass}`}>TP / SL</th>
               <SortableHeader label="Value" sortKeyValue="value" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="PnL" sortKeyValue="pnl" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
@@ -169,7 +170,29 @@ export function OpenPositionsPanel({ positions, asOfLabel }: { positions: OpenPo
                 <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
                   {price(p.entryPrice)} → {price(p.markPrice)}
                 </td>
-                <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{price(p.liquidationPrice)}</td>
+                <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+                  {p.kind === "perp" && p.liquidationPrice === null ? (
+                    // The venue publishes none (e.g. Hyperliquid for a cross
+                    // position backed by the rest of the account) — not estimated here.
+                    <span title="The venue reports no liquidation price for this position">—</span>
+                  ) : (
+                    price(p.liquidationPrice)
+                  )}
+                </td>
+                <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+                  {/* "—": the venue's orders aren't known (Lighter, a failed read, a prediction). */}
+                  {p.tpsl === null ? (
+                    "—"
+                  ) : p.tpsl.tp === null && p.tpsl.sl === null ? (
+                    <span className="text-xs text-fg-muted">None set</span>
+                  ) : (
+                    <span className="flex flex-col text-xs">
+                      {p.tpsl.tp !== null && <span className="text-positive">TP {formatPrice(p.tpsl.tp)}</span>}
+                      {p.tpsl.sl !== null && <span className="text-negative">SL {formatPrice(p.tpsl.sl)}</span>}
+                      {p.tpsl.more > 0 && <span className="text-fg-muted">+{p.tpsl.more} more</span>}
+                    </span>
+                  )}
+                </td>
                 <td className={`${tdClass} tabular-nums`}>{p.valueUsd === null ? "—" : formatUsd(p.valueUsd)}</td>
                 <td className={`${tdClass} tabular-nums ${tone(p.pnlUsd)}`}>
                   {p.pnlUsd === null ? "—" : formatUsdSigned(p.pnlUsd)}

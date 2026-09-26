@@ -30,6 +30,7 @@ test("a position is worth what closing it returns (valueUsd), in dollars", () =>
   assert.equal(r.liquidationPrice, 123.538693);
   assert.equal(r.pnlUsd, -25.90023);
   assert.equal(r.pnlPercent, -11.13);
+  assert.equal(r.tpsl, null); // no tpslRequests field: not known
   assert.ok(Math.abs(r.qty! - 131.164345493) < 1e-3); // sizeUsd / entry ≈ sizeTokenAmount at 9 decimals
 });
 

@@ -205,6 +205,8 @@ export interface Holding {
    * *and* Polymarket predictions). See AdapterHolding's own doc comment. */
   position_pnl_usd: number | string | null;
   position_pnl_percent: number | string | null;
+  /** Take-profit / stop-loss orders (tpsl.ts); null = not known. */
+  position_tpsl?: import("./tpsl").TpslOrder[] | null;
   updated_at: string;
 }
 

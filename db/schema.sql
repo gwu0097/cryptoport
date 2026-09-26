@@ -2238,3 +2238,115 @@ begin
 end;
 $$;
 grant execute on function cryptoport.replace_venue_holdings(uuid, text, jsonb, text) to authenticated;
+
+-- Take-profit / stop-loss orders per open position (src/lib/tpsl.ts):
+-- [{kind: "tp"|"sl", price, size|null}], [] = none set, null = not known.
+-- Written by the wallet sync and by "Refresh positions"; both functions below
+-- are their current definitions with this one column added.
+alter table cryptoport.holdings add column if not exists position_tpsl jsonb;
+
+create or replace function cryptoport.sync_auto_holdings(
+  p_wallet_id uuid,
+  p_holdings jsonb,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to sync wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto';
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
+     position_pnl_percent, display_label, protocol_section, position_tpsl)
+  select
+    h->>'price_key',
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    h->>'chain',
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric,
+    (h->>'position_pnl_percent')::numeric,
+    h->>'display_label',
+    h->>'protocol_section',
+    nullif(h->'position_tpsl', 'null'::jsonb)
+  from jsonb_array_elements(p_holdings) as h;
+
+  update cryptoport.wallets
+  set last_refresh_at = now(), last_refresh_status = p_status
+  where id = p_wallet_id;
+end;
+$$;
+
+create or replace function cryptoport.replace_venue_holdings(
+  p_wallet_id uuid,
+  p_chain text,
+  p_holdings jsonb,
+  p_protocol text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  if not exists (
+    select 1 from cryptoport.wallets where id = p_wallet_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not authorized to refresh wallet %', p_wallet_id;
+  end if;
+
+  delete from cryptoport.holdings
+  where wallet_id = p_wallet_id and source = 'auto' and chain = p_chain
+    and (p_protocol is null or protocol = p_protocol);
+
+  insert into cryptoport.holdings
+    (price_key, wallet_id, ticker, qty, usd_override, source, contract, category, chain, icon_url, protocol, protocol_url,
+     position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd,
+     position_pnl_percent, display_label, protocol_section, position_tpsl)
+  select
+    h->>'price_key',
+    p_wallet_id,
+    h->>'ticker',
+    (h->>'qty')::numeric,
+    (h->>'usd_override')::numeric,
+    'auto',
+    h->>'contract',
+    coalesce(h->>'category', 'token'),
+    p_chain,
+    h->>'icon_url',
+    h->>'protocol',
+    h->>'protocol_url',
+    h->>'position_side',
+    (h->>'position_leverage')::numeric,
+    (h->>'position_entry_price')::numeric,
+    (h->>'position_liquidation_price')::numeric,
+    (h->>'position_pnl_usd')::numeric,
+    (h->>'position_pnl_percent')::numeric,
+    h->>'display_label',
+    h->>'protocol_section',
+    nullif(h->'position_tpsl', 'null'::jsonb)
+  from jsonb_array_elements(p_holdings) as h;
+end;
+$$;

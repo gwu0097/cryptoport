@@ -1,6 +1,7 @@
 import "server-only";
 import { stablecoinFallbackUsd } from "../stablecoinFallback";
 import { perpAccountRows, type PerpAccountState } from "../hyperliquidPerps";
+import type { HyperliquidOrder } from "../tpsl";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
@@ -211,8 +212,11 @@ export async function fetchHyperliquidHoldings(
     });
   }
 
-  holdings.push(...perpAccountRows(perps, "USDC", null));
-
+  // Each market's account, then — only for markets with an open position —
+  // its open orders for the positions' TP/SL (frontendOpenOrders, one call
+  // per such market, all at once). A failed order read leaves TP/SL unknown;
+  // it never fails the sync.
+  const markets: { dex: string; label: string | null; collateral: string; state: ClearinghouseState }[] = [{ dex: "", label: null, collateral: "USDC", state: perps }];
   if (hip3 instanceof Error) {
     warnings.push(`hyperliquid HIP-3 markets: ${hip3.message}`);
     keep.push(hip3Scope(null));
@@ -223,11 +227,22 @@ export async function fetchHyperliquidHoldings(
         keep.push(hip3Scope(m));
         continue;
       }
-      const rows = perpAccountRows(state, m.collateral, { label: m.label });
-      for (const r of rows) if (r.usd_override === null) warnings.push(`hyperliquid ${m.label}: ${m.collateral} margin isn't a listed stablecoin — unpriced`);
-      holdings.push(...rows);
+      markets.push({ dex: m.dex, label: m.label, collateral: m.collateral, state });
     }
   }
+  const hasPosition = (st: ClearinghouseState) => st.assetPositions.some(({ position }) => Number(position.szi) !== 0);
+  const orders = await Promise.all(
+    markets.map((mk) =>
+      hasPosition(mk.state)
+        ? postInfo<HyperliquidOrder[]>(mk.dex ? { type: "frontendOpenOrders", user: address, dex: mk.dex } : { type: "frontendOpenOrders", user: address }).catch(() => null)
+        : Promise.resolve(null),
+    ),
+  );
+  markets.forEach((mk, i) => {
+    const rows = perpAccountRows(mk.state, mk.collateral, mk.label === null ? null : { label: mk.label }, orders[i]);
+    for (const r of rows) if (r.usd_override === null) warnings.push(`hyperliquid ${mk.label ?? "main"}: ${mk.collateral} margin isn't a listed stablecoin — unpriced`);
+    holdings.push(...rows);
+  });
 
   for (const v of vaults) {
     const equity = Number(v.equity);

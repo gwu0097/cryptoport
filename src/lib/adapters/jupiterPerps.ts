@@ -54,6 +54,7 @@ export async function fetchJupiterPerps(address: string): Promise<{ holdings: Ad
       position_liquidation_price: r.liquidationPrice,
       position_pnl_usd: r.pnlUsd,
       position_pnl_percent: r.pnlPercent,
+      position_tpsl: r.tpsl,
     })),
     warnings: [],
   };

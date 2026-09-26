@@ -27,7 +27,7 @@ const MAX_PARALLEL = 10;
 
 // The columns a kept row is re-saved with (replace_venue_holdings inserts these).
 const ROW_COLUMNS =
-  "ticker, qty, usd_override, contract, category, chain, icon_url, protocol, protocol_url, position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd, position_pnl_percent, display_label, protocol_section";
+  "ticker, qty, usd_override, contract, category, chain, icon_url, protocol, protocol_url, position_side, position_leverage, position_entry_price, position_liquidation_price, position_pnl_usd, position_pnl_percent, position_tpsl, display_label, protocol_section";
 
 type StoredRow = AdapterHolding & KeepableRow;
 

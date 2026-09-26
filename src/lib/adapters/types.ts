@@ -1,5 +1,6 @@
 import "server-only";
 import type { HoldingCategory } from "../types";
+import type { TpslOrder } from "../tpsl";
 
 /** What an adapter hands back for one holding row, before insertion. */
 export interface AdapterHolding {
@@ -90,6 +91,10 @@ export interface AdapterHolding {
    * being derived here, since "percent of what" differs by position type
    * (return on margin vs. return on cost basis). */
   position_pnl_percent?: number | null;
+  /** The position's take-profit / stop-loss orders (tpsl.ts), from the
+   * venue's own order data: [] = none set; null/absent = not known (a venue
+   * whose orders aren't public, or an order read that failed). */
+  position_tpsl?: TpslOrder[] | null;
 }
 
 /** What a transaction adapter hands back for one on-chain event, before

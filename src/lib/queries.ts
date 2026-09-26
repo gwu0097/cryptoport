@@ -1,5 +1,6 @@
 import "server-only";
 import { MARK_KEY_PREFIXES, isOpenPosition, markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
+import { nearestTpsl } from "./tpsl";
 import { cache } from "react";
 import { serviceDb, userDb } from "./supabase";
 import { getUser } from "./auth";
@@ -1066,6 +1067,8 @@ export interface OpenPosition {
   /** When the PnL figure is from: a mark fetched after the row, or the row's
    * own sync / positions refresh. */
   pnlAsOf: string | null;
+  /** Nearest take-profit / stop-loss (tpsl.ts); `tpsl` null = not known. */
+  tpsl: { tp: number | null; sl: number | null; more: number } | null;
 }
 
 /** Every open position the signed-in user has synced (perps on any venue,
@@ -1085,7 +1088,7 @@ export async function getOpenPositions(): Promise<OpenPosition[]> {
       if (!h.position_side) {
         const size = num(h.qty);
         const value = num(h.usd_override);
-        out.push({ ...base, kind: "prediction", label: h.display_label, side: null, markPrice: size && value !== null ? value / size : null, leverage: null, liquidationPrice: null, pnlAsOf: rowAt });
+        out.push({ ...base, kind: "prediction", label: h.display_label, side: null, markPrice: size && value !== null ? value / size : null, leverage: null, liquidationPrice: null, pnlAsOf: rowAt, tpsl: null });
         continue;
       }
       const key = markKeyFor(h);
@@ -1100,6 +1103,7 @@ export async function getOpenPositions(): Promise<OpenPosition[]> {
         leverage: num(h.position_leverage),
         liquidationPrice: num(h.position_liquidation_price),
         pnlAsOf: live ? mark!.at : rowAt,
+        tpsl: Array.isArray(h.position_tpsl) ? nearestTpsl(h.position_tpsl, h.position_side) : null,
       });
     }
   }

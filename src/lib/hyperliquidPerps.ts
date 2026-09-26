@@ -7,6 +7,7 @@
 
 import type { AdapterHolding } from "./adapters/types.ts";
 import { stablecoinFallbackUsd } from "./stablecoinFallback.ts";
+import { hyperliquidTpsl, type HyperliquidOrder } from "./tpsl.ts";
 
 /** Account value not already shown as withdrawable cash or position margin
  * (usually ~0); null when there's nothing meaningful left (under a cent, or
@@ -50,7 +51,13 @@ export interface PerpAccountState {
  * collateral; they're dollars only when it's a listed stablecoin, else the
  * row stays unpriced (never valued 1:1 by assumption).
  */
-export function perpAccountRows(state: PerpAccountState, collateral: string, market: { label: string } | null): AdapterHolding[] {
+export function perpAccountRows(
+  state: PerpAccountState,
+  collateral: string,
+  market: { label: string } | null,
+  /** The market's open orders, for each position's TP/SL; null = not read. */
+  orders: readonly HyperliquidOrder[] | null = null,
+): AdapterHolding[] {
   const base = { contract: null, category: "defi" as const, chain: "hyperliquid", icon_url: null, protocol: "Hyperliquid", protocol_url: null };
   const label = (what: string) => (market ? `${market.label} · ${what}` : `Perps ${what}`);
   const rows: AdapterHolding[] = [];
@@ -82,6 +89,7 @@ export function perpAccountRows(state: PerpAccountState, collateral: string, mar
       protocol_section: "Perpetuals",
       display_label: market ? market.label : null,
       position_side: size > 0 ? "long" : "short",
+      position_tpsl: orders ? hyperliquidTpsl(orders, position.coin, size > 0 ? "long" : "short") : null,
       position_leverage: Number.isFinite(position.leverage?.value) ? position.leverage.value : null,
       position_entry_price: Number.isFinite(Number(position.entryPx)) ? Number(position.entryPx) : null,
       position_liquidation_price: liq !== null && Number.isFinite(liq) ? liq : null,
