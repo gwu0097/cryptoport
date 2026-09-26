@@ -51,7 +51,7 @@ export function TransactionSyncButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         Sync this wallet
       </JobButton>
-      <SlowJobHint busy={busy} />
+      <SlowJobHint busy={busy} startedAt={status.running ? status.startedAt : null} />
       {/* No "Syncing…" caption while busy — the button's own busyLabel
           already says that; reported directly as redundant. */}
       {!busy && (

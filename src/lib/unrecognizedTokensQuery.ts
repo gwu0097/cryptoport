@@ -38,20 +38,22 @@ async function listedSymbolsByChain(rows: readonly Stored[]): Promise<Map<string
     const s = (r.symbol ?? "").trim().toUpperCase();
     if (s) wanted.set(r.chain, (wanted.get(r.chain) ?? new Set()).add(s));
   }
-  const out = new Map<string, Set<string>>();
+  // One query per chain per 200 symbols, all at once: run one after another
+  // they added 3.1 s to every render of a 1,071-token wallet (2026-09-25).
+  const batches: { chain: string; symbols: string[] }[] = [];
   for (const [chain, symbols] of wanted) {
     const list = [...symbols];
-    for (let i = 0; i < list.length; i += 200) {
-      const { data, error } = await db
-        .from("token_registry")
-        .select("symbol")
-        .eq("chain_id", chain)
-        .not("coingecko_id", "is", null)
-        .in("symbol", list.slice(i, i + 200));
-      if (error) throw new Error(`Failed to read token list: ${error.message}`);
-      for (const r of data as { symbol: string }[]) out.set(chain, (out.get(chain) ?? new Set()).add(r.symbol.toUpperCase()));
-    }
+    for (let i = 0; i < list.length; i += 200) batches.push({ chain, symbols: list.slice(i, i + 200) });
   }
+  const results = await Promise.all(
+    batches.map(async (b) => {
+      const { data, error } = await db.from("token_registry").select("symbol").eq("chain_id", b.chain).not("coingecko_id", "is", null).in("symbol", b.symbols);
+      if (error) throw new Error(`Failed to read token list: ${error.message}`);
+      return { chain: b.chain, symbols: (data as { symbol: string }[]).map((r) => r.symbol.toUpperCase()) };
+    }),
+  );
+  const out = new Map<string, Set<string>>();
+  for (const r of results) for (const sym of r.symbols) out.set(r.chain, (out.get(r.chain) ?? new Set()).add(sym));
   return out;
 }
 

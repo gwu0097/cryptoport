@@ -43,7 +43,7 @@ export function SyncExchangeButton({
         <RefreshCw className="size-3.5" aria-hidden="true" />
         Sync
       </JobButton>
-      <SlowJobHint busy={busy} />
+      <SlowJobHint busy={busy} startedAt={status.running ? status.startedAt : null} />
       {!busy && (
         <p className={`max-w-xs text-right text-xs ${status.outcome === "error" ? "text-negative" : "text-fg-muted"}`}>
           {status.outcome === "error"

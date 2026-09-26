@@ -377,7 +377,10 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `SlowJobHint`, one `JobPoller` loop over `/api/job-status`.
 - **Completion reaches the browser through `JobPoller` → `notifyJobsComplete()`**,
   never through a `revalidatePath` inside `after()` (its response is already
-  sent). (DECISIONS: 2026-09-23)
+  sent). One notify in flight at a time (it waits in the Server Action queue
+  and re-renders the page), with `router.refresh()` if the action itself
+  fails. A page's render time is part of every completion: keep data pages
+  fast (no serial query loops). (DECISIONS: 2026-09-23)
 - **Sync all** runs in the browser (`SyncQueue.tsx`): wallets sharing a
   rate-limited API form a lane (`syncLanes.ts`), lanes run in parallel, each lane
   runs up to `LANE_CONCURRENCY` at once; each wallet is its own request (its own

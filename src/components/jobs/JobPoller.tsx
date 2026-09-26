@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { deriveJobStatus } from "@/lib/jobStatus";
 import type { PriceRefreshPhases } from "@/lib/queries";
 import { notifyJobsComplete } from "./jobActions";
@@ -118,6 +119,27 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   // that never change, so without this tick "now" would freeze at the
   // moment the claim was first observed and staleness could never fire.
   const [tick, setTick] = useState(0);
+  const router = useRouter();
+  // One completion refresh at a time. notifyJobsComplete is a Server Action,
+  // and Server Actions wait in one queue per tab; each also re-renders the
+  // page. A poll re-notifies every tick while a button is still busy, so on a
+  // page slower to render than the poll interval (a wallet with 1,071
+  // unrecognized tokens, ~4 s, 2026-09-25) the queue grew faster than it
+  // drained and the button sat on "Syncing…" long after the sync finished.
+  const notifyingRef = useRef(false);
+  const notify = useCallback(async () => {
+    if (notifyingRef.current) return;
+    notifyingRef.current = true;
+    try {
+      await notifyJobsComplete();
+    } catch {
+      // The action itself failed (e.g. this tab predates a deploy, so its
+      // action id is gone): still refresh this page, without the action.
+      router.refresh();
+    } finally {
+      notifyingRef.current = false;
+    }
+  }, [router]);
 
   const recompute = useCallback(() => {
     let min: number | null = null;
@@ -195,16 +217,12 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       lastAnyRunningRef.current = anyRunningNow;
       setTick((t) => t + 1);
 
-      // Two independent triggers, not mutually exclusive: a lane finishing
-      // mid-refresh notifies immediately (keeps the per-lane progress
-      // live; the prices themselves only land in asset_prices once every
-      // lane is done, see refreshAssetPrices), and the job as a
-      // whole finishing notifies again as the final, definitely-complete
-      // signal. Calling notifyJobsComplete() more than once in the same
-      // tick (both can fire together, e.g. the last lane finishing) is
-      // harmless — it's just a revalidatePath call.
-      if (anyPhaseJustFinished) await notifyJobsComplete();
-      if ((treatAsWasRunning && !anyRunningNow) || (someJobFinished && anyRunningNow)) await notifyJobsComplete();
+      // Any of: a price-refresh lane finishing mid-refresh (keeps the
+      // per-lane progress live; the prices themselves only land in
+      // asset_prices once every lane is done, see refreshAssetPrices), the
+      // job as a whole finishing, or one job of several finishing. One
+      // notify per tick, and none while the last one is still in flight.
+      if (anyPhaseJustFinished || (treatAsWasRunning && !anyRunningNow) || (someJobFinished && anyRunningNow)) await notify();
     }
 
     void poll();
@@ -221,7 +239,7 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [minPollMs]);
+  }, [minPollMs, notify]);
 
   return <JobPollerContext.Provider value={{ register, unregister, tick }}>{children}</JobPollerContext.Provider>;
 }

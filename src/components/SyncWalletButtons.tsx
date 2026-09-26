@@ -75,7 +75,7 @@ export function SyncWalletButtons({
           </JobButton>
         )}
       </div>
-      <SlowJobHint busy={busy} lastDurationMs={lastSyncDurationMs} />
+      <SlowJobHint busy={busy} lastDurationMs={lastSyncDurationMs} startedAt={status.running ? status.startedAt : null} />
       {/* No "Syncing…" caption while busy — the button's own busyLabel
           already says that; reported directly as redundant. */}
       {!busy && (
