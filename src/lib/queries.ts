@@ -1,4 +1,5 @@
 import "server-only";
+import { markKeyFor, withCurrentPnl, type Mark } from "./perpPositions";
 import { cache } from "react";
 import { serviceDb, userDb } from "./supabase";
 import { getUser } from "./auth";
@@ -180,6 +181,16 @@ export const getChainIconMap = cache(async (): Promise<Record<string, string>> =
 // problem today.
 /** The one price per asset (asset_prices), keyed by price_key — what every
  * holding is valued from (valuation.ts, docs/pricing/PLAN.md). */
+/** Open perp positions' venue mark prices ("hlperp:<COIN>" rows of
+ * asset_prices, written by Refresh prices only while a position is open),
+ * with when each was fetched — perpPositions.ts decides whether a mark is
+ * newer than the position's sync. Cached per request. */
+export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
+  const { data, error } = await serviceDb().from("asset_prices").select("price_key, usd, updated_at").like("price_key", "hlperp:%").not("usd", "is", null);
+  if (error) throw new Error(`Failed to load perp marks: ${error.message}`);
+  return new Map((data as { price_key: string; usd: number | string; updated_at: string }[]).map((r) => [r.price_key, { usd: Number(r.usd), at: r.updated_at }]));
+});
+
 export const getPriceMap = cache(async (): Promise<PriceMap> => {
   const prices: PriceMap = {};
   for (let from = 0; ; from += 1000) {
@@ -470,15 +481,18 @@ export async function getWalletDetail(id: string, opts?: { userId: string }): Pr
   if (!opts && !(await getUser())) return null;
   const db = opts ? serviceDb() : await userDb();
   const baseQuery = db.from("wallets").select("*, holdings(*), tags(id,name)").eq("id", id);
-  const [{ data: wallet, error: walletError }, prices, assetStats] = await Promise.all([
+  const [{ data: wallet, error: walletError }, prices, assetStats, marks] = await Promise.all([
     (opts ? baseQuery.eq("user_id", opts.userId) : baseQuery).maybeSingle(),
     getPriceMap(),
     getAssetStatsMap(),
+    getPerpMarks(),
   ]);
   if (walletError) throw new Error(`Failed to load wallet: ${walletError.message}`);
   if (!wallet) return null;
 
-  const { holdings, ...rest } = wallet as WalletWithTags & { holdings: Holding[] };
+  const { holdings: stored, ...rest } = wallet as WalletWithTags & { holdings: Holding[] };
+  // Open positions show live PnL when a mark is newer than this sync.
+  const holdings = stored.map((h) => withCurrentPnl(h, rest.last_refresh_at, marks));
   return {
     wallet: rest,
     ...valuateHoldings(holdings, defaultChainId(rest.chain), prices, assetStats),
@@ -502,9 +516,10 @@ export type WalletWithHoldings = Wallet & { holdings: Holding[] };
 export const getActiveWalletsWithHoldings = cache(async (opts?: { userId: string }): Promise<WalletWithHoldings[]> => {
   const db = opts ? serviceDb() : await userDb();
   const query = db.from("wallets").select("*, holdings(*)").eq("active", true);
-  const { data, error } = await (opts ? query.eq("user_id", opts.userId) : query);
+  const [{ data, error }, marks] = await Promise.all([opts ? query.eq("user_id", opts.userId) : query, getPerpMarks()]);
   if (error) throw new Error(`Failed to load wallets: ${error.message}`);
-  return data as WalletWithHoldings[];
+  // Open positions show live PnL when a mark is newer than the wallet's sync.
+  return (data as WalletWithHoldings[]).map((w) => ({ ...w, holdings: w.holdings.map((h) => withCurrentPnl(h, w.last_refresh_at, marks)) }));
 });
 
 export interface AssetsResult {
@@ -1002,4 +1017,59 @@ export async function getAllWatchlistItems(): Promise<WatchlistRow[]> {
   });
 
   return withAssetStats(deduped);
+}
+
+export interface OpenPosition {
+  walletId: string;
+  walletName: string;
+  ticker: string;
+  venue: string | null;
+  side: "long" | "short";
+  size: number | null;
+  entryPrice: number | null;
+  markPrice: number | null;
+  leverage: number | null;
+  liquidationPrice: number | null;
+  /** The position's value in totals (margin) — already in its wallet's total. */
+  marginUsd: number | null;
+  pnlUsd: number | null;
+  pnlPercent: number | null;
+  /** When the PnL figure is from: the refresh's mark, or the wallet's sync. */
+  pnlAsOf: string | null;
+}
+
+/** Every open perp position the signed-in user has synced, across active
+ * wallets, with PnL as of the newest of its sync and the last Refresh prices
+ * (perpPositions.ts). Nothing is fetched from a venue: a position opened or
+ * closed since the last sync shows up on the next sync. */
+export async function getOpenPositions(): Promise<OpenPosition[]> {
+  if (!(await getUser())) return [];
+  const [wallets, marks] = await Promise.all([getActiveWalletsWithHoldings(), getPerpMarks()]);
+  const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const out: OpenPosition[] = [];
+  for (const w of wallets) {
+    for (const h of w.holdings) {
+      if (!h.position_side) continue;
+      const key = markKeyFor(h);
+      const mark = key ? marks.get(key) : undefined;
+      const live = !!mark && (!w.last_refresh_at || Date.parse(mark.at) > Date.parse(w.last_refresh_at));
+      out.push({
+        walletId: w.id,
+        walletName: w.name,
+        ticker: h.ticker,
+        venue: h.protocol,
+        side: h.position_side,
+        size: num(h.qty),
+        entryPrice: num(h.position_entry_price),
+        markPrice: mark?.usd ?? null,
+        leverage: num(h.position_leverage),
+        liquidationPrice: num(h.position_liquidation_price),
+        marginUsd: num(h.usd_override),
+        pnlUsd: num(h.position_pnl_usd),
+        pnlPercent: num(h.position_pnl_percent),
+        pnlAsOf: live ? mark!.at : w.last_refresh_at,
+      });
+    }
+  }
+  return out;
 }

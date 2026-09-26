@@ -9,6 +9,19 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Open positions on the Dashboard, live PnL from the venue's mark
+
+Owner: show every open perp position on the Dashboard so users are aware of
+them, with Refresh prices updating their value, but no wallet re-scan. A
+position's value in totals stays its margin (no double count); PnL is shown
+beside it, computed as size × (mark − entry) from Hyperliquid's mark price
+(metaAndAssetCtxs, one call, only while a position is open) when that mark is
+newer than the sync. Checked live: our figure matched Hyperliquid's own
+unrealizedPnl to the cent on both of BizNFT's positions (PONS −$72.43, while
+the synced figure still said −$9.16). Applied in the shared holdings reads, so
+the wallet and DeFi pages show the same number as the Dashboard (the rule that
+a new metric isn't born on the Dashboard).
+
 ## 2026-09-26 — Transaction history: errors were read as "no transactions"
 
 Every transaction source turned its errors into [], and the sync deletes a

@@ -310,3 +310,18 @@ export async function fetchHyperliquidSpotPrices(): Promise<Map<string, { usd: n
   }
   return out;
 }
+
+/** Every Hyperliquid perp's MARK price (what Hyperliquid computes unrealized
+ * PnL with) and 24h change, in one metaAndAssetCtxs call — keyed by perp name
+ * ("LIT", "kPEPE"). Used for open positions' live PnL (perpPositions.ts). */
+export async function fetchHyperliquidPerpMarks(): Promise<Map<string, { usd: number; change24h: number | null }>> {
+  const [meta, ctxs] = await postInfo<[{ universe: { name: string }[] }, { markPx?: string; prevDayPx?: string }[]]>({ type: "metaAndAssetCtxs" });
+  const out = new Map<string, { usd: number; change24h: number | null }>();
+  meta.universe.forEach((u, i) => {
+    const usd = Number(ctxs[i]?.markPx);
+    if (!Number.isFinite(usd) || usd <= 0) return;
+    const prev = Number(ctxs[i]?.prevDayPx);
+    out.set(u.name, { usd, change24h: Number.isFinite(prev) && prev > 0 ? ((usd - prev) / prev) * 100 : null });
+  });
+  return out;
+}

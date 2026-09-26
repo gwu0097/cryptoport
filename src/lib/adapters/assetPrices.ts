@@ -2,7 +2,8 @@ import "server-only";
 import { serviceDb } from "../supabase";
 import { fetchMarketStatsByIds } from "./coingecko";
 import { fetchTokenInfo } from "./jupiter";
-import { fetchHyperliquidSpotPrices } from "./hyperliquid";
+import { fetchHyperliquidSpotPrices, fetchHyperliquidPerpMarks } from "./hyperliquid";
+import { markKeyFor } from "../perpPositions";
 import { fetchCoinbaseSpotPrice, fetchCoinbase24hChange } from "../coinbase";
 import { mapWithConcurrency } from "./http";
 import { planPriceWrites, sourceOf, type FetchedPrice } from "../assetPriceWrites";
@@ -20,6 +21,14 @@ async function allHeldKeys(): Promise<string[]> {
     if (error) throw new Error(`Failed to read price keys: ${error.message}`);
     for (const r of data as { price_key: string }[]) keys.add(r.price_key);
     if (data.length < 1000) break;
+  }
+  // Open perp positions' mark prices (live PnL, perpPositions.ts) — only
+  // when a position is open, so no call is made otherwise.
+  const { data: positions, error: positionsError } = await db.from("holdings").select("chain, ticker").not("position_side", "is", null);
+  if (positionsError) throw new Error(`Failed to read open positions: ${positionsError.message}`);
+  for (const r of positions as { chain: string | null; ticker: string }[]) {
+    const k = markKeyFor(r);
+    if (k) keys.add(k);
   }
   const { data: watch, error: watchError } = await db.from("watchlist_items").select("coingecko_id");
   if (watchError) throw new Error(`Failed to read watchlist ids: ${watchError.message}`);
@@ -99,12 +108,24 @@ export async function refreshAssetPrices(
   if (hl.length) {
     lanes.push(
       lane("hyperliquid", hl, async () => {
-        calls.hyperliquid = 1;
-        const spot = await fetchHyperliquidSpotPrices();
-        for (const k of hl) {
+        // Spot tokens ("hl:") and perp marks ("hlperp:") are one call each,
+        // made only for the kinds actually requested.
+        const spotKeys = hl.filter((k) => k.startsWith("hl:"));
+        const perpKeys = hl.filter((k) => k.startsWith("hlperp:"));
+        calls.hyperliquid = (spotKeys.length > 0 ? 1 : 0) + (perpKeys.length > 0 ? 1 : 0);
+        const [spot, perps] = await Promise.all([
+          spotKeys.length > 0 ? fetchHyperliquidSpotPrices() : new Map<string, { usd: number; change24h: number | null }>(),
+          perpKeys.length > 0 ? fetchHyperliquidPerpMarks() : new Map<string, { usd: number; change24h: number | null }>(),
+        ]);
+        for (const k of spotKeys) {
           const p = spot.get(k.slice(3));
           if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "hyperliquid" });
           assets.push({ price_key: k, symbol: k.slice(3), name: null, image_url: null, updated_at: nowIso() });
+        }
+        for (const k of perpKeys) {
+          const p = perps.get(k.slice("hlperp:".length));
+          if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "hyperliquid" });
+          assets.push({ price_key: k, symbol: `${k.slice("hlperp:".length)}-PERP`, name: null, image_url: null, updated_at: nowIso() });
         }
       }),
     );

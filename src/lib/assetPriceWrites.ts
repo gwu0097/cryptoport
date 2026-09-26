@@ -46,7 +46,7 @@ export function planPriceWrites(
 export function sourceOf(priceKey: string): "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "fiat" {
   if (priceKey.startsWith("fiat:")) return "fiat";
   if (priceKey.startsWith("jup:")) return "jupiter";
-  if (priceKey.startsWith("hl:")) return "hyperliquid";
+  if (priceKey.startsWith("hl:") || priceKey.startsWith("hlperp:")) return "hyperliquid"; // spot token / perp mark (perpPositions.ts)
   if (priceKey.startsWith("coinbase:")) return "coinbase";
   return "coingecko";
 }

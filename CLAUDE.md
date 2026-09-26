@@ -168,6 +168,15 @@ valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts`,
 row's key has no price. **A $1-per-unit value is allowed only for the
 stablecoins in `src/lib/stablecoinFallback.ts`** (Hyperliquid and Polymarket
 dollar balances), as a last resort; any other coin without a price shows "—".
+**Open perp positions' live PnL is display only** (`perpPositions.ts`). A
+position is valued at its margin (`usd_override`) in every total; on
+Hyperliquid the account's cash already moves with PnL, so PnL is never added.
+Refresh prices stores the venue's mark under `hlperp:<COIN>` (only while a
+position is open, one Hyperliquid call); every holdings read shows
+size × (mark − entry) when that mark is newer than the wallet's sync
+(`withCurrentPnl` in `getWalletDetail` / `getActiveWalletsWithHoldings`), and
+the Dashboard's Open positions section lists them. Nothing re-reads the
+venue: opened or closed positions appear on the next sync.
 
 **A receipt token and its protocol position count once** (`receiptDedupe.ts`,
 `dedupeReceipts`). A liquid staking or vault receipt (MaticX, eETH) that the

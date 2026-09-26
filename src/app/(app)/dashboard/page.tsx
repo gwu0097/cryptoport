@@ -5,6 +5,7 @@ import {
   getWatchlistItems,
   getValueHistory,
   getPriceRefreshState,
+  getOpenPositions,
 } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
@@ -19,6 +20,9 @@ import { CryptoHeatmapPanel } from "@/components/dashboard/CryptoHeatmap";
 import { DashboardWatchlistFilter } from "@/components/dashboard/DashboardWatchlistFilter";
 import { DashboardWatchlistRedirect } from "@/components/dashboard/DashboardWatchlistRedirect";
 import { refreshPricesAction } from "../wallets/actions";
+import { OpenPositionsPanel } from "@/components/dashboard/OpenPositionsPanel";
+import { getEffectiveTimeZone } from "@/lib/preferences";
+import { formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
@@ -57,13 +61,18 @@ export default async function DashboardPage({
   searchParams: Promise<{ list?: string }>;
 }) {
   const { list } = await searchParams;
-  const [{ groups, grand }, watchlists, history, priceState, user] = await Promise.all([
+  const [{ groups, grand }, watchlists, history, priceState, user, positions, zone] = await Promise.all([
     getAssetsGroupedByTicker(),
     getWatchlists(),
     getValueHistory(),
     getPriceRefreshState(),
     getUser(),
+    getOpenPositions(),
+    getEffectiveTimeZone(),
   ]);
+  // The newest moment any position's PnL is from (a price refresh's mark, or
+  // a wallet sync) — shown once for the section.
+  const positionsAsOf = positions.map((p) => p.pnlAsOf).filter((t): t is string => !!t).sort().at(-1) ?? null;
 
   // A real, currently-existing watchlist id (never trusts `list` blindly —
   // a stale localStorage value for a since-deleted watchlist should fall
@@ -152,6 +161,13 @@ export default async function DashboardPage({
         </TotalValuePanel>
       ) : (
         <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
+      )}
+
+      {user && positions.length > 0 && (
+        <OpenPositionsPanel
+          positions={positions}
+          asOfLabel={`PnL as of ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"} — Refresh prices updates it from the venue's mark price; a position opened or closed since shows up on the wallet's next sync.`}
+        />
       )}
 
       {/* Chart and heatmap side by side rather than each full-width and
