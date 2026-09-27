@@ -1,6 +1,6 @@
 # Junk tokens: fake receipts and illiquid airdrops
 
-Status: **proposal, awaiting the owner's OK** (2026-09-26). Found while testing
+Status: **part A done 2026-09-26; part B approved (option 1: shown, not counted)**. Found while testing
 Wallet Watch; it affects every portfolio total, the user's own included.
 
 ## What was found

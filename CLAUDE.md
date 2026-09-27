@@ -247,7 +247,11 @@ the underlying coin (its `price_key`) and a label like "hUSDB (as USDB)"
 is never tradable for the dedupe above: the underlying's volume says nothing
 about the receipt's own market, so its position stays when Zerion has one. A
 debt token (Aave variable/stable debt — it answers `borrowAllowance`) is never
-read as a receipt: a loan is not a holding (`receiptTokens.ts`).
+read as a receipt: a loan is not a holding (`receiptTokens.ts`). One
+function is never proof of a receipt: each standard needs a second answer
+only it gives, and a claim can't exceed the underlying's total supply or a
+vault's `totalAssets` (`receiptChecks.ts`; a meme token answering Comet's
+`baseToken()` was valued at $236K, docs/pricing/ILLIQUID.md).
 
 **Resolution must work for assets the owner doesn't hold.** Exchange tickers
 come from CoinGecko's per-exchange data, refreshed weekly
