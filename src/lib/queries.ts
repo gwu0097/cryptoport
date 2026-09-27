@@ -18,6 +18,7 @@ import { pricesAsOf, type PricesAsOf } from "./pricesAsOf";
 import { holdingKeyIndex, transactionPriceKey } from "./transactionPricing.ts";
 import { chainDisplayName, defaultChainId } from "./chainNames";
 import { formatTicker } from "./format";
+import { mergeSameCoin } from "./mergeHoldings";
 import { pinnedWalletChain, externalPortfolioViewer, type WalletChain } from "./walletDisplay.ts";
 import type { Holding, LinkedWallet, Tag, Transaction, Wallet, WalletWithTags } from "./types";
 
@@ -580,21 +581,24 @@ export interface AssetsResult {
 }
 
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
-export async function getAssetsGroupedByChain(): Promise<AssetsResult> {
+/** `merge`: one row per coin per chain across wallets (mergeHoldings.ts);
+ * totals are the same either way. */
+export async function getAssetsGroupedByChain(opts: { merge?: boolean } = {}): Promise<AssetsResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const [rows, prices, assetStats] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap(), getAssetStatsMap()]);
 
-  const entries = rows.flatMap((wallet) =>
-    wallet.holdings.map((holding) => ({
-      holding: {
-        ...holding,
-        valuation: valueHolding(holding, prices),
-        price: effectivePrice(holding, prices),
-        change24h: keyChange24h(holding, assetStats),
-      },
-      fallbackChain: defaultChainId(wallet.chain),
-    })),
-  );
+  // Each row's chain made explicit first, so merging never joins two wallets'
+  // chain-less rows that sit on different chains.
+  const withChains = rows.flatMap((wallet) => wallet.holdings.map((h) => ({ ...h, chain: h.chain ?? defaultChainId(wallet.chain) })));
+  const entries = (opts.merge ? mergeSameCoin(withChains) : withChains).map((holding) => ({
+    holding: {
+      ...holding,
+      valuation: valueHolding(holding, prices),
+      price: effectivePrice(holding, prices),
+      change24h: keyChange24h(holding, assetStats),
+    },
+    fallbackChain: holding.chain ?? "ethereum", // always set just above
+  }));
   const groups = groupByChain(entries, prices);
 
   const allHoldings = rows.flatMap((w) => w.holdings);

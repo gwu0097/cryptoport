@@ -8,6 +8,16 @@ import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
 import { refreshPricesAction } from "../wallets/actions";
+import { CheckboxLink } from "@/components/ui/CheckboxLink";
+
+/** The same view with "merge same coin" flipped, other filters kept. */
+function mergeToggleHref(filters: Record<string, string | undefined>): string {
+  const q = new URLSearchParams();
+  for (const k of ["chain", "protocol", "hideUnpriced", "hideLow"]) if (filters[k]) q.set(k, filters[k]!);
+  if (filters.merge !== "1") q.set("merge", "1");
+  const s = q.toString();
+  return s ? `/portfolio?${s}` : "/portfolio";
+}
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Portfolio · CryptoPort" };
@@ -20,11 +30,12 @@ export const maxDuration = 300;
 export default async function PortfolioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string }>;
+  searchParams: Promise<{ chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string; merge?: string }>;
 }) {
-  const { chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow } = await searchParams;
+  const { chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow, merge } = await searchParams;
+  const merged = merge === "1";
   const [{ groups, grand }, priceState, user, { wallets }] = await Promise.all([
-    getAssetsGroupedByChain(),
+    getAssetsGroupedByChain({ merge: merged }),
     getPriceRefreshState(),
     getUser(),
     getWalletsWithTotals(),
@@ -70,7 +81,8 @@ export default async function PortfolioPage({
           selectedProtocol={selectedProtocol}
           hideUnpriced={hideUnpriced !== "0"}
           hideLow={hideLow !== "0"}
-          baseHref="/portfolio"
+          baseHref={merged ? "/portfolio?merge=1" : "/portfolio"}
+          actions={<CheckboxLink href={mergeToggleHref({ chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow, merge })} checked={merged} label="Merge same coin across wallets" />}
           emptyMessage="No holdings yet — add or sync a wallet to see your portfolio here."
         />
       )}
