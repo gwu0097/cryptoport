@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { blendedChange } from "./dashboard.ts";
+import { blendedChange, withLiveToday } from "./dashboard.ts";
 
 test("blendedChange returns null when nothing has 24h data", () => {
   assert.equal(blendedChange([{ total: 100, change24h: null }]), null);
@@ -38,4 +38,11 @@ test("blendedChange with a single covered holding matches its own change exactly
   assert.ok(result);
   assert.equal(result.pct, -25);
   assert.equal(result.coveragePct, 100);
+});
+
+
+test("today's chart point is the live total, replacing a stale snapshot or added when missing", () => {
+  const h = [{ date: "2026-09-26", total: 492_046 }, { date: "2026-09-27", total: 491_386 }];
+  assert.deepEqual(withLiveToday(h, "2026-09-27", 493_115), [{ date: "2026-09-26", total: 492_046 }, { date: "2026-09-27", total: 493_115 }]);
+  assert.deepEqual(withLiveToday(h.slice(0, 1), "2026-09-27", 493_115).at(-1), { date: "2026-09-27", total: 493_115 });
 });

@@ -54,7 +54,7 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
           refreshes, prices keep moving live while today's snapshot sits at
           whatever the last one captured. */}
       <p className="mt-2 text-xs text-fg-muted">
-        Updates when you refresh prices or sync a wallet — may lag Total value above between refreshes.
+        One point per day from the daily snapshot; today&apos;s is the Total value above.
       </p>
     </Panel>
   );

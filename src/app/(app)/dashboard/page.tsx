@@ -9,7 +9,8 @@ import {
 } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
-import { blendedChange } from "@/lib/dashboard";
+import { blendedChange, withLiveToday } from "@/lib/dashboard";
+import { requestNowSec } from "@/lib/requestClock";
 import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { BlendedChangeCaption } from "@/components/BlendedChangeCaption";
@@ -184,7 +185,7 @@ export default async function DashboardPage({
           account to see. */}
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
         {user ? (
-          <ValueHistoryChart points={history} />
+          <ValueHistoryChart points={withLiveToday(history, new Date(requestNowSec() * 1000).toISOString().slice(0, 10), grand.total)} />
         ) : (
           <Panel title="Value history">
             <p className="text-sm text-fg-muted">Log in and add a wallet to see your value history here.</p>

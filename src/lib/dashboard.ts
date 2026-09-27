@@ -45,3 +45,13 @@ export function blendedChange(groups: MoverInput[]): BlendedChange | null {
     coveragePct: totalValue === 0 ? 0 : (coveredValue / totalValue) * 100,
   };
 }
+
+/** The value-history series with today's point set to the live total — the
+ * daily snapshot is saved a moment after a refresh finishes, so the chart
+ * could otherwise show the previous value until the next reload (reported
+ * 2026-09-27: chart $491,386 under a $493,115 total). `today` is the UTC day
+ * snapshots are keyed by; with no row for it yet, today's point is added. */
+export function withLiveToday<T extends { date: string; total: number }>(history: readonly T[], today: string, liveTotal: number): { date: string; total: number }[] {
+  const past = history.filter((p) => p.date !== today);
+  return [...past, { date: today, total: liveTotal }].sort((a, b) => a.date.localeCompare(b.date));
+}
