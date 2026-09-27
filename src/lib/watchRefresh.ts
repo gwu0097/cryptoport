@@ -31,8 +31,13 @@ export interface WatchedKey {
   address: string;
 }
 
-/** How long until an address is due again for the daily cron (phase 2). */
-const NEXT_REFRESH_MS = 20 * 60 * 60 * 1000;
+/** How long until an address is due again for the daily cron. Short on
+ * purpose: the cron runs once a day, so this only keeps it from re-reading an
+ * address someone refreshed in the last few hours. 20 h (the first value)
+ * made an evening Refresh skip the next morning's run entirely
+ * (2026-09-27: every address read at 03:41–04:55 UTC was due only after the
+ * 08:00 run). */
+const NEXT_REFRESH_MS = 6 * 60 * 60 * 1000;
 /** Addresses read at once: each EVM read already fans out across chains. */
 const CONCURRENCY = 2;
 
