@@ -1,7 +1,7 @@
 import "server-only";
 import type { ChainSyncStats, UnrecognizedToken } from "./multicallEvm";
 import type { KeepScope } from "../carryForward";
-import { fetchJupiterHoldings } from "./jupiter";
+import { readJupiterWallet, type HeldNotShown } from "./jupiter";
 import { fetchSolDefiPositions } from "./solDefiPositions";
 import { fetchCosmosHoldings, isCosmosAddress } from "./cosmos";
 import { fetchSuiWallet, isSuiAddress } from "./sui";
@@ -30,6 +30,9 @@ export interface AdapterFetchResult {
   /** EVM wallets only: tokens held but not counted, and how each chain was
    * read (docs/sync/PLAN.md) — saved to wallet_discovered_tokens / sync_runs. */
   discovery?: TokenDiscoveryReport;
+  /** Solana: tokens held but not shown (jupiter.ts readJupiterWallet). Only
+   * Wallet Watch reads it — a saved wallet's sync ignores it. */
+  heldNotShown?: HeldNotShown[];
 }
 
 export interface TokenDiscoveryReport {
@@ -77,11 +80,8 @@ function simple(fn: (address: string) => Promise<AdapterHolding[]>): NonEvmDispa
 export const NON_EVM_DISPATCH: Record<string, NonEvmDispatchEntry> = {
   SOL: {
     fetch: async (address) => {
-      const [tokenHoldings, positions] = await Promise.all([
-        fetchJupiterHoldings(address),
-        fetchSolDefiPositions(address),
-      ]);
-      return { holdings: [...tokenHoldings, ...positions.holdings], warnings: positions.warnings, keep: positions.keep };
+      const [wallet, positions] = await Promise.all([readJupiterWallet(address), fetchSolDefiPositions(address)]);
+      return { holdings: [...wallet.holdings, ...positions.holdings], warnings: positions.warnings, keep: positions.keep, heldNotShown: wallet.heldNotShown };
     },
     detect: (address) => SOLANA_ADDRESS_RE.test(address),
   },

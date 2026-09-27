@@ -119,7 +119,11 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
     const snapshot = buildSnapshot(
       fresh,
       keptRows,
-      (result.discovery?.unrecognized ?? []).map((u) => ({ chain: u.chain, contract: u.contract, symbol: u.symbol, amount: unitAmount(u.balanceRaw, u.decimals) })),
+      [
+        ...(result.discovery?.unrecognized ?? []).map((u) => ({ chain: u.chain, contract: u.contract, symbol: u.symbol, amount: unitAmount(u.balanceRaw, u.decimals) })),
+        // Solana: held but under a floor today — kept if stored before, so it isn't a "sale".
+        ...(result.heldNotShown ?? []),
+      ],
       valueOf,
       previous,
     );

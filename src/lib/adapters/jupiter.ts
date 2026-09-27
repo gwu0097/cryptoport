@@ -151,6 +151,26 @@ async function fetchUnsellableMints(mints: string[]): Promise<Set<string>> {
  * (see the ticker-collision note in valuation.ts's doc comment).
  */
 export async function fetchJupiterHoldings(address: string): Promise<AdapterHolding[]> {
+  return (await readJupiterWallet(address)).holdings;
+}
+
+/** A token the wallet holds that isn't shown (under the value or liquidity
+ * floor, unnamed and unpriced, or flagged by Shield), with its amount. */
+export interface HeldNotShown {
+  chain: string;
+  contract: string;
+  symbol: string;
+  amount: number;
+}
+
+/**
+ * The shown holdings plus every held token left out — Wallet Watch keeps a
+ * left-out token it stored before, so a token whose liquidity dips under the
+ * floor between two reads isn't mistaken for a sale (GOON at $97,850 against
+ * the $100,000 floor, 2026-09-27). A saved wallet's sync uses only the
+ * holdings.
+ */
+export async function readJupiterWallet(address: string): Promise<{ holdings: AdapterHolding[]; heldNotShown: HeldNotShown[] }> {
   const balances = await fetchBalances(address);
 
   const entries = Object.entries(balances).filter(([, b]) => b.uiAmount > 0);
@@ -170,6 +190,11 @@ export async function fetchJupiterHoldings(address: string): Promise<AdapterHold
   });
   const unsellable = await fetchUnsellableMints(shown.map(([key]) => (key === "SOL" ? WRAPPED_SOL_MINT : key)));
 
+  const shownKeys = new Set(shown.map(([key]) => key));
+  const heldNotShown: HeldNotShown[] = entries
+    .filter(([key]) => key !== "SOL" && (!shownKeys.has(key) || unsellable.has(key)))
+    .map(([key, balance]) => ({ chain: "solana", contract: key, symbol: tokenInfo.get(key)?.symbol ?? key.slice(0, 6), amount: balance.uiAmount }));
+
   const holdings: AdapterHolding[] = [];
   for (const [key, balance] of shown) {
     const mint = key === "SOL" ? WRAPPED_SOL_MINT : key;
@@ -187,5 +212,5 @@ export async function fetchJupiterHoldings(address: string): Promise<AdapterHold
     });
   }
 
-  return holdings;
+  return { holdings, heldNotShown };
 }
