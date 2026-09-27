@@ -214,8 +214,8 @@ valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts`,
 `jupiterPositions.ts` (limit orders) — and `valueHolding` uses it only when the
 row's key has no price. **An illiquid holding is shown but not counted** (owner decision
 2026-09-26, `liquidity.ts`, docs/pricing/ILLIQUID.md): worth more than its
-coin's 24h volume and more than 5% of its market cap (or no market cap), at
-≥ $1,000. `getPriceMap` attaches each coin's volume and market cap
+coin's 24h volume and more than 5% of its market cap (with no market cap:
+more than 10× that volume), at ≥ $1,000. `getPriceMap` attaches each coin's volume and market cap
 (`withLiquidity`), so `valueHolding` returns `{kind:"unpriced",
 reason:"illiquid", nominalUsd}` on every page alike; the tables label it
 "illiquid". Only CoinGecko-priced coins can be flagged.

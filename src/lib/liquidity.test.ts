@@ -20,3 +20,8 @@ test("no volume data, or a small holding, is never flagged", () => {
   assert.equal(isIlliquid(1_000_000, undefined), false);
   assert.equal(isIlliquid(900, { volume24h: 1, marketCap: 0 }), false);
 });
+
+test("no market cap: thin but redeemable stays counted; junk hundreds of times its volume doesn't", () => {
+  assert.equal(isIlliquid(2_320, { volume24h: 2_019, marketCap: 0 }), false); // Lido stMATIC, 1.15×
+  assert.equal(isIlliquid(339_500, { volume24h: 710, marketCap: null }), true); // WHITE, 478×
+});
