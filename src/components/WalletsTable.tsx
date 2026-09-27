@@ -9,6 +9,7 @@ import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass
 import { buttonClass } from "./ui/Button";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { EditWalletModal } from "./EditWalletModal";
+import { WalletTagsCell } from "./WalletTagsCell";
 import { VerifyWalletModal } from "./VerifyWalletModal";
 import { VerifiedBadge } from "./VerifiedBadge";
 import { JobButton } from "./jobs/JobButton";
@@ -119,17 +120,7 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
         </div>
       </td>
       <td className={`${tdClass} ${hideOnMobileClass}`}>
-        {wallet.tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {wallet.tags.map((t) => (
-              <span key={t.id} className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
-                {t.name}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <span className="text-fg-muted">—</span>
-        )}
+        <WalletTagsCell walletId={wallet.id} walletName={wallet.name} tags={wallet.tags.map((t) => t.name)} allTags={tagNames} />
       </td>
       <td className={`${tdClass} ${hideOnMobileClass}`}>
         <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">{wallet.mode}</span>
