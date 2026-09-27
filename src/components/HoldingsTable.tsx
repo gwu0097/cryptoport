@@ -322,7 +322,13 @@ export function HoldingsTable({
               {holding.valuation.kind === "priced" ? (
                 formatUsd(holding.valuation.usd)
               ) : (
+                holding.valuation.reason === "illiquid" ? (
+                <span className="text-warning" title={`About ${formatUsd(holding.valuation.nominalUsd)} at its quoted price, but that's more than the coin trades in a day and a large share of its market cap — it couldn't be sold at that price, so it isn't counted in totals.`}>
+                  illiquid
+                </span>
+              ) : (
                 <span className="text-warning">unpriced</span>
+              )
               )}
             </td>
             <td className={`${tdClass} ${hideOnMobileClass}`}>

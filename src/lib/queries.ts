@@ -8,10 +8,12 @@ import {
   aggregate,
   parseNumeric,
   valueHolding,
+  withLiquidity,
   type PortfolioTotal,
   type PriceMap,
   type Valuation,
 } from "./valuation";
+import type { CoinLiquidity } from "./liquidity";
 import { pricesAsOf, type PricesAsOf } from "./pricesAsOf";
 import { holdingKeyIndex, transactionPriceKey } from "./transactionPricing.ts";
 import { chainDisplayName, defaultChainId } from "./chainNames";
@@ -230,10 +232,17 @@ export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
   return marks;
 });
 
+/** Carries each coin's volume and market cap (valuation.ts withLiquidity), so
+ * a holding worth more than its coin's market can bear is shown but not
+ * counted (liquidity.ts, docs/pricing/ILLIQUID.md). */
 export const getPriceMap = cache(async (): Promise<PriceMap> => {
   const prices: PriceMap = {};
-  for (const r of await getAssetPriceRows()) prices[r.price_key] = r.usd;
-  return prices;
+  const liquidity = new Map<string, CoinLiquidity>();
+  for (const r of await getAssetPriceRows()) {
+    prices[r.price_key] = r.usd;
+    liquidity.set(r.price_key, { volume24h: parseNumeric(r.volume_24h), marketCap: parseNumeric(r.market_cap) });
+  }
+  return withLiquidity(prices, liquidity);
 });
 
 export interface AssetStats {

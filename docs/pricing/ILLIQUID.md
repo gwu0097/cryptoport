@@ -1,6 +1,6 @@
 # Junk tokens: fake receipts and illiquid airdrops
 
-Status: **part A done 2026-09-26; part B approved (option 1: shown, not counted)**. Found while testing
+Status: **done 2026-09-26** (part A `bfc058d`; part B: option 1, shown not counted, with a $1,000 minimum). Found while testing
 Wallet Watch; it affects every portfolio total, the user's own included.
 
 ## What was found
@@ -90,3 +90,11 @@ buys.
 
 Part A first (a bug, no decision needed beyond this doc), then Part B once
 the owner picks B or its alternative. Then Wallet Watch phase 2.
+
+## Result (2026-09-26)
+
+Both users' totals unchanged to the cent (nothing flagged). Watched wallets:
+Vitalik $1,006,846 → $197,958 (WHITE, MOODENG, KNCL, the fake BTC and three
+small airdrops not counted); Murad's `0x6B41…` $5.09M → $4.85M (only the
+fake BTC); the other five unchanged. Added a $1,000 minimum
+(`ILLIQUID_MIN_USD`) so small tokens aren't flagged as noise.

@@ -12,6 +12,7 @@
 // unpriced" a type error at the call site, not a runtime surprise.
 
 import type { HoldingSource } from "./types";
+import { isIlliquid, type CoinLiquidity } from "./liquidity.ts";
 
 export type PostgrestNumeric = number | string | null | undefined;
 
@@ -30,12 +31,28 @@ export type PriceMap = Record<string, PostgrestNumeric>;
 
 export type Valuation =
   | { kind: "priced"; usd: number }
-  | { kind: "unpriced"; reason: "no_usd_override" | "no_qty" | "no_price" };
+  | { kind: "unpriced"; reason: "no_usd_override" | "no_qty" | "no_price" }
+  /** Priced, but the price can't be realized (liquidity.ts): shown, not
+   * counted (docs/pricing/ILLIQUID.md). `nominalUsd` is qty × price. */
+  | { kind: "unpriced"; reason: "illiquid"; nominalUsd: number };
 
 export interface PortfolioTotal {
   total: number;
   unpricedCount: number;
   unpricedTickers: string[];
+  /** Of the unpriced, how many are illiquid (priced but not counted). */
+  illiquidCount: number;
+}
+
+/** Each coin's liquidity, attached to a price map read from asset_prices
+ * (queries.ts getPriceMap) so every valuation of that map applies the same
+ * illiquid rule without each caller passing it. A map built by hand (tests,
+ * scripts) has none: nothing is flagged. */
+const LIQUIDITY = new WeakMap<PriceMap, ReadonlyMap<string, CoinLiquidity>>();
+
+export function withLiquidity(prices: PriceMap, liquidity: ReadonlyMap<string, CoinLiquidity>): PriceMap {
+  LIQUIDITY.set(prices, liquidity);
+  return prices;
 }
 
 /** Parses a PostgREST numeric value (number or string form). Anything not a finite number is null. */
@@ -64,7 +81,11 @@ export function valueHolding(
   const qty = parseNumeric(holding.qty);
   if (holding.price_key && holding.source !== "manual_usd") {
     const price = parseNumeric(prices[holding.price_key]);
-    if (price !== null && qty !== null) return { kind: "priced", usd: qty * price };
+    if (price !== null && qty !== null) {
+      const usd = qty * price;
+      if (isIlliquid(usd, LIQUIDITY.get(prices)?.get(holding.price_key))) return { kind: "unpriced", reason: "illiquid", nominalUsd: usd };
+      return { kind: "priced", usd };
+    }
   }
 
   const stored = parseNumeric(holding.usd_override);
@@ -87,6 +108,7 @@ export function aggregate(
 ): PortfolioTotal {
   let total = 0;
   let unpricedCount = 0;
+  let illiquidCount = 0;
   const unpricedTickers = new Set<string>();
 
   for (const holding of holdings) {
@@ -95,9 +117,10 @@ export function aggregate(
       total += valuation.usd;
     } else {
       unpricedCount += 1;
+      if (valuation.reason === "illiquid") illiquidCount += 1;
       unpricedTickers.add(holding.ticker);
     }
   }
 
-  return { total, unpricedCount, unpricedTickers: [...unpricedTickers] };
+  return { total, unpricedCount, unpricedTickers: [...unpricedTickers], illiquidCount };
 }
