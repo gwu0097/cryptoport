@@ -8,6 +8,7 @@ import { parseNumeric, valueHolding, type PriceMap } from "./valuation";
 import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import type { Holding } from "./types";
+import { mergeSameCoin } from "./mergeHoldings";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
 // Wallet Watch reads (docs/wallet-watch/PLAN.md). All through userDb(): the
@@ -197,7 +198,7 @@ export interface InfluencerDetail {
   notListed: { dustCount: number; dustUsd: number | null; unrecognizedCount: number };
 }
 
-async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string, WatchedRow>): Promise<Pick<InfluencerDetail, "holdings" | "notListed">> {
+async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string, WatchedRow>, merge = false): Promise<Pick<InfluencerDetail, "holdings" | "notListed">> {
   const [prices, stats] = await Promise.all([getPriceMap(), getAssetStatsMap()]);
   const rows: Holding[] = [];
   const notListed = { dustCount: 0, dustUsd: null as number | null, unrecognizedCount: 0 };
@@ -211,14 +212,15 @@ async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string
     notListed.unrecognizedCount += snap.unrecognizedCount ?? snap.unrecognized.length;
   }
   const read = influencer.addresses.some((a) => watched.get(`${a.chain}|${a.address}`)?.snapshot);
-  return { holdings: read ? valuateHoldings(rows, "ethereum", prices, stats) : null, notListed };
+  return { holdings: read ? valuateHoldings(merge ? mergeSameCoin(rows) : rows, "ethereum", prices, stats) : null, notListed };
 }
 
-export async function getInfluencerDetail(id: string): Promise<InfluencerDetail | null> {
+/** `merge`: one row per coin per chain across addresses (mergeHoldings.ts). */
+export async function getInfluencerDetail(id: string, merge = false): Promise<InfluencerDetail | null> {
   const overview = await loadOverview();
   const influencer = overview.influencers.find((i) => i.id === id);
   if (!influencer) return null;
-  return { influencer, groups: overview.groups, ...(await detailHoldings(influencer, overview.watched)) };
+  return { influencer, groups: overview.groups, ...(await detailHoldings(influencer, overview.watched, merge)) };
 }
 
 /**
@@ -227,7 +229,7 @@ export async function getInfluencerDetail(id: string): Promise<InfluencerDetail 
  * the viewer isn't the owner or a watcher. The owner's note, groups and
  * refresh state aren't part of it. Null for an unknown or revoked token.
  */
-export async function getSharedInfluencer(token: string): Promise<(Omit<InfluencerDetail, "groups"> & { movements: WatchMovementView[]; daily: { date: string; total: number }[] }) | null> {
+export async function getSharedInfluencer(token: string, merge = false): Promise<(Omit<InfluencerDetail, "groups"> & { movements: WatchMovementView[]; daily: { date: string; total: number }[] }) | null> {
   if (!(await getUser()) || !/^[0-9a-f-]{36}$/.test(token)) return null;
   const db = serviceDb();
   const { data: inf, error } = await db.from("watch_influencers").select("id, name, link, share_token").eq("share_token", token).maybeSingle();
@@ -243,7 +245,7 @@ export async function getSharedInfluencer(token: string): Promise<(Omit<Influenc
   const watched = new Map((watchedRows as WatchedRow[]).map((w) => [`${w.chain}|${w.address}`, w]));
   const data: WatchData = { influencers: [{ ...(inf as Omit<InfluencerRow, "note">), note: null }], addresses: list, groups: [], links: [], watched };
   const [influencer] = buildInfluencers(data, await getPriceMap());
-  const [detail, movements, daily] = await Promise.all([detailHoldings(influencer, watched), getWatchMovements([influencer], undefined, db), getInfluencerDailyValue(influencer, db)]);
+  const [detail, movements, daily] = await Promise.all([detailHoldings(influencer, watched, merge), getWatchMovements([influencer], undefined, db), getInfluencerDailyValue(influencer, db)]);
   return { influencer: { ...influencer, shareToken: null }, ...detail, movements, daily };
 }
 

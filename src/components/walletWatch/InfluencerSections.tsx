@@ -10,6 +10,7 @@ import { AgeText } from "@/components/AgeText";
 import { ValueChart } from "@/components/charts/ValueChart";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
+import { CheckboxLink } from "@/components/ui/CheckboxLink";
 
 // An influencer's page body — value, chart, activity, addresses, holdings —
 // shared by the owner's page (/wallet-watch/[id]) and a shared link
@@ -17,6 +18,15 @@ import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
 // through the slots.
 
 export const lookupPath = (address: string) => `/lookup?address=${encodeURIComponent(address)}`;
+
+/** The same view with "merge same coin" flipped, other filters kept. */
+function mergeToggleHref(baseHref: string, filters: Record<string, string | undefined>): string {
+  const q = new URLSearchParams();
+  for (const k of ["chain", "protocol", "hideUnpriced", "hideLow"]) if (filters[k]) q.set(k, filters[k]!);
+  if (filters.merge !== "1") q.set("merge", "1");
+  const s = q.toString();
+  return s ? `${baseHref}?${s}` : baseHref;
+}
 
 export function InfluencerTitle({ influencer }: { influencer: WatchedInfluencer }) {
   return (
@@ -48,7 +58,7 @@ export function InfluencerSections({
   holdings: InfluencerDetail["holdings"];
   notListed: InfluencerDetail["notListed"];
   /** The holdings filters from this page's URL (as on Portfolio). */
-  filters: { chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string };
+  filters: { chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string; merge?: string };
   movements: WatchMovementView[];
   daily: { date: string; total: number }[];
   serverNowSec: number;
@@ -142,13 +152,14 @@ export function InfluencerSections({
       </h2>
       {holdings ? (
         <ChainGroupedHoldings
+          actions={<CheckboxLink href={mergeToggleHref(baseHref, filters)} checked={filters.merge === "1"} label="Merge same coin across addresses" />}
           groups={holdings.chainGroups}
           grandTotal={holdings.total}
           selectedChain={filters.chain}
           selectedProtocol={filters.protocol}
           hideUnpriced={filters.hideUnpriced !== "0"}
           hideLow={filters.hideLow !== "0"}
-          baseHref={baseHref}
+          baseHref={filters.merge === "1" ? `${baseHref}?merge=1` : baseHref}
           emptyMessage="Nothing held at the last read."
         />
       ) : (
