@@ -4,6 +4,7 @@ import { getUser } from "@/lib/auth";
 import { getWatchOverview } from "@/lib/watchQuery";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
+import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { lookupWallet } from "@/lib/lookup";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
@@ -34,7 +35,7 @@ export default async function LookupPage({
     <>
       <PageHeader
         title="Wallet lookup"
-        subtitle="Search any ETH, SOL, BTC, or ADA address — read-only, nothing is saved to your portfolio."
+        subtitle="Search any ETH, SOL, BTC, or ADA address — read-only, nothing is saved to your portfolio. Lookup links open for anyone, no account needed."
       />
 
       {!address ? (
@@ -109,6 +110,10 @@ async function LookupResults({
         <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
           {formatUsd(result.total)}
         </p>
+        <div className="mt-3 flex flex-wrap items-start gap-2">
+          {/* Anyone can open a lookup link, signed in or not. */}
+          <ShareLinkButton paths={[`/lookup?address=${encodeURIComponent(result.address)}`]} />
+        </div>
         {watch && (
           <div className="mt-3">
             {watchedAs ? (

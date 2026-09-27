@@ -162,7 +162,6 @@ function Shared({ data }: { data: WatchInsights }) {
               <div className="flex flex-wrap items-baseline justify-between gap-x-4">
                 <span>
                   <span className="font-semibold text-fg">{s.ticker}</span> <span className="text-fg-muted">· {s.holders.length} hold it · conviction {share(s.avgShare)}</span>
-                  {s.mineUsd !== null && <span className="ml-2 rounded-full border border-accent/40 px-2 py-0.5 text-xs text-accent">you hold {formatUsd(s.mineUsd)}</span>}
                   {s.otherGroups.length > 0 && <span className="ml-2 text-xs text-accent">also in {s.otherGroups.join(", ")}</span>}
                 </span>
                 <span className="tabular-nums text-fg">{formatUsd(s.totalUsd)}</span>

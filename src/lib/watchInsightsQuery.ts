@@ -41,7 +41,7 @@ export interface WatchInsights {
   movementsSince: string | null;
   converging: (Convergence & { names: string[]; otherGroups: string[] })[];
   flows: (Convergence & { names: string[] })[];
-  shared: (SharedHolding & { mineUsd: number | null; otherGroups: string[] })[];
+  shared: (SharedHolding & { otherGroups: string[] })[];
   /** The user's own coins that the group moved in the window. */
   overlap: { ticker: string; mineUsd: number; buyers: string[]; sellers: string[]; netUsd: number }[];
   cards: InfluencerCard[];
@@ -103,7 +103,7 @@ export async function getWatchInsights(groupId: string | undefined, window: Insi
   const withNames = <T extends Convergence>(c: T) => ({ ...c, names: c.buyers.map((b) => nameOf.get(b.influencerId) ?? "?") });
   const converging = coinFlows(movements.map(toInput), 2).map((c) => ({ ...withNames(c), otherGroups: groupsHolding(c.buyers.map((b) => b.influencerId)) }));
   const flows = coinFlows(movements.map(toInput), 0).map(withNames);
-  const shared = sharedHoldings(holdings).map((s) => ({ ...s, mineUsd: s.priceKey ? (mine.get(s.priceKey) ?? null) : null, otherGroups: groupsHolding(s.holders.map((h) => h.influencerId)) }));
+  const shared = sharedHoldings(holdings).map((s) => ({ ...s, otherGroups: groupsHolding(s.holders.map((h) => h.influencerId)) }));
   const overlap = flows
     .filter((f) => f.priceKey && mine.has(f.priceKey))
     .map((f) => ({ ticker: f.ticker, mineUsd: mine.get(f.priceKey!)!, buyers: f.buyers.map((b) => nameOf.get(b.influencerId) ?? "?"), sellers: f.sellers.map((s) => nameOf.get(s.influencerId) ?? "?"), netUsd: f.netUsd }));

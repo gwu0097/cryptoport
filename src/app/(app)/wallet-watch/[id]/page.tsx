@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, Search } from "lucide-react";
 import { getUser } from "@/lib/auth";
 import { getInfluencerDailyValue, getInfluencerDetail, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
 import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
@@ -16,10 +16,13 @@ import { AgeText } from "@/components/AgeText";
 import { InfluencerEditor, RemoveAddressButton } from "@/components/walletWatch/InfluencerEditor";
 import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
 import { RefreshWatchButton } from "@/components/walletWatch/RefreshWatchButton";
+import { ShareLinkButton } from "@/components/ShareLinkButton";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet Watch · CryptoPort" };
 export const maxDuration = 300;
+
+const lookupPath = (address: string) => `/lookup?address=${encodeURIComponent(address)}`;
 
 export default async function InfluencerPage({ params }: { params: Promise<{ id: string }> }) {
   if (!(await getUser())) return <SignInPrompt message="Log in to see the wallets you watch." />;
@@ -72,7 +75,21 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
         <ActivityFeed movements={movements} serverNowSec={nowSec} showNames={false} />
       </Panel>
 
-      <Panel title="Addresses" className="mb-4">
+      <Panel
+        title={
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            Addresses
+            {influencer.addresses.length > 0 && (
+              <ShareLinkButton
+                paths={influencer.addresses.map((a) => lookupPath(a.address))}
+                label={influencer.addresses.length > 1 ? `Copy ${influencer.addresses.length} lookup links` : "Copy lookup link"}
+              />
+            )}
+          </span>
+        }
+        description="Lookup links open the address on CryptoPort for anyone — no account needed. Your Wallet Watch list itself stays private."
+        className="mb-4"
+      >
         <ul className="space-y-2">
           {influencer.addresses.map((a) => {
             const viewer = externalPortfolioViewer(a.chain, a.address);
@@ -85,6 +102,10 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
                     <ExternalLink className="size-3.5" aria-hidden="true" />
                   </a>
                 )}
+                <Link href={lookupPath(a.address)} title="Open in CryptoPort lookup" aria-label="Open in CryptoPort lookup" className="text-fg-muted hover:text-fg">
+                  <Search className="size-3.5" aria-hidden="true" />
+                </Link>
+                <ShareLinkButton compact paths={[lookupPath(a.address)]} label="Copy lookup link" />
                 <span className="tabular-nums text-fg-muted">{a.valueUsd === null ? "—" : formatUsd(a.valueUsd)}</span>
                 <span className="text-xs text-fg-muted">
                   {a.refreshStatus === "syncing" ? "reading now…" : <AgeText at={a.lastRefreshAt} serverNowSec={nowSec} prefix="read " />}
