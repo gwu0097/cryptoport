@@ -3,9 +3,19 @@ import type { RiskProfile } from "@/lib/analytics/risk";
 import { RISK_WINDOW_DAYS } from "@/lib/analytics/risk";
 import { formatShare, formatUsd, formatUsdSigned } from "@/lib/format";
 import { Panel } from "@/components/ui/Panel";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 
 const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
 const TOP = 8;
+
+/** One holding's bars in words: its risk share against its value share. */
+function rowHint(ticker: string, weight: number, riskShare: number): string {
+  const ratio = weight > 0 ? riskShare / weight : 0;
+  const base = `${ticker} is ${pct(weight)} of your money and ${pct(riskShare)} of your portfolio's day-to-day swings (${ratio.toFixed(1)}× its size).`;
+  if (ratio >= 1.1) return `${base} It moves your total more than its size suggests — more volatile, or moving together with your other holdings.`;
+  if (ratio <= 0.9) return `${base} It moves your total less than its size suggests — calmer, or not moving in step with your other holdings.`;
+  return `${base} It moves your total about in proportion to its size.`;
+}
 
 function Tile({ label, value, caption, className = "" }: { label: string; value: string; caption?: string; className?: string }) {
   return (
@@ -87,17 +97,42 @@ export function RiskPanel({ risk, totalUsd }: { risk: RiskProfile | null; totalU
       </div>
 
       <div className="mt-6">
-        <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Where your risk comes from</p>
-        <p className="mt-1 text-xs text-fg-muted">
-          Each holding&apos;s share of your value next to its share of your portfolio&apos;s swings. A holding whose risk bar is longer than
-          its value bar moves the portfolio more than its size suggests.
+        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-fg-muted">
+          Where your risk comes from
+          <InfoTooltip>
+            <span className="block normal-case tracking-normal">
+              <span className="block">
+                &ldquo;Risk&rdquo; here is how much your portfolio&apos;s value swings from day to day. The grey bar is a holding&apos;s share of
+                your money; the yellow bar is its share of those swings. The yellow shares add up to 100%.
+              </span>
+              <span className="mt-1.5 block">
+                <span className="text-fg">Yellow longer than grey:</span> it moves your total more than its size — it&apos;s more volatile than
+                the rest, or rises and falls together with your other holdings.
+              </span>
+              <span className="mt-1.5 block">
+                <span className="text-fg">Yellow shorter:</span> it moves your total less than its size — calmer, or moving independently.
+                Stablecoins have almost none.
+              </span>
+              <span className="mt-1.5 block">
+                Neither is good or bad. It shows where your ups and downs come from: trimming a holding with a long yellow bar cuts your
+                swings the most per dollar sold; adding to it raises them fastest.
+              </span>
+            </span>
+          </InfoTooltip>
+        </p>
+        <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-4 rounded-full bg-fg-muted/60" /> Share of your value
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-4 rounded-full bg-warning/80" /> Share of your swings
+          </span>
+          <span>Hover a row for what it means.</span>
         </p>
         <ul className="mt-3 space-y-2">
           {top.map((a) => (
-            <li key={a.key} className="grid grid-cols-[4.5rem_1fr_7.5rem] items-center gap-2 text-sm">
-              <span className="truncate font-medium text-fg" title={a.ticker}>
-                {a.ticker}
-              </span>
+            <li key={a.key} title={rowHint(a.ticker, a.weight, a.riskShare)} className="grid cursor-help grid-cols-[4.5rem_1fr_7.5rem] items-center gap-2 text-sm">
+              <span className="truncate font-medium text-fg">{a.ticker}</span>
               <span className="flex flex-col gap-1">
                 <span className="h-1.5 rounded-full bg-surface-raised">
                   <span className="block h-1.5 rounded-full bg-fg-muted/60" style={{ width: `${(a.weight / scale) * 100}%` }} />
