@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Attribution, AttributionWindow, WalletAttribution } from "@/lib/analytics/attribution";
 import { Dialog } from "@/components/ui/Dialog";
 import { useLazyDialog } from "@/components/ui/useLazyDialog";
@@ -57,7 +58,9 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd }: { rows: WalletAttribu
         {shown.map((w) => (
           <li key={w.id} className="py-2">
             <div className="flex items-baseline justify-between gap-3">
-              <span className="font-medium text-fg">{w.name}</span>
+              <Link href={`/wallets/${w.id}`} className="font-medium text-fg hover:text-accent hover:underline" title="Open this wallet">
+                {w.name} →
+              </Link>
               <span className={`tabular-nums font-semibold ${tone(w.otherUsd)}`}>{signed(w.otherUsd)}</span>
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-fg-muted">
