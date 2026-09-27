@@ -367,13 +367,31 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   (`scripts/screener-backfill.ts`). The app's normal usage and crons aren't
   gated, but every new call path you add must justify its cost.
   (DECISIONS: 2026-09-22)
-- **Supabase requests count too:** every API request is a ~3 KB log line
-  against the organization's 1 GB/month free log quota (shared with the
-  csp-screener app, which uses the same project). Reference tables that
-  rarely change are cached (`assetKeys.ts` mapping tables, 5 min, cleared on
-  write); `asset_prices` is read once per request (`getAssetPriceRows`).
-  Measure with Logs Explorer: `select source, count(*) from logs group by
-  source` (DECISIONS: 2026-09-26 Supabase log ingestion).
+- **Supabase requests are a budget too, not just external APIs.** Every
+  request the app makes to Supabase (each `.from()`/`.rpc()` page, each auth
+  call) writes a ~3 KB log line, and the organization's free plan allows
+  1 GB of logs a month for **all** its projects together (this project is
+  shared with the csp-screener app; Trace Two is another). That is about
+  11,000 log lines a day org-wide; keep cryptoport under ~5,000. Passing it
+  restricts the project. Rules:
+  - Sign-in is verified locally (`getClaims`, §3) — never a network auth
+    call per request. Anything in `proxy.ts` runs on every request, link
+    prefetches and API polls included: it must make no Supabase call.
+  - Count the requests a change adds per page view, per sync, per poll and
+    per cron run before building it. A full-table paged read on every page
+    view, a query per row or per wallet in a loop, or a poll that runs while
+    nothing is busy is a design smell — read once per request (`cache()`),
+    batch (`.in()` / one upsert per 500 rows), or cache rarely-changing
+    tables (`assetKeys.ts` mapping tables, 5 min, cleared on write;
+    `asset_prices` once per request via `getAssetPriceRows`).
+  - The dev server, diag scripts and verification runs hit the same
+    production project and count against the same quota.
+  - Measure after any change that adds a request path, and when in doubt:
+    Logs → Logs Explorer (not the SQL Editor), time picker "Last 24 hours",
+    `select source, count(*) as n from logs group by source order by n desc
+    limit 50`, then per path: `select log_attributes['request.path'] as path,
+    count(*) as n from logs where source = 'edge_logs' group by path order
+    by n desc limit 30`. (DECISIONS: 2026-09-26 Supabase log ingestion)
 - **Batch and dedupe by design:** one pricing pass per event, deduped across
   wallets and users (`ensureAssetPrices` reuses fresh prices); batched endpoints
   (`/coins/markets` by id, `per_page` = batch size); slow-changing data cached in
