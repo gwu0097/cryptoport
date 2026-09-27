@@ -3,6 +3,7 @@ import { serviceDb } from "./supabase";
 import { aggregate } from "./valuation";
 import { getPriceMap } from "./queries";
 import type { Holding } from "./types";
+import { walletComposition } from "./analytics/exactAttribution";
 
 /**
  * Captures one row per user into cryptoport.portfolio_snapshots, and one
@@ -59,11 +60,16 @@ export async function capturePortfolioSnapshots(): Promise<{ users: number; wall
     .filter((wallet) => wallet.user_id) // same "nothing to attribute this to" exclusion as the user rows above
     .map((wallet) => {
       const { total, unpricedCount } = aggregate(wallet.holdings, prices);
+      // What the total is made of, at this moment's prices — Analytics splits
+      // later changes into price vs quantity from it (exactAttribution.ts).
+      const { assets, positionsUsd } = walletComposition(wallet.holdings, prices);
       return {
         wallet_id: wallet.id,
         snapshot_date: snapshotDate,
         total_usd: total,
         unpriced_count: unpricedCount,
+        assets,
+        positions_usd: positionsUsd,
       };
     });
 
@@ -124,11 +130,14 @@ export async function captureUserSnapshot(userId: string): Promise<void> {
 
   const walletSnapshots = rows.map((wallet) => {
     const { total: walletTotal, unpricedCount: walletUnpriced } = aggregate(wallet.holdings, prices);
+    const { assets, positionsUsd } = walletComposition(wallet.holdings, prices);
     return {
       wallet_id: wallet.id,
       snapshot_date: snapshotDate,
       total_usd: walletTotal,
       unpriced_count: walletUnpriced,
+      assets,
+      positions_usd: positionsUsd,
     };
   });
   if (walletSnapshots.length > 0) {

@@ -33,6 +33,9 @@ export interface AssetContribution {
 
 export interface Attribution {
   window: AttributionWindow;
+  /** Price effect measured from each wallet's own snapshot composition
+   * (exactAttribution.ts) rather than estimated from 24h/7d/30d changes. */
+  exact?: boolean;
   /** The snapshot the window starts from; null when there is none for
    * that day (then the actual change is unknown). */
   base: { date: string; totalUsd: number } | null;
@@ -114,6 +117,14 @@ export interface WalletAttribution {
   positionsUsd: number;
   /** Holdings with no change figure for the window (their moves land in "other"). */
   unattributedCount: number;
+  /** Set when measured from the snapshot's composition: what the rest is. */
+  exact?: {
+    quantityUsd: number;
+    positionsUsd: number;
+    revaluedUsd: number;
+    /** The biggest per-coin quantity changes and revaluations. */
+    coins: { ticker: string; qtyBefore: number; qtyAfter: number; usd: number; revalued: boolean }[];
+  };
 }
 
 /**

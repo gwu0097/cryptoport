@@ -6,6 +6,7 @@ import { attribute, attributeByWallet, daysBefore, WINDOW_DAYS, type Attribution
 import { userDb } from "./supabase";
 import { parseNumeric, valueHolding } from "./valuation";
 import { riskProfile, type RiskProfile } from "./analytics/risk.ts";
+import { exactChange, walletComposition, type SnapshotAssets } from "./analytics/exactAttribution.ts";
 import { holdingContext, type HoldingContext } from "./analytics/holdingContext.ts";
 import type { Holding } from "./types";
 
@@ -85,7 +86,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
   const baseDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
   const { data: walletSnaps, error: snapError } = await (await userDb())
     .from("wallet_snapshots")
-    .select("wallet_id, snapshot_date, total_usd")
+    .select("wallet_id, snapshot_date, total_usd, assets, positions_usd")
     .in("snapshot_date", baseDates);
   if (snapError) throw new Error(`Failed to load wallet snapshots: ${snapError.message}`);
   const byWallet = Object.fromEntries(
@@ -101,6 +102,56 @@ export async function getAnalytics(): Promise<AnalyticsView> {
   const attribution = Object.fromEntries(
     (Object.keys(WINDOW_DAYS) as AttributionWindow[]).map((w) => [w, attribute(w, attributionInput, positions, grand.total, snapshots, today)]),
   ) as Record<AttributionWindow, Attribution>;
+
+  // Exact where the starting snapshot recorded each wallet's composition:
+  // the price effect from each wallet's own snapshot prices, and the rest
+  // named per coin. Needs every wallet that existed then to have one.
+  const tickerOf = new Map<string, string>();
+  for (const w of wallets) for (const h of w.holdings) if (h.price_key && !tickerOf.has(h.price_key)) tickerOf.set(h.price_key, h.ticker);
+  const nowComposition = new Map(wallets.map((w) => [w.id, walletComposition(w.holdings, prices)]));
+  windows.forEach((win, i) => {
+    type SnapRow = { wallet_id: string; snapshot_date: string; total_usd: number | string; assets: SnapshotAssets | null; positions_usd: number | string | null };
+    const base = new Map((walletSnaps as SnapRow[]).filter((r) => r.snapshot_date === baseDates[i]).map((r) => [r.wallet_id, r]));
+    const rows = byWallet[win].wallets;
+    const measurable = rows.every((r) => r.added || base.get(r.id)?.assets);
+    const actual = attribution[win].actualUsd;
+    if (!measurable || actual === null || base.size === 0) return;
+    const byCoin = new Map<string, { usd: number; valueUsd: number; pBefore: number; pNow: number }>();
+    let price = 0;
+    for (const r of rows) {
+      if (r.added) continue;
+      const b = base.get(r.id)!;
+      const c = exactChange({ assets: b.assets ?? {}, positionsUsd: parseNumeric(b.positions_usd) ?? 0 }, nowComposition.get(r.id)!);
+      price += c.priceUsd;
+      r.priceUsd = c.priceUsd;
+      r.otherUsd = r.actualUsd === null ? null : r.actualUsd - c.priceUsd;
+      r.exact = {
+        quantityUsd: c.quantityUsd,
+        positionsUsd: c.positionsUsd,
+        revaluedUsd: c.revaluedUsd,
+        coins: c.coins
+          .filter((x) => Math.abs(x.quantityUsd + x.revaluedUsd) >= 1)
+          .slice(0, 4)
+          .map((x) => ({ ticker: tickerOf.get(x.key) ?? x.key, qtyBefore: x.qtyBefore, qtyAfter: x.qtyAfter, usd: x.quantityUsd + x.revaluedUsd, revalued: x.revaluedUsd !== 0 })),
+      };
+      for (const x of c.coins) {
+        if (x.priceBefore === null || x.priceNow === null || x.qtyBefore <= 0) continue;
+        const cur = byCoin.get(x.key) ?? { usd: 0, valueUsd: 0, pBefore: x.priceBefore, pNow: x.priceNow };
+        cur.usd += x.priceUsd;
+        cur.valueUsd += x.qtyAfter * x.priceNow;
+        byCoin.set(x.key, cur);
+      }
+    }
+    rows.sort((x, y) => Math.abs(y.otherUsd ?? 0) - Math.abs(x.otherUsd ?? 0));
+    const a = attribution[win];
+    a.exact = true;
+    a.priceUsd = price;
+    a.otherUsd = actual - price;
+    a.contributions = [...byCoin]
+      .filter(([, c]) => Math.abs(c.usd) >= 0.01)
+      .map(([key, c]) => ({ key, ticker: tickerOf.get(key) ?? key, valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd }))
+      .sort((x, y) => Math.abs(y.usd) - Math.abs(x.usd));
+  });
 
   const risk = riskProfile(
     [
