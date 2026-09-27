@@ -383,6 +383,15 @@ export async function updateWallet(walletId: string, formData: FormData) {
   revalidatePath("/wallets");
 }
 
+/** Sets a wallet's tags from its own page (WalletTags), without the rest of
+ * the edit form. */
+export async function setWalletTags(walletId: string, formData: FormData) {
+  await requireUser();
+  await replaceWalletTags(walletId, await resolveTagIds(formData));
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+}
+
 // Thin wrapper around the same searchCoins() the Watchlist's own
 // searchCoinsAction (watchlist/actions.ts) calls — duplicated as a wrapper
 // rather than imported from there, so /wallets doesn't reach into another

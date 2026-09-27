@@ -34,6 +34,11 @@ export function TagPicker({
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLUListElement>(null);
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  // Where the list is attached: inside a modal <dialog> (EditWalletModal) the
+  // dialog sits in the browser's top layer, above anything in <body> whatever
+  // its z-index, so the list goes inside that dialog — else it rendered
+  // behind it (reported 2026-09-27). Found when opening, not during render.
+  const [portalTarget, setPortalTarget] = useState<Element | null>(null);
 
   useEffect(() => {
     function onPointerDown(e: PointerEvent) {
@@ -70,6 +75,7 @@ export function TagPicker({
       if (!el) return;
       const r = el.getBoundingClientRect();
       setDropdownRect({ top: r.bottom, left: r.left, width: r.width });
+      setPortalTarget(el.closest("dialog") ?? document.body);
     }
     updateRect();
     // capture:true so this also fires for scrolling inside Dialog's own
@@ -165,6 +171,7 @@ export function TagPicker({
 
       {showDropdown &&
         dropdownRect &&
+        portalTarget &&
         createPortal(
           <ul
             ref={dropdownRef}
@@ -215,7 +222,7 @@ export function TagPicker({
               </li>
             )}
           </ul>,
-          document.body,
+          portalTarget,
         )}
 
       {selected.map((t) => (

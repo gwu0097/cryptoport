@@ -11,6 +11,7 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { HoldingsTable } from "@/components/HoldingsTable";
+import { WalletTags } from "@/components/WalletTags";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
@@ -150,12 +151,6 @@ export default async function WalletDetailPage(
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
             <span>{wallet.chain}</span>
-            {wallet.tags.length > 0 && (
-              <>
-                <span>·</span>
-                <span>{wallet.tags.map((t) => t.name).join(", ")}</span>
-              </>
-            )}
             <span>·</span>
             <span>{wallet.mode}</span>
             {wallet.address && (
@@ -181,6 +176,9 @@ export default async function WalletDetailPage(
               </span>
             )}
           </p>
+          <div className="mt-2">
+            <WalletTags walletId={wallet.id} tags={wallet.tags.map((t) => t.name)} allTags={tagNames} />
+          </div>
         </div>
 
         <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
