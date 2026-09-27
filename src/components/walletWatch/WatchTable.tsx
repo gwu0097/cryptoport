@@ -76,7 +76,11 @@ export function WatchTable({ influencers, groups, serverNowSec }: { influencers:
                 </td>
                 <td className={`${tdClass} tabular-nums`}>
                   {i.valueUsd === null ? (reading ? <span className="text-fg-muted">Reading…</span> : "—") : formatUsd(i.valueUsd)}
-                  {i.unpricedCount > 0 && <div className="text-xs text-warning">{i.unpricedCount} unpriced</div>}
+                  {i.unpricedCount > 0 && (
+                    <div className="text-xs text-warning" title="Holdings with no price, or illiquid ones (worth more than their coin trades) — shown on the influencer's page, not counted in the value">
+                      {i.unpricedCount} not counted
+                    </div>
+                  )}
                 </td>
                 <td className={`${tdClass} ${hideOnMobileClass}`}>
                   {i.topHoldings.length === 0 ? (

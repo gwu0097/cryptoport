@@ -105,6 +105,13 @@ export async function getWatchOverview(): Promise<{ groups: WatchGroup[]; influe
   return { groups, influencers };
 }
 
+/** The overview plus each watched address's stored snapshot, keyed
+ * `chain|address` (Watch Insights reads the holdings from it). */
+export async function getWatchOverviewWithSnapshots(): Promise<{ groups: WatchGroup[]; influencers: WatchedInfluencer[]; snapshots: Map<string, WatchSnapshot | null> }> {
+  const { groups, influencers, watched } = await loadOverview();
+  return { groups, influencers, snapshots: new Map([...watched].map(([k, w]) => [k, w.snapshot])) };
+}
+
 async function loadOverview(): Promise<{ groups: WatchGroup[]; influencers: WatchedInfluencer[]; watched: Map<string, WatchedRow> }> {
   if (!(await getUser())) return { groups: [], influencers: [], watched: new Map() };
   const [data, prices] = await Promise.all([readWatch(), getPriceMap()]);
@@ -211,6 +218,8 @@ export interface WatchMovementView {
   influencerName: string;
   address: string;
   snapshotAt: string;
+  assetKey: string;
+  priceKey: string | null;
   kind: "new" | "added" | "trimmed" | "exited";
   positionType: "token" | "perp" | "prediction";
   ticker: string;
@@ -235,7 +244,7 @@ export async function getWatchMovements(influencers: readonly WatchedInfluencer[
   const db = await userDb();
   const { data, error } = await db
     .from("watched_movements")
-    .select("id, chain, address, snapshot_at, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after")
+    .select("id, chain, address, snapshot_at, asset_key, price_key, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after")
     .in("address", [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))])
     .order("snapshot_at", { ascending: false })
     .limit(limit);
@@ -253,6 +262,8 @@ export async function getWatchMovements(influencers: readonly WatchedInfluencer[
         influencerName: inf.name,
         address: r.address as string,
         snapshotAt: r.snapshot_at as string,
+        assetKey: r.asset_key as string,
+        priceKey: (r.price_key as string | null) ?? null,
         kind: r.kind as WatchMovementView["kind"],
         positionType: r.position_type as WatchMovementView["positionType"],
         ticker: r.ticker as string,

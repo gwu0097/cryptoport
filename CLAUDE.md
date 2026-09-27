@@ -57,6 +57,13 @@ owner's.
   (`watched_address_daily`). `/api/cron/wallet-watch` (08:00 UTC) reads
   every due address, oldest first, within one invocation; what doesn't fit
   waits for the next day.
+  **Watch Insights** (Tools → `/watch-insights`, `watchInsightsQuery.ts` →
+  pure `watchInsights.ts`) compares a group: coins at least two of them
+  bought in the window, coins at least two hold now (≥ 0.5% of each wallet),
+  net flows, the user's own coins they moved, and per influencer the value
+  and cash-like share over the window and a track record counting only
+  positions opened since watching (never held-at-start ones). Observations,
+  not signals.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 

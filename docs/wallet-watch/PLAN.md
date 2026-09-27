@@ -1,7 +1,7 @@
 # Wallet Watch — design
 
-Status: **phases 1 and 2 built 2026-09-26** (scope approved by the owner,
-Fable review folded in); phase 3 (Watch Insights) next. Needs new tables and a daily cron, so CLAUDE.md
+Status: **phases 1–3 built 2026-09-26** (scope approved by the owner,
+Fable review folded in); phase 4 (alerts, trade-level history) later. Needs new tables and a daily cron, so CLAUDE.md
 §8 applies: SQL in chat, owner runs it, then code.
 
 Vocabulary (the owner's): an **influencer** is one person with up to 5
@@ -313,3 +313,14 @@ movement) and the early/late and cash-ratio data sources are named (#11).
   illiquid coin's change is skipped (its quantity is still stored).
 - Addresses read before phase 2 start their position history at their first
   read after it (recorded as held-at-start).
+
+## Phase 3 notes (2026-09-26)
+
+- Built before any movement history existed (owner's call): the movement
+  sections say so and fill in from the second daily read. "Held by several
+  right now" works from snapshots on day one (first result: ETH held by 3 of
+  6 influencers).
+- Cross-group notes appear only when one group is selected.
+- Early/late reads each traded coin's stored price history; coins without
+  30 days of history before the entry show "—" (a CoinGecko backfill for
+  them would be a budgeted decision, §5).
