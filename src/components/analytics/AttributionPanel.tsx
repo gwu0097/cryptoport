@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Attribution, AttributionWindow, WalletAttribution } from "@/lib/analytics/attribution";
 import { Dialog } from "@/components/ui/Dialog";
 import { useLazyDialog } from "@/components/ui/useLazyDialog";
-import { formatPercent, formatUsd, formatUsdSigned } from "@/lib/format";
+import { formatPercent, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
 import { Panel } from "@/components/ui/Panel";
 import { ToggleGroup } from "@/components/ui/ToggleGroup";
 import { usePersistedState } from "@/components/usePersistedState";
@@ -40,7 +40,7 @@ function Figure({ label, value, caption, onClick }: { label: string; value: numb
 }
 
 /** Where "everything else" came from, wallet by wallet (attributeByWallet). */
-function ByWalletList({ rows, removedUsd, totalOtherUsd }: { rows: WalletAttribution[]; removedUsd: number; totalOtherUsd: number | null }) {
+function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: WalletAttribution[]; removedUsd: number; totalOtherUsd: number | null; exact: boolean }) {
   const shown = rows.filter((w) => w.otherUsd === null || Math.abs(w.otherUsd) >= 1);
   const quiet = rows.length - shown.length;
   // What the wallet rows don't account for, so the list always adds up to the
@@ -51,8 +51,10 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd }: { rows: WalletAttribu
     <div className="space-y-3 text-sm">
       <p className="text-xs text-fg-muted">
         Each wallet&apos;s change since its own daily snapshot, minus what price moves explain. What&apos;s left is deposits, withdrawals, trades,
-        perp profit and funding, rewards — or a wallet added since. Small amounts can also be timing: the daily snapshot is taken at a set
-        time, while a coin&apos;s 24h change covers the last 24 hours.
+        perp profit and funding, rewards — or a wallet added since.{" "}
+        {exact
+          ? "Measured from what each wallet held at the snapshot, coin by coin."
+          : "Estimated: this window's snapshot predates coin-by-coin records, so price moves come from each coin's 24h/7d/30d change and small amounts can be timing."}
       </p>
       <ul className="divide-y divide-border/60">
         {shown.map((w) => (
@@ -78,9 +80,28 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd }: { rows: WalletAttribu
                   </span>
                 </>
               )}
-              {w.positionsUsd > 0 && <span title="Perp margin, LP and other protocol positions change value with profit, funding and rewards, not a coin price">{formatUsd(w.positionsUsd)} in positions/perps</span>}
-              {w.unattributedCount > 0 && <span>{w.unattributedCount} holdings without a price change for this window</span>}
+              {!w.exact && w.positionsUsd > 0 && <span title="Perp margin, LP and other protocol positions change value with profit, funding and rewards, not a coin price">{formatUsd(w.positionsUsd)} in positions/perps</span>}
+              {!w.exact && w.unattributedCount > 0 && <span>{w.unattributedCount} holdings without a price change for this window</span>}
             </div>
+            {w.exact && (
+              <ul className="mt-1 space-y-0.5 text-xs">
+                {w.exact.coins.map((c) => (
+                  <li key={c.ticker} className="flex justify-between gap-3">
+                    <span className="text-fg-muted">
+                      {c.ticker} {formatQty(c.qtyBefore)} → {formatQty(c.qtyAfter)}
+                      {c.revalued && <span className="text-warning"> · now unpriced or illiquid (still held)</span>}
+                    </span>
+                    <span className={`tabular-nums ${tone(c.usd)}`}>{signed(c.usd)}</span>
+                  </li>
+                ))}
+                {Math.abs(w.exact.positionsUsd) >= 1 && (
+                  <li className="flex justify-between gap-3" title="Perp margin and protocol positions move with profit, funding and rewards">
+                    <span className="text-fg-muted">Positions / perps</span>
+                    <span className={`tabular-nums ${tone(w.exact.positionsUsd)}`}>{signed(w.exact.positionsUsd)}</span>
+                  </li>
+                )}
+              </ul>
+            )}
           </li>
         ))}
         {remainder !== null && Math.abs(remainder) >= 1 && (
@@ -170,7 +191,11 @@ export function AttributionPanel({
           value={a.actualUsd}
           caption={a.base ? `Since the ${a.base.date} daily snapshot` : "No daily snapshot from the start of this window yet"}
         />
-        <Figure label="From price moves" value={a.priceUsd} caption="What today's holdings gained or lost from price alone" />
+        <Figure
+          label="From price moves"
+          value={a.priceUsd}
+          caption={a.exact ? "What was held at the snapshot gained or lost from price alone" : "Estimated from each coin's change over the window — exact once a snapshot records coin by coin"}
+        />
         <Figure
           label="From everything else"
           value={a.otherUsd}
@@ -189,7 +214,7 @@ export function AttributionPanel({
         </p>
       )}
       <Dialog ref={dialogRef} title={`Everything else, by wallet · ${WINDOWS.find((x) => x.key === window)?.label}`}>
-        {open && <ByWalletList rows={(byWallet[window] ?? byWallet["7d"]).wallets} removedUsd={(byWallet[window] ?? byWallet["7d"]).removedUsd} totalOtherUsd={a.otherUsd} />}
+        {open && <ByWalletList rows={(byWallet[window] ?? byWallet["7d"]).wallets} removedUsd={(byWallet[window] ?? byWallet["7d"]).removedUsd} totalOtherUsd={a.otherUsd} exact={!!a.exact} />}
       </Dialog>
     </Panel>
   );

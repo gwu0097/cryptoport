@@ -2613,3 +2613,11 @@ create policy "watched_positions: watchers only" on cryptoport.watched_positions
 -- shared page reads with the service role after checking the token, so no
 -- RLS policy opens anyone's rows to others.
 alter table cryptoport.watch_influencers add column if not exists share_token text unique;
+
+-- Exact attribution (Analytics "What moved your portfolio"): each daily wallet
+-- snapshot also records what it was made of — per coin (price_key) the
+-- quantity and the price used, and the value held outside a priced coin
+-- (perp margin, protocol positions). Price effect = quantity at the snapshot
+-- × (price now − price then), measured from the snapshot's own moment.
+alter table cryptoport.wallet_snapshots add column if not exists assets jsonb;
+alter table cryptoport.wallet_snapshots add column if not exists positions_usd numeric;

@@ -31,10 +31,12 @@ owner's.
   `src/lib/screener/labels.ts`.
 - **Analytics** (`/analytics`, `src/lib/analyticsQuery.ts` → pure
   `src/lib/analytics/`) reads only stored data, no external call: what moved
-  the portfolio (`attribution.ts`: price moves on today's holdings from
-  `asset_prices` changes vs the live total minus that day's
-  `portfolio_snapshots` row; the rest is "everything else", never split
-  further), its risk (`risk.ts`: today's holdings over the last 90 days with
+  the portfolio (`attribution.ts`; exact when the window's starting
+  `wallet_snapshots` rows carry `assets` — each coin's quantity and price at
+  that snapshot, written by `snapshots.ts` via `exactAttribution.ts`
+  `walletComposition` — so price effect = quantity then × (price now − price
+  then) and the rest is named per coin; otherwise estimated from
+  `asset_prices` 24h/7d/30d changes and labeled so), its risk (`risk.ts`: today's holdings over the last 90 days with
   daily prices, benchmarked to BTC's history; an asset without enough history
   is named as not modeled) and each holding's context (`holdingContext.ts`:
   fixed-threshold flags — observations, not advice).
