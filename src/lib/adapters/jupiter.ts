@@ -155,22 +155,26 @@ export async function fetchJupiterHoldings(address: string): Promise<AdapterHold
 
   const entries = Object.entries(balances).filter(([, b]) => b.uiAmount > 0);
   const mints = entries.map(([key]) => (key === "SOL" ? WRAPPED_SOL_MINT : key));
-  const [tokenInfo, unsellable] = await Promise.all([fetchTokenInfo(mints), fetchUnsellableMints(mints)]);
+  const tokenInfo = await fetchTokenInfo(mints);
+
+  // What would be shown by price, liquidity and name alone; Shield is then
+  // asked only about those (a row is shown only if it passes both, so the
+  // result is the same). An active memecoin trader holds thousands of dead
+  // mints — one wallet had ~2,700, and checking all of them was ~90 paced
+  // Shield calls (~2 minutes) for 9 rows shown (2026-09-27).
+  const shown = entries.filter(([key, balance]) => {
+    const info = tokenInfo.get(key === "SOL" ? WRAPPED_SOL_MINT : key);
+    const usd = info?.usdPrice != null ? info.usdPrice * balance.uiAmount : null;
+    if (usd !== null) return usd > TOKEN_USD_FLOOR && (info?.liquidity ?? 0) >= LIQUIDITY_FLOOR;
+    return key === "SOL" || !!info?.symbol; // no name, no price — nothing to show, see doc comment above
+  });
+  const unsellable = await fetchUnsellableMints(shown.map(([key]) => (key === "SOL" ? WRAPPED_SOL_MINT : key)));
 
   const holdings: AdapterHolding[] = [];
-  for (const [key, balance] of entries) {
+  for (const [key, balance] of shown) {
     const mint = key === "SOL" ? WRAPPED_SOL_MINT : key;
     if (unsellable.has(mint)) continue;
-
     const info = tokenInfo.get(mint);
-    const usd = info?.usdPrice != null ? info.usdPrice * balance.uiAmount : null;
-
-    if (usd !== null) {
-      if (usd <= TOKEN_USD_FLOOR) continue;
-      if ((info?.liquidity ?? 0) < LIQUIDITY_FLOOR) continue;
-    } else if (key !== "SOL" && !info?.symbol) {
-      continue; // no name, no price — nothing to show, see doc comment above
-    }
 
     holdings.push({
       ticker: key === "SOL" ? "SOL" : (info?.symbol ?? key),
