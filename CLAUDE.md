@@ -64,6 +64,13 @@ owner's.
   and cash-like share over the window and a track record counting only
   positions opened since watching (never held-at-start ones). Observations,
   not signals.
+  **Sharing:** an influencer's owner can share it
+  (`watch_influencers.share_token`, a random UUID; null = not shared) at
+  `/wallet-watch/shared/<token>` — any signed-in user sees it read-only
+  (`watchQuery.ts` `getSharedInfluencer` reads with the service role only
+  after the token matches; the owner's note and groups are never included)
+  and can copy it into their own list. The address lookup (`/lookup`) is
+  public; lookup links need no account.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 

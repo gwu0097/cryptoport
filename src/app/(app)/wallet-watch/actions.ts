@@ -8,6 +8,7 @@ import { detectChain } from "@/lib/lookup";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { claimWatchedAddresses, ensureWatchedAddress, refreshWatchedAddresses, type WatchedKey } from "@/lib/watchRefresh";
 import type { JobStartResult } from "@/lib/jobStatus";
+import { getSharedInfluencer } from "@/lib/watchQuery";
 
 // Wallet Watch (docs/wallet-watch/PLAN.md). The user's own rows go through
 // userDb() (owner-only RLS; the caps are a database trigger); the shared
@@ -201,4 +202,51 @@ export async function refreshInfluencers(influencerIds: string[]): Promise<JobSt
   if ((await startRefresh(keys)) === 0) return { started: false, reason: "Already refreshing." };
   revalidate(influencerIds.length === 1 ? influencerIds[0] : undefined);
   return { started: true };
+}
+
+/** Creates (or returns) the influencer's share token: a random, unguessable
+ * id any signed-in user can open at /wallet-watch/shared/<token>. */
+export async function shareInfluencer(id: string): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  await requireUser();
+  const db = await userDb();
+  const { data, error } = await db.from("watch_influencers").select("share_token").eq("id", id).single();
+  if (error) return { ok: false, error: error.message };
+  if (data.share_token) return { ok: true, token: data.share_token as string };
+  const token = crypto.randomUUID();
+  const { error: updateError } = await db.from("watch_influencers").update({ share_token: token }).eq("id", id);
+  if (updateError) return { ok: false, error: updateError.message };
+  revalidate(id);
+  return { ok: true, token };
+}
+
+/** Turns the share link off; the old link stops working at once. */
+export async function unshareInfluencer(id: string): Promise<WatchActionResult> {
+  await requireUser();
+  const db = await userDb();
+  const { error } = await db.from("watch_influencers").update({ share_token: null }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidate(id);
+  return { ok: true };
+}
+
+/** Adds a shared influencer to the viewer's own Wallet Watch: the same name,
+ * link and addresses (not the sharer's note or groups). The addresses are
+ * already read (one shared row each), so nothing is re-read. */
+export async function addSharedInfluencer(token: string): Promise<WatchActionResult> {
+  await requireUser();
+  const shared = await getSharedInfluencer(token);
+  if (!shared) return { ok: false, error: "This share link no longer works." };
+  const db = await userDb();
+  const { data, error } = await db.from("watch_influencers").insert({ name: shared.influencer.name, link: shared.influencer.link }).select("id").single();
+  if (error) return { ok: false, error: friendly(error.message) };
+  const influencerId = data.id as string;
+  const { error: addrError } = await db
+    .from("watch_influencer_addresses")
+    .insert(shared.influencer.addresses.map((a) => ({ influencer_id: influencerId, chain: a.chain, address: a.address })));
+  if (addrError) {
+    await db.from("watch_influencers").delete().eq("id", influencerId);
+    return { ok: false, error: friendly(addrError.message) };
+  }
+  revalidate(influencerId);
+  return { ok: true, influencerId };
 }

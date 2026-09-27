@@ -2606,3 +2606,10 @@ create policy "watched_positions: watchers only" on cryptoport.watched_positions
       where w.user_id = auth.uid() and w.chain = watched_positions.chain and w.address = watched_positions.address
     )
   );
+
+-- Wallet Watch sharing: an influencer's owner can create a share link
+-- (/wallet-watch/shared/<share_token>) that any signed-in user can open,
+-- read-only. The token is random and unguessable; null = not shared. The
+-- shared page reads with the service role after checking the token, so no
+-- RLS policy opens anyone's rows to others.
+alter table cryptoport.watch_influencers add column if not exists share_token text unique;

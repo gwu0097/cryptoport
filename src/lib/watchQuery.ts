@@ -1,5 +1,5 @@
 import "server-only";
-import { userDb } from "./supabase";
+import { serviceDb, userDb } from "./supabase";
 import { getUser } from "./auth";
 import { getAssetStatsMap, getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { toHolding } from "./lookup";
@@ -38,7 +38,10 @@ export interface WatchedInfluencer {
   id: string;
   name: string;
   link: string | null;
+  /** The owner's own note; never included on a shared page. */
   note: string | null;
+  /** Set while the owner shares it (/wallet-watch/shared/<token>). */
+  shareToken: string | null;
   groupIds: string[];
   addresses: WatchedAddressView[];
   /** Sum over addresses read at least once; null if none has been. */
@@ -81,10 +84,19 @@ function valueSnapshot(snapshot: WatchSnapshot, prices: PriceMap) {
   return { total, unpriced, assets: [...byAsset.values()] };
 }
 
-async function readWatch() {
+type InfluencerRow = { id: string; name: string; link: string | null; note: string | null; share_token: string | null };
+type WatchData = {
+  influencers: InfluencerRow[];
+  addresses: { id: string; influencer_id: string; chain: string; address: string }[];
+  groups: WatchGroup[];
+  links: { group_id: string; influencer_id: string }[];
+  watched: Map<string, WatchedRow>;
+};
+
+async function readWatch(): Promise<WatchData> {
   const db = await userDb();
   const [influencers, addresses, groups, links, watched] = await Promise.all([
-    db.from("watch_influencers").select("id, name, link, note, created_at").order("created_at"),
+    db.from("watch_influencers").select("id, name, link, note, share_token, created_at").order("created_at"),
     db.from("watch_influencer_addresses").select("id, influencer_id, chain, address").order("created_at"),
     db.from("watch_groups").select("id, name").order("created_at"),
     db.from("watch_group_influencers").select("group_id, influencer_id"),
@@ -92,7 +104,7 @@ async function readWatch() {
   ]);
   for (const r of [influencers, addresses, groups, links, watched]) if (r.error) throw new Error(`Failed to load Wallet Watch: ${r.error.message}`);
   return {
-    influencers: influencers.data as { id: string; name: string; link: string | null; note: string | null }[],
+    influencers: influencers.data as InfluencerRow[],
     addresses: addresses.data as { id: string; influencer_id: string; chain: string; address: string }[],
     groups: groups.data as WatchGroup[],
     links: links.data as { group_id: string; influencer_id: string }[],
@@ -115,7 +127,13 @@ export async function getWatchOverviewWithSnapshots(): Promise<{ groups: WatchGr
 async function loadOverview(): Promise<{ groups: WatchGroup[]; influencers: WatchedInfluencer[]; watched: Map<string, WatchedRow> }> {
   if (!(await getUser())) return { groups: [], influencers: [], watched: new Map() };
   const [data, prices] = await Promise.all([readWatch(), getPriceMap()]);
-  const influencers = data.influencers.map((inf): WatchedInfluencer => {
+  return { groups: data.groups, influencers: buildInfluencers(data, prices), watched: data.watched };
+}
+
+/** Each influencer with its addresses valued from their last read at
+ * today's prices. */
+function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[] {
+  return data.influencers.map((inf): WatchedInfluencer => {
     const assets = new Map<string, { ticker: string; usd: number; iconUrl: string | null }>();
     let value: number | null = null;
     let unpricedCount = 0;
@@ -156,6 +174,7 @@ async function loadOverview(): Promise<{ groups: WatchGroup[]; influencers: Watc
       name: inf.name,
       link: inf.link,
       note: inf.note,
+      shareToken: inf.share_token,
       groupIds: data.links.filter((l) => l.influencer_id === inf.id).map((l) => l.group_id),
       addresses,
       valueUsd: value,
@@ -164,7 +183,6 @@ async function loadOverview(): Promise<{ groups: WatchGroup[]; influencers: Watc
       lastRefreshAt,
     };
   });
-  return { groups: data.groups, influencers, watched: data.watched };
 }
 
 export interface InfluencerDetail {
@@ -174,25 +192,50 @@ export interface InfluencerDetail {
   holdings: { address: WatchedAddressView; valuated: ValuatedHoldings | null; unrecognizedCount: number; dust: { count: number; usd: number | null } }[];
 }
 
+async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string, WatchedRow>): Promise<InfluencerDetail["holdings"]> {
+  const [prices, stats] = await Promise.all([getPriceMap(), getAssetStatsMap()]);
+  return influencer.addresses.map((a) => {
+    const snap = watched.get(`${a.chain}|${a.address}`)?.snapshot ?? null;
+    return {
+      address: a,
+      valuated: snap ? valuateHoldings(snap.rows.map((r, i) => toHolding(snapshotRowToAdapter(r), i)), defaultChainId(a.chain), prices, stats) : null,
+      unrecognizedCount: snap?.unrecognizedCount ?? snap?.unrecognized.length ?? 0,
+      dust: { count: snap?.dustCount ?? 0, usd: snap?.dustUsd ?? null },
+    };
+  });
+}
+
 export async function getInfluencerDetail(id: string): Promise<InfluencerDetail | null> {
   const overview = await loadOverview();
   const influencer = overview.influencers.find((i) => i.id === id);
   if (!influencer) return null;
-  // Both cached per request: the overview above already read them.
-  const [prices, stats] = await Promise.all([getPriceMap(), getAssetStatsMap()]);
-  return {
-    influencer,
-    groups: overview.groups,
-    holdings: influencer.addresses.map((a) => {
-      const snap = overview.watched.get(`${a.chain}|${a.address}`)?.snapshot ?? null;
-      return {
-        address: a,
-        valuated: snap ? valuateHoldings(snap.rows.map((r, i) => toHolding(snapshotRowToAdapter(r), i)), defaultChainId(a.chain), prices, stats) : null,
-        unrecognizedCount: snap?.unrecognizedCount ?? snap?.unrecognized.length ?? 0,
-        dust: { count: snap?.dustCount ?? 0, usd: snap?.dustUsd ?? null },
-      };
-    }),
-  };
+  return { influencer, groups: overview.groups, holdings: await detailHoldings(influencer, overview.watched) };
+}
+
+/**
+ * An influencer someone shared (/wallet-watch/shared/<token>), for any
+ * signed-in user: read with the service role once the token matches, since
+ * the viewer isn't the owner or a watcher. The owner's note, groups and
+ * refresh state aren't part of it. Null for an unknown or revoked token.
+ */
+export async function getSharedInfluencer(token: string): Promise<(Omit<InfluencerDetail, "groups"> & { movements: WatchMovementView[]; daily: { date: string; total: number }[] }) | null> {
+  if (!(await getUser()) || !/^[0-9a-f-]{36}$/.test(token)) return null;
+  const db = serviceDb();
+  const { data: inf, error } = await db.from("watch_influencers").select("id, name, link, share_token").eq("share_token", token).maybeSingle();
+  if (error) throw new Error(`Failed to load the shared wallet: ${error.message}`);
+  if (!inf) return null;
+  const { data: addresses, error: addrError } = await db.from("watch_influencer_addresses").select("id, influencer_id, chain, address").eq("influencer_id", inf.id).order("created_at");
+  if (addrError) throw new Error(`Failed to load the shared wallet: ${addrError.message}`);
+  const list = addresses as WatchData["addresses"];
+  const { data: watchedRows, error: watchedError } = list.length
+    ? await db.from("watched_addresses").select("chain, address, snapshot, last_refresh_at, last_refresh_status, refresh_status, refresh_started_at").in("address", list.map((a) => a.address))
+    : { data: [], error: null };
+  if (watchedError) throw new Error(`Failed to load the shared wallet: ${watchedError.message}`);
+  const watched = new Map((watchedRows as WatchedRow[]).map((w) => [`${w.chain}|${w.address}`, w]));
+  const data: WatchData = { influencers: [{ ...(inf as Omit<InfluencerRow, "note">), note: null }], addresses: list, groups: [], links: [], watched };
+  const [influencer] = buildInfluencers(data, await getPriceMap());
+  const [holdings, movements, daily] = await Promise.all([detailHoldings(influencer, watched), getWatchMovements([influencer], undefined, db), getInfluencerDailyValue(influencer, db)]);
+  return { influencer: { ...influencer, shareToken: null }, holdings, movements, daily };
 }
 
 /** One job status for several addresses: running while any is, as of the
@@ -237,11 +280,11 @@ const FEED_LIMIT = 100;
 
 /** The latest movements of these influencers' addresses, newest first
  * (watched_movements, phase 2). One request. */
-export async function getWatchMovements(influencers: readonly WatchedInfluencer[], limit = FEED_LIMIT): Promise<WatchMovementView[]> {
+export async function getWatchMovements(influencers: readonly WatchedInfluencer[], limit = FEED_LIMIT, client?: Awaited<ReturnType<typeof userDb>>): Promise<WatchMovementView[]> {
   const byAddress = new Map<string, WatchedInfluencer>();
   for (const i of influencers) for (const a of i.addresses) byAddress.set(`${a.chain}|${a.address}`, i);
   if (byAddress.size === 0) return [];
-  const db = await userDb();
+  const db = client ?? (await userDb());
   const { data, error } = await db
     .from("watched_movements")
     .select("id, chain, address, snapshot_at, asset_key, price_key, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after")
@@ -281,9 +324,9 @@ export async function getWatchMovements(influencers: readonly WatchedInfluencer[
 
 /** An influencer's value per day: the sum of its addresses' daily rows, only
  * on days every address has one (a partial day would look like a drop). */
-export async function getInfluencerDailyValue(influencer: WatchedInfluencer): Promise<{ date: string; total: number }[]> {
+export async function getInfluencerDailyValue(influencer: WatchedInfluencer, client?: Awaited<ReturnType<typeof userDb>>): Promise<{ date: string; total: number }[]> {
   if (influencer.addresses.length === 0) return [];
-  const db = await userDb();
+  const db = client ?? (await userDb());
   const { data, error } = await db
     .from("watched_address_daily")
     .select("chain, address, day, total_usd")
