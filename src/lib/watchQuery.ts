@@ -7,6 +7,7 @@ import { defaultChainId } from "./chainNames";
 import { parseNumeric, valueHolding, type PriceMap } from "./valuation";
 import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
+import type { Holding } from "./types";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
 // Wallet Watch reads (docs/wallet-watch/PLAN.md). All through userDb(): the
@@ -188,28 +189,36 @@ function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[
 export interface InfluencerDetail {
   influencer: WatchedInfluencer;
   groups: WatchGroup[];
-  /** Per address, its holdings valued like a wallet's (by chain). */
-  holdings: { address: WatchedAddressView; valuated: ValuatedHoldings | null; unrecognizedCount: number; dust: { count: number; usd: number | null } }[];
+  /** Every address's holdings together, by chain — like the Portfolio tab.
+   * Null until at least one address has been read. */
+  holdings: ValuatedHoldings | null;
+  /** Left out of the list, summed over addresses: holdings under $1 (and
+   * what they came to at their read, when known) and unrecognized tokens. */
+  notListed: { dustCount: number; dustUsd: number | null; unrecognizedCount: number };
 }
 
-async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string, WatchedRow>): Promise<InfluencerDetail["holdings"]> {
+async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string, WatchedRow>): Promise<Pick<InfluencerDetail, "holdings" | "notListed">> {
   const [prices, stats] = await Promise.all([getPriceMap(), getAssetStatsMap()]);
-  return influencer.addresses.map((a) => {
-    const snap = watched.get(`${a.chain}|${a.address}`)?.snapshot ?? null;
-    return {
-      address: a,
-      valuated: snap ? valuateHoldings(snap.rows.map((r, i) => toHolding(snapshotRowToAdapter(r), i)), defaultChainId(a.chain), prices, stats) : null,
-      unrecognizedCount: snap?.unrecognizedCount ?? snap?.unrecognized.length ?? 0,
-      dust: { count: snap?.dustCount ?? 0, usd: snap?.dustUsd ?? null },
-    };
-  });
+  const rows: Holding[] = [];
+  const notListed = { dustCount: 0, dustUsd: null as number | null, unrecognizedCount: 0 };
+  for (const a of influencer.addresses) {
+    const snap = watched.get(`${a.chain}|${a.address}`)?.snapshot;
+    if (!snap) continue;
+    // A row without its own chain (single-chain adapters) takes its address's.
+    for (const r of snap.rows) rows.push(toHolding({ ...snapshotRowToAdapter(r), chain: r.chain ?? defaultChainId(a.chain) }, rows.length));
+    notListed.dustCount += snap.dustCount ?? 0;
+    if (snap.dustUsd != null) notListed.dustUsd = (notListed.dustUsd ?? 0) + snap.dustUsd;
+    notListed.unrecognizedCount += snap.unrecognizedCount ?? snap.unrecognized.length;
+  }
+  const read = influencer.addresses.some((a) => watched.get(`${a.chain}|${a.address}`)?.snapshot);
+  return { holdings: read ? valuateHoldings(rows, "ethereum", prices, stats) : null, notListed };
 }
 
 export async function getInfluencerDetail(id: string): Promise<InfluencerDetail | null> {
   const overview = await loadOverview();
   const influencer = overview.influencers.find((i) => i.id === id);
   if (!influencer) return null;
-  return { influencer, groups: overview.groups, holdings: await detailHoldings(influencer, overview.watched) };
+  return { influencer, groups: overview.groups, ...(await detailHoldings(influencer, overview.watched)) };
 }
 
 /**
@@ -234,8 +243,8 @@ export async function getSharedInfluencer(token: string): Promise<(Omit<Influenc
   const watched = new Map((watchedRows as WatchedRow[]).map((w) => [`${w.chain}|${w.address}`, w]));
   const data: WatchData = { influencers: [{ ...(inf as Omit<InfluencerRow, "note">), note: null }], addresses: list, groups: [], links: [], watched };
   const [influencer] = buildInfluencers(data, await getPriceMap());
-  const [holdings, movements, daily] = await Promise.all([detailHoldings(influencer, watched), getWatchMovements([influencer], undefined, db), getInfluencerDailyValue(influencer, db)]);
-  return { influencer: { ...influencer, shareToken: null }, holdings, movements, daily };
+  const [detail, movements, daily] = await Promise.all([detailHoldings(influencer, watched), getWatchMovements([influencer], undefined, db), getInfluencerDailyValue(influencer, db)]);
+  return { influencer: { ...influencer, shareToken: null }, ...detail, movements, daily };
 }
 
 /** One job status for several addresses: running while any is, as of the

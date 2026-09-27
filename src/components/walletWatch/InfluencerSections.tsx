@@ -34,6 +34,8 @@ export function InfluencerTitle({ influencer }: { influencer: WatchedInfluencer 
 export function InfluencerSections({
   influencer,
   holdings,
+  notListed,
+  filters,
   movements,
   daily,
   serverNowSec,
@@ -44,6 +46,9 @@ export function InfluencerSections({
 }: {
   influencer: WatchedInfluencer;
   holdings: InfluencerDetail["holdings"];
+  notListed: InfluencerDetail["notListed"];
+  /** The holdings filters from this page's URL (as on Portfolio). */
+  filters: { chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string };
   movements: WatchMovementView[];
   daily: { date: string; total: number }[];
   serverNowSec: number;
@@ -124,27 +129,33 @@ export function InfluencerSections({
         {addressesFooter && <div className="mt-4">{addressesFooter}</div>}
       </Panel>
 
-      {holdings.map(({ address, valuated, unrecognizedCount, dust }) => (
-        <section key={address.id} className="mb-6">
-          <h2 className="mb-2 text-sm font-medium text-fg-muted">
-            Holdings · <span className="font-mono">{address.address.slice(0, 6)}…{address.address.slice(-4)}</span>
-            {(unrecognizedCount > 0 || dust.count > 0) && (
-              <span className="ml-2 text-xs">
-                (not listed:{dust.count > 0 && ` ${dust.count} holdings under $1${dust.usd === null ? "" : `, about ${formatUsd(dust.usd)} together at the last read`}`}
-                {dust.count > 0 && unrecognizedCount > 0 && ";"}
-                {unrecognizedCount > 0 && ` ${unrecognizedCount} unrecognized or spam tokens`})
-              </span>
-            )}
-          </h2>
-          {valuated ? (
-            <ChainGroupedHoldings groups={valuated.chainGroups} grandTotal={valuated.total} hideUnpriced hideLow baseHref={baseHref} emptyMessage="Nothing held at the last read." />
-          ) : (
-            <Panel>
-              <p className="text-sm text-fg-muted">{address.refreshStatus === "syncing" ? "Reading this address…" : "Not read yet."}</p>
-            </Panel>
-          )}
-        </section>
-      ))}
+      <h2 className="mb-2 text-sm font-medium text-fg-muted">
+        Holdings across {influencer.addresses.length === 1 ? "its address" : `all ${influencer.addresses.length} addresses`}
+        {(notListed.unrecognizedCount > 0 || notListed.dustCount > 0) && (
+          <span className="ml-2 text-xs">
+            (not listed:
+            {notListed.dustCount > 0 && ` ${notListed.dustCount} holdings under $1${notListed.dustUsd === null ? "" : `, about ${formatUsd(notListed.dustUsd)} together at the last read`}`}
+            {notListed.dustCount > 0 && notListed.unrecognizedCount > 0 && ";"}
+            {notListed.unrecognizedCount > 0 && ` ${notListed.unrecognizedCount} unrecognized or spam tokens`})
+          </span>
+        )}
+      </h2>
+      {holdings ? (
+        <ChainGroupedHoldings
+          groups={holdings.chainGroups}
+          grandTotal={holdings.total}
+          selectedChain={filters.chain}
+          selectedProtocol={filters.protocol}
+          hideUnpriced={filters.hideUnpriced !== "0"}
+          hideLow={filters.hideLow !== "0"}
+          baseHref={baseHref}
+          emptyMessage="Nothing held at the last read."
+        />
+      ) : (
+        <Panel>
+          <p className="text-sm text-fg-muted">{influencer.addresses.some((a) => a.refreshStatus === "syncing") ? "Reading these addresses…" : "Not read yet."}</p>
+        </Panel>
+      )}
     </>
   );
 }

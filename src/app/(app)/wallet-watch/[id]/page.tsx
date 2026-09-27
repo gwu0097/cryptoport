@@ -16,12 +16,12 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet Watch · CryptoPort" };
 export const maxDuration = 300;
 
-export default async function InfluencerPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function InfluencerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string }> }) {
   if (!(await getUser())) return <SignInPrompt message="Log in to see the wallets you watch." />;
   const { id } = await params;
   const detail = await getInfluencerDetail(id);
   if (!detail) notFound();
-  const { influencer, groups, holdings } = detail;
+  const { influencer, groups, holdings, notListed } = detail;
   const nowSec = requestNowSec();
   const [movements, daily] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer)]);
 
@@ -43,6 +43,8 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
       <InfluencerSections
         influencer={influencer}
         holdings={holdings}
+        notListed={notListed}
+        filters={await searchParams}
         movements={movements}
         daily={daily}
         serverNowSec={nowSec}
