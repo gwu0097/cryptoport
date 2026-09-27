@@ -38,7 +38,7 @@ export default async function AnalyticsPage() {
           {view.unpricedCount} holdings have no price and are left out of every figure below.
         </p>
       )}
-      <AttributionPanel byWindow={view.attribution} />
+      <AttributionPanel byWindow={view.attribution} byWallet={view.byWallet} />
       <RiskPanel risk={view.risk} totalUsd={view.totalUsd} />
       <HoldingContextTable holdings={view.holdings} smallHoldings={view.smallHoldings} />
     </>

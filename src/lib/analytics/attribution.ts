@@ -87,3 +87,72 @@ export function attribute(
   const actualUsd = base ? liveTotalUsd - base.totalUsd : null;
   return { window, base, actualUsd, priceUsd, otherUsd: actualUsd === null ? null : actualUsd - priceUsd, contributions, unattributed };
 }
+
+export interface WalletAttributionInput {
+  id: string;
+  name: string;
+  /** When the wallet was added (ISO); one added after the base snapshot
+   * explains its whole value as "everything else". */
+  createdAt: string | null;
+  liveUsd: number;
+  assets: readonly AttributionAssetInput[];
+  /** Value held outside a priced coin (perp margin, protocol positions). */
+  positions: { usd: number; tickers: string[] };
+}
+
+export interface WalletAttribution {
+  id: string;
+  name: string;
+  /** The wallet's value in the base snapshot; null when it had none. */
+  baseUsd: number | null;
+  liveUsd: number;
+  actualUsd: number | null;
+  priceUsd: number;
+  otherUsd: number | null;
+  /** Added after the base snapshot: its whole value is new. */
+  added: boolean;
+  positionsUsd: number;
+  /** Holdings with no change figure for the window (their moves land in "other"). */
+  unattributedCount: number;
+}
+
+/**
+ * "Everything else" split by wallet: each wallet's change since its own
+ * daily snapshot (wallet_snapshots) minus its price effect. Wallets in the
+ * base snapshot that are gone now (removed, deactivated) are one line of
+ * their own, so the rows add up to the portfolio's "everything else" when
+ * every wallet has a base row.
+ */
+export function attributeByWallet(
+  window: AttributionWindow,
+  wallets: readonly WalletAttributionInput[],
+  baseByWallet: ReadonlyMap<string, number>,
+  today: string,
+): { wallets: WalletAttribution[]; removedUsd: number } {
+  const baseDate = daysBefore(today, WINDOW_DAYS[window]);
+  const rows = wallets.map((w): WalletAttribution => {
+    const a = attribute(window, w.assets, w.positions, w.liveUsd, [], today);
+    const base = baseByWallet.get(w.id);
+    // Added after the base day's snapshot (or on it, before the snapshot ran
+    // — so a missing base row with a recent creation date counts as new).
+    const added = base === undefined && !!w.createdAt && w.createdAt.slice(0, 10) >= baseDate;
+    const baseUsd = base ?? (added ? 0 : null);
+    const actualUsd = baseUsd === null ? null : w.liveUsd - baseUsd;
+    return {
+      id: w.id,
+      name: w.name,
+      baseUsd,
+      liveUsd: w.liveUsd,
+      actualUsd,
+      // A wallet that didn't exist had no holdings for prices to move.
+      priceUsd: added ? 0 : a.priceUsd,
+      otherUsd: actualUsd === null ? null : actualUsd - (added ? 0 : a.priceUsd),
+      added,
+      positionsUsd: w.positions.usd,
+      unattributedCount: a.unattributed.tickers.length,
+    };
+  });
+  const live = new Set(wallets.map((w) => w.id));
+  const removedUsd = [...baseByWallet].filter(([id]) => !live.has(id)).reduce((s, [, usd]) => s - usd, 0);
+  return { wallets: rows.sort((x, y) => Math.abs(y.otherUsd ?? 0) - Math.abs(x.otherUsd ?? 0)), removedUsd };
+}

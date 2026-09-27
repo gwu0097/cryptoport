@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attribute, daysBefore } from "./attribution.ts";
+import { attribute, attributeByWallet, daysBefore } from "./attribution.ts";
 import { dailyReturns, maxDrawdown, riskProfile, MIN_COMMON_DAYS } from "./risk.ts";
 import { holdingContext } from "./holdingContext.ts";
 
@@ -102,4 +102,29 @@ test("holding context: too few prices → no range, never a guess", () => {
   assert.equal(c.rangePosition, null);
   assert.equal(c.volumeShare, null);
   assert.deepEqual(c.flags, []);
+});
+
+
+test("everything else, by wallet: change minus price effect; added and removed wallets named", () => {
+  const coin = (usd: number, pct: number) => ({ key: "k" + usd, ticker: "T", valueUsd: usd, change: { "24h": pct, "7d": null, "30d": null } });
+  const { wallets, removedUsd } = attributeByWallet(
+    "24h",
+    [
+      { id: "a", name: "Trading", createdAt: "2026-01-01", liveUsd: 1100, assets: [coin(1100, 10)], positions: { usd: 0, tickers: [] } }, // +100, all price
+      { id: "b", name: "Perps", createdAt: "2026-01-01", liveUsd: 400, assets: [], positions: { usd: 400, tickers: ["BTC-PERP"] } }, // −100, no price change
+      { id: "c", name: "New", createdAt: "2026-09-26T10:00:00Z", liveUsd: 250, assets: [coin(250, 5)], positions: { usd: 0, tickers: [] } },
+    ],
+    new Map([["a", 1000], ["b", 500], ["gone", 300]]),
+    "2026-09-27",
+  );
+  const by = Object.fromEntries(wallets.map((w) => [w.id, w]));
+  close(by.a.otherUsd!, 0, 1e-6);
+  assert.equal(by.b.otherUsd, -100);
+  assert.equal(by.b.positionsUsd, 400);
+  assert.equal(by.c.added, true);
+  assert.equal(by.c.otherUsd, 250);
+  assert.equal(removedUsd, -300);
+  // Rows add up to the portfolio's change minus its price effect.
+  const total = wallets.reduce((s, w) => s + (w.otherUsd ?? 0), 0) + removedUsd;
+  assert.equal(Math.round(total), 1750 - 1800 - 100);
 });

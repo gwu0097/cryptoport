@@ -1,7 +1,9 @@
 "use client";
 
-import type { Attribution, AttributionWindow } from "@/lib/analytics/attribution";
-import { formatPercent, formatUsdSigned } from "@/lib/format";
+import type { Attribution, AttributionWindow, WalletAttribution } from "@/lib/analytics/attribution";
+import { Dialog } from "@/components/ui/Dialog";
+import { useLazyDialog } from "@/components/ui/useLazyDialog";
+import { formatPercent, formatUsd, formatUsdSigned } from "@/lib/format";
 import { Panel } from "@/components/ui/Panel";
 import { ToggleGroup } from "@/components/ui/ToggleGroup";
 import { usePersistedState } from "@/components/usePersistedState";
@@ -16,12 +18,84 @@ const TOP = 6;
 const tone = (n: number | null) => (n === null ? "text-fg-muted" : n > 0 ? "text-positive" : n < 0 ? "text-negative" : "text-fg");
 const signed = (n: number | null) => (n === null ? "—" : formatUsdSigned(n));
 
-function Figure({ label, value, caption }: { label: string; value: number | null; caption: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface-raised/40 p-3">
-      <p className="text-xs text-fg-muted">{label}</p>
+function Figure({ label, value, caption, onClick }: { label: string; value: number | null; caption: string; onClick?: () => void }) {
+  const body = (
+    <>
+      <p className="text-xs text-fg-muted">
+        {label}
+        {onClick && <span className="ml-1 text-accent">· by wallet →</span>}
+      </p>
       <p className={`mt-1 text-xl font-semibold tabular-nums ${tone(value)}`}>{signed(value)}</p>
       <p className="mt-1 text-xs text-fg-muted">{caption}</p>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className="rounded-lg border border-border bg-surface-raised/40 p-3 text-left transition hover:border-accent/60">
+      {body}
+    </button>
+  ) : (
+    <div className="rounded-lg border border-border bg-surface-raised/40 p-3">{body}</div>
+  );
+}
+
+/** Where "everything else" came from, wallet by wallet (attributeByWallet). */
+function ByWalletList({ rows, removedUsd, totalOtherUsd }: { rows: WalletAttribution[]; removedUsd: number; totalOtherUsd: number | null }) {
+  const shown = rows.filter((w) => w.otherUsd === null || Math.abs(w.otherUsd) >= 1);
+  const quiet = rows.length - shown.length;
+  // What the wallet rows don't account for, so the list always adds up to the
+  // headline: wallets without a snapshot that day, and snapshot-time drift.
+  const accounted = rows.reduce((s, w) => s + (w.otherUsd ?? 0), 0) + removedUsd;
+  const remainder = totalOtherUsd === null ? null : totalOtherUsd - accounted;
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="text-xs text-fg-muted">
+        Each wallet&apos;s change since its own daily snapshot, minus what price moves explain. What&apos;s left is deposits, withdrawals, trades,
+        perp profit and funding, rewards — or a wallet added since. Small amounts can also be timing: the daily snapshot is taken at a set
+        time, while a coin&apos;s 24h change covers the last 24 hours.
+      </p>
+      <ul className="divide-y divide-border/60">
+        {shown.map((w) => (
+          <li key={w.id} className="py-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-medium text-fg">{w.name}</span>
+              <span className={`tabular-nums font-semibold ${tone(w.otherUsd)}`}>{signed(w.otherUsd)}</span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-fg-muted">
+              {w.added ? (
+                <span className="text-accent">added since the snapshot — its whole value ({formatUsd(w.liveUsd)}) is new</span>
+              ) : w.actualUsd === null ? (
+                <span>no snapshot for this wallet on that day</span>
+              ) : (
+                <>
+                  <span>
+                    change {signed(w.actualUsd)} · price {signed(w.priceUsd)}
+                  </span>
+                  <span>
+                    {w.baseUsd !== null && formatUsd(w.baseUsd)} → {formatUsd(w.liveUsd)}
+                  </span>
+                </>
+              )}
+              {w.positionsUsd > 0 && <span title="Perp margin, LP and other protocol positions change value with profit, funding and rewards, not a coin price">{formatUsd(w.positionsUsd)} in positions/perps</span>}
+              {w.unattributedCount > 0 && <span>{w.unattributedCount} holdings without a price change for this window</span>}
+            </div>
+          </li>
+        ))}
+        {remainder !== null && Math.abs(remainder) >= 1 && (
+          <li className="flex items-baseline justify-between gap-3 py-2">
+            <span className="text-fg-muted" title="Wallets with no snapshot on that day, and the difference between the portfolio's snapshot and its wallets' snapshots">
+              Not split by wallet
+            </span>
+            <span className={`tabular-nums font-semibold ${tone(remainder)}`}>{signed(remainder)}</span>
+          </li>
+        )}
+        {removedUsd !== 0 && (
+          <li className="flex items-baseline justify-between gap-3 py-2">
+            <span className="text-fg-muted">Wallets removed or deactivated since</span>
+            <span className={`tabular-nums font-semibold ${tone(removedUsd)}`}>{signed(removedUsd)}</span>
+          </li>
+        )}
+      </ul>
+      {quiet > 0 && <p className="text-xs text-fg-muted">{quiet} more wallets changed by less than $1 beyond price.</p>}
     </div>
   );
 }
@@ -63,7 +137,14 @@ function Movers({ title, rows, scale }: { title: string; rows: Attribution["cont
  * a daily snapshot, split into price moves on today's holdings and
  * everything else.
  */
-export function AttributionPanel({ byWindow }: { byWindow: Record<AttributionWindow, Attribution> }) {
+export function AttributionPanel({
+  byWindow,
+  byWallet,
+}: {
+  byWindow: Record<AttributionWindow, Attribution>;
+  byWallet: Record<AttributionWindow, { wallets: WalletAttribution[]; removedUsd: number }>;
+}) {
+  const { dialogRef, open, openDialog } = useLazyDialog();
   const [window, setWindow] = usePersistedState<AttributionWindow>("cryptoport:analyticsAttributionWindow", "7d");
   const a = byWindow[window] ?? byWindow["7d"];
   const gains = a.contributions.filter((c) => c.usd > 0).slice(0, TOP);
@@ -91,6 +172,7 @@ export function AttributionPanel({ byWindow }: { byWindow: Record<AttributionWin
           label="From everything else"
           value={a.otherUsd}
           caption="Deposits, withdrawals, wallets added, trades, positions opened or closed, rewards"
+          onClick={openDialog}
         />
       </div>
       <div className="mt-5 grid gap-6 md:grid-cols-2">
@@ -103,6 +185,9 @@ export function AttributionPanel({ byWindow }: { byWindow: Record<AttributionWin
           whose price source gives no {window} change); their moves land in &ldquo;everything else&rdquo;.
         </p>
       )}
+      <Dialog ref={dialogRef} title={`Everything else, by wallet · ${WINDOWS.find((x) => x.key === window)?.label}`}>
+        {open && <ByWalletList rows={(byWallet[window] ?? byWallet["7d"]).wallets} removedUsd={(byWallet[window] ?? byWallet["7d"]).removedUsd} totalOtherUsd={a.otherUsd} />}
+      </Dialog>
     </Panel>
   );
 }

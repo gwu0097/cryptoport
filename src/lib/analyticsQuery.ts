@@ -1,8 +1,10 @@
 import "server-only";
-import { getActiveWalletsWithHoldings, getAssetsGroupedByTicker, getAssetStatsMap, getValueHistory } from "./queries";
+import { getActiveWalletsWithHoldings, getAssetsGroupedByTicker, getAssetStatsMap, getPriceMap, getValueHistory } from "./queries";
 import { getPriceHistoryMap } from "./priceHistory";
 import { requestNowSec } from "./requestClock";
-import { attribute, WINDOW_DAYS, type Attribution, type AttributionWindow } from "./analytics/attribution.ts";
+import { attribute, attributeByWallet, daysBefore, WINDOW_DAYS, type Attribution, type AttributionWindow, type WalletAttribution, type WalletAttributionInput } from "./analytics/attribution.ts";
+import { userDb } from "./supabase";
+import { parseNumeric, valueHolding } from "./valuation";
 import { riskProfile, type RiskProfile } from "./analytics/risk.ts";
 import { holdingContext, type HoldingContext } from "./analytics/holdingContext.ts";
 import type { Holding } from "./types";
@@ -19,6 +21,8 @@ const BENCHMARK_KEY = "bitcoin";
 
 export interface AnalyticsView {
   totalUsd: number;
+  /** "Everything else" split by wallet, per window (attributeByWallet). */
+  byWallet: Record<AttributionWindow, { wallets: WalletAttribution[]; removedUsd: number }>;
   /** Holdings whose value is unknown (no price) — left out of every figure. */
   unpricedCount: number;
   attribution: Record<AttributionWindow, Attribution>;
@@ -54,6 +58,46 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     valueUsd: g.total,
     change: { "24h": g.change24h, "7d": g.change7d, "30d": g.change30d },
   }));
+  // Per wallet, for "where did everything else come from": each wallet's
+  // coins (with the asset's change) and its value held outside a priced coin.
+  const prices = await getPriceMap();
+  const walletInputs: WalletAttributionInput[] = wallets.map((w) => {
+    const assets = new Map<string, { key: string; ticker: string; valueUsd: number; change: Record<AttributionWindow, number | null> }>();
+    const positions = { usd: 0, tickers: [] as string[] };
+    let live = 0;
+    for (const h of w.holdings) {
+      const v = valueHolding(h, prices);
+      if (v.kind !== "priced") continue;
+      live += v.usd;
+      const st = h.price_key ? stats.get(h.price_key) : undefined;
+      if (h.price_key && st && st.usd !== null && h.usd_override == null) {
+        const a = assets.get(h.price_key) ?? { key: h.price_key, ticker: h.ticker, valueUsd: 0, change: { "24h": st.change24h, "7d": st.change7d, "30d": st.change30d } };
+        a.valueUsd += v.usd;
+        assets.set(h.price_key, a);
+      } else {
+        positions.usd += v.usd;
+        positions.tickers.push(h.ticker);
+      }
+    }
+    return { id: w.id, name: w.name, createdAt: (w as { created_at?: string }).created_at ?? null, liveUsd: live, assets: [...assets.values()], positions };
+  });
+  const windows = Object.keys(WINDOW_DAYS) as AttributionWindow[];
+  const baseDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
+  const { data: walletSnaps, error: snapError } = await (await userDb())
+    .from("wallet_snapshots")
+    .select("wallet_id, snapshot_date, total_usd")
+    .in("snapshot_date", baseDates);
+  if (snapError) throw new Error(`Failed to load wallet snapshots: ${snapError.message}`);
+  const byWallet = Object.fromEntries(
+    windows.map((win, i) => {
+      const base = new Map<string, number>();
+      for (const r of walletSnaps as { wallet_id: string; snapshot_date: string; total_usd: number | string }[]) {
+        if (r.snapshot_date === baseDates[i]) base.set(r.wallet_id, parseNumeric(r.total_usd) ?? 0);
+      }
+      return [win, attributeByWallet(win, walletInputs, base, today)];
+    }),
+  ) as AnalyticsView["byWallet"];
+
   const attribution = Object.fromEntries(
     (Object.keys(WINDOW_DAYS) as AttributionWindow[]).map((w) => [w, attribute(w, attributionInput, positions, grand.total, snapshots, today)]),
   ) as Record<AttributionWindow, Attribution>;
@@ -93,6 +137,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
 
   return {
     totalUsd: grand.total,
+    byWallet,
     unpricedCount: grand.unpricedCount,
     attribution,
     risk,
