@@ -4,7 +4,7 @@ import { fetchBitcoinHoldings } from "./adapters/bitcoin";
 import { isExtendedPublicKey } from "./walletDisplay";
 import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
 import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
-import { NON_EVM_DISPATCH, detectNonEvmChain } from "./adapters/nonEvmDispatch";
+import { NON_EVM_DISPATCH, detectNonEvmChain, type AdapterFetchResult } from "./adapters/nonEvmDispatch";
 import type { AdapterHolding } from "./adapters/types";
 import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { withPriceKeys } from "./adapters/assetKeys";
@@ -40,7 +40,7 @@ export function detectChain(address: string): Chain | null {
 // Gives every looked-up holding the shape valuateHoldings()/HoldingsTable
 // expect, without a real wallet_id or DB row — this address was never
 // saved anywhere, see lookupWallet's doc comment.
-function toHolding(h: AdapterHolding & { price_key: string | null }, index: number): Holding {
+export function toHolding(h: AdapterHolding & { price_key: string | null }, index: number): Holding {
   return {
     id: `lookup-${index}`,
     wallet_id: "lookup",
@@ -80,6 +80,29 @@ export interface LookupResult extends ValuatedHoldings {
 }
 
 /**
+ * Every adapter row for an address of a detected family (detectChain), with
+ * the adapters' failure scopes (`keep`) and EVM discovery report — shared by
+ * the search bar (lookupWallet) and Wallet Watch (watchRefresh.ts), which
+ * passes the previous snapshot's tokens as `previous` so discovery re-reads
+ * them (multicallEvm.ts candidateTokens). No Zerion DeFi: only a saved
+ * wallet's sync reads it. ETH/BTC/ADA/SEI are handled directly (not through
+ * NON_EVM_DISPATCH — see nonEvmDispatch.ts's and detectChain's doc comments
+ * for why each is special-cased); BTC/ADA/SEI are single-source adapters
+ * with no warnings of their own.
+ */
+export async function fetchAddressHoldings(
+  chain: Chain,
+  address: string,
+  previous?: ReadonlyMap<string, readonly string[]>,
+): Promise<AdapterFetchResult> {
+  if (chain === "ETH") return fetchEvmHoldings(address, previous);
+  if (chain === "BTC") return { holdings: await fetchBitcoinHoldings(address), warnings: [] };
+  if (chain === "ADA") return { holdings: await fetchCardanoHoldings(address), warnings: [] };
+  if (chain === "SEI") return { holdings: await fetchCosmosHoldings("SEI", address), warnings: [] };
+  return NON_EVM_DISPATCH[chain].fetch(address);
+}
+
+/**
  * The top-bar "search any address" feature — read-only, live-fetched
  * on-chain balances for an arbitrary ETH, SOL, BTC, or ADA address, reusing
  * the exact same adapters as an auto wallet's "Sync holdings"
@@ -99,23 +122,7 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
     );
   }
 
-  // ETH/BTC/ADA/SEI are handled directly (not through NON_EVM_DISPATCH —
-  // see nonEvmDispatch.ts's and detectChain's doc comments for why each is
-  // special-cased); everything else comes from the same shared dispatch
-  // table syncWalletHoldings uses. BTC/ADA/SEI have no warnings concept of
-  // their own (single-source adapters), so those legs just supply [].
-  const fetchResult: Promise<{ holdings: AdapterHolding[]; warnings: string[] }> =
-    chain === "ETH"
-      ? fetchEvmHoldings(address)
-      : chain === "BTC"
-        ? fetchBitcoinHoldings(address).then((holdings) => ({ holdings, warnings: [] }))
-        : chain === "ADA"
-          ? fetchCardanoHoldings(address).then((holdings) => ({ holdings, warnings: [] }))
-          : chain === "SEI"
-            ? fetchCosmosHoldings("SEI", address).then((holdings) => ({ holdings, warnings: [] }))
-            : NON_EVM_DISPATCH[chain].fetch(address);
-
-  const { holdings: adapterHoldings, warnings } = await fetchResult;
+  const { holdings: adapterHoldings, warnings } = await fetchAddressHoldings(chain, address);
   if (warnings.length > 0) {
     console.error(`lookupWallet(${chain} ${address}): ${warnings.join("; ")}`);
   }

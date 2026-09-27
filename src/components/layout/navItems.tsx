@@ -6,6 +6,7 @@ import {
   Wallet,
   LayoutDashboard,
   ChartLine,
+  Eye,
   Microscope,
   Coins,
   Layers,
@@ -66,6 +67,10 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
       { href: "/signals", label: "Signals", icon: Activity },
       { href: "/encyclopedia", label: "Encyclopedia", icon: BookOpen },
     ],
+  },
+  {
+    label: "Tools",
+    items: [{ href: "/wallet-watch", label: "Wallet Watch", icon: Eye }],
   },
 ];
 

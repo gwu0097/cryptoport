@@ -38,6 +38,18 @@ owner's.
   daily prices, benchmarked to BTC's history; an asset without enough history
   is named as not modeled) and each holding's context (`holdingContext.ts`:
   fixed-threshold flags — observations, not advice).
+- **Wallet Watch** (Tools → `/wallet-watch`, `docs/wallet-watch/PLAN.md`)
+  follows other people's addresses — never part of the user's portfolio or
+  any total. An influencer has up to 5 addresses; groups are the user's own.
+  One shared `watched_addresses` row per address (read once however many
+  watch it; RLS: readable only by its watchers). Every snapshot write goes
+  through `watchRefresh.ts` `refreshWatchedAddress`: the address is read
+  with the sync's adapters (`lookup.ts` `fetchAddressHoldings`, the previous
+  snapshot's tokens as `previous`, no Zerion), a failed source keeps its
+  rows (`carryForward`), and the snapshot stores only what can matter to a
+  movement (`watchSnapshot.ts` `buildSnapshot`: holdings ≥ $1, positions,
+  anything stored last time; dust and spam only counted). Caps are a
+  database trigger (`watch_enforce_caps`).
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 

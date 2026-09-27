@@ -1,4 +1,9 @@
-import { ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Eye } from "lucide-react";
+import { getUser } from "@/lib/auth";
+import { getWatchOverview } from "@/lib/watchQuery";
+import { normalizeWatchAddress } from "@/lib/watchSnapshot";
+import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
 import { lookupWallet } from "@/lib/lookup";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
@@ -76,6 +81,10 @@ async function LookupResults({
   }
 
   const externalViewer = externalPortfolioViewer(result.chain, result.address);
+  // Wallet Watch: offer to watch this address, or say who it's watched as.
+  const watch = (await getUser()) ? await getWatchOverview() : null;
+  const normalized = normalizeWatchAddress(result.address);
+  const watchedAs = watch?.influencers.find((i) => i.addresses.some((a) => a.address === normalized));
 
   return (
     <>
@@ -100,6 +109,21 @@ async function LookupResults({
         <p className="mt-1 text-3xl font-semibold tabular-nums text-fg">
           {formatUsd(result.total)}
         </p>
+        {watch && (
+          <div className="mt-3">
+            {watchedAs ? (
+              <Link href={`/wallet-watch/${watchedAs.id}`} className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
+                <Eye className="size-3.5" aria-hidden="true" /> Watching as {watchedAs.name}
+              </Link>
+            ) : (
+              <WatchAddressForm
+                options={{ influencers: watch.influencers.map((i) => ({ id: i.id, name: i.name })), groups: watch.groups }}
+                address={result.address}
+                label="Watch this wallet"
+              />
+            )}
+          </div>
+        )}
         {result.warnings.length > 0 && (
           <p className="mt-2 text-sm text-warning">
             {result.warnings.length} source{result.warnings.length === 1 ? "" : "s"} failed to load and may

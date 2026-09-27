@@ -39,6 +39,8 @@ interface JobStatusResponse {
   // lane is done — see assetPrices.ts's refreshAssetPrices.)
   priceRefresh: (JobStatusRow & { phases: PriceRefreshPhases | null }) | null;
   tokenRegistry: JobStatusRow | null;
+  /** Wallet Watch addresses (watchRefresh.ts). */
+  watched?: { chain: string; address: string; refresh_status: string | null; refresh_started_at: string | null }[];
 }
 
 /** Every distinct job the app tracks, flattened to one row each, from one
@@ -53,6 +55,7 @@ function flattenJobs(data: JobStatusResponse): (JobStatusRow & { key: string })[
   }
   if (data.priceRefresh) jobs.push({ key: "prices", ...data.priceRefresh });
   if (data.tokenRegistry) jobs.push({ key: "tokenRegistry", ...data.tokenRegistry });
+  for (const w of data.watched ?? []) jobs.push({ key: `watch:${w.chain}:${w.address}`, status: w.refresh_status, started_at: w.refresh_started_at });
   return jobs;
 }
 

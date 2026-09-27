@@ -2369,3 +2369,147 @@ grant all on cryptoport.wallet_venue_activity to service_role;
 grant select, insert, update, delete on cryptoport.wallet_venue_activity to authenticated;
 create policy "wallet_venue_activity: owner only" on cryptoport.wallet_venue_activity
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Wallet Watch, phase 1 (2026-09-26, docs/wallet-watch/PLAN.md): the
+-- user's influencers, their addresses and groups (owner-only RLS; caps
+-- enforced by watch_enforce_caps), and one shared row per watched address
+-- (snapshot of its last read; readable only by its watchers).
+
+-- An influencer: one person the user follows, with up to 5 addresses.
+create table if not exists cryptoport.watch_influencers (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  name       text not null check (length(trim(name)) between 1 and 80),
+  note       text check (note is null or length(note) <= 2000),
+  link       text check (link is null or length(link) <= 300),
+  created_at timestamptz not null default now()
+);
+alter table cryptoport.watch_influencers enable row level security;
+grant all on cryptoport.watch_influencers to service_role;
+grant select, insert, update, delete on cryptoport.watch_influencers to authenticated;
+create policy "watch_influencers: owner only" on cryptoport.watch_influencers
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+create index if not exists watch_influencers_user_idx on cryptoport.watch_influencers (user_id);
+
+-- An influencer's addresses. `chain` is the address family (lookup.ts
+-- detectChain: "ETH" for any 0x address, "SOL", "BTC", …); EVM addresses are
+-- stored lowercased so one address is one row.
+create table if not exists cryptoport.watch_influencer_addresses (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  influencer_id uuid not null references cryptoport.watch_influencers(id) on delete cascade,
+  chain         text not null,
+  address       text not null check (address !~ '^0x' or address = lower(address)),
+  created_at    timestamptz not null default now(),
+  unique (influencer_id, chain, address)
+);
+alter table cryptoport.watch_influencer_addresses enable row level security;
+grant all on cryptoport.watch_influencer_addresses to service_role;
+grant select, insert, update, delete on cryptoport.watch_influencer_addresses to authenticated;
+create policy "watch_influencer_addresses: owner only" on cryptoport.watch_influencer_addresses
+  for all using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and influencer_id in (select id from cryptoport.watch_influencers where user_id = auth.uid())
+  );
+create index if not exists watch_influencer_addresses_addr_idx on cryptoport.watch_influencer_addresses (chain, address);
+
+-- Groups of influencers ("Gem pickers", "Macro"); an influencer can be in several.
+create table if not exists cryptoport.watch_groups (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  name       text not null check (length(trim(name)) between 1 and 60),
+  created_at timestamptz not null default now()
+);
+alter table cryptoport.watch_groups enable row level security;
+grant all on cryptoport.watch_groups to service_role;
+grant select, insert, update, delete on cryptoport.watch_groups to authenticated;
+create policy "watch_groups: owner only" on cryptoport.watch_groups
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create table if not exists cryptoport.watch_group_influencers (
+  group_id      uuid not null references cryptoport.watch_groups(id) on delete cascade,
+  influencer_id uuid not null references cryptoport.watch_influencers(id) on delete cascade,
+  user_id       uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  created_at    timestamptz not null default now(),
+  primary key (group_id, influencer_id)
+);
+alter table cryptoport.watch_group_influencers enable row level security;
+grant all on cryptoport.watch_group_influencers to service_role;
+grant select, insert, update, delete on cryptoport.watch_group_influencers to authenticated;
+create policy "watch_group_influencers: owner only" on cryptoport.watch_group_influencers
+  for all using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and group_id in (select id from cryptoport.watch_groups where user_id = auth.uid())
+    and influencer_id in (select id from cryptoport.watch_influencers where user_id = auth.uid())
+  );
+create index if not exists watch_group_influencers_influencer_idx on cryptoport.watch_group_influencers (influencer_id);
+
+-- One row per watched address, shared by everyone who watches it (read once,
+-- however many watch it). Written by the service role only; readable only
+-- by users who watch that address.
+create table if not exists cryptoport.watched_addresses (
+  chain               text not null,
+  address             text not null check (address !~ '^0x' or address = lower(address)),
+  snapshot            jsonb,
+  total_usd           numeric,
+  unpriced_count      int,
+  last_refresh_at     timestamptz,
+  last_refresh_status text,
+  refresh_status      text,
+  refresh_started_at  timestamptz,
+  next_refresh_at     timestamptz not null default now(),
+  created_at          timestamptz not null default now(),
+  primary key (chain, address)
+);
+alter table cryptoport.watched_addresses enable row level security;
+grant all on cryptoport.watched_addresses to service_role;
+grant select on cryptoport.watched_addresses to authenticated;
+create policy "watched_addresses: watchers only" on cryptoport.watched_addresses
+  for select using (
+    exists (
+      select 1 from cryptoport.watch_influencer_addresses w
+      where w.user_id = auth.uid() and w.chain = watched_addresses.chain and w.address = watched_addresses.address
+    )
+  );
+create index if not exists watched_addresses_next_idx on cryptoport.watched_addresses (next_refresh_at);
+
+-- Caps, enforced here rather than in the app: 25 influencers per user, 5
+-- addresses per influencer, 500 distinct watched addresses app-wide. The
+-- advisory lock serializes one user's inserts so two at once can't both pass
+-- the count. security definer: the app-wide count must see every user's rows.
+create or replace function cryptoport.watch_enforce_caps()
+returns trigger
+language plpgsql
+security definer
+set search_path = cryptoport
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('watch_caps:' || new.user_id::text));
+  if tg_table_name = 'watch_influencers' then
+    if (select count(*) from cryptoport.watch_influencers where user_id = new.user_id) >= 25 then
+      raise exception 'You can watch up to 25 influencers';
+    end if;
+  elsif tg_table_name = 'watch_influencer_addresses' then
+    if (select count(*) from cryptoport.watch_influencer_addresses where influencer_id = new.influencer_id) >= 5 then
+      raise exception 'An influencer can have up to 5 addresses';
+    end if;
+    if not exists (select 1 from cryptoport.watch_influencer_addresses where chain = new.chain and address = new.address)
+      and (select count(*) from (select distinct chain, address from cryptoport.watch_influencer_addresses) d) >= 500 then
+      raise exception 'Wallet Watch is at its limit of watched addresses';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists watch_influencers_caps on cryptoport.watch_influencers;
+create trigger watch_influencers_caps
+  before insert on cryptoport.watch_influencers
+  for each row execute function cryptoport.watch_enforce_caps();
+
+drop trigger if exists watch_influencer_addresses_caps on cryptoport.watch_influencer_addresses;
+create trigger watch_influencer_addresses_caps
+  before insert on cryptoport.watch_influencer_addresses
+  for each row execute function cryptoport.watch_enforce_caps();

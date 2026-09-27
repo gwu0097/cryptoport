@@ -26,11 +26,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await getUser();
   if (!user) {
-    return Response.json({ wallets: [], priceRefresh: null, tokenRegistry: null });
+    return Response.json({ wallets: [], priceRefresh: null, tokenRegistry: null, watched: [] });
   }
 
   const db = await userDb();
-  const [walletsResult, priceRefreshResult, tokenRegistryResult] = await Promise.all([
+  const [walletsResult, priceRefreshResult, tokenRegistryResult, watchedResult] = await Promise.all([
     db
       .from("wallets")
       .select(
@@ -45,6 +45,8 @@ export async function GET() {
     // file's own doc comment.
     serviceDb().from("price_refresh_state").select("status, started_at, phases").eq("id", 1).maybeSingle(),
     serviceDb().from("token_registry_state").select("status, started_at").eq("id", 1).maybeSingle(),
+    // Wallet Watch addresses this user watches (RLS: watchers only).
+    db.from("watched_addresses").select("chain, address, refresh_status, refresh_started_at"),
   ]);
 
   if (walletsResult.error) {
@@ -55,5 +57,6 @@ export async function GET() {
     wallets: walletsResult.data ?? [],
     priceRefresh: priceRefreshResult.data ?? null,
     tokenRegistry: tokenRegistryResult.data ?? null,
+    watched: watchedResult.data ?? [],
   });
 }

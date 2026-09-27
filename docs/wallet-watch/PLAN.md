@@ -1,7 +1,7 @@
 # Wallet Watch — design
 
-Status: **scope approved by the owner 2026-09-26** (decisions at the end);
-design review before code. Needs new tables and a daily cron, so CLAUDE.md
+Status: **phase 1 built 2026-09-26** (scope approved by the owner, Fable
+review folded in); phase 2 next. Needs new tables and a daily cron, so CLAUDE.md
 §8 applies: SQL in chat, owner runs it, then code.
 
 Vocabulary (the owner's): an **influencer** is one person with up to 5
@@ -291,3 +291,15 @@ lowercased (#8); watched coins stay out of Refresh prices (#9); storage
 recomputed against the real headroom, with retention and an app-wide cap
 (#10); phase 3 fields (`watched_positions`, nullable prices, wallet total per
 movement) and the early/late and cash-ratio data sources are named (#11).
+
+## Phase 1 notes (2026-09-26)
+
+- First real address (a heavily airdropped EVM wallet): 580 counted
+  holdings, 3,992 unrecognized tokens — a full snapshot was 593 KB. The
+  snapshot now keeps holdings ≥ $1, positions, and anything stored last
+  time; dust and spam are only counted (63 KB for the same wallet; 254 rows
+  kept, 326 dust). The read took ~2m20s.
+- Found, not fixed (a pricing rule, owner's call): airdropped junk that
+  CoinGecko prices dominates such a wallet's value (a 10B-token airdrop
+  "worth" $339K), and a spam token on Berachain that answers the ERC-4626
+  interface was valued as its "underlying" ($235K "BTC (as WBERA)").
