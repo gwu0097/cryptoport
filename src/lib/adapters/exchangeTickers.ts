@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceDb } from "../supabase";
 import { coingeckoFetch } from "./coingeckoFetch";
-import { withPriceKeys } from "./assetKeys";
+import { invalidateKeyMaps, withPriceKeys } from "./assetKeys";
 import { ensureAssetPrices } from "./assetPrices";
 import { COINGECKO_EXCHANGE_IDS, mappingsFromTickers, type ExchangeTicker } from "../exchangeTickers";
 
@@ -80,6 +80,7 @@ export async function refreshExchangeAssets(): Promise<string> {
     }
   }
   if (done.length > 0) {
+    invalidateKeyMaps(); // the rekey below must see the rows just written
     const newKeys = await rekeyExchangeHoldings(done);
     if (newKeys.length > 0) await ensureAssetPrices(newKeys, "exchange-mappings");
     parts.push(`${newKeys.length} holdings' coins changed`);

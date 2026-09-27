@@ -186,28 +186,54 @@ export const getChainIconMap = cache(async (): Promise<Record<string, string>> =
 // problem today.
 /** The one price per asset (asset_prices), keyed by price_key — what every
  * holding is valued from (valuation.ts, docs/pricing/PLAN.md). */
+type AssetPriceRow = {
+  price_key: string;
+  usd: number | string | null;
+  change_1h: number | string | null;
+  change_24h: number | string | null;
+  change_7d: number | string | null;
+  change_30d: number | string | null;
+  market_cap: number | string | null;
+  volume_24h: number | string | null;
+  updated_at: string | null;
+  source: string | null;
+};
+
+/** Every asset_prices row, read once per request and shared by the price
+ * map, the asset stats and the perp marks — they used to page through the
+ * same table separately, a few requests each per page view (DECISIONS:
+ * 2026-09-26 Supabase log ingestion). */
+const getAssetPriceRows = cache(async (): Promise<AssetPriceRow[]> => {
+  const rows: AssetPriceRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await serviceDb()
+      .from("asset_prices")
+      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, volume_24h, updated_at, source")
+      .order("price_key")
+      .range(from, from + 999);
+    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
+    rows.push(...(data as AssetPriceRow[]));
+    if (data.length < 1000) return rows;
+  }
+});
+
 /** Open perp positions' venue mark prices ("hlperp:<COIN>" / "lighterperp:<SYM>" rows of
  * asset_prices, written by Refresh prices only while a position is open),
  * with when each was fetched — perpPositions.ts decides whether a mark is
  * newer than the position's sync. Cached per request. */
 export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
-  const { data, error } = await serviceDb()
-    .from("asset_prices")
-    .select("price_key, usd, updated_at")
-    .or(MARK_KEY_PREFIXES.map((p) => `price_key.like.${p}%`).join(","))
-    .not("usd", "is", null);
-  if (error) throw new Error(`Failed to load perp marks: ${error.message}`);
-  return new Map((data as { price_key: string; usd: number | string; updated_at: string }[]).map((r) => [r.price_key, { usd: Number(r.usd), at: r.updated_at }]));
+  const marks = new Map<string, Mark>();
+  for (const r of await getAssetPriceRows()) {
+    if (r.usd === null || r.updated_at === null || !MARK_KEY_PREFIXES.some((p) => r.price_key.startsWith(p))) continue;
+    marks.set(r.price_key, { usd: Number(r.usd), at: r.updated_at });
+  }
+  return marks;
 });
 
 export const getPriceMap = cache(async (): Promise<PriceMap> => {
   const prices: PriceMap = {};
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await serviceDb().from("asset_prices").select("price_key, usd").order("price_key").range(from, from + 999);
-    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
-    for (const row of data as { price_key: string; usd: number | string | null }[]) prices[row.price_key] = row.usd;
-    if (data.length < 1000) return prices;
-  }
+  for (const r of await getAssetPriceRows()) prices[r.price_key] = r.usd;
+  return prices;
 });
 
 export interface AssetStats {
@@ -232,30 +258,21 @@ export interface AssetStats {
 export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>> => {
   const out = new Map<string, AssetStats>();
   const num = (v: unknown) => parseNumeric(v as number | string | null);
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await serviceDb()
-      .from("asset_prices")
-      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, volume_24h, updated_at, source")
-      .order("price_key")
-      .range(from, from + 999);
-    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
-    for (const r of data as Record<string, unknown>[]) {
-      out.set(r.price_key as string, {
-        usd: num(r.usd),
-        change1h: num(r.change_1h),
-        change24h: num(r.change_24h),
-        change7d: num(r.change_7d),
-        change30d: num(r.change_30d),
-        marketCap: num(r.market_cap),
-        volume24h: num(r.volume_24h),
-        updatedAt: (r.updated_at as string | null) ?? null,
-        source: (r.source as string | null) ?? null,
-        symbol: null,
-        name: null,
-        imageUrl: null,
-      });
-    }
-    if (data.length < 1000) break;
+  for (const r of await getAssetPriceRows()) {
+    out.set(r.price_key, {
+      usd: num(r.usd),
+      change1h: num(r.change_1h),
+      change24h: num(r.change_24h),
+      change7d: num(r.change_7d),
+      change30d: num(r.change_30d),
+      marketCap: num(r.market_cap),
+      volume24h: num(r.volume_24h),
+      updatedAt: r.updated_at ?? null,
+      source: r.source ?? null,
+      symbol: null,
+      name: null,
+      imageUrl: null,
+    });
   }
   for (let from = 0; ; from += 1000) {
     const { data, error } = await serviceDb().from("assets").select("price_key, symbol, name, image_url").order("price_key").range(from, from + 999);

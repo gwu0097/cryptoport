@@ -26,9 +26,11 @@ function isPath(pathname: string, list: string[]): boolean {
 }
 
 /**
- * supabase.auth.getUser() runs unconditionally — it transparently refreshes
- * an expiring session token and rewrites the cookie onto the response,
- * which matters for every request regardless of whether the page itself
+ * supabase.auth.getClaims() runs unconditionally — it transparently refreshes
+ * an expiring session token (through getSession) and rewrites the cookie onto
+ * the response, then verifies the token locally against the project's
+ * signing key rather than calling Supabase Auth on every request (auth.ts
+ * getUser explains why). The refresh matters for every request regardless of whether the page itself
  * needs a session (skipping this is a well-known Supabase+Next.js gotcha
  * that silently logs users out once their access token expires, even
  * though their refresh token is still good). PROTECTED_PATHS is checked
@@ -59,9 +61,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ? { email: typeof data.claims.email === "string" ? data.claims.email : undefined } : null;
 
   const path = request.nextUrl.pathname;
 

@@ -9,6 +9,28 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-26 — Supabase log ingestion: verify sign-ins locally, read shared tables less
+
+The organization passed its Free Plan log quota (1.16 / 1 GB; this project
+0.67 GB, Trace Two 0.49 GB). Measured in Logs Explorer over 24 hours: 12.9k
+log lines, of which `/auth/v1/user` 3,845 plus the matching `auth_logs`
+3,901 (~60%) — `auth.getUser()` called Supabase Auth on every request,
+twice per page (proxy.ts and the page) and on every link prefetch and status
+poll. Next: full reads of `token_registry` 727, `asset_prices` 580,
+`exchange_assets` 548, `assets` 171, `asset_contracts` 137. csp-screener
+(same project) adds ~43 lines a day.
+
+- `getUser` and `proxy.ts` now use `auth.getClaims()`: the token's ES256
+  signature is verified locally against the project's published key (cached
+  10 min by auth-js). A forged token claiming a real user id was rejected on
+  the dev server; a real sign-in and the admin email check worked.
+  Trade-off: a deleted or banned user stays signed in until the current
+  token expires (≤ 1 hour) instead of immediately.
+- `asset_contracts` + `exchange_assets` are cached per instance for 5
+  minutes and cleared when the exchange-mapping refresh writes; one
+  `asset_prices` read per request serves prices, stats and perp marks.
+- Not changed: `token_registry` reads (targeted per chain per sync).
+
 ## 2026-09-26 — Analytics: attribution, risk profile, holdings in context
 
 The old Analytics page only charted value over time, so it became Performance

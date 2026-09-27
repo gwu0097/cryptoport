@@ -1,7 +1,6 @@
 import "server-only";
 import { notFound } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
-import { getUser } from "./auth";
+import { getUser, type SessionUser } from "./auth";
 import { isAdminEmail } from "./adminEmail";
 
 export { isAdminEmail };
@@ -15,7 +14,7 @@ export { isAdminEmail };
  * a response that confirms "something real is here, you're just not
  * allowed in."
  */
-export async function requireAdmin(): Promise<User> {
+export async function requireAdmin(): Promise<SessionUser> {
   const user = await getUser();
   if (!user || !isAdminEmail(user.email, process.env.ADMIN_EMAIL)) notFound();
   return user;

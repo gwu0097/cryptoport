@@ -22,6 +22,43 @@ async function readAll<T>(table: string, columns: string, key: [string, string])
   }
 }
 
+/** asset_contracts overrides and the venue ticker maps change weekly (the
+ * exchange-mapping refresh) or by hand, but every sync and every Refresh
+ * positions account used to re-read both in full — several paged requests
+ * each, a large share of the project's API log volume (DECISIONS:
+ * 2026-09-26 Supabase log ingestion). Kept per server instance for a few
+ * minutes; refreshExchangeAssets clears it when it writes. A hand edit in
+ * Supabase shows up within MAPPINGS_TTL_MS. */
+const MAPPINGS_TTL_MS = 5 * 60 * 1000;
+type Mappings = Pick<KeyMaps, "overrides" | "venues">;
+let mappings: { at: number; value: Promise<Mappings> } | null = null;
+
+/** Drops the cached mapping tables (call after writing either table). */
+export function invalidateKeyMaps(): void {
+  mappings = null;
+}
+
+function loadMappings(): Promise<Mappings> {
+  if (mappings && Date.now() - mappings.at < MAPPINGS_TTL_MS) return mappings.value;
+  // Whole tables, paged: the API returns at most 1,000 rows per request,
+  // and exchange_assets has more — an unpaged read silently dropped the
+  // mappings past row 1,000 (Hyperliquid's USDC -> usd-coin, 2026-09-25).
+  const value = Promise.all([
+    readAll<{ chain: string; contract: string; price_key: string }>("asset_contracts", "chain, contract, price_key", ["chain", "contract"]),
+    readAll<{ exchange: string; ticker: string; price_key: string }>("exchange_assets", "exchange, ticker, price_key", ["exchange", "ticker"]),
+  ]).then(([overrideRows, venueRows]) => ({
+    overrides: new Map(overrideRows.map((r) => [contractKey(r.chain, r.contract), r.price_key])),
+    venues: new Map(venueRows.map((r) => [venueKey(r.exchange, r.ticker), r.price_key])),
+  }));
+  const entry = { at: Date.now(), value };
+  mappings = entry;
+  // A failed read is never cached: the next caller retries.
+  value.catch(() => {
+    if (mappings === entry) mappings = null;
+  });
+  return value;
+}
+
 export async function loadKeyMaps(rows: KeyInput[]): Promise<KeyMaps> {
   const db = serviceDb();
   const byChain = new Map<string, Set<string>>();
@@ -48,15 +85,7 @@ export async function loadKeyMaps(rows: KeyInput[]): Promise<KeyMaps> {
     }
   }
 
-  // Whole tables, paged: the API returns at most 1,000 rows per request,
-  // and exchange_assets has more — an unpaged read silently dropped the
-  // mappings past row 1,000 (Hyperliquid's USDC -> usd-coin, 2026-09-25).
-  const [overrideRows, venueRows] = await Promise.all([
-    readAll<{ chain: string; contract: string; price_key: string }>("asset_contracts", "chain, contract, price_key", ["chain", "contract"]),
-    readAll<{ exchange: string; ticker: string; price_key: string }>("exchange_assets", "exchange, ticker, price_key", ["exchange", "ticker"]),
-  ]);
-  const overrides = new Map(overrideRows.map((r) => [contractKey(r.chain, r.contract), r.price_key]));
-  const venues = new Map(venueRows.map((r) => [venueKey(r.exchange, r.ticker), r.price_key]));
+  const { overrides, venues } = await loadMappings();
   return { registry, overrides, venues };
 }
 

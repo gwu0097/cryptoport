@@ -88,6 +88,11 @@ never leave a destructive script anywhere.
   the data layer (untested directly): `queries.ts` (page reads), `supabase.ts`
   (`serviceDb()` service role — shared tables, crons, admin only; `userDb()` —
   anything per-user, RLS applies), `auth.ts` (`getUser`, `requireUser`).
+  Sign-in is checked with `auth.getClaims()` (the token's signature,
+  verified locally against the project's ES256 key), in `getUser` and
+  `proxy.ts` — never `auth.getUser()` per request (a call to Supabase Auth
+  each time, ~60% of the project's log volume) and never `getSession()` for
+  a decision.
 - `src/lib/adapters/` — one file per external source or chain (network code):
   EVM (`evm.ts` → `multicallEvm.ts`, chain list `evmChains.ts`), non-EVM
   (`nonEvmChains.ts`, `nonEvmDispatch.ts`), DeFi (`zerionDefi.ts` plus
@@ -362,6 +367,13 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   (`scripts/screener-backfill.ts`). The app's normal usage and crons aren't
   gated, but every new call path you add must justify its cost.
   (DECISIONS: 2026-09-22)
+- **Supabase requests count too:** every API request is a ~3 KB log line
+  against the organization's 1 GB/month free log quota (shared with the
+  csp-screener app, which uses the same project). Reference tables that
+  rarely change are cached (`assetKeys.ts` mapping tables, 5 min, cleared on
+  write); `asset_prices` is read once per request (`getAssetPriceRows`).
+  Measure with Logs Explorer: `select source, count(*) from logs group by
+  source` (DECISIONS: 2026-09-26 Supabase log ingestion).
 - **Batch and dedupe by design:** one pricing pass per event, deduped across
   wallets and users (`ensureAssetPrices` reuses fresh prices); batched endpoints
   (`/coins/markets` by id, `per_page` = batch size); slow-changing data cached in
