@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { getUser } from "@/lib/auth";
-import { getWatchOverview, watchJobStatus } from "@/lib/watchQuery";
+import { getWatchMovements, getWatchOverview, watchJobStatus } from "@/lib/watchQuery";
+import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -45,6 +46,7 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
   const shown = selected ? influencers.filter((i) => i.groupIds.includes(selected.id)) : influencers;
   const counts = Object.fromEntries(groups.map((g) => [g.id, influencers.filter((i) => i.groupIds.includes(g.id)).length])) as Record<string, number>;
   const options = { influencers: influencers.map((i) => ({ id: i.id, name: i.name })), groups };
+  const movements = await getWatchMovements(shown, 50);
 
   return (
     <>
@@ -63,8 +65,8 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
       <Panel className="mb-4">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <p className="max-w-2xl text-sm text-fg-muted">
-            Values are each wallet&apos;s last read at today&apos;s prices. Wallets are read when you add them or press Refresh; a daily
-            read and a feed of what they bought and sold are coming next.
+            Values are each wallet&apos;s last read at today&apos;s prices. Every watched wallet is read once a day, and when you add it or
+            press Refresh.
           </p>
           <WatchAddressForm options={options} />
         </div>
@@ -77,6 +79,13 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
         ) : (
           <WatchTable influencers={shown} groups={groups} serverNowSec={nowSec} />
         )}
+      </Panel>
+      <Panel
+        title={selected ? `Activity · ${selected.name}` : "Activity"}
+        description="What they bought and sold between reads — sized at that read's price. A buy and sell between two reads doesn't show; changes under $100 or 5% of a position are left out."
+        className="mb-4"
+      >
+        <ActivityFeed movements={movements} serverNowSec={nowSec} />
       </Panel>
       <p className="text-xs text-fg-muted">Up to 25 influencers, 5 addresses each. DeFi positions aren&apos;t read for watched wallets.</p>
     </>

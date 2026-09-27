@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/token-registry",
       "schedule": "0 5 * * 0"
+    },
+    {
+      "path": "/api/cron/wallet-watch",
+      "schedule": "0 8 * * *"
     }
   ]
 }

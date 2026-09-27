@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getInfluencerDetail, watchJobStatus } from "@/lib/watchQuery";
+import { getInfluencerDailyValue, getInfluencerDetail, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
+import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
+import { ValueChart } from "@/components/charts/ValueChart";
 import { requestNowSec } from "@/lib/requestClock";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
@@ -26,6 +28,7 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
   if (!detail) notFound();
   const { influencer, groups, holdings } = detail;
   const nowSec = requestNowSec();
+  const [movements, daily] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer)]);
 
   return (
     <>
@@ -55,6 +58,18 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
         <div className="mt-4">
           <InfluencerEditor influencer={influencer} groups={groups} />
         </div>
+      </Panel>
+
+      <Panel title="Value over time" className="mb-4">
+        {daily.length < 2 ? (
+          <p className="text-sm text-fg-muted">The chart fills in as the wallet is read each day ({daily.length} day{daily.length === 1 ? "" : "s"} so far).</p>
+        ) : (
+          <ValueChart points={daily.map((d) => ({ ...d, kind: "real" as const }))} rangeStorageKey="cryptoport:watchValueRange" />
+        )}
+      </Panel>
+
+      <Panel title="Activity" description="Changes between reads, sized at that read's price." className="mb-4">
+        <ActivityFeed movements={movements} serverNowSec={nowSec} showNames={false} />
       </Panel>
 
       <Panel title="Addresses" className="mb-4">

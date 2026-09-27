@@ -2513,3 +2513,96 @@ drop trigger if exists watch_influencer_addresses_caps on cryptoport.watch_influ
 create trigger watch_influencer_addresses_caps
   before insert on cryptoport.watch_influencer_addresses
   for each row execute function cryptoport.watch_enforce_caps();
+
+-- Wallet Watch, phase 2 (2026-09-26, docs/wallet-watch/PLAN.md): the day's value
+-- per address, movements between reads, and each position's life. Shared,
+-- written by the service role, readable only by an address's watchers.
+
+-- One row per address per day: the day's last read.
+create table if not exists cryptoport.watched_address_daily (
+  chain          text not null,
+  address        text not null,
+  day            date not null,
+  total_usd      numeric not null,
+  cash_usd       numeric,
+  unpriced_count int not null default 0,
+  primary key (chain, address, day)
+);
+alter table cryptoport.watched_address_daily enable row level security;
+grant all on cryptoport.watched_address_daily to service_role;
+grant select on cryptoport.watched_address_daily to authenticated;
+create policy "watched_address_daily: watchers only" on cryptoport.watched_address_daily
+  for select using (
+    exists (
+      select 1 from cryptoport.watch_influencer_addresses w
+      where w.user_id = auth.uid() and w.chain = watched_address_daily.chain and w.address = watched_address_daily.address
+    )
+  );
+
+-- A change between two reads: a coin, perp or prediction position opened,
+-- added to, trimmed or closed. Unique per read, so a repeated cron delivery
+-- writes nothing twice.
+create table if not exists cryptoport.watched_movements (
+  id                     bigserial primary key,
+  chain                  text not null,
+  address                text not null,
+  snapshot_at            timestamptz not null,
+  asset_key              text not null,
+  kind                   text not null check (kind in ('new', 'added', 'trimmed', 'exited')),
+  position_type          text not null check (position_type in ('token', 'perp', 'prediction')),
+  ticker                 text not null,
+  label                  text,
+  price_key              text,
+  side                   text,
+  qty_before             numeric not null,
+  qty_after              numeric not null,
+  price_usd              numeric,
+  usd_delta              numeric,
+  wallet_total_usd_after numeric,
+  unique (chain, address, snapshot_at, asset_key, kind)
+);
+create index if not exists watched_movements_addr_time_idx on cryptoport.watched_movements (chain, address, snapshot_at desc);
+alter table cryptoport.watched_movements enable row level security;
+grant all on cryptoport.watched_movements to service_role;
+grant usage, select on sequence cryptoport.watched_movements_id_seq to service_role;
+grant select on cryptoport.watched_movements to authenticated;
+create policy "watched_movements: watchers only" on cryptoport.watched_movements
+  for select using (
+    exists (
+      select 1 from cryptoport.watch_influencer_addresses w
+      where w.user_id = auth.uid() and w.chain = watched_movements.chain and w.address = watched_movements.address
+    )
+  );
+
+-- Each position's life, for phase 3's track record: when it was first seen
+-- and at what price, and when it closed. held_at_start marks one that was
+-- already there on the first read (its entry is unknown, not our first
+-- price).
+create table if not exists cryptoport.watched_positions (
+  chain         text not null,
+  address       text not null,
+  asset_key     text not null,
+  opened_at     timestamptz not null,
+  position_type text not null,
+  ticker        text not null,
+  price_key     text,
+  held_at_start boolean not null default false,
+  entry_price   numeric,
+  entry_qty     numeric not null,
+  last_qty      numeric not null,
+  last_seen_at  timestamptz not null,
+  closed_at     timestamptz,
+  exit_price    numeric,
+  primary key (chain, address, asset_key, opened_at)
+);
+create index if not exists watched_positions_open_idx on cryptoport.watched_positions (chain, address) where closed_at is null;
+alter table cryptoport.watched_positions enable row level security;
+grant all on cryptoport.watched_positions to service_role;
+grant select on cryptoport.watched_positions to authenticated;
+create policy "watched_positions: watchers only" on cryptoport.watched_positions
+  for select using (
+    exists (
+      select 1 from cryptoport.watch_influencer_addresses w
+      where w.user_id = auth.uid() and w.chain = watched_positions.chain and w.address = watched_positions.address
+    )
+  );

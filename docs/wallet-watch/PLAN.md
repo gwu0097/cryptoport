@@ -1,7 +1,7 @@
 # Wallet Watch — design
 
-Status: **phase 1 built 2026-09-26** (scope approved by the owner, Fable
-review folded in); phase 2 next. Needs new tables and a daily cron, so CLAUDE.md
+Status: **phases 1 and 2 built 2026-09-26** (scope approved by the owner,
+Fable review folded in); phase 3 (Watch Insights) next. Needs new tables and a daily cron, so CLAUDE.md
 §8 applies: SQL in chat, owner runs it, then code.
 
 Vocabulary (the owner's): an **influencer** is one person with up to 5
@@ -303,3 +303,13 @@ movement) and the early/late and cash-ratio data sources are named (#11).
   CoinGecko prices dominates such a wallet's value (a 10B-token airdrop
   "worth" $339K), and a spam token on Berachain that answers the ERC-4626
   interface was valued as its "underlying" ($235K "BTC (as WBERA)").
+
+## Phase 2 notes (2026-09-26)
+
+- Cash-like coins: `coin_categories` has only 19 rows, so no stablecoin list
+  exists. A coin counts as cash when it's within 2% of $1 and moved under 2%
+  over 7 days and 3% over 30 (asset_prices) — `watchRefresh.ts` `isCashLike`.
+- Movements are only reported when they can be sized: an unpriced or
+  illiquid coin's change is skipped (its quantity is still stored).
+- Addresses read before phase 2 start their position history at their first
+  read after it (recorded as held-at-start).

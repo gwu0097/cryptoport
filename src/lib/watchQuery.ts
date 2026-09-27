@@ -4,7 +4,7 @@ import { getUser } from "./auth";
 import { getAssetStatsMap, getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
 import { toHolding } from "./lookup";
 import { defaultChainId } from "./chainNames";
-import { valueHolding, type PriceMap } from "./valuation";
+import { parseNumeric, valueHolding, type PriceMap } from "./valuation";
 import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
@@ -203,4 +203,88 @@ export function watchJobStatus(addresses: readonly WatchedAddressView[], nowMs: 
     outcome: running ? null : (worst?.outcome ?? null),
     detail: running ? "syncing" : (worst?.detail ?? null),
   };
+}
+
+export interface WatchMovementView {
+  id: number;
+  influencerId: string;
+  influencerName: string;
+  address: string;
+  snapshotAt: string;
+  kind: "new" | "added" | "trimmed" | "exited";
+  positionType: "token" | "perp" | "prediction";
+  ticker: string;
+  label: string | null;
+  side: string | null;
+  qtyBefore: number;
+  qtyAfter: number;
+  priceUsd: number | null;
+  usdDelta: number | null;
+  /** usdDelta as a share of the wallet after the read (conviction). */
+  walletShare: number | null;
+}
+
+const FEED_LIMIT = 100;
+
+/** The latest movements of these influencers' addresses, newest first
+ * (watched_movements, phase 2). One request. */
+export async function getWatchMovements(influencers: readonly WatchedInfluencer[], limit = FEED_LIMIT): Promise<WatchMovementView[]> {
+  const byAddress = new Map<string, WatchedInfluencer>();
+  for (const i of influencers) for (const a of i.addresses) byAddress.set(`${a.chain}|${a.address}`, i);
+  if (byAddress.size === 0) return [];
+  const db = await userDb();
+  const { data, error } = await db
+    .from("watched_movements")
+    .select("id, chain, address, snapshot_at, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after")
+    .in("address", [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))])
+    .order("snapshot_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to load movements: ${error.message}`);
+  const num = (v: unknown) => parseNumeric(v as number | string | null);
+  return (data as Record<string, unknown>[]).flatMap((r) => {
+    const inf = byAddress.get(`${r.chain}|${r.address}`);
+    if (!inf) return [];
+    const usd = num(r.usd_delta);
+    const total = num(r.wallet_total_usd_after);
+    return [
+      {
+        id: r.id as number,
+        influencerId: inf.id,
+        influencerName: inf.name,
+        address: r.address as string,
+        snapshotAt: r.snapshot_at as string,
+        kind: r.kind as WatchMovementView["kind"],
+        positionType: r.position_type as WatchMovementView["positionType"],
+        ticker: r.ticker as string,
+        label: (r.label as string | null) ?? null,
+        side: (r.side as string | null) ?? null,
+        qtyBefore: num(r.qty_before) ?? 0,
+        qtyAfter: num(r.qty_after) ?? 0,
+        priceUsd: num(r.price_usd),
+        usdDelta: usd,
+        walletShare: usd !== null && total !== null && total > 0 ? Math.abs(usd) / total : null,
+      },
+    ];
+  });
+}
+
+/** An influencer's value per day: the sum of its addresses' daily rows, only
+ * on days every address has one (a partial day would look like a drop). */
+export async function getInfluencerDailyValue(influencer: WatchedInfluencer): Promise<{ date: string; total: number }[]> {
+  if (influencer.addresses.length === 0) return [];
+  const db = await userDb();
+  const { data, error } = await db
+    .from("watched_address_daily")
+    .select("chain, address, day, total_usd")
+    .in("address", influencer.addresses.map((a) => a.address))
+    .order("day");
+  if (error) throw new Error(`Failed to load value history: ${error.message}`);
+  const byDay = new Map<string, { total: number; n: number }>();
+  for (const r of data as { day: string; total_usd: number | string }[]) {
+    const d = byDay.get(r.day) ?? { total: 0, n: 0 };
+    d.total += parseNumeric(r.total_usd) ?? 0;
+    d.n++;
+    byDay.set(r.day, d);
+  }
+  return [...byDay].filter(([, d]) => d.n === influencer.addresses.length).map(([date, d]) => ({ date, total: d.total }));
 }

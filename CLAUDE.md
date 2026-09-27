@@ -49,7 +49,14 @@ owner's.
   rows (`carryForward`), and the snapshot stores only what can matter to a
   movement (`watchSnapshot.ts` `buildSnapshot`: holdings ≥ $1, positions,
   anything stored last time; dust and spam only counted). Caps are a
-  database trigger (`watch_enforce_caps`).
+  database trigger (`watch_enforce_caps`). Each read also records what
+  changed since the last one (`watchDiff.ts`: only a quantity change of
+  ≥ 5% and ≥ $100 is a movement; coins summed across chains; venue cash,
+  kept rows, unpriced and illiquid coins never move), each position's life
+  (`watchPositions.ts`, `watched_positions`) and the day's value
+  (`watched_address_daily`). `/api/cron/wallet-watch` (08:00 UTC) reads
+  every due address, oldest first, within one invocation; what doesn't fit
+  waits for the next day.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 

@@ -5,10 +5,14 @@ import { withPriceKeys } from "./adapters/assetKeys";
 import { ensureAssetPrices } from "./adapters/assetPrices";
 import { mapWithConcurrency } from "./adapters/http";
 import { carryForward, keptNote } from "./carryForward";
-import { getPriceMap } from "./queries";
+import { getAssetStatsMap, getPriceMap, type AssetStats } from "./queries";
 import { aggregate, valueHolding } from "./valuation";
 import { JOB_STALE_MS } from "./jobStatus";
 import { buildSnapshot, previousContracts, snapshotRowToAdapter, type SnapshotRow, type WatchSnapshot } from "./watchSnapshot";
+import { assetOf, assetStates, contractKeys, diffSnapshots, type AssetState } from "./watchDiff";
+import { positionChanges, type OpenPosition } from "./watchPositions";
+import { markKeyFor } from "./perpPositions";
+import { parseNumeric, type PriceMap } from "./valuation";
 import type { Chain } from "./types";
 
 // Wallet Watch's one refresh path (docs/wallet-watch/PLAN.md): every write of
@@ -60,9 +64,33 @@ export async function claimWatchedAddresses(keys: readonly WatchedKey[]): Promis
 
 const unitAmount = (raw: string, decimals: number | null) => (decimals === null ? null : Number(raw) / 10 ** decimals);
 
-/** Reads one address and saves its snapshot. Never throws: a failure is
- * recorded in its status and the previous snapshot stays. */
-export async function refreshWatchedAddress({ chain, address }: WatchedKey): Promise<void> {
+/** A coin that held its dollar peg: within 2% of $1 now, and moved under 2%
+ * over 7 days and 3% over 30 (asset_prices; no stablecoin list is stored). */
+function isCashLike(stats: AssetStats | undefined): boolean {
+  if (!stats || stats.usd === null || Math.abs(stats.usd - 1) > 0.02) return false;
+  return stats.change7d !== null && Math.abs(stats.change7d) <= 2 && stats.change30d !== null && Math.abs(stats.change30d) <= 3;
+}
+
+/** An asset's per-unit dollar price at this read, or null when it can't be
+ * sized (unpriced, or illiquid at this size — liquidity.ts). Perps use the
+ * venue's mark, else the entry; prediction shares their value per share. */
+function priceFor(asset: AssetState, rows: readonly SnapshotRow[], prices: PriceMap): number | null {
+  const row = rows.find((r) => assetOf(r)?.key === asset.key);
+  if (asset.type === "perp") {
+    const mark = row ? markKeyFor({ chain: row.chain ?? null, ticker: row.ticker, contract: row.contract ?? null }) : null;
+    return (mark ? parseNumeric(prices[mark]) : null) ?? row?.position_entry_price ?? null;
+  }
+  if (asset.type === "prediction") return row?.usd_override != null && row.qty ? row.usd_override / row.qty : null;
+  if (!asset.priceKey || asset.qty <= 0) return asset.priceKey ? parseNumeric(prices[asset.priceKey]) : null;
+  const v = valueHolding({ ticker: asset.ticker, qty: asset.qty, usd_override: null, source: "auto", price_key: asset.priceKey }, prices);
+  return v.kind === "priced" ? v.usd / asset.qty : null;
+}
+
+/** Reads one address and saves its snapshot, the movements since the last
+ * read, its positions and the day's value. Never throws: a failure is
+ * recorded in its status and the previous snapshot stays (so nothing moves).
+ * `stats` (read once per batch) decides which coins are cash-like. */
+export async function refreshWatchedAddress({ chain, address }: WatchedKey, stats: ReadonlyMap<string, AssetStats> = new Map()): Promise<void> {
   const db = serviceDb();
   const done = (fields: Record<string, unknown>) => db.from("watched_addresses").update(fields).eq("chain", chain).eq("address", address);
   try {
@@ -97,16 +125,106 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey): Pro
     const status = [...result.warnings, keptNote(carried.kept)].filter(Boolean);
     const statusText = status.length === 0 ? "ok" : `partial — ${status.join("; ")}`;
     const now = new Date();
+    const snapshotAt = now.toISOString();
+
+    // What changed since the last read (watchDiff.ts), and each position's
+    // life (watchPositions.ts).
+    const priceOf = (a: AssetState) => priceFor(a, [...snapshot.rows, ...(previous?.rows ?? [])], prices);
+    const movements = diffSnapshots(previous, snapshot, priceOf);
+    const { data: openRows, error: openError } = await db
+      .from("watched_positions")
+      .select("asset_key, opened_at, closed_at")
+      .eq("chain", chain)
+      .eq("address", address);
+    if (openError) throw new Error(openError.message);
+    const positions = openRows as { asset_key: string; opened_at: string; closed_at: string | null }[];
+    const open: OpenPosition[] = positions.filter((p) => !p.closed_at).map((p) => ({ assetKey: p.asset_key, openedAt: p.opened_at }));
+    const changes = positionChanges({
+      // Addresses read before positions were tracked start from here too.
+      firstRead: previous === null || positions.length === 0,
+      states: assetStates(snapshot, contractKeys(previous)),
+      movements,
+      open,
+      now: snapshotAt,
+      priceOf,
+    });
+
     const { error: saveError } = await done({
       snapshot,
       total_usd: valued.total,
       unpriced_count: valued.unpricedCount,
-      last_refresh_at: now.toISOString(),
+      last_refresh_at: snapshotAt,
       last_refresh_status: statusText,
       refresh_status: statusText,
       next_refresh_at: new Date(now.getTime() + NEXT_REFRESH_MS).toISOString(),
     });
     if (saveError) throw new Error(saveError.message);
+
+    const cashUsd = snapshot.rows.reduce((sum, r) => {
+      if (!r.price_key || !isCashLike(stats.get(r.price_key))) return sum;
+      const v = valueHolding({ ticker: r.ticker, qty: r.qty ?? null, usd_override: null, source: "auto", price_key: r.price_key }, prices);
+      return v.kind === "priced" ? sum + v.usd : sum;
+    }, 0);
+    // Best-effort after the snapshot is saved: a failure here is named in the
+    // status but never loses the read.
+    const writes = await Promise.all([
+      db.from("watched_address_daily").upsert(
+        { chain, address, day: snapshotAt.slice(0, 10), total_usd: valued.total, cash_usd: cashUsd, unpriced_count: valued.unpricedCount },
+        { onConflict: "chain,address,day" },
+      ),
+      movements.length === 0
+        ? Promise.resolve({ error: null })
+        : db.from("watched_movements").upsert(
+            movements.map((m) => ({
+              chain,
+              address,
+              snapshot_at: snapshotAt,
+              asset_key: m.assetKey,
+              kind: m.kind,
+              position_type: m.positionType,
+              ticker: m.ticker,
+              label: m.label,
+              price_key: m.priceKey,
+              side: m.side,
+              qty_before: m.qtyBefore,
+              qty_after: m.qtyAfter,
+              price_usd: m.priceUsd,
+              usd_delta: m.usdDelta,
+              wallet_total_usd_after: valued.total,
+            })),
+            { onConflict: "chain,address,snapshot_at,asset_key,kind", ignoreDuplicates: true },
+          ),
+      changes.inserts.length === 0
+        ? Promise.resolve({ error: null })
+        : db.from("watched_positions").upsert(
+            changes.inserts.map((p) => ({
+              chain,
+              address,
+              asset_key: p.assetKey,
+              opened_at: p.openedAt,
+              position_type: p.positionType,
+              ticker: p.ticker,
+              price_key: p.priceKey,
+              held_at_start: p.heldAtStart,
+              entry_price: p.entryPrice,
+              entry_qty: p.entryQty,
+              last_qty: p.entryQty,
+              last_seen_at: snapshotAt,
+            })),
+            { onConflict: "chain,address,asset_key,opened_at", ignoreDuplicates: true },
+          ),
+      ...changes.closes.map((c) =>
+        db.from("watched_positions").update({ closed_at: snapshotAt, exit_price: c.exitPrice, last_qty: 0, last_seen_at: snapshotAt }).eq("chain", chain).eq("address", address).eq("asset_key", c.assetKey).eq("opened_at", c.openedAt),
+      ),
+      ...changes.touches.map((t) =>
+        db.from("watched_positions").update({ last_qty: t.qty, last_seen_at: snapshotAt }).eq("chain", chain).eq("address", address).eq("asset_key", t.assetKey).eq("opened_at", t.openedAt),
+      ),
+    ]);
+    const failed = writes.map((w) => w.error?.message).filter(Boolean);
+    if (failed.length > 0) {
+      const text = `${statusText === "ok" ? "partial" : statusText} — history not saved: ${failed[0]}`;
+      await done({ last_refresh_status: text, refresh_status: text });
+    }
   } catch (e) {
     const statusText = `error: ${(e as Error).message}`;
     await done({ last_refresh_status: statusText, refresh_status: statusText });
@@ -114,5 +232,6 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey): Pro
 }
 
 export async function refreshWatchedAddresses(keys: readonly WatchedKey[]): Promise<void> {
-  await mapWithConcurrency([...keys], CONCURRENCY, refreshWatchedAddress);
+  const stats = await getAssetStatsMap().catch(() => new Map<string, AssetStats>());
+  await mapWithConcurrency([...keys], CONCURRENCY, (k) => refreshWatchedAddress(k, stats));
 }
