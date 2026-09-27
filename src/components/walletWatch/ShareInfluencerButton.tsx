@@ -11,17 +11,22 @@ const sharePath = (token: string) => `/wallet-watch/shared/${token}`;
  * use and copies it; "Stop sharing" turns the link off. */
 export function ShareInfluencerButton({ influencerId, shareToken }: { influencerId: string; shareToken: string | null }) {
   const [copied, setCopied] = useState(false);
+  // Shown when the clipboard can't be written (no permission, not focused).
+  const [manual, setManual] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const copy = (token: string) =>
-    navigator.clipboard.writeText(`${window.location.origin}${sharePath(token)}`).then(
+  const copy = (token: string) => {
+    const url = `${window.location.origin}${sharePath(token)}`;
+    return navigator.clipboard.writeText(url).then(
       () => {
+        setManual(null);
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       },
-      () => {},
+      () => setManual(url),
     );
+  };
 
   return (
     <span className="inline-flex flex-col items-end gap-1">
@@ -63,6 +68,15 @@ export function ShareInfluencerButton({ influencerId, shareToken }: { influencer
         )}
       </span>
       {shareToken && <span className="text-xs text-fg-muted">Shared — signed-in users with the link can view it</span>}
+      {manual && (
+        <input
+          readOnly
+          value={manual}
+          onFocus={(e) => e.currentTarget.select()}
+          aria-label="Share link"
+          className="w-72 rounded border border-border bg-surface-raised px-2 py-1 font-mono text-xs text-fg"
+        />
+      )}
       {error && <span className="text-xs text-negative">{error}</span>}
     </span>
   );
