@@ -17,10 +17,13 @@ function rowHint(ticker: string, weight: number, riskShare: number): string {
   return `${base} It moves your total about in proportion to its size.`;
 }
 
-function Tile({ label, value, caption, className = "" }: { label: string; value: string; caption?: string; className?: string }) {
+function Tile({ label, value, caption, help, className = "" }: { label: string; value: string; caption?: string; help: string; className?: string }) {
   return (
     <div className="rounded-lg border border-border bg-surface-raised/40 p-3">
-      <p className="text-xs text-fg-muted">{label}</p>
+      <p className="flex items-center gap-1.5 text-xs text-fg-muted">
+        {label}
+        <InfoTooltip>{help}</InfoTooltip>
+      </p>
       <p className={`mt-1 text-lg font-semibold tabular-nums ${className || "text-fg"}`}>{value}</p>
       {caption && <p className="mt-1 text-xs text-fg-muted">{caption}</p>}
     </div>
@@ -55,23 +58,27 @@ export function RiskPanel({ risk, totalUsd }: { risk: RiskProfile | null; totalU
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Tile
           label="Volatility (annualized)"
+          help="How much your portfolio's value typically swings over a year, worked out from its daily moves. For example, 40% means a typical year could see it roughly 40% above or below where it started. Higher means a bumpier ride, both ways. Compare it with BTC's figure: above BTC means you're taking more swing than just holding bitcoin."
           value={pct(risk.volatility, 0)}
           caption={b ? `BTC over the same days: ${pct(b.volatility, 0)}` : "Typical yearly swing, from daily moves"}
         />
         <Tile
           label="Worst drawdown"
+          help="The biggest fall from a high point to a later low over this period — how much you'd have been down at the worst moment if you'd held today's holdings throughout. BTC's figure over the same days is shown for comparison."
           value={pct(risk.maxDrawdown)}
           className="text-negative"
           caption={b ? `Deepest fall from a peak · BTC: ${pct(b.maxDrawdown)}` : "Deepest fall from a peak"}
         />
         <Tile
           label="Worst day"
+          help="The single biggest one-day drop (and, for comparison, the biggest one-day gain) for today's holdings over this period."
           value={pct(risk.worstDay.change, 2)}
           className="text-negative"
           caption={`${risk.worstDay.date} · best: ${pct(risk.bestDay.change, 2)} on ${risk.bestDay.date}`}
         />
         <Tile
           label="Beta to BTC"
+          help="How much your portfolio moves when BTC moves. 1.0 means it moves the same as BTC; 1.3 means about 30% more (a 10% BTC drop ≈ 13% for you); 0.5 means half as much. Correlation (0 to 1) says how reliably it follows BTC: near 1 means almost always in step, so owning more coins isn't spreading your risk much."
           value={risk.beta === null ? "—" : risk.beta.toFixed(2)}
           caption={
             risk.beta === null
@@ -81,6 +88,7 @@ export function RiskPanel({ risk, totalUsd }: { risk: RiskProfile | null; totalU
         />
         <Tile
           label="If BTC falls 20%"
+          help="A rough estimate of what a 20% BTC drop would do to the modeled part of your portfolio, using how each holding has moved with BTC in the past. In real crashes smaller coins often fall harder than their history suggests, so treat this as a floor, not a forecast."
           value={risk.btcDrop20Usd === null ? "—" : formatUsdSigned(risk.btcDrop20Usd)}
           className="text-negative"
           caption={
@@ -91,6 +99,7 @@ export function RiskPanel({ risk, totalUsd }: { risk: RiskProfile | null; totalU
         />
         <Tile
           label="Cash-like"
+          help="The share of your modeled value in assets whose price stayed within 2% of $1 every day — stablecoins, in practice. This part barely moves when the market does."
           value={formatShare(risk.cashLikeUsd, risk.modeledUsd)}
           caption={`${formatUsd(risk.cashLikeUsd)} held within 2% of $1 every day`}
         />
