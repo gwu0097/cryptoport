@@ -223,6 +223,8 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
               price_usd: m.priceUsd,
               usd_delta: m.usdDelta,
               wallet_total_usd_after: valued.total,
+              contract: m.contract,
+              contract_chain: m.contractChain,
             })),
             { onConflict: "chain,address,snapshot_at,asset_key,kind", ignoreDuplicates: true },
           ),

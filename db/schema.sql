@@ -2568,6 +2568,10 @@ create table if not exists cryptoport.watched_movements (
   wallet_total_usd_after numeric,
   unique (chain, address, snapshot_at, asset_key, kind)
 );
+-- 2026-09-28: the token's contract when it has exactly one (copy button).
+alter table cryptoport.watched_movements
+  add column if not exists contract       text,
+  add column if not exists contract_chain text;
 create index if not exists watched_movements_addr_time_idx on cryptoport.watched_movements (chain, address, snapshot_at desc);
 alter table cryptoport.watched_movements enable row level security;
 grant all on cryptoport.watched_movements to service_role;

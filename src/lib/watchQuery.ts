@@ -288,8 +288,9 @@ export interface WatchMovementView {
   usdDelta: number | null;
   /** usdDelta as a share of the wallet after the read (conviction). */
   walletShare: number | null;
-  /** The token's contract / mint, when its key spells it out (the copy
-   * button); null for a native coin or a key that doesn't. */
+  /** The token's contract / mint (the copy button): stored with the
+   * movement, else spelled out by its key; null for a native coin or when
+   * the coin had several. */
   contract: string | null;
   /** The coin's stored price now (asset_prices) and when it was priced —
    * only when priced after this move, so it can say how far the price has
@@ -339,7 +340,7 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
   const db = client ?? (await userDb());
   const { data, error } = await db
     .from("watched_movements")
-    .select("id, chain, address, snapshot_at, asset_key, price_key, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after")
+    .select("id, chain, address, snapshot_at, asset_key, price_key, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after, contract")
     .in("address", [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))])
     .order("snapshot_at", { ascending: false })
     .limit(limit);
@@ -372,7 +373,7 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
         priceUsd: num(r.price_usd),
         usdDelta: usd,
         walletShare: usd !== null && total !== null && total > 0 ? Math.abs(usd) / total : null,
-        contract: r.position_type === "token" ? contractFromKey(r.asset_key as string) : null,
+        contract: r.position_type === "token" ? ((r.contract as string | null) ?? contractFromKey(r.asset_key as string)) : null,
         nowUsd: priceIsNewer ? now!.usd : null,
         nowAt: priceIsNewer ? now!.updatedAt : null,
       },
