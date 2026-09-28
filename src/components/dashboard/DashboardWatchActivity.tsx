@@ -41,8 +41,8 @@ export function DashboardWatchActivity({
     <Panel
       title={
         <div className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <Link href={href} className="truncate hover:text-accent">
+          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
+            <Link href={href} className="whitespace-nowrap hover:text-accent">
               Wallet Watch activity
             </Link>
             <span className="text-fg-muted">·</span>
