@@ -204,12 +204,30 @@ function Amount({ payQty, usd, ticker, qty, tone }: { payQty: number | null; usd
   );
 }
 
+/** A price older than this is shown orange, with its age (owner: a value at
+ * an hour-old price read as current — Risk's WATCH at $575, really ~$313). */
+const STALE_PRICE_MS = 15 * 60 * 1000;
+
+/** The freshest price we have for a coin: the stored one, or its latest
+ * trade's own price when that's newer — with when and where it's from. */
+function freshestPrice(c: WatchCoinDay): { usd: number; at: string; from: "stored" | "last trade" } | null {
+  const t = c.trades.find((x) => x.usd !== null && x.qty > 0);
+  const trade = t ? { usd: t.usd! / t.qty, at: t.at, from: "last trade" as const } : null;
+  const stored = c.nowUsd !== null && c.nowAt ? { usd: c.nowUsd, at: c.nowAt, from: "stored" as const } : null;
+  if (!trade) return stored;
+  if (!stored) return trade;
+  return Date.parse(trade.at) > Date.parse(stored.at) ? trade : stored;
+}
+
 /** One coin's row, and its trades underneath when opened. */
 function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
   const closed = soldOut(c);
-  const holdingUsd = c.nowUsd !== null ? c.holdingQty * c.nowUsd : null;
-  const sinceEntry = c.avgEntryUsd && c.nowUsd !== null && !closed ? ((c.nowUsd - c.avgEntryUsd) / c.avgEntryUsd) * 100 : null;
+  const price = freshestPrice(c);
+  const stale = price !== null && serverNowSec * 1000 - Date.parse(price.at) > STALE_PRICE_MS;
+  const priceNote = price ? `Price ${formatPrice(price.usd)} as of ${TIME.format(new Date(price.at))} (${price.from === "last trade" ? "their last trade" : "last price refresh"})${stale ? " — stale" : ""}` : "";
+  const holdingUsd = price !== null ? c.holdingQty * price.usd : null;
+  const sinceEntry = c.avgEntryUsd && price !== null && !closed ? ((price.usd - c.avgEntryUsd) / c.avgEntryUsd) * 100 : null;
   const cols = showNames ? 8 : 7;
   return (
     <>
@@ -249,11 +267,17 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
         </td>
         <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
           {closed ? (
-            <span className="text-fg-muted">sold all</span>
+            // "sold all" only when nothing's left; a crumb under $1 says so.
+            <span className="text-fg-muted">{c.holdingQty <= 0 ? "sold all" : "dust left"}</span>
           ) : (
             <>
               {compactQty(c.holdingQty)}
-              {holdingUsd !== null && <p className="text-xs text-fg-muted">{formatUsd(holdingUsd)}</p>}
+              {holdingUsd !== null && (
+                <p className={`text-xs ${stale ? "text-warning" : "text-fg-muted"}`} title={priceNote}>
+                  {formatUsd(holdingUsd)}
+                  {stale && " ⚠"}
+                </p>
+              )}
             </>
           )}
         </td>
@@ -264,7 +288,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
               {c.realizedPct !== null && <span className="block text-xs">{formatPercent(c.realizedPct)} on what was sold</span>}
               {/* Still holding the rest: how that part is doing (what KOLScan's ROI also counts). */}
               {sinceEntry !== null && (
-                <span className={`block text-xs ${sinceEntry >= 0 ? "text-positive" : "text-negative"}`} title={`Now ${c.nowUsd !== null ? formatPrice(c.nowUsd) : "—"} vs average entry`}>
+                <span className={`block text-xs ${stale ? "text-warning" : sinceEntry >= 0 ? "text-positive" : "text-negative"}`} title={`${priceNote} vs average entry`}>
                   rest {formatPercent(sinceEntry)} since entry
                 </span>
               )}
@@ -275,7 +299,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
             <span className="text-fg-muted">
               open
               {sinceEntry !== null && (
-                <span className={`block text-xs ${sinceEntry >= 0 ? "text-positive" : "text-negative"}`} title={`Now ${c.nowUsd !== null ? formatPrice(c.nowUsd) : "—"} vs average entry`}>
+                <span className={`block text-xs ${stale ? "text-warning" : sinceEntry >= 0 ? "text-positive" : "text-negative"}`} title={`${priceNote} vs average entry`}>
                   {formatPercent(sinceEntry)} since entry
                 </span>
               )}
