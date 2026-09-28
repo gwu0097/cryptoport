@@ -515,3 +515,81 @@ day's lines (same coins, same direction).
 - Shipped before a full check ran end to end (owner: still in dev). Gate
   still open: the first real checks vs Solscan/Etherscan for three
   wallets, and the next morning's read confirming the day's lines.
+
+## Phase 5 — Live activity via Helius webhooks (plan, 2026-09-28)
+
+### Goal
+
+A watched wallet's trades appear in its activity within seconds, without
+anyone pressing Refresh activity and without polling — for the wallets the
+owner chooses (start: the **Swing traders** group). Owner, 2026-09-28: "I
+don't want to burn my tokens trying to constantly refresh."
+
+### How others do it
+
+KOLScan, GMGN and Cielo index every swap on the big DEX programs from their
+own nodes / Geyser (gRPC) streams and filter by wallet — too big for us.
+Per-wallet push is the right scale here: a Solana node or provider tells us
+when a watched address is in a transaction. Options: RPC WebSocket
+`logsSubscribe` (needs an always-on process — Vercel can't hold one),
+Geyser/LaserStream (paid, ~$50–500+/month), or **Helius webhooks**: Helius
+POSTs each transaction touching the listed addresses to our route. Chosen:
+webhooks — no extra server, and they fit Vercel.
+
+### Costs (checked 2026-09-28, Helius docs + the owner's dashboard)
+
+- **1 credit per delivered transaction**; **100 credits per webhook
+  create/edit/delete**. Available on the free plan (0 used this cycle).
+- Swing traders: a few transactions a day each → ~150–300 credits a month
+  for the group. A busy meme wallet (Hash): 100–300 a day incl. spam →
+  3,000–9,000 a month — why live is opt-in per group, not everyone.
+- Supabase: each delivery = one read + one write of the address's
+  `tx_activity` (~2 requests); swing wallets → a few dozen a day. Budget
+  it (CLAUDE.md §5) before turning live on for meme wallets.
+- No Enhanced Transactions (100 credits): the **raw** webhook carries
+  pre/post balances, reduced by our own code.
+
+### Design
+
+- **One webhook** (type `raw`, network mainnet) for every address in a
+  live group, owned by the app: `webhookSync.ts` creates it the first time
+  and edits its address list when a live group's membership changes (100
+  credits per change; changes batched — one edit per save).
+- **Route** `POST /api/wallet-watch/webhook`: checks Helius's
+  `Authorization` header against `HELIUS_WEBHOOK_SECRET` (set on the
+  webhook; the route rejects anything else), then for each transaction:
+  reduce to `RawChange`s from `meta.preTokenBalances/postTokenBalances`
+  and `preBalances/postBalances` for the watched owner (the same net-change
+  rule as `readSolana`, fee added back), identify coins, and append legs to
+  that address's `tx_activity` (`appendLegs` — deduped by transaction, so
+  Helius's retries and duplicates are harmless). The cursor moves forward
+  too, so a manual check never re-reads what the webhook saved.
+- **Opt-in per group**: a "Live" switch on a Wallet Watch group
+  (`watch_groups.live boolean`). The webhook's address list = addresses of
+  influencers in any live group, across users (shared rows, like reads).
+- **Display**: the activity panel says "live" for those wallets and shows
+  new lines on the next page load or refresh (Supabase Realtime push to
+  the open page is a later step — it adds its own request budget).
+
+### What fails and how it shows
+
+Webhook down or disabled by Helius (it auto-disables failing endpoints on
+paid plans): the panel's "last delivery" time goes stale and Refresh
+activity still works (same legs, same cursor). A bad signature: 401, logged.
+A transaction for an address no longer live: ignored. Our route erroring:
+Helius retries; duplicates dedupe.
+
+### Data / SQL
+
+- `watch_groups.live boolean not null default false`.
+- `watched_addresses.live_last_event_at timestamptz` (staleness caption).
+- Env: `HELIUS_WEBHOOK_SECRET` (and the webhook id is stored in a
+  one-row `app_settings`-style table or env `HELIUS_WEBHOOK_ID`).
+
+### Gate
+
+Unit tests for the raw-transaction reduction (a pump.fun buy, a sell, a
+transfer, a failed transaction, a duplicate delivery). Then turn Live on
+for Swing traders only; for two days compare every delivered trade with
+KOLScan/Solscan and with Refresh activity (same lines), and read the
+Helius dashboard's event count against the estimate.
