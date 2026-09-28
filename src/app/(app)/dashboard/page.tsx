@@ -273,7 +273,7 @@ export default async function DashboardPage({
         <DashboardWatchActivity
           movements={watch.movements}
           groups={watch.groups}
-          groupsOf={watch.groupsOf}
+          influencers={watch.influencers}
           serverNowSec={requestNowSec()}
         />
       )}
@@ -289,7 +289,7 @@ async function loadWatchActivity() {
   return {
     hasInfluencers: influencers.length > 0,
     groups,
-    groupsOf: Object.fromEntries(influencers.map((i) => [i.id, i.groupIds])),
+    influencers,
     movements,
   };
 }
