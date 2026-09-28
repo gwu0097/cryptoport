@@ -7,8 +7,8 @@ import { RefreshCw } from "lucide-react";
 import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import type { CoinTrade } from "@/lib/watchActivity";
 import { foldSoldOut, soldOut } from "@/lib/activityFold";
-import { ACTIVITY_CHANNEL, ACTIVITY_EVENT, LIVE_REFETCH_MS } from "@/lib/liveChannel";
-import { browserSupabase } from "@/lib/supabaseBrowser";
+import { LIVE_REFETCH_MS } from "@/lib/liveChannel";
+import { onLiveActivity } from "@/lib/liveListener";
 import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { SortableHeader } from "@/components/ui/SortableHeader";
@@ -68,20 +68,12 @@ function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly
       hiddenAt = null;
       if (pending || away) schedule();
     };
-    let dropped = false;
-    const supabase = browserSupabase();
-    const channel = supabase
-      .channel(ACTIVITY_CHANNEL)
-      .on("broadcast", { event: ACTIVITY_EVENT }, schedule)
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED" && dropped) schedule();
-        if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") dropped = true;
-      });
+    const unsubscribe = onLiveActivity(schedule); // the tab's one shared channel
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
-      void supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [live, key]);
   return fresh;

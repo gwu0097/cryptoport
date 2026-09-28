@@ -112,8 +112,11 @@ owner's.
   Open pages update by themselves: after a delivery adds a new line, the
   receiver sends one empty Supabase Realtime broadcast (`liveBroadcast.ts`,
   channel in `liveChannel.ts`); an activity panel showing a live influencer
-  listens (`DayActivity` `useLiveDay`, the only browser Supabase client,
-  `supabaseBrowser.ts`) and fetches just its lines from `api/wallet-watch/day`
+  listens (`DayActivity` `useLiveDay` → `liveListener.ts`, one shared
+  channel per tab kept open for its life — a channel per panel, removed and
+  re-joined on navigation, silently stopped receiving; the only browser
+  Supabase client is `supabaseBrowser.ts`; a hidden tab, including a macOS
+  window fully covered by others, fetches once when shown) and fetches just its lines from `api/wallet-watch/day`
   (~4 requests) — at most once a minute, only while the tab is visible.
   No polling; panels without live influencers don't listen.
   **Trading record** (an influencer's page, Solana addresses only): "Load
