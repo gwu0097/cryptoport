@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import type { Attribution, AttributionWindow, WalletAttribution } from "@/lib/analytics/attribution";
 import { Dialog } from "@/components/ui/Dialog";
 import { useLazyDialog } from "@/components/ui/useLazyDialog";
@@ -124,43 +126,70 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: Wallet
   );
 }
 
-/** Biggest price contributors one way, bars scaled to the largest of all. */
-function Movers({ title, rows, rest, scale }: { title: string; rows: Attribution["contributions"]; rest: { count: number; usd: number }; scale: number }) {
+function MoverRow({ c, scale }: { c: Attribution["contributions"][number]; scale: number }) {
+  return (
+    <li className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-sm">
+      <span className="truncate font-medium text-fg" title={c.ticker}>
+        {c.ticker}
+      </span>
+      <span className="h-2 rounded-full bg-surface-raised">
+        <span
+          className={`block h-2 rounded-full ${c.usd >= 0 ? "bg-positive/70" : "bg-negative/70"}`}
+          style={{ width: `${Math.max(2, (Math.abs(c.usd) / scale) * 100)}%` }}
+        />
+      </span>
+      <span className="text-right tabular-nums">
+        <span className={tone(c.usd)}>{formatUsdSigned(c.usd)}</span> <span className="text-xs text-fg-muted">({formatPercent(c.changePct)})</span>
+      </span>
+    </li>
+  );
+}
+
+/** Price contributors one way: the biggest TOP, then the rest behind a
+ * toggle in a scrolling list — so the two sides add up to "From price
+ * moves" (on a broad red day most of it is the long tail). Bars are scaled
+ * to the largest of all. */
+function Movers({ title, rows, scale }: { title: string; rows: Attribution["contributions"]; scale: number }) {
+  const [open, setOpen] = useState(false);
+  const top = rows.slice(0, TOP);
+  const rest = rows.slice(TOP);
+  const restUsd = rest.reduce((s, c) => s + c.usd, 0);
   return (
     <div>
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">{title}</p>
       {rows.length === 0 ? (
         <p className="text-sm text-fg-muted">None</p>
       ) : (
-        <ul className="space-y-1.5">
-          {rows.map((c) => (
-            <li key={c.key} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-sm">
-              <span className="truncate font-medium text-fg" title={c.ticker}>
-                {c.ticker}
-              </span>
-              <span className="h-2 rounded-full bg-surface-raised">
-                <span
-                  className={`block h-2 rounded-full ${c.usd >= 0 ? "bg-positive/70" : "bg-negative/70"}`}
-                  style={{ width: `${Math.max(2, (Math.abs(c.usd) / scale) * 100)}%` }}
-                />
-              </span>
-              <span className="text-right tabular-nums">
-                <span className={tone(c.usd)}>{formatUsdSigned(c.usd)}</span>{" "}
-                <span className="text-xs text-fg-muted">({formatPercent(c.changePct)})</span>
-              </span>
-            </li>
-          ))}
-          {/* The rest of that side, so the two lists add up to "From price
-              moves" — on a broad red day most of it is the long tail. */}
-          {rest.count > 0 && (
-            <li className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-sm text-fg-muted">
-              <span className="col-span-2">
-                + {rest.count} more coin{rest.count === 1 ? "" : "s"}
-              </span>
-              <span className={`text-right tabular-nums ${tone(rest.usd)}`}>{formatUsdSigned(rest.usd)}</span>
-            </li>
+        <>
+          <ul className="space-y-1.5">
+            {top.map((c) => (
+              <MoverRow key={c.key} c={c} scale={scale} />
+            ))}
+          </ul>
+          {rest.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                aria-expanded={open}
+                className="mt-1.5 grid w-full grid-cols-[4.5rem_1fr_auto] items-center gap-2 rounded text-left text-sm text-fg-muted hover:text-fg"
+              >
+                <span className="col-span-2 inline-flex items-center gap-1">
+                  <ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+                  {open ? "Hide" : "+"} {rest.length} more coin{rest.length === 1 ? "" : "s"}
+                </span>
+                <span className={`text-right tabular-nums ${tone(restUsd)}`}>{formatUsdSigned(restUsd)}</span>
+              </button>
+              {open && (
+                <ul className="mt-1.5 max-h-72 space-y-1.5 overflow-y-auto overscroll-contain border-t border-border/60 pr-1 pt-1.5">
+                  {rest.map((c) => (
+                    <MoverRow key={c.key} c={c} scale={scale} />
+                  ))}
+                </ul>
+              )}
+            </>
           )}
-        </ul>
+        </>
       )}
     </div>
   );
@@ -183,12 +212,9 @@ export function AttributionPanel({
   const a = byWindow[window] ?? byWindow["7d"];
   const allGains = a.contributions.filter((c) => c.usd > 0);
   const allDrags = a.contributions.filter((c) => c.usd < 0);
-  const gains = allGains.slice(0, TOP);
-  const drags = allDrags.slice(0, TOP);
-  const restOf = (all: typeof allGains) => ({ count: all.length - TOP, usd: all.slice(TOP).reduce((s, c) => s + c.usd, 0) });
   // Whatever of the price figure isn't in a listed coin (should be ~0).
   const unlisted = a.priceUsd - a.contributions.reduce((s, c) => s + c.usd, 0);
-  const scale = Math.max(1, ...[...gains, ...drags].map((c) => Math.abs(c.usd)));
+  const scale = Math.max(1, ...[...allGains.slice(0, TOP), ...allDrags.slice(0, TOP)].map((c) => Math.abs(c.usd)));
 
   return (
     <Panel
@@ -219,8 +245,8 @@ export function AttributionPanel({
         />
       </div>
       <div className="mt-5 grid gap-6 md:grid-cols-2">
-        <Movers title="Biggest gains from price" rows={gains} rest={restOf(allGains)} scale={scale} />
-        <Movers title="Biggest losses from price" rows={drags} rest={restOf(allDrags)} scale={scale} />
+        <Movers key={`gains-${window}`} title="Biggest gains from price" rows={allGains} scale={scale} />
+        <Movers key={`drags-${window}`} title="Biggest losses from price" rows={allDrags} scale={scale} />
       </div>
       <p className="mt-3 text-xs text-fg-muted">
         {allGains.length + allDrags.length} coins moved on price: {allGains.length} up ({formatUsdSigned(allGains.reduce((s, c) => s + c.usd, 0))}), {allDrags.length} down (

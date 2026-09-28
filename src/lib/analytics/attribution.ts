@@ -49,6 +49,30 @@ export interface Attribution {
   unattributed: { usd: number; tickers: string[] };
 }
 
+/**
+ * One row per token for the at-a-glance view (owner decision 2026-09-28):
+ * the same ticker on several chains or under several price keys (a bridged
+ * copy) is summed; its change is the combined one (gain ÷ starting value).
+ * Wrapped tokens keep their own ticker (WETH isn't ETH). Assets keeps the
+ * per-chain detail.
+ */
+export function mergeByTicker(rows: readonly AssetContribution[]): AssetContribution[] {
+  const by = new Map<string, AssetContribution>();
+  for (const c of rows) {
+    const k = c.ticker.toUpperCase();
+    const cur = by.get(k);
+    if (cur) {
+      cur.usd += c.usd;
+      cur.valueUsd += c.valueUsd;
+    } else by.set(k, { ...c, key: `ticker:${k}` });
+  }
+  const out = [...by.values()].map((c) => {
+    const start = c.valueUsd - c.usd;
+    return { ...c, changePct: start > 0 ? (c.usd / start) * 100 : c.changePct };
+  });
+  return out.sort((a, b) => Math.abs(b.usd) - Math.abs(a.usd));
+}
+
 export function daysBefore(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - days);
@@ -81,14 +105,13 @@ export function attribute(
     }
     contributions.push({ key: a.key, ticker: a.ticker, valueUsd: a.valueUsd, changePct: pct, usd: a.valueUsd - a.valueUsd / (1 + pct / 100) });
   }
-  contributions.sort((a, b) => Math.abs(b.usd) - Math.abs(a.usd));
   const priceUsd = contributions.reduce((s, c) => s + c.usd, 0);
 
   const baseDate = daysBefore(today, WINDOW_DAYS[window]);
   const snap = snapshots.find((s) => s.date === baseDate);
   const base = snap ? { date: snap.date, totalUsd: snap.total } : null;
   const actualUsd = base ? liveTotalUsd - base.totalUsd : null;
-  return { window, base, actualUsd, priceUsd, otherUsd: actualUsd === null ? null : actualUsd - priceUsd, contributions, unattributed };
+  return { window, base, actualUsd, priceUsd, otherUsd: actualUsd === null ? null : actualUsd - priceUsd, contributions: mergeByTicker(contributions), unattributed };
 }
 
 export interface WalletAttributionInput {

@@ -36,7 +36,10 @@ owner's.
   that snapshot, written by `snapshots.ts` via `exactAttribution.ts`
   `walletComposition` — so price effect = quantity then × (price now − price
   then) and the rest is named per coin; otherwise estimated from
-  `asset_prices` 24h/7d/30d changes and labeled so), its risk (`risk.ts`: today's holdings over the last 90 days with
+  `asset_prices` 24h/7d/30d changes and labeled so; one row per ticker —
+  the same token on several chains summed, `mergeByTicker` — with the top 6
+  each way and the rest behind a toggle, so the lists add up to the price
+  figure), its risk (`risk.ts`: today's holdings over the last 90 days with
   daily prices, benchmarked to BTC's history; an asset without enough history
   is named as not modeled) and each holding's context (`holdingContext.ts`:
   fixed-threshold flags — observations, not advice).

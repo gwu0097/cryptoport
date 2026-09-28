@@ -2,7 +2,7 @@ import "server-only";
 import { getActiveWalletsWithHoldings, getAssetsGroupedByTicker, getAssetStatsMap, getPriceMap, getValueHistory } from "./queries";
 import { getPriceHistoryMap } from "./priceHistory";
 import { requestNowSec } from "./requestClock";
-import { attribute, attributeByWallet, daysBefore, WINDOW_DAYS, type Attribution, type AttributionWindow, type WalletAttribution, type WalletAttributionInput } from "./analytics/attribution.ts";
+import { attribute, attributeByWallet, daysBefore, mergeByTicker, WINDOW_DAYS, type Attribution, type AttributionWindow, type WalletAttribution, type WalletAttributionInput } from "./analytics/attribution.ts";
 import { userDb } from "./supabase";
 import { parseNumeric, valueHolding } from "./valuation";
 import { riskProfile, type RiskProfile } from "./analytics/risk.ts";
@@ -147,10 +147,9 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     a.exact = true;
     a.priceUsd = price;
     a.otherUsd = actual - price;
-    a.contributions = [...byCoin]
-      .filter(([, c]) => Math.abs(c.usd) >= 0.01)
-      .map(([key, c]) => ({ key, ticker: tickerOf.get(key) ?? key, valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd }))
-      .sort((x, y) => Math.abs(y.usd) - Math.abs(x.usd));
+    a.contributions = mergeByTicker(
+      [...byCoin].map(([key, c]) => ({ key, ticker: tickerOf.get(key) ?? key, valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd })),
+    ).filter((c) => Math.abs(c.usd) >= 0.01);
   });
 
   const risk = riskProfile(
