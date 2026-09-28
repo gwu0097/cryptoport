@@ -22,6 +22,8 @@ import { CopyButton } from "@/components/CopyButton";
  * a minute, and only while the tab is visible (a hidden tab catches up once
  * when shown). Nothing polls; without live influencers nothing listens.
  */
+const CATCH_UP_AFTER_HIDDEN_MS = 30_000;
+
 function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
   const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
   // A new server render (navigation, router.refresh) supersedes what was fetched.
@@ -52,11 +54,28 @@ function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly
         void fetchNow();
       }, Math.max(0, last + LIVE_REFETCH_MS - Date.now()));
     };
+    // A background tab can lose its connection without a word (Chrome
+    // throttles hidden tabs): coming back after a while, or reconnecting,
+    // catches up once instead of trusting that nothing was missed.
+    let hiddenAt: number | null = null;
     const onVisible = () => {
-      if (document.visibilityState === "visible" && pending) schedule();
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt !== null && Date.now() - hiddenAt > CATCH_UP_AFTER_HIDDEN_MS;
+      hiddenAt = null;
+      if (pending || away) schedule();
     };
+    let dropped = false;
     const supabase = browserSupabase();
-    const channel = supabase.channel(ACTIVITY_CHANNEL).on("broadcast", { event: ACTIVITY_EVENT }, schedule).subscribe();
+    const channel = supabase
+      .channel(ACTIVITY_CHANNEL)
+      .on("broadcast", { event: ACTIVITY_EVENT }, schedule)
+      .subscribe((status: string) => {
+        if (status === "SUBSCRIBED" && dropped) schedule();
+        if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") dropped = true;
+      });
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (timer) clearTimeout(timer);
