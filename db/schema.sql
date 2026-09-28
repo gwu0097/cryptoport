@@ -2481,6 +2481,9 @@ alter table cryptoport.watched_addresses
   add column if not exists live               boolean not null default false,
   add column if not exists live_since         timestamptz,
   add column if not exists live_last_event_at timestamptz;
+-- Compare-and-set version for tx_activity writes (txActivityStore.ts).
+alter table cryptoport.watched_addresses
+  add column if not exists tx_version integer not null default 0;
 create table if not exists cryptoport.app_settings (
   key        text primary key,
   value      jsonb not null,

@@ -4,10 +4,11 @@ import { withPriceKeys } from "./adapters/assetKeys";
 import { ensureAssetPrices } from "./adapters/assetPrices";
 import { ALCHEMY_HOSTS } from "./adapters/alchemy";
 import { mapWithConcurrency } from "./adapters/http";
+import { appendActivity } from "./txActivityStore";
 import { evmCheckable, INTERNAL_TRANSFER_CHAINS, MAX_PAGES, readBitcoin, readEvmChain, readSolana, type SourceRead } from "./adapters/watchActivitySources";
-import { appendLegs, CASH_KEYS, toLegs, type ActivityBase, type ActivityLeg, type LegIdentity, type RawChange, type TxActivity } from "./watchActivity";
+import { CASH_KEYS, toLegs, type ActivityBase, type ActivityLeg, type LegIdentity, type RawChange, type TxActivity } from "./watchActivity";
 import { assetStates, contractKeys } from "./watchDiff";
-import { isInProgressStatus } from "./jobStatus";
+import { deriveJobStatus } from "./jobStatus";
 import { parseNumeric } from "./valuation";
 import type { AssetStats } from "./queries";
 import type { WatchSnapshot } from "./watchSnapshot";
@@ -39,6 +40,7 @@ export interface CheckRow {
   tx_checked_at: string | null;
   last_refresh_at: string | null;
   refresh_status: string | null;
+  refresh_started_at: string | null;
   live: boolean | null;
   live_since: string | null;
 }
@@ -58,7 +60,7 @@ export async function claimActivityCheck(keys: readonly { chain: string; address
   const wanted = new Set(keys.map((k) => `${k.chain}|${k.address}`));
   const { data, error } = await db
     .from("watched_addresses")
-    .select("chain, address, snapshot, tx_activity, tx_cursor, tx_checked_at, last_refresh_at, refresh_status, live, live_since")
+    .select("chain, address, snapshot, tx_activity, tx_cursor, tx_checked_at, last_refresh_at, refresh_status, refresh_started_at, live, live_since")
     .in("address", [...new Set(keys.map((k) => k.address))]);
   if (error) throw new Error(`Failed to load addresses: ${error.message}`);
   const rows = (data as CheckRow[]).filter((r) => wanted.has(`${r.chain}|${r.address}`));
@@ -67,7 +69,9 @@ export async function claimActivityCheck(keys: readonly { chain: string; address
   for (const r of rows) {
     const checkedAgo = r.tx_checked_at ? nowMs - Date.parse(r.tx_checked_at) : Infinity;
     if (!r.snapshot || !r.last_refresh_at) skipped.push({ chain: r.chain, address: r.address, ok: false, status: "not read yet" });
-    else if (isInProgressStatus(r.refresh_status)) skipped.push({ chain: r.chain, address: r.address, ok: true, status: "being read now" });
+    // Only a read that's really running: one past the job time limit died
+    // (Risk's stayed "syncing" for 5 hours on 2026-09-28 and was never checked).
+    else if (deriveJobStatus({ status: r.refresh_status, started_at: r.refresh_started_at }, nowMs).running) skipped.push({ chain: r.chain, address: r.address, ok: true, status: "being read now" });
     else if (checkedAgo < CHECK_REUSE_MS) skipped.push({ chain: r.chain, address: r.address, ok: true, status: `reused — checked ${Math.max(1, Math.round(checkedAgo / 60000))}m ago` });
     else candidates.push(r);
   }
@@ -130,11 +134,13 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
       const s = states.get(l.assetKey);
       base[l.assetKey] = { qty: s?.qty ?? 0, kept: s?.kept ?? false };
     }
-    const activity = appendLegs(row.tx_activity, boundary, legs, base);
-    const added = activity.legs.length - (row.tx_activity?.boundary === boundary ? row.tx_activity.legs.length : 0);
-    // Live wallets (phase 5): swaps since it went live that the webhook hadn't saved.
+    // Trades the webhook should have saved on a live wallet (counted per
+    // transaction, since it went live): the running discrepancy check.
     const liveSince = row.live && row.live_since ? Date.parse(row.live_since) : null;
-    const missed = liveSince === null ? 0 : activity.legs.slice(activity.legs.length - added).filter((l) => l.kind === "swap" && Date.parse(l.at) >= liveSince).length;
+    const known = new Set((row.tx_activity?.legs ?? []).map((l) => `${l.txId}|${l.assetKey}`));
+    const missed = liveSince === null ? 0 : new Set(legs.filter((l) => l.kind === "swap" && Date.parse(l.at) >= liveSince && !known.has(`${l.txId}|${l.assetKey}`)).map((l) => l.txId)).size;
+    const added = await appendActivity(row.chain, row.address, row.last_refresh_at!, boundary, legs, base, { tx_cursor: cursor });
+    if (added === null) return outcome(true, "a full read finished meanwhile — check again");
     const notes = [
       added > 0 ? `${added} new coin move${added === 1 ? "" : "s"}` : "nothing new",
       liveSince !== null ? `webhook missed ${missed}` : "",
@@ -143,16 +149,8 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
       notChecked.filter((c) => !VENUES.has(c)).length > 0 ? `no source for ${notChecked.filter((c) => !VENUES.has(c)).join(", ")}` : "",
     ].filter(Boolean);
     const status = notes.join(" · ");
-    // Only onto the same read: a full read that finished meanwhile moved the day.
-    const { data: saved, error } = await db
-      .from("watched_addresses")
-      .update({ tx_activity: activity, tx_cursor: cursor, tx_check_status: status })
-      .eq("chain", row.chain)
-      .eq("address", row.address)
-      .eq("last_refresh_at", row.last_refresh_at!)
-      .select("chain");
+    const { error } = await db.from("watched_addresses").update({ tx_check_status: status }).eq("chain", row.chain).eq("address", row.address);
     if (error) throw new Error(error.message);
-    if (!saved || saved.length === 0) return outcome(true, "a full read finished meanwhile — check again");
     return outcome(failed.length < sources.length || sources.length === 0, status);
   } catch (e) {
     const status = `error: ${(e as Error).message}`;

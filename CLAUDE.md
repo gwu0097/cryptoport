@@ -99,7 +99,11 @@ owner's.
   `HELIUS_WEBHOOK_SECRET` Authorization header). `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
   spam that only arrives is dropped before any request (`worthSaving`); legs
-  are appended to `tx_activity` tagged `source: "webhook"` without moving
+  are appended to `tx_activity` tagged `source: "webhook"` — every write of
+  `tx_activity` (webhook, Refresh activity, the morning read's trim) goes
+  through `txActivityStore.ts`, a compare-and-set on `tx_version` with retry;
+  a read-modify-write lost trades when two deliveries landed in the same
+  second (Risk, 2026-09-28) — without moving
   the cursor, so Refresh activity still reads the history and reports
   "webhook missed N" for live wallets (the running discrepancy check).
   Turning it on only works from the deployed site (Helius needs a public URL).

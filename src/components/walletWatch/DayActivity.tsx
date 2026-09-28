@@ -244,9 +244,15 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
         </td>
         <td className={`${tdClass} tabular-nums`}>
           {c.realizedUsd !== null ? (
-            <span className={c.realizedUsd >= 0 ? "text-positive" : "text-negative"} title="Result of what was bought and sold today">
+            <span className={c.realizedUsd >= 0 ? "text-positive" : "text-negative"} title="Result of the part bought and sold today">
               {formatUsdSigned(c.realizedUsd)}
-              {c.realizedPct !== null && <span className="block text-xs">{formatPercent(c.realizedPct)}</span>}
+              {c.realizedPct !== null && <span className="block text-xs">{formatPercent(c.realizedPct)} on what was sold</span>}
+              {/* Still holding the rest: how that part is doing (what KOLScan's ROI also counts). */}
+              {sinceEntry !== null && (
+                <span className={`block text-xs ${sinceEntry >= 0 ? "text-positive" : "text-negative"}`} title={`Now ${c.nowUsd !== null ? formatPrice(c.nowUsd) : "—"} vs average entry`}>
+                  rest {formatPercent(sinceEntry)} since entry
+                </span>
+              )}
             </span>
           ) : c.soldShareOfPosition !== null ? (
             <span className="text-negative">sold {Math.round(c.soldShareOfPosition * 100)}% of position</span>

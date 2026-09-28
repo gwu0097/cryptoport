@@ -3,7 +3,8 @@ import { serviceDb } from "./supabase";
 import { readAssetPrices } from "./adapters/assetPrices";
 import { identifyLegs } from "./watchActivityCheck";
 import { broadcastActivity } from "./liveBroadcast";
-import { appendLegs, type ActivityBase, type TxActivity } from "./watchActivity";
+import { type ActivityBase, type TxActivity } from "./watchActivity";
+import { appendActivity } from "./txActivityStore";
 import { accountKeys, rawTxChanges, worthSaving, type RawWebhookTx } from "./webhookTx";
 import { assetStates } from "./watchDiff";
 import type { WatchSnapshot } from "./watchSnapshot";
@@ -44,6 +45,7 @@ export async function saveDelivery(txs: readonly RawWebhookTx[]): Promise<Delive
   const perOwner = new Map<string, ReturnType<typeof rawTxChanges>>();
   let skipped = 0;
   for (const tx of txs) {
+    if (!tx || typeof tx !== "object" || !tx.transaction) continue; // not a transaction: nothing to read
     const owners = new Set(accountKeys(tx).filter((k) => live.has(k)));
     for (const b of [...(tx.meta?.preTokenBalances ?? []), ...(tx.meta?.postTokenBalances ?? [])]) if (b.owner && live.has(b.owner)) owners.add(b.owner);
     for (const owner of owners) {
@@ -69,17 +71,9 @@ export async function saveDelivery(txs: readonly RawWebhookTx[]): Promise<Delive
     const states = assetStates(row.snapshot);
     const base: Record<string, ActivityBase> = {};
     for (const l of legs) base[l.assetKey] = { qty: states.get(l.assetKey)?.qty ?? 0, kept: states.get(l.assetKey)?.kept ?? false };
-    const activity = appendLegs(row.tx_activity, boundary, legs, base);
-    // Only onto the same read (a full read that finished meanwhile moved the day).
-    const { error: saveError } = await db
-      .from("watched_addresses")
-      .update({ tx_activity: activity, live_last_event_at: now })
-      .eq("chain", "SOL")
-      .eq("address", row.address)
-      .eq("last_refresh_at", row.last_refresh_at);
-    if (saveError) throw new Error(saveError.message);
-    // Only what's new (a duplicate delivery, or a trade Refresh already saved, adds nothing).
-    saved += activity.legs.length - (row.tx_activity?.boundary === boundary ? row.tx_activity.legs.length : 0);
+    // Compare-and-set (txActivityStore.ts): two deliveries in the same second
+    // no longer overwrite each other. Only new legs count (a duplicate adds none).
+    saved += (await appendActivity("SOL", row.address, row.last_refresh_at, boundary, legs, base, { live_last_event_at: now })) ?? 0;
   }
   if (saved > 0) await broadcastActivity(); // new lines: open pages fetch theirs (one request)
   return { transactions: txs.length, saved, skipped };
