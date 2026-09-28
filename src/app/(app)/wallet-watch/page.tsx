@@ -87,7 +87,7 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
         className="mb-4"
       >
         <DayActivity
-          lines={day.lines}
+          coins={day.coins}
           checkedAt={Object.values(day.checkedAt).sort().at(-1) ?? null}
           issues={day.issues}
           liveIds={day.liveIds}

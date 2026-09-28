@@ -326,3 +326,136 @@ export function dayLines(activities: readonly TxActivity[], ownAddresses: Readon
   }
   return out.sort((x, y) => y.lastAt.localeCompare(x.lastAt));
 }
+
+/** One trade of a coin within the day: a buy or sale (with what was paid or
+ * received — SOL, USDC, ETH — from the same transaction), or a plain transfer. */
+export interface CoinTrade {
+  txId: string;
+  at: string;
+  side: "buy" | "sell" | "received" | "sent";
+  qty: number;
+  /** The cash side of a swap: amount and ticker; null for a transfer or a
+   * coin-for-coin swap. */
+  payQty: number | null;
+  payTicker: string | null;
+  /** The trade's value at its own price; null when it can't be sized. */
+  usd: number | null;
+  source: "webhook" | "check";
+}
+
+/** A coin's day, like a trading app's per-token card (owner 2026-09-28:
+ * "on kolscan it shows 1 buy 1 sell, multiple buys and a sell"): every trade,
+ * the totals, what's still held, and what the sold part made. Cash coins
+ * (SOL, USDC, ETH) aren't coins here — they're the payment side of trades. */
+export interface CoinDay {
+  assetKey: string;
+  ticker: string;
+  contract: string | null;
+  contractChain: string | null;
+  priceKey: string | null;
+  /** Newest first. */
+  trades: CoinTrade[];
+  buys: number;
+  sells: number;
+  boughtQty: number;
+  soldQty: number;
+  boughtUsd: number | null;
+  soldUsd: number | null;
+  /** SOL/USDC spent and received, when every trade was paid in one of them. */
+  boughtPay: number | null;
+  soldPay: number | null;
+  payTicker: string | null;
+  /** What was held at the morning read and what's held now (morning + today). */
+  heldBefore: number;
+  holdingQty: number;
+  /** For the part sold that was also bought today: proceeds minus its cost,
+   * and that as a %. Null when nothing bought today was sold. */
+  realizedUsd: number | null;
+  realizedPct: number | null;
+  /** Some of what was sold was held before today (its cost isn't known here). */
+  soldFromEarlier: boolean;
+  firstAt: string;
+  lastAt: string;
+  firstCheckedAt: string;
+}
+
+/** Per coin, one influencer's day (its addresses' legs since each boundary);
+ * transfers between its own addresses cancel out, cash coins are left out,
+ * and a coin needs at least MOVE_MIN_USD of trading to show. */
+export function coinDays(activities: readonly TxActivity[], ownAddresses: ReadonlySet<string>): CoinDay[] {
+  const own = new Set([...ownAddresses].map((a) => a.toLowerCase()));
+  const base = new Map<string, number>();
+  const legsByTx = new Map<string, ActivityLeg[]>();
+  const coinLegs = new Map<string, ActivityLeg[]>();
+  for (const a of activities) {
+    for (const [k, b] of Object.entries(a.base)) base.set(k, (base.get(k) ?? 0) + b.qty);
+    const since = Date.parse(a.boundary);
+    for (const l of a.legs) {
+      if (Date.parse(l.at) < since) continue;
+      legsByTx.set(l.txId, [...(legsByTx.get(l.txId) ?? []), l]);
+      if (l.priceKey && CASH_KEYS.has(l.priceKey)) continue;
+      if (l.kind === "transfer" && l.counterparty && own.has(l.counterparty.toLowerCase())) continue;
+      coinLegs.set(l.assetKey, [...(coinLegs.get(l.assetKey) ?? []), l]);
+    }
+  }
+  const out: CoinDay[] = [];
+  for (const [key, legs] of coinLegs) {
+    const trades: CoinTrade[] = legs.map((l) => {
+      const cash = (legsByTx.get(l.txId) ?? []).find((o) => o !== l && o.priceKey && CASH_KEYS.has(o.priceKey) && Math.sign(o.qtyDelta) !== Math.sign(l.qtyDelta));
+      const side: CoinTrade["side"] = l.kind === "swap" ? (l.qtyDelta > 0 ? "buy" : "sell") : l.qtyDelta > 0 ? "received" : "sent";
+      return {
+        txId: l.txId,
+        at: l.at,
+        side,
+        qty: Math.abs(l.qtyDelta),
+        payQty: cash ? Math.abs(cash.qtyDelta) : null,
+        payTicker: cash ? cash.ticker : null,
+        usd: l.priceUsd !== null ? Math.abs(l.qtyDelta) * l.priceUsd : null,
+        source: l.source ?? "check",
+      };
+    });
+    trades.sort((a, b) => b.at.localeCompare(a.at));
+    const buys = trades.filter((t) => t.side === "buy");
+    const sells = trades.filter((t) => t.side === "sell");
+    const sum = (ts: CoinTrade[], f: (t: CoinTrade) => number | null) => (ts.length === 0 ? 0 : ts.every((t) => f(t) !== null) ? ts.reduce((s, t) => s + f(t)!, 0) : null);
+    const boughtQty = buys.reduce((s, t) => s + t.qty, 0);
+    const soldQty = sells.reduce((s, t) => s + t.qty, 0);
+    const boughtUsd = sum(buys, (t) => t.usd);
+    const soldUsd = sum(sells, (t) => t.usd);
+    const payTickers = new Set([...buys, ...sells].map((t) => t.payTicker));
+    const onePay = payTickers.size === 1 && !payTickers.has(null) ? [...payTickers][0] : null;
+    const heldBefore = base.get(key) ?? 0;
+    // What sold today that was also bought today (the rest came from earlier holdings).
+    const matched = Math.min(boughtQty, soldQty);
+    const realizedUsd = matched > 0 && boughtUsd !== null && soldUsd !== null && boughtQty > 0 && soldQty > 0 ? matched * (soldUsd / soldQty - boughtUsd / boughtQty) : null;
+    const size = Math.max(boughtUsd ?? 0, soldUsd ?? 0, ...trades.map((t) => t.usd ?? 0));
+    if (size < MOVE_MIN_USD) continue;
+    const first = legs.reduce((a, l) => (l.at < a.at ? l : a));
+    out.push({
+      assetKey: key,
+      ticker: first.ticker,
+      contract: legs.map((l) => l.contract ?? contractFromKey(l.assetKey)).find((c): c is string => !!c) ?? null,
+      contractChain: legs.find((l) => l.contract ?? contractFromKey(l.assetKey))?.sourceChain ?? null,
+      priceKey: first.priceKey,
+      trades,
+      buys: buys.length,
+      sells: sells.length,
+      boughtQty,
+      soldQty,
+      boughtUsd,
+      soldUsd,
+      boughtPay: onePay ? buys.reduce((s, t) => s + (t.payQty ?? 0), 0) : null,
+      soldPay: onePay ? sells.reduce((s, t) => s + (t.payQty ?? 0), 0) : null,
+      payTicker: onePay,
+      heldBefore,
+      holdingQty: Math.max(0, heldBefore + legs.reduce((s, l) => s + l.qtyDelta, 0)),
+      realizedUsd,
+      realizedPct: realizedUsd !== null && boughtUsd ? (realizedUsd / (matched * (boughtUsd / boughtQty))) * 100 : null,
+      soldFromEarlier: soldQty > boughtQty + 1e-9,
+      firstAt: trades.at(-1)!.at,
+      lastAt: trades[0].at,
+      firstCheckedAt: legs.map((l) => l.checkedAt).sort()[0],
+    });
+  }
+  return out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+}

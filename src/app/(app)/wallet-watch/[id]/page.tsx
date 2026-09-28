@@ -78,7 +78,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         }
         activityTop={
           <DayActivity
-            lines={day.lines}
+            coins={day.coins}
             checkedAt={day.checkedAt[influencer.id] ?? null}
             issues={day.issues}
             liveIds={day.liveIds}

@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request): Promise<Response> {
   if (!(await getUser())) return Response.json({ error: "Not signed in" }, { status: 401 });
   const ids = (new URL(request.url).searchParams.get("ids") ?? "").split(",").filter(Boolean).slice(0, 25);
-  if (ids.length === 0) return Response.json({ lines: [], checkedAt: {}, issues: [], liveIds: [] });
+  if (ids.length === 0) return Response.json({ coins: [], checkedAt: {}, issues: [], liveIds: [] });
   const db = await userDb();
   const [infs, addrs] = await Promise.all([
     db.from("watch_influencers").select("id, name").in("id", ids),

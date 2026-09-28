@@ -71,7 +71,7 @@ export function DashboardWatchActivity({
       className="mb-4"
     >
       <DayActivity
-        lines={day.lines.filter((l) => ids.has(l.influencerId))}
+        coins={day.coins.filter((c) => ids.has(c.influencerId))}
         checkedAt={[...ids].map((id) => day.checkedAt[id]).filter(Boolean).sort().at(-1) ?? null}
         issues={day.issues.filter((i) => ids.has(i.influencerId))}
         liveIds={day.liveIds}

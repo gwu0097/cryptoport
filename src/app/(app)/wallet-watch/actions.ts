@@ -260,6 +260,8 @@ export async function addSharedInfluencer(token: string): Promise<WatchActionRes
  * (docs/wallet-watch/PLAN.md, phase 5). If Helius refuses, the addresses go
  * back to how they were.
  */
+const WEBHOOK_PROPAGATION_MS = 2 * 60 * 1000;
+
 export async function setInfluencerLive(influencerId: string, on: boolean): Promise<WatchActionResult> {
   await requireAdmin();
   const db = await userDb();
@@ -270,7 +272,9 @@ export async function setInfluencerLive(influencerId: string, on: boolean): Prom
   const svc = serviceDb();
   const { error: setError } = await svc
     .from("watched_addresses")
-    .update(on ? { live: true, live_since: new Date().toISOString() } : { live: false, live_since: null })
+    // live_since starts after Helius's up-to-2-minute propagation: a trade in
+    // that gap (Hash's NIBS sale, 23 s after turning on) isn't a miss.
+    .update(on ? { live: true, live_since: new Date(Date.now() + WEBHOOK_PROPAGATION_MS).toISOString() } : { live: false, live_since: null })
     .eq("chain", "SOL")
     .in("address", addresses);
   if (setError) return { ok: false, error: setError.message };

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendLegs, contractFromKey, dayLines, toLegs, trimToBoundary, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity.ts";
+import { appendLegs, coinDays, contractFromKey, dayLines, toLegs, trimToBoundary, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity.ts";
 
 const SOL = 120;
 const known: Record<string, { assetKey: string; priceKey: string; ticker: string }> = {
@@ -133,4 +133,35 @@ test("a net buy is priced by its latest buys, not an earlier round trip (Hash's 
   ];
   const net = dayLines([day(legs)], new Set(), () => 0.0000444).find((l) => l.kind === "new")!;
   assert.equal(net.tradePrice, 0.00005);
+});
+
+test("per coin, like a trading app: four NIBS buys and a sale, paid in SOL; SOL itself isn't a coin", () => {
+  const sol = (txId: string, qty: number, at: string) => leg({ txId, assetKey: "solana", priceKey: "solana", ticker: "SOL", qtyDelta: qty, priceUsd: 118, at });
+  const nibs = (txId: string, qty: number, price: number, at: string) => leg({ txId, assetKey: "jup:nibs", priceKey: "jup:nibs", ticker: "NIBS", qtyDelta: qty, priceUsd: price, at });
+  const legs = [
+    sol("b1", -8.08, "2026-09-28T20:51:54Z"), nibs("b1", 19_400_000, 0.0000491, "2026-09-28T20:51:54Z"),
+    sol("b2", -0.869, "2026-09-28T20:58:31Z"), nibs("b2", 2_330_000, 0.000044, "2026-09-28T20:58:31Z"),
+    sol("b3", -1.98, "2026-09-28T21:02:08Z"), nibs("b3", 6_380_000, 0.0000366, "2026-09-28T21:02:08Z"),
+    sol("b4", -0.988, "2026-09-28T21:06:01Z"), nibs("b4", 2_410_000, 0.0000484, "2026-09-28T21:06:01Z"),
+    sol("s1", 3.52, "2026-09-28T21:39:01Z"), nibs("s1", -30_520_000, 0.0000136, "2026-09-28T21:39:01Z"),
+  ];
+  const days = coinDays([day(legs)], new Set());
+  assert.deepEqual(days.map((d) => d.ticker), ["NIBS"]); // no SOL line
+  const d = days[0];
+  assert.equal(d.buys, 4);
+  assert.equal(d.sells, 1);
+  assert.equal(d.payTicker, "SOL");
+  assert.ok(Math.abs(d.boughtPay! - 11.917) < 1e-9);
+  assert.equal(d.soldPay, 3.52);
+  assert.equal(d.holdingQty, 0);
+  assert.ok(d.realizedUsd! < 0 && d.realizedPct! < -60);
+  assert.deepEqual(d.trades.map((t) => t.side), ["sell", "buy", "buy", "buy", "buy"]);
+  assert.equal(d.trades[0].payQty, 3.52);
+});
+
+test("selling morning holdings: the cost isn't known today, so no result is claimed", () => {
+  const d = coinDays([day([leg({ txId: "s", qtyDelta: -50_000, priceUsd: 0.01 })], { "jup:gem": { qty: 80_000, kept: false } })], new Set())[0];
+  assert.equal(d.realizedUsd, null);
+  assert.equal(d.soldFromEarlier, true);
+  assert.equal(d.holdingQty, 30_000);
 });

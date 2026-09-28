@@ -10,7 +10,7 @@ import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import type { Holding } from "./types";
 import { mergeSameCoin } from "./mergeHoldings";
-import { contractFromKey, dayLines, type DayLine, type TxActivity } from "./watchActivity";
+import { coinDays, contractFromKey, type CoinDay, type TxActivity } from "./watchActivity";
 import { summarizeTrading, type StoredTradingRecord, type TradingSummary } from "./tradingRecord";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
@@ -407,20 +407,20 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
   });
 }
 
-/** One line of an influencer's day from the activity check (phase 4). */
-export interface WatchDayLine extends DayLine {
-  influencerId: string;
-  influencerName: string;
-  /** The coin's stored price and when it was priced (for "now … (+x%)"). */
-  nowUsd: number | null;
-  nowAt: string | null;
-}
 
 /** What the activity check found today, per influencer: the day's lines,
  * when its addresses were last checked, and what couldn't be checked. One
  * request (the price map is the page's own, cached). */
+/** A coin's day for one influencer (watchActivity.ts coinDays). */
+export interface WatchCoinDay extends CoinDay {
+  influencerId: string;
+  influencerName: string;
+  nowUsd: number | null;
+  nowAt: string | null;
+}
+
 export interface WatchDayActivity {
-  lines: WatchDayLine[];
+  coins: WatchCoinDay[];
   checkedAt: Record<string, string>;
   issues: { influencerId: string; address: string; status: string }[];
   /** Influencers with an address on live updates (phase 5): pages showing
@@ -437,7 +437,7 @@ export async function getWatchDayActivity(
   pricesOnly = false,
 ): Promise<WatchDayActivity> {
   const addresses = [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))];
-  if (addresses.length === 0) return { lines: [], checkedAt: {}, issues: [], liveIds: [] };
+  if (addresses.length === 0) return { coins: [], checkedAt: {}, issues: [], liveIds: [] };
   const db = client ?? (await userDb());
   const [{ data, error }, fullStats] = await Promise.all([
     db.from("watched_addresses").select("chain, address, tx_activity, tx_checked_at, tx_check_status, live").in("address", addresses),
@@ -457,7 +457,7 @@ export async function getWatchDayActivity(
   }
   const priceNow = (k: string | null) => (k ? parseNumeric(stats.get(k)?.usd ?? null) : null);
   const liveIds = influencers.filter((i) => i.addresses.some((a) => rows.get(`${a.chain}|${a.address}`)?.live)).map((i) => i.id);
-  const lines: WatchDayLine[] = [];
+  const coins: WatchCoinDay[] = [];
   const checkedAt: Record<string, string> = {};
   const issues: { influencerId: string; address: string; status: string }[] = [];
   for (const i of influencers) {
@@ -466,9 +466,9 @@ export async function getWatchDayActivity(
     if (latest) checkedAt[i.id] = latest;
     for (const r of mine) if (r.tx_check_status && /error|not checked|partial|no source/.test(r.tx_check_status)) issues.push({ influencerId: i.id, address: r.address, status: r.tx_check_status });
     const activities = mine.map((r) => r.tx_activity).filter((a): a is TxActivity => !!a);
-    for (const l of dayLines(activities, new Set(i.addresses.map((a) => a.address)), priceNow)) lines.push({ ...l, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(l.priceKey), nowAt: (l.priceKey && stats.get(l.priceKey)?.updatedAt) || null });
+    for (const c of coinDays(activities, new Set(i.addresses.map((a) => a.address)))) coins.push({ ...c, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(c.priceKey), nowAt: (c.priceKey && stats.get(c.priceKey)?.updatedAt) || null });
   }
-  return { lines: lines.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues, liveIds };
+  return { coins: coins.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues, liveIds };
 }
 
 /** An influencer's trading record (tradingRecord.ts): its Solana

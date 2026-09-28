@@ -83,10 +83,11 @@ owner's.
   Alchemy transfers, Blockstream; venues aren't checked), reduced to each
   coin's net change per transaction (`watchActivity.ts`: swap / transfer /
   "unclear" where Alchemy can't see a router's native payout — it can only
-  on eth, base, matic) and judged for the whole day by `watchDiff.ts`
-  `moveKind` against the snapshot; a coin bought and then sold within the
-  day is its own "round trip" line (buy → sell price, %; `roundTrip`), even
-  when it nets to zero. Saved on `watched_addresses`
+  on eth, base, matic) and shown per coin like a trading app's token card
+  (`coinDays`: buys and sells with what was paid in SOL/USDC/ETH, still
+  held, the result of what was bought and sold today; each trade behind a
+  toggle). Cash coins are only the payment side, never a row (owner
+  2026-09-28: match KOLScan's per-trade view). Saved on `watched_addresses`
   (`tx_activity` appended, `tx_cursor` per source) until the next read,
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
   drops older legs (`trimToBoundary`). An address checked in the last

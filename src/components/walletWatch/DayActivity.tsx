@@ -4,35 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
-import type { WatchDayActivity, WatchDayLine } from "@/lib/watchQuery";
-import { CASH_KEYS } from "@/lib/watchActivity";
+import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import { ACTIVITY_CHANNEL, ACTIVITY_EVENT, LIVE_REFETCH_MS } from "@/lib/liveChannel";
 import { browserSupabase } from "@/lib/supabaseBrowser";
-import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
+import { formatPercent, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/CopyButton";
-import { NowPrice } from "./ActivityFeed";
-
-/** Verbs by how it happened: a trade, or a plain transfer (never called a
- * buy or sale), or a token out we can't tell apart (watchActivity.ts). */
-function verb(l: WatchDayLine): string {
-  if (l.kind === "roundtrip") return "bought and sold";
-  // The coin trades are paid in: its balance moving is cash, not a decision.
-  if (l.priceKey && CASH_KEYS.has(l.priceKey)) return l.qtyAfter > l.qtyBefore ? "cash up" : "cash down";
-  if (l.via === "unclear") return l.kind === "exited" ? "sent or sold all" : "sent or sold";
-  const transfer = l.via === "transfer";
-  switch (l.kind) {
-    case "new":
-      return transfer ? "received" : "bought";
-    case "added":
-      return transfer ? "received more" : "added";
-    case "trimmed":
-      return transfer ? "sent" : "trimmed";
-    case "exited":
-      return transfer ? "sent all" : "sold all";
-  }
-}
 
 /** How long a round trip lasted: "9m", "3h 20m". */
 function heldFor(from: string, to: string): string {
@@ -46,13 +24,13 @@ function heldFor(from: string, to: string): string {
  * a minute, and only while the tab is visible (a hidden tab catches up once
  * when shown). Nothing polls; without live influencers nothing listens.
  */
-function useLiveDay(ids: readonly string[], live: boolean, serverLines: readonly WatchDayLine[]): WatchDayActivity | null {
+function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
   const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
   // A new server render (navigation, router.refresh) supersedes what was fetched.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFresh(null);
-  }, [serverLines]);
+  }, [serverCoins]);
   const key = ids.join(",");
   useEffect(() => {
     if (!live || !key) return;
@@ -147,13 +125,85 @@ export function ActivityCheckButton({ influencerIds }: { influencerIds: string[]
   );
 }
 
+const qty = (n: number) => formatQty(n);
+const pay = (n: number | null, ticker: string | null) => (n !== null && ticker ? `${n < 1 ? n.toFixed(3) : n.toFixed(2)} ${ticker}` : null);
+const TIME = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+
+/** One coin's day: totals like a trading app's token card, and its trades
+ * behind a toggle (owner 2026-09-28: match KOLScan's buys and sells). */
+function CoinRow({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
+  const [open, setOpen] = useState(false);
+  const closed = c.holdingQty <= 0 && c.sells > 0;
+  const result = c.realizedUsd;
+  const holdingUsd = c.nowUsd !== null ? c.holdingQty * c.nowUsd : null;
+  return (
+    <li className="py-2 text-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span className="min-w-0">
+          {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
+          {showNames && (
+            <Link href={`/wallet-watch/${c.influencerId}`} className="font-medium text-fg hover:underline">
+              {c.influencerName}
+            </Link>
+          )}{" "}
+          <span className="font-semibold text-fg">{c.ticker}</span>
+          {c.contract && (
+            <span className="ml-1 inline-flex align-middle">
+              <CopyButton value={c.contract} label={`Copy ${c.ticker} contract`} title={`Copy ${c.ticker}'s contract${c.contractChain ? ` (${c.contractChain})` : ""}: ${c.contract}`} />
+            </span>
+          )}
+          <span className="text-xs text-fg-muted">
+            {" "}
+            · {c.buys} buy{c.buys === 1 ? "" : "s"}, {c.sells} sell{c.sells === 1 ? "" : "s"}
+            {c.buys > 0 && <> · bought {pay(c.boughtPay, c.payTicker) ?? (c.boughtUsd !== null ? formatUsd(c.boughtUsd) : qty(c.boughtQty))}</>}
+            {c.sells > 0 && <> · sold {pay(c.soldPay, c.payTicker) ?? (c.soldUsd !== null ? formatUsd(c.soldUsd) : qty(c.soldQty))}</>}
+            {" · "}
+            {closed ? "sold all" : `holding ${qty(c.holdingQty)}${holdingUsd !== null ? ` (${formatUsd(holdingUsd)})` : ""}`}
+            {c.soldFromEarlier && " · incl. earlier holdings"}
+            {c.trades.length > 1 && <> · over {heldFor(c.firstAt, c.lastAt)}</>}
+          </span>
+        </span>
+        <span className="flex items-baseline gap-3 tabular-nums">
+          {result !== null ? (
+            <span className={result >= 0 ? "text-positive" : "text-negative"} title="Result of the part sold that was bought today">
+              {formatUsdSigned(result)} {c.realizedPct !== null && <span className="text-xs">({formatPercent(c.realizedPct)})</span>}
+            </span>
+          ) : (
+            <span className="text-xs text-fg-muted">{c.sells === 0 ? "open" : "—"}</span>
+          )}
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="text-xs text-fg-muted hover:text-fg">
+            <AgeText at={c.lastAt} serverNowSec={serverNowSec} /> {open ? "▴" : "▾"}
+          </button>
+        </span>
+      </div>
+      {open && (
+        <ul className="mt-1.5 space-y-0.5 border-l border-border/60 pl-3 text-xs">
+          {c.trades.map((t) => (
+            <li key={`${t.txId}|${t.side}`} className="flex flex-wrap justify-between gap-x-3">
+              <span>
+                <span className={t.side === "buy" || t.side === "received" ? "text-positive" : "text-negative"}>{t.side === "buy" ? "Buy" : t.side === "sell" ? "Sell" : t.side === "received" ? "Received" : "Sent"}</span>{" "}
+                {t.side === "buy" && pay(t.payQty, t.payTicker) ? `${pay(t.payQty, t.payTicker)} → ${qty(t.qty)} ${c.ticker}` : t.side === "sell" && pay(t.payQty, t.payTicker) ? `${qty(t.qty)} ${c.ticker} → ${pay(t.payQty, t.payTicker)}` : `${qty(t.qty)} ${c.ticker}`}
+                {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)})</span>}
+              </span>
+              <span className="text-fg-muted">
+                {TIME.format(new Date(t.at))}
+                {t.source === "webhook" && " · live"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 /**
- * Wallet Watch's activity check (docs/wallet-watch/PLAN.md, phase 4): what
- * the watched wallets did since this morning's read, from their
- * transactions, on demand (ActivityCheckButton).
+ * Wallet Watch's activity since the morning read, per coin (like a trading
+ * app's token cards), from the activity check and live updates (phases 4–5).
+ * Cash coins (SOL, USDC, ETH) appear only as what trades were paid with.
  */
 export function DayActivity({
-  lines: serverLines,
+  coins: serverCoins,
   checkedAt: serverCheckedAt,
   issues: serverIssues,
   liveIds = [],
@@ -162,7 +212,7 @@ export function DayActivity({
   showNames = true,
   showButton = true,
 }: {
-  lines: WatchDayLine[];
+  coins: WatchCoinDay[];
   /** The latest check of these influencers' addresses. */
   checkedAt: string | null;
   issues: { address: string; status: string }[];
@@ -175,9 +225,9 @@ export function DayActivity({
   showButton?: boolean;
 }) {
   const live = liveIds.some((id) => influencerIds.includes(id));
-  const fresh = useLiveDay(influencerIds, live, serverLines);
+  const fresh = useLiveDay(influencerIds, live, serverCoins);
   const shown = new Set(influencerIds);
-  const lines = fresh ? fresh.lines.filter((l) => shown.has(l.influencerId)) : serverLines;
+  const coins = fresh ? fresh.coins.filter((c) => shown.has(c.influencerId)) : serverCoins;
   const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
   const checkedAt = fresh ? (influencerIds.map((id) => fresh.checkedAt[id]).filter(Boolean).sort().at(-1) ?? serverCheckedAt) : serverCheckedAt;
   // Found by the latest check (the ones before it were already there).
@@ -200,56 +250,13 @@ export function DayActivity({
         </p>
         {showButton && <ActivityCheckButton influencerIds={influencerIds} />}
       </div>
-      {lines.length === 0 ? (
-        <p className="mt-2 text-sm text-fg-muted">{checkedAt ? "No buys or sells since this morning's read." : "Refresh activity to see what they've done since this morning's read."}</p>
+      {coins.length === 0 ? (
+        <p className="mt-2 text-sm text-fg-muted">{checkedAt || live ? "No trades since this morning's read." : "Refresh activity to see what they've done since this morning's read."}</p>
       ) : (
         <ul className="mt-1 divide-y divide-border/60">
-          {lines.map((l) => {
-            const trip = l.roundTrip;
-            const buying = trip ? trip.pnlUsd >= 0 : l.qtyAfter > l.qtyBefore;
-            const isNew = Date.parse(l.firstCheckedAt) >= latest;
-            return (
-              <li key={`${l.influencerId}|${l.assetKey}|${l.kind}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 text-sm">
-                <span className="min-w-0">
-                  {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-                  {showNames && (
-                    <Link href={`/wallet-watch/${l.influencerId}`} className="font-medium text-fg hover:underline">
-                      {l.influencerName}
-                    </Link>
-                  )}{" "}
-                  <span className={buying ? "text-positive" : "text-negative"}>{verb(l)}</span>{" "}
-                  <span className="text-fg">
-                    {formatQty(trip ? trip.qty : Math.abs(l.qtyAfter - l.qtyBefore))} {l.ticker}
-                  </span>
-                  {l.contract && (
-                    <span className="ml-1 inline-flex align-middle">
-                      <CopyButton value={l.contract} label={`Copy ${l.ticker} contract`} title={`Copy ${l.ticker}'s contract${l.contractChain ? ` (${l.contractChain})` : ""}: ${l.contract}`} />
-                    </span>
-                  )}
-                  {!trip && l.priceKey && CASH_KEYS.has(l.priceKey) && (
-                    <span className="text-xs text-fg-muted"> · {l.qtyAfter > l.qtyBefore ? "from sales and transfers in" : "spent on buys, fees and transfers out"}</span>
-                  )}
-                  {trip && (
-                    <span className="text-xs text-fg-muted">
-                      {" "}
-                      within {heldFor(trip.firstBuyAt, trip.lastSellAt)} · paid {formatPrice(trip.buyPrice)} → sold at {formatPrice(trip.sellPrice)}{" "}
-                      <span className={trip.pnlPct >= 0 ? "text-positive" : "text-negative"}>({formatPercent(trip.pnlPct)})</span>
-                    </span>
-                  )}
-                  {!trip && l.tradePrice !== null && !(l.priceKey && CASH_KEYS.has(l.priceKey)) && <span className="text-xs text-fg-muted"> at {formatPrice(l.tradePrice)}</span>}
-                  {!trip && l.tradePrice !== null && l.tradePrice > 0 && l.nowUsd !== null && l.nowAt !== null && Date.parse(l.nowAt) > Date.parse(l.lastAt) && (
-                    <NowPrice nowUsd={l.nowUsd} nowAt={l.nowAt} movePrice={l.tradePrice} serverNowSec={serverNowSec} />
-                  )}
-                </span>
-                <span className="flex items-baseline gap-3 tabular-nums">
-                  <span className={buying ? "text-positive" : "text-negative"}>{formatUsdSigned(l.usdDelta)}</span>
-                  <span className="text-xs text-fg-muted">
-                    <AgeText at={l.lastAt} serverNowSec={serverNowSec} />
-                  </span>
-                </span>
-              </li>
-            );
-          })}
+          {coins.map((c) => (
+            <CoinRow key={`${c.influencerId}|${c.assetKey}`} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />
+          ))}
         </ul>
       )}
       {issues.length > 0 && (
@@ -257,7 +264,7 @@ export function DayActivity({
           {issues.length} address{issues.length === 1 ? "" : "es"} not fully checked (hover for why) — this morning&apos;s read covers them.
         </p>
       )}
-      <p className="mt-1 text-[11px] text-fg-muted/80">From transactions: trades priced by their SOL, ETH or stablecoin side; sized at today&apos;s price. Tomorrow&apos;s read confirms them.</p>
+      <p className="mt-1 text-[11px] text-fg-muted/80">Per coin since this morning&apos;s read — click a row&apos;s time for its trades. Results count only what was bought and sold today.</p>
     </div>
   );
 }
