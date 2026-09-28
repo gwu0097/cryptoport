@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { isInProgressStatus } from "@/lib/jobStatus";
 import { ExternalLink, Search } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
 import type { InfluencerDetail, WatchedInfluencer, WatchMovementView } from "@/lib/watchQuery";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
@@ -122,6 +123,7 @@ export function InfluencerSections({
               <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <span className="rounded bg-surface-raised px-1.5 py-0.5 text-xs text-fg-muted">{a.chain}</span>
                 <span className="break-all font-mono text-xs text-fg">{a.address}</span>
+                <CopyButton value={a.address} label="Copy address" title={`Copy the address: ${a.address}`} />
                 {viewer && (
                   <a href={viewer.url} target="_blank" rel="noopener noreferrer" title={`View on ${viewer.label}`} className="text-fg-muted hover:text-fg">
                     <ExternalLink className="size-3.5" aria-hidden="true" />
