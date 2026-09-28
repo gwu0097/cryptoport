@@ -419,20 +419,44 @@ export interface WatchDayLine extends DayLine {
 /** What the activity check found today, per influencer: the day's lines,
  * when its addresses were last checked, and what couldn't be checked. One
  * request (the price map is the page's own, cached). */
+export interface WatchDayActivity {
+  lines: WatchDayLine[];
+  checkedAt: Record<string, string>;
+  issues: { influencerId: string; address: string; status: string }[];
+  /** Influencers with an address on live updates (phase 5): pages showing
+   * them listen for new activity. */
+  liveIds: string[];
+}
+
+/** `pricesOnly`: price just the coins in the lines (one small read) rather
+ * than the request's full asset-stats map — for the live-update endpoint,
+ * which runs on its own, not inside a page that already has the map. */
 export async function getWatchDayActivity(
   influencers: readonly WatchFeedInfluencer[],
   client?: Awaited<ReturnType<typeof userDb>>,
-): Promise<{ lines: WatchDayLine[]; checkedAt: Record<string, string>; issues: { influencerId: string; address: string; status: string }[] }> {
+  pricesOnly = false,
+): Promise<WatchDayActivity> {
   const addresses = [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))];
-  if (addresses.length === 0) return { lines: [], checkedAt: {}, issues: [] };
+  if (addresses.length === 0) return { lines: [], checkedAt: {}, issues: [], liveIds: [] };
   const db = client ?? (await userDb());
-  const [{ data, error }, stats] = await Promise.all([
-    db.from("watched_addresses").select("chain, address, tx_activity, tx_checked_at, tx_check_status").in("address", addresses),
-    getAssetStatsMap(),
+  const [{ data, error }, fullStats] = await Promise.all([
+    db.from("watched_addresses").select("chain, address, tx_activity, tx_checked_at, tx_check_status, live").in("address", addresses),
+    pricesOnly ? null : getAssetStatsMap(),
   ]);
   if (error) throw new Error(`Failed to load today's activity: ${error.message}`);
-  const rows = new Map((data as { chain: string; address: string; tx_activity: TxActivity | null; tx_checked_at: string | null; tx_check_status: string | null }[]).map((r) => [`${r.chain}|${r.address}`, r]));
+  const rowList = data as { chain: string; address: string; tx_activity: TxActivity | null; tx_checked_at: string | null; tx_check_status: string | null; live: boolean | null }[];
+  const rows = new Map(rowList.map((r) => [`${r.chain}|${r.address}`, r]));
+  let stats: ReadonlyMap<string, { usd: number | null; updatedAt: string | null }> = fullStats ?? new Map();
+  if (!fullStats) {
+    const keys = [...new Set(rowList.flatMap((r) => (r.tx_activity?.legs ?? []).map((l) => l.priceKey)).filter((k): k is string => !!k))];
+    if (keys.length > 0) {
+      const { data: priced, error: priceError } = await db.from("asset_prices").select("price_key, usd, updated_at").in("price_key", keys);
+      if (priceError) throw new Error(`Failed to load prices: ${priceError.message}`);
+      stats = new Map((priced as { price_key: string; usd: number | string | null; updated_at: string | null }[]).map((p) => [p.price_key, { usd: parseNumeric(p.usd), updatedAt: p.updated_at }]));
+    }
+  }
   const priceNow = (k: string | null) => (k ? parseNumeric(stats.get(k)?.usd ?? null) : null);
+  const liveIds = influencers.filter((i) => i.addresses.some((a) => rows.get(`${a.chain}|${a.address}`)?.live)).map((i) => i.id);
   const lines: WatchDayLine[] = [];
   const checkedAt: Record<string, string> = {};
   const issues: { influencerId: string; address: string; status: string }[] = [];
@@ -444,7 +468,7 @@ export async function getWatchDayActivity(
     const activities = mine.map((r) => r.tx_activity).filter((a): a is TxActivity => !!a);
     for (const l of dayLines(activities, new Set(i.addresses.map((a) => a.address)), priceNow)) lines.push({ ...l, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(l.priceKey), nowAt: (l.priceKey && stats.get(l.priceKey)?.updatedAt) || null });
   }
-  return { lines: lines.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues };
+  return { lines: lines.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues, liveIds };
 }
 
 /** An influencer's trading record (tradingRecord.ts): its Solana

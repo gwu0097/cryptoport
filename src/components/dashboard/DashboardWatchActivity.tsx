@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import type { WatchDayLine, WatchFeedInfluencer, WatchGroup, WatchMovementView } from "@/lib/watchQuery";
+import type { WatchDayActivity, WatchFeedInfluencer, WatchGroup, WatchMovementView } from "@/lib/watchQuery";
 import { inputClass } from "../ui/Field";
 import { Panel } from "../ui/Panel";
 import { usePersistedState } from "../usePersistedState";
@@ -27,7 +27,7 @@ export function DashboardWatchActivity({
   movements: WatchMovementView[];
   groups: WatchGroup[];
   influencers: WatchFeedInfluencer[];
-  day: { lines: WatchDayLine[]; checkedAt: Record<string, string>; issues: { influencerId: string; address: string; status: string }[] };
+  day: WatchDayActivity;
   serverNowSec: number;
 }) {
   const [group, setGroup] = usePersistedState<string>("cryptoport:dashboardWatchGroup", "all");
@@ -74,6 +74,7 @@ export function DashboardWatchActivity({
         lines={day.lines.filter((l) => ids.has(l.influencerId))}
         checkedAt={[...ids].map((id) => day.checkedAt[id]).filter(Boolean).sort().at(-1) ?? null}
         issues={day.issues.filter((i) => ids.has(i.influencerId))}
+        liveIds={day.liveIds}
         influencerIds={[...ids]}
         serverNowSec={serverNowSec}
         showButton={false}

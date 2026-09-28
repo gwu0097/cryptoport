@@ -90,6 +90,7 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
           lines={day.lines}
           checkedAt={Object.values(day.checkedAt).sort().at(-1) ?? null}
           issues={day.issues}
+          liveIds={day.liveIds}
           influencerIds={shown.map((i) => i.id)}
           serverNowSec={nowSec}
         />

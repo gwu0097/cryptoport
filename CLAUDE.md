@@ -102,6 +102,13 @@ owner's.
   the cursor, so Refresh activity still reads the history and reports
   "webhook missed N" for live wallets (the running discrepancy check).
   Turning it on only works from the deployed site (Helius needs a public URL).
+  Open pages update by themselves: after a delivery adds a new line, the
+  receiver sends one empty Supabase Realtime broadcast (`liveBroadcast.ts`,
+  channel in `liveChannel.ts`); an activity panel showing a live influencer
+  listens (`DayActivity` `useLiveDay`, the only browser Supabase client,
+  `supabaseBrowser.ts`) and fetches just its lines from `api/wallet-watch/day`
+  (~4 requests) — at most once a minute, only while the tab is visible.
+  No polling; panels without live influencers don't listen.
   **Trading record** (an influencer's page, Solana addresses only): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in
   USD — 2 requests (all-time summary + the past 365 days by day,

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
-import type { WatchDayLine } from "@/lib/watchQuery";
+import type { WatchDayActivity, WatchDayLine } from "@/lib/watchQuery";
 import { CASH_KEYS } from "@/lib/watchActivity";
+import { ACTIVITY_CHANNEL, ACTIVITY_EVENT, LIVE_REFETCH_MS } from "@/lib/liveChannel";
+import { browserSupabase } from "@/lib/supabaseBrowser";
 import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
@@ -36,6 +38,57 @@ function verb(l: WatchDayLine): string {
 function heldFor(from: string, to: string): string {
   const min = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 60000));
   return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
+}
+
+/**
+ * Live updates (phase 5): when any shown influencer is live, listen for the
+ * server's "new activity" broadcast and fetch just these lines — at most once
+ * a minute, and only while the tab is visible (a hidden tab catches up once
+ * when shown). Nothing polls; without live influencers nothing listens.
+ */
+function useLiveDay(ids: readonly string[], live: boolean, serverLines: readonly WatchDayLine[]): WatchDayActivity | null {
+  const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
+  // A new server render (navigation, router.refresh) supersedes what was fetched.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFresh(null);
+  }, [serverLines]);
+  const key = ids.join(",");
+  useEffect(() => {
+    if (!live || !key) return;
+    let last = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pending = false;
+    const fetchNow = async () => {
+      if (document.visibilityState !== "visible") {
+        pending = true;
+        return;
+      }
+      pending = false;
+      last = Date.now();
+      const res = await fetch(`/api/wallet-watch/day?ids=${key}`, { cache: "no-store" }).catch(() => null);
+      if (res?.ok) setFresh((await res.json()) as WatchDayActivity);
+    };
+    const schedule = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void fetchNow();
+      }, Math.max(0, last + LIVE_REFETCH_MS - Date.now()));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && pending) schedule();
+    };
+    const supabase = browserSupabase();
+    const channel = supabase.channel(ACTIVITY_CHANNEL).on("broadcast", { event: ACTIVITY_EVENT }, schedule).subscribe();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [live, key]);
+  return fresh;
 }
 
 /** Runs the activity check for these influencers, streaming one line per
@@ -100,9 +153,10 @@ export function ActivityCheckButton({ influencerIds }: { influencerIds: string[]
  * transactions, on demand (ActivityCheckButton).
  */
 export function DayActivity({
-  lines,
-  checkedAt,
-  issues,
+  lines: serverLines,
+  checkedAt: serverCheckedAt,
+  issues: serverIssues,
+  liveIds = [],
   influencerIds,
   serverNowSec,
   showNames = true,
@@ -112,12 +166,20 @@ export function DayActivity({
   /** The latest check of these influencers' addresses. */
   checkedAt: string | null;
   issues: { address: string; status: string }[];
+  /** Shown influencers on live updates: the panel listens for new activity. */
+  liveIds?: string[];
   influencerIds: string[];
   serverNowSec: number;
   showNames?: boolean;
   /** False where the panel's header already has the button (Dashboard). */
   showButton?: boolean;
 }) {
+  const live = liveIds.some((id) => influencerIds.includes(id));
+  const fresh = useLiveDay(influencerIds, live, serverLines);
+  const shown = new Set(influencerIds);
+  const lines = fresh ? fresh.lines.filter((l) => shown.has(l.influencerId)) : serverLines;
+  const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
+  const checkedAt = fresh ? (influencerIds.map((id) => fresh.checkedAt[id]).filter(Boolean).sort().at(-1) ?? serverCheckedAt) : serverCheckedAt;
   // Found by the latest check (the ones before it were already there).
   const latest = checkedAt ? Date.parse(checkedAt) - 60_000 : Infinity;
 
@@ -126,6 +188,11 @@ export function DayActivity({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           <span className="font-semibold text-fg">Since this morning&apos;s read</span>
+          {live && (
+            <span className="ml-1.5 rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades appear here by themselves within about a minute (Helius webhook).">
+              live
+            </span>
+          )}
           <span className="text-xs text-fg-muted">
             {" · "}
             {checkedAt ? <AgeText at={checkedAt} serverNowSec={serverNowSec} prefix="checked " /> : "not checked yet"}

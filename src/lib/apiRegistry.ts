@@ -56,7 +56,7 @@ export const API_SERVICES: ApiService[] = [
     tier: "free-signup",
     plan: "Free (organization shared with csp-screener and Trace Two)",
     limits: "500 MB database; 1 GB of logs a month for the whole organization (~11,000 requests a day; keep cryptoport under ~5,000); 5 GB egress; 50,000 monthly active users; pauses after a week idle.",
-    usedFor: "The database (every table), sign-in, row-level security.",
+    usedFor: "The database (every table), sign-in, row-level security, and Realtime broadcasts for Wallet Watch live updates (one per new live trade; free plan: 2M messages and 200 concurrent connections a month).",
     scaling: "Logs and database size go first. Pro ($25/month + compute) — and move cryptoport to its own organization so other projects don't share its quota.",
     env: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
     hosts: ["*.supabase.co"],

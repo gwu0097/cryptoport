@@ -2,6 +2,7 @@ import "server-only";
 import { serviceDb } from "./supabase";
 import { readAssetPrices } from "./adapters/assetPrices";
 import { identifyLegs } from "./watchActivityCheck";
+import { broadcastActivity } from "./liveBroadcast";
 import { appendLegs, type ActivityBase, type TxActivity } from "./watchActivity";
 import { accountKeys, rawTxChanges, worthSaving, type RawWebhookTx } from "./webhookTx";
 import { assetStates } from "./watchDiff";
@@ -77,7 +78,9 @@ export async function saveDelivery(txs: readonly RawWebhookTx[]): Promise<Delive
       .eq("address", row.address)
       .eq("last_refresh_at", row.last_refresh_at);
     if (saveError) throw new Error(saveError.message);
-    saved += legs.length;
+    // Only what's new (a duplicate delivery, or a trade Refresh already saved, adds nothing).
+    saved += activity.legs.length - (row.tx_activity?.boundary === boundary ? row.tx_activity.legs.length : 0);
   }
+  if (saved > 0) await broadcastActivity(); // new lines: open pages fetch theirs (one request)
   return { transactions: txs.length, saved, skipped };
 }

@@ -81,6 +81,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
             lines={day.lines}
             checkedAt={day.checkedAt[influencer.id] ?? null}
             issues={day.issues}
+            liveIds={day.liveIds}
             influencerIds={[influencer.id]}
             serverNowSec={nowSec}
             showNames={false}
