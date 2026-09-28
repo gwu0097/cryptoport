@@ -13,6 +13,7 @@ import { ShareInfluencerButton } from "@/components/walletWatch/ShareInfluencerB
 import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/InfluencerSections";
 import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
 import { DayActivity } from "@/components/walletWatch/DayActivity";
+import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet Watch · CryptoPort" };
@@ -40,6 +41,8 @@ export default async function InfluencerPage({ params, searchParams }: { params:
 
   return (
     <>
+      {/* Its sidebar's "recently viewed" list (the last 4, like Wallets). */}
+      <RecordRecentWallet id={influencer.id} name={influencer.name} namespace="walletWatch" />
       <Link href="/wallet-watch" className="mb-3 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg">
         <ArrowLeft className="size-3.5" aria-hidden="true" /> Wallet Watch
       </Link>

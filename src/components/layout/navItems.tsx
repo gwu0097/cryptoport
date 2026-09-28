@@ -207,6 +207,20 @@ function NavItemRow({
       />
     );
   }
+  if (item.href === "/wallet-watch") {
+    return (
+      <CollapsibleNavItem
+        item={item}
+        active={isActive(pathname, item.href)}
+        pathname={pathname}
+        onLinkClick={onLinkClick}
+        namespace="walletWatch"
+        openStorageKey="cryptoport:recentWalletWatchOpen"
+        linkFor={(w) => `/wallet-watch/${w.id}`}
+        isRecentActive={(w) => pathname === `/wallet-watch/${w.id}`}
+      />
+    );
+  }
   return <NavLink {...item} active={isActive(pathname, item.href)} onClick={onLinkClick} />;
 }
 
@@ -216,7 +230,7 @@ function NavItemRow({
  * renders NAV_GROUPS as labeled sections (a plain muted heading, not
  * collapsible — every item stays one click away, this is purely visual
  * chunking, see that array's own doc comment for why grouped at all).
- * Wallets/Performance/Transactions still render via CollapsibleNavItem (same
+ * Wallets/Performance/Transactions/Wallet Watch render via CollapsibleNavItem (same
  * row, plus a recent-wallets disclosure chevron each, in their own
  * namespace — see recentWallets.ts) instead of the plain NavLink every
  * other item gets — unchanged by grouping, just moved into NavItemRow so
