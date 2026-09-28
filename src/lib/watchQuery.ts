@@ -9,6 +9,7 @@ import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import type { Holding } from "./types";
 import { mergeSameCoin } from "./mergeHoldings";
+import { dayLines, type DayLine, type TxActivity } from "./watchActivity";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
 // Wallet Watch reads (docs/wallet-watch/PLAN.md). All through userDb(): the
@@ -373,6 +374,46 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
       },
     ];
   });
+}
+
+/** One line of an influencer's day from the activity check (phase 4). */
+export interface WatchDayLine extends DayLine {
+  influencerId: string;
+  influencerName: string;
+  /** The coin's stored price and when it was priced (for "now … (+x%)"). */
+  nowUsd: number | null;
+  nowAt: string | null;
+}
+
+/** What the activity check found today, per influencer: the day's lines,
+ * when its addresses were last checked, and what couldn't be checked. One
+ * request (the price map is the page's own, cached). */
+export async function getWatchDayActivity(
+  influencers: readonly WatchFeedInfluencer[],
+  client?: Awaited<ReturnType<typeof userDb>>,
+): Promise<{ lines: WatchDayLine[]; checkedAt: Record<string, string>; issues: { influencerId: string; address: string; status: string }[] }> {
+  const addresses = [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))];
+  if (addresses.length === 0) return { lines: [], checkedAt: {}, issues: [] };
+  const db = client ?? (await userDb());
+  const [{ data, error }, stats] = await Promise.all([
+    db.from("watched_addresses").select("chain, address, tx_activity, tx_checked_at, tx_check_status").in("address", addresses),
+    getAssetStatsMap(),
+  ]);
+  if (error) throw new Error(`Failed to load today's activity: ${error.message}`);
+  const rows = new Map((data as { chain: string; address: string; tx_activity: TxActivity | null; tx_checked_at: string | null; tx_check_status: string | null }[]).map((r) => [`${r.chain}|${r.address}`, r]));
+  const priceNow = (k: string | null) => (k ? parseNumeric(stats.get(k)?.usd ?? null) : null);
+  const lines: WatchDayLine[] = [];
+  const checkedAt: Record<string, string> = {};
+  const issues: { influencerId: string; address: string; status: string }[] = [];
+  for (const i of influencers) {
+    const mine = i.addresses.map((a) => rows.get(`${a.chain}|${a.address}`)).filter((r) => !!r);
+    const latest = mine.map((r) => r.tx_checked_at).filter((t): t is string => !!t).sort().at(-1);
+    if (latest) checkedAt[i.id] = latest;
+    for (const r of mine) if (r.tx_check_status && /error|not checked|partial|no source/.test(r.tx_check_status)) issues.push({ influencerId: i.id, address: r.address, status: r.tx_check_status });
+    const activities = mine.map((r) => r.tx_activity).filter((a): a is TxActivity => !!a);
+    for (const l of dayLines(activities, new Set(i.addresses.map((a) => a.address)), priceNow)) lines.push({ ...l, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(l.priceKey), nowAt: (l.priceKey && stats.get(l.priceKey)?.updatedAt) || null });
+  }
+  return { lines: lines.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues };
 }
 
 /** An influencer's value per day: the sum of its addresses' daily rows, only

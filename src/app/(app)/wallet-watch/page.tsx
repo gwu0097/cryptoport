@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import { getUser } from "@/lib/auth";
-import { getWatchMovements, getWatchOverview, watchJobStatus } from "@/lib/watchQuery";
+import { getWatchDayActivity, getWatchMovements, getWatchOverview, watchJobStatus } from "@/lib/watchQuery";
 import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
+import { DayActivity } from "@/components/walletWatch/DayActivity";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -46,7 +47,7 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
   const shown = selected ? influencers.filter((i) => i.groupIds.includes(selected.id)) : influencers;
   const counts = Object.fromEntries(groups.map((g) => [g.id, influencers.filter((i) => i.groupIds.includes(g.id)).length])) as Record<string, number>;
   const options = { influencers: influencers.map((i) => ({ id: i.id, name: i.name })), groups };
-  const movements = await getWatchMovements(shown, 50);
+  const [movements, day] = await Promise.all([getWatchMovements(shown, 50), getWatchDayActivity(shown)]);
 
   return (
     <>
@@ -85,6 +86,13 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
         description="What they bought and sold between reads — sized at that read's price. A buy and sell between two reads doesn't show; changes under $100, or under 1% of a position and $5,000, are left out."
         className="mb-4"
       >
+        <DayActivity
+          lines={day.lines}
+          checkedAt={Object.values(day.checkedAt).sort().at(-1) ?? null}
+          issues={day.issues}
+          influencerIds={shown.map((i) => i.id)}
+          serverNowSec={nowSec}
+        />
         <ActivityFeed movements={movements} serverNowSec={nowSec} />
       </Panel>
       <p className="text-xs text-fg-muted">Up to 25 influencers, 5 addresses each. DeFi positions aren&apos;t read for watched wallets.</p>

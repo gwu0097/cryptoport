@@ -11,6 +11,7 @@ import { JOB_STALE_MS, SCHEDULED_STATUS } from "./jobStatus";
 import { buildSnapshot, previousContracts, snapshotRowToAdapter, type SnapshotRow, type WatchSnapshot } from "./watchSnapshot";
 import { assetOf, assetStates, contractKeys, diffSnapshots, type AssetState } from "./watchDiff";
 import { positionChanges, type OpenPosition } from "./watchPositions";
+import { trimToBoundary, type TxActivity } from "./watchActivity";
 import { markKeyFor } from "./perpPositions";
 import { parseNumeric, type PriceMap } from "./valuation";
 import type { Chain } from "./types";
@@ -100,7 +101,11 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
   const db = serviceDb();
   const done = (fields: Record<string, unknown>) => db.from("watched_addresses").update(fields).eq("chain", chain).eq("address", address);
   try {
-    const { data: row, error } = await db.from("watched_addresses").select("snapshot").eq("chain", chain).eq("address", address).single();
+    // The activity check's day starts here, not when the snapshot is saved:
+    // a trade during a minutes-long read is in neither the balances nor the
+    // check otherwise (docs/wallet-watch/PLAN.md, phase 4 review item 3).
+    const readStartedAt = new Date().toISOString();
+    const { data: row, error } = await db.from("watched_addresses").select("snapshot, tx_activity").eq("chain", chain).eq("address", address).single();
     if (error) throw new Error(error.message);
     const previous = (row.snapshot as WatchSnapshot | null) ?? null;
 
@@ -128,6 +133,7 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
       valueOf,
       previous,
     );
+    snapshot.readStartedAt = readStartedAt;
     const valued = aggregate(
       snapshot.rows.map((r) => ({ ticker: r.ticker, qty: r.qty ?? null, usd_override: r.usd_override ?? null, source: "auto" as const, price_key: r.price_key ?? null })),
       prices,
@@ -167,6 +173,8 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
       last_refresh_status: statusText,
       refresh_status: statusText,
       next_refresh_at: new Date(now.getTime() + NEXT_REFRESH_MS).toISOString(),
+      // The activity check's legs from before this read are in the snapshot now.
+      tx_activity: trimToBoundary((row.tx_activity as TxActivity | null) ?? null, readStartedAt),
     });
     if (saveError) throw new Error(saveError.message);
 

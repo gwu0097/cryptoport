@@ -2464,6 +2464,13 @@ create table if not exists cryptoport.watched_addresses (
   primary key (chain, address)
 );
 alter table cryptoport.watched_addresses enable row level security;
+-- Phase 4 (2026-09-28): the on-demand activity check's day cache
+-- (watchActivity.ts): legs appended until the next read, a cursor per source.
+alter table cryptoport.watched_addresses
+  add column if not exists tx_activity     jsonb,
+  add column if not exists tx_cursor       jsonb,
+  add column if not exists tx_checked_at   timestamptz,
+  add column if not exists tx_check_status text;
 grant all on cryptoport.watched_addresses to service_role;
 grant select on cryptoport.watched_addresses to authenticated;
 create policy "watched_addresses: watchers only" on cryptoport.watched_addresses

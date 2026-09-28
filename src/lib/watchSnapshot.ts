@@ -32,6 +32,9 @@ export interface SnapshotUnrecognized {
 
 export interface WatchSnapshot {
   rows: SnapshotRow[];
+  /** When the read that made it started — the activity check's day starts
+   * here (watchActivity.ts). Missing on snapshots before 2026-09-28. */
+  readStartedAt?: string;
   /** Only tokens stored as holdings last time (a price gap, not spam). */
   unrecognized: SnapshotUnrecognized[];
   /** Every token held but not counted this read, and the dust left out. */

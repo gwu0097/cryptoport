@@ -19,7 +19,7 @@ function what(m: WatchMovementView): string {
 
 /** The coin's price now and how far it has moved since the trade's price —
  * whether a buy has already run. Its age is in the tooltip. */
-function NowPrice({ nowUsd, nowAt, movePrice, serverNowSec }: { nowUsd: number; nowAt: string; movePrice: number; serverNowSec: number }) {
+export function NowPrice({ nowUsd, nowAt, movePrice, serverNowSec }: { nowUsd: number; nowAt: string; movePrice: number; serverNowSec: number }) {
   const change = ((nowUsd - movePrice) / movePrice) * 100;
   return (
     <span className="text-xs text-fg-muted">

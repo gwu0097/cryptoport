@@ -110,7 +110,7 @@ interface AlchemyTransfer {
 /** Block number (hex) → ISO time, for transfers Alchemy returned without
  * metadata: one JSON-RPC batch of eth_getBlockByNumber per 50 blocks on the
  * same network. Throws on any failure (the chain then tries its next source). */
-async function blockTimes(host: string, blockNums: readonly string[]): Promise<Map<string, string>> {
+export async function blockTimes(host: string, blockNums: readonly string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const unique = [...new Set(blockNums)];
   for (let i = 0; i < unique.length; i += 50) {

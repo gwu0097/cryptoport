@@ -31,6 +31,21 @@ export const MOVE_MIN_SHARE = 0.01;
  * is a real buy whatever its share (owner decision 2026-09-28). */
 export const MOVE_ALWAYS_USD = 5_000;
 
+/** The kind of a quantity change, or null when it's under the bar (the
+ * rule above). Shared by the daily diff and the activity check
+ * (watchActivity.ts), so both judge a change the same way. */
+export function moveKind(qtyBefore: number, qtyAfter: number, price: number): MoveKind | null {
+  const delta = qtyAfter - qtyBefore;
+  if (delta === 0) return null;
+  const usd = delta * price;
+  if (Math.abs(usd) < MOVE_MIN_USD) return null;
+  if (qtyBefore > 0 && Math.abs(delta) < MOVE_MIN_SHARE * qtyBefore && Math.abs(usd) < MOVE_ALWAYS_USD) return null;
+  // What's left worth under a dollar is a closed position, not a trim.
+  const closed = qtyAfter <= 0 || qtyAfter * price < 1;
+  if (qtyBefore <= 0) return delta > 0 ? "new" : "exited";
+  return closed ? "exited" : delta > 0 ? "added" : "trimmed";
+}
+
 export type PositionType = "token" | "perp" | "prediction";
 export type MoveKind = "new" | "added" | "trimmed" | "exited";
 
@@ -137,17 +152,13 @@ export function diffSnapshots(
     if (b?.kept) continue; // not read this time
     const qtyBefore = a?.qty ?? 0;
     const qtyAfter = b?.qty ?? 0;
-    const delta = qtyAfter - qtyBefore;
-    if (delta === 0) continue;
+    if (qtyAfter === qtyBefore) continue;
     const state = (b ?? a)!;
     const price = priceOf(state);
     if (price === null) continue;
-    const usd = delta * price;
-    if (Math.abs(usd) < MOVE_MIN_USD) continue;
-    if (qtyBefore > 0 && Math.abs(delta) < MOVE_MIN_SHARE * qtyBefore && Math.abs(usd) < MOVE_ALWAYS_USD) continue;
-    // What's left worth under a dollar is a closed position, not a trim.
-    const closed = qtyAfter <= 0 || qtyAfter * price < 1;
-    const kind: MoveKind = qtyBefore <= 0 ? "new" : closed ? "exited" : delta > 0 ? "added" : "trimmed";
+    const kind = moveKind(qtyBefore, qtyAfter, price);
+    if (!kind) continue;
+    const usd = (qtyAfter - qtyBefore) * price;
     out.push({
       assetKey: key,
       kind,

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import type { WatchFeedInfluencer, WatchGroup, WatchMovementView } from "@/lib/watchQuery";
+import type { WatchDayLine, WatchFeedInfluencer, WatchGroup, WatchMovementView } from "@/lib/watchQuery";
 import { inputClass } from "../ui/Field";
 import { Panel } from "../ui/Panel";
 import { usePersistedState } from "../usePersistedState";
 import { ActivityFeed } from "../walletWatch/ActivityFeed";
+import { ActivityCheckButton, DayActivity } from "../walletWatch/DayActivity";
 
 const SHOWN = 15;
 
@@ -14,17 +15,19 @@ const SHOWN = 15;
  * Wallet Watch's activity feed on the Dashboard (a lens: the same movements
  * Wallet Watch shows), filtered by one of the user's groups — the picker
  * sits in the title like the watchlist movers'. The choice is remembered.
- * (Its refresh comes with the transaction check, docs/wallet-watch/PLAN.md.)
+ * Above the feed, the activity check for the group (DayActivity).
  */
 export function DashboardWatchActivity({
   movements,
   groups,
   influencers,
+  day,
   serverNowSec,
 }: {
   movements: WatchMovementView[];
   groups: WatchGroup[];
   influencers: WatchFeedInfluencer[];
+  day: { lines: WatchDayLine[]; checkedAt: Record<string, string>; issues: { influencerId: string; address: string; status: string }[] };
   serverNowSec: number;
 }) {
   const [group, setGroup] = usePersistedState<string>("cryptoport:dashboardWatchGroup", "all");
@@ -56,14 +59,25 @@ export function DashboardWatchActivity({
               ))}
             </select>
           </span>
-          <Link href={href} aria-label="View all — Wallet Watch" className="text-fg-muted transition hover:text-accent">
-            <ChevronRight className="size-4 shrink-0" aria-hidden="true" />
-          </Link>
+          <span className="flex items-center gap-2">
+            <ActivityCheckButton influencerIds={[...ids]} />
+            <Link href={href} aria-label="View all — Wallet Watch" className="text-fg-muted transition hover:text-accent">
+              <ChevronRight className="size-4 shrink-0" aria-hidden="true" />
+            </Link>
+          </span>
         </div>
       }
       description="What the wallets you watch bought and sold between reads, newest first."
       className="mb-4"
     >
+      <DayActivity
+        lines={day.lines.filter((l) => ids.has(l.influencerId))}
+        checkedAt={[...ids].map((id) => day.checkedAt[id]).filter(Boolean).sort().at(-1) ?? null}
+        issues={day.issues.filter((i) => ids.has(i.influencerId))}
+        influencerIds={[...ids]}
+        serverNowSec={serverNowSec}
+        showButton={false}
+      />
       <ActivityFeed movements={shown} serverNowSec={serverNowSec} />
     </Panel>
   );

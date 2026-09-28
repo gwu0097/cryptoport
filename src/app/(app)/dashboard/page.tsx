@@ -24,7 +24,7 @@ import { refreshPricesAction } from "../wallets/actions";
 import { OpenPositionsPanel } from "@/components/dashboard/OpenPositionsPanel";
 import { getEffectiveTimeZone } from "@/lib/preferences";
 import { formatDateTime } from "@/lib/format";
-import { getWatchFeedTargets, getWatchMovements } from "@/lib/watchQuery";
+import { getWatchDayActivity, getWatchFeedTargets, getWatchMovements } from "@/lib/watchQuery";
 import { DashboardWatchActivity } from "@/components/dashboard/DashboardWatchActivity";
 
 export const dynamic = "force-dynamic";
@@ -274,6 +274,7 @@ export default async function DashboardPage({
           movements={watch.movements}
           groups={watch.groups}
           influencers={watch.influencers}
+          day={watch.day}
           serverNowSec={requestNowSec()}
         />
       )}
@@ -285,8 +286,9 @@ export default async function DashboardPage({
  * group filter works on these in the browser, so it's instant). */
 async function loadWatchActivity() {
   const { groups, influencers } = await getWatchFeedTargets();
-  const movements = await getWatchMovements(influencers, 100);
+  const [movements, day] = await Promise.all([getWatchMovements(influencers, 100), getWatchDayActivity(influencers)]);
   return {
+    day,
     hasInfluencers: influencers.length > 0,
     groups,
     influencers,

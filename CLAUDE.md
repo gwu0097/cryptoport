@@ -73,6 +73,19 @@ owner's.
   priced after the move) and its change since the trade's price; Refresh
   prices includes every coin traded in the last 7 days
   (`assetPrices.ts` `allHeldKeys`), in the same batched calls.
+  **Activity check** (phase 4, on demand — "Refresh activity" on the
+  Dashboard panel and Wallet Watch): each address's transactions since its
+  last check (`api/wallet-watch/check` streams per address, no polling;
+  sources `adapters/watchActivitySources.ts` — Helius parsed transactions,
+  Alchemy transfers, Blockstream; venues aren't checked), reduced to each
+  coin's net change per transaction (`watchActivity.ts`: swap / transfer /
+  "unclear" where Alchemy can't see a router's native payout — it can only
+  on eth, base, matic) and judged for the whole day by `watchDiff.ts`
+  `moveKind` against the snapshot. Saved on `watched_addresses`
+  (`tx_activity` appended, `tx_cursor` per source) until the next read,
+  whose start (`snapshot.readStartedAt`) is the day's boundary and which
+  drops older legs (`trimToBoundary`). An address checked in the last
+  15 minutes is reused (`CHECK_REUSE_MS`, Helius credits).
   **Sharing:** an influencer's owner can share it
   (`watch_influencers.share_token`, a random UUID; null = not shared) at
   `/wallet-watch/shared/<token>` — any signed-in user sees it read-only

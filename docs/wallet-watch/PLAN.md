@@ -500,3 +500,18 @@ day's lines (same coins, same direction).
     reach are "not checked". No token-registry refresh hook in the check.
 15. Reorgs: re-read a couple of minutes of blocks behind the cursor
     (idempotent); the next read bounds any damage to one day.
+
+## Phase 4 notes (2026-09-28)
+
+- Built as reviewed, except: **Hyperliquid and other venues are not
+  checked** in this version (their perp rows' keys differ from fills', and
+  no watched wallet had an open perp) — named "not checked"; the morning
+  read covers them. "New" marks lines found by the latest check (shared),
+  not per viewer.
+- Live, read-only, before shipping: a busy gem wallet's 24 h = 170 coin
+  changes in 2.5 s (3 Helius pages), 22 real swaps priced from their SOL
+  leg, 120 spam transfers dropped; a coin bought three times and sold the
+  same day netted to no line. VirtualBacon's AURORA sale read on Ethereum.
+- Shipped before a full check ran end to end (owner: still in dev). Gate
+  still open: the first real checks vs Solscan/Etherscan for three
+  wallets, and the next morning's read confirming the day's lines.
