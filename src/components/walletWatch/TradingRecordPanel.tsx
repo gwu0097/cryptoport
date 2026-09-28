@@ -40,6 +40,9 @@ function CoinRow({ c }: { c: CoinBrief }) {
         <CopyButton value={c.mint} label={`Copy ${c.symbol} contract`} title={`Copy ${c.symbol}'s contract: ${c.mint}`} />
       </span>
       <span className="shrink-0 tabular-nums">
+        <span className="text-fg-muted" title="What was put into the position">
+          {c.investedUsd !== null ? formatCompactUsd(c.investedUsd) : "—"} in →{" "}
+        </span>
         <span className={tone(c.pnlUsd)}>{signedCompact(c.pnlUsd)}</span>
         {c.roiPct !== null && <span className="text-fg-muted"> ({formatPercent(c.roiPct)})</span>}
       </span>

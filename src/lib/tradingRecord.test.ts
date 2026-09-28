@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coinsByMonth, mergeCoins, summarizeTrading, type StoredTradingRecord } from "./tradingRecord.ts";
+import { coinsByMonth, investedFrom, mergeCoins, summarizeTrading, type StoredTradingRecord } from "./tradingRecord.ts";
 
 const rec = (over: Partial<StoredTradingRecord>): StoredTradingRecord => ({
   realizedUsd: 0,
@@ -73,19 +73,28 @@ test("a losing year has no 'share of profit'", () => {
 test("coins merge by mint (a coin traded again moves to its new month, counted once) and group by month", () => {
   const now = Date.parse("2026-09-28T00:00:00Z");
   const first = mergeCoins(undefined, [
-    { mint: "DUKE", symbol: "DUKE", realizedUsd: -262.69, roiPct: -62.66, lastSellMs: Date.parse("2026-09-28T18:09:35Z"), lastTradeMs: Date.parse("2026-09-28T18:09:35Z") },
-    { mint: "OLD", symbol: "OLD", realizedUsd: 50, roiPct: 10, lastSellMs: Date.parse("2025-06-01T00:00:00Z"), lastTradeMs: Date.parse("2025-06-01T00:00:00Z") },
-    { mint: "HELD", symbol: "HELD", realizedUsd: 0, roiPct: null, lastSellMs: null, lastTradeMs: Date.parse("2026-09-20T00:00:00Z") },
-    { mint: "WIN", symbol: "WIN", realizedUsd: 1200, roiPct: 400, lastSellMs: Date.parse("2026-08-10T00:00:00Z"), lastTradeMs: Date.parse("2026-08-10T00:00:00Z") },
+    { mint: "DUKE", symbol: "DUKE", realizedUsd: -262.69, roiPct: -62.66, investedUsd: 419.2, lastSellMs: Date.parse("2026-09-28T18:09:35Z"), lastTradeMs: Date.parse("2026-09-28T18:09:35Z") },
+    { mint: "OLD", symbol: "OLD", realizedUsd: 50, roiPct: 10, investedUsd: 500, lastSellMs: Date.parse("2025-06-01T00:00:00Z"), lastTradeMs: Date.parse("2025-06-01T00:00:00Z") },
+    { mint: "HELD", symbol: "HELD", realizedUsd: 0, roiPct: null, investedUsd: 30, lastSellMs: null, lastTradeMs: Date.parse("2026-09-20T00:00:00Z") },
+    { mint: "WIN", symbol: "WIN", realizedUsd: 1200, roiPct: 400, investedUsd: 300, lastSellMs: Date.parse("2026-08-10T00:00:00Z"), lastTradeMs: Date.parse("2026-08-10T00:00:00Z") },
   ], now);
   assert.equal(first.cursor, Date.parse("2026-09-28T18:09:35Z"));
   assert.deepEqual(Object.keys(first.index).sort(), ["DUKE", "WIN"]); // older than a year and unsold are left out
   // WIN is traded again in September: it moves, it isn't counted twice.
-  const next = mergeCoins(first, [{ mint: "WIN", symbol: "WIN", realizedUsd: 1500, roiPct: 350, lastSellMs: Date.parse("2026-09-30T00:00:00Z"), lastTradeMs: Date.parse("2026-09-30T00:00:00Z") }], now);
+  const next = mergeCoins(first, [{ mint: "WIN", symbol: "WIN", realizedUsd: 1500, roiPct: 350, investedUsd: null, lastSellMs: Date.parse("2026-09-30T00:00:00Z"), lastTradeMs: Date.parse("2026-09-30T00:00:00Z") }], now);
   const months = coinsByMonth([{ ...rec({}), coins: next }]);
   assert.equal(months["2026-08"], undefined);
   assert.equal(months["2026-09"].count, 2);
   assert.equal(months["2026-09"].wins, 1);
   assert.deepEqual(months["2026-09"].top.map((c) => [c.symbol, c.pnlUsd]), [["WIN", 1500]]);
   assert.deepEqual(months["2026-09"].bottom.map((c) => c.symbol), ["DUKE"]);
+});
+
+test("what was put in: stored when the load has it, else worked out from profit and return", () => {
+  assert.equal(investedFrom(484.8, 722.3)?.toFixed(2), "67.12"); // TONKA: $67 in, +$484.8
+  assert.equal(investedFrom(-175, -74.4)?.toFixed(2), "235.22"); // BALLS: $235 in, -$175
+  assert.equal(investedFrom(1, 0.4), null); // near break-even: unreliable
+  const now = Date.parse("2026-09-28T00:00:00Z");
+  const idx = mergeCoins(undefined, [{ mint: "M", symbol: "M", realizedUsd: 10, roiPct: 5, investedUsd: 200, lastSellMs: now, lastTradeMs: now }], now);
+  assert.equal(coinsByMonth([{ ...rec({}), coins: idx }])["2026-09"].top[0].investedUsd, 200);
 });

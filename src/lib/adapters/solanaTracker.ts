@@ -52,6 +52,7 @@ interface PositionsPage {
   positions?: {
     token: string;
     pnl?: { realized?: number };
+    invested?: number | null;
     roi?: number | null;
     timing?: { lastSell?: number | null; lastTrade?: number };
     meta?: { symbol?: string };
@@ -80,7 +81,7 @@ async function fetchCoinsSince(address: string, sinceMs: number | null, nowMs: n
         reachedOld = true;
         break;
       }
-      coins.push({ mint: p.token, symbol: p.meta?.symbol ?? p.token.slice(0, 4), realizedUsd: p.pnl?.realized ?? 0, roiPct: p.roi ?? null, lastSellMs: p.timing?.lastSell ?? null, lastTradeMs });
+      coins.push({ mint: p.token, symbol: p.meta?.symbol ?? p.token.slice(0, 4), realizedUsd: p.pnl?.realized ?? 0, roiPct: p.roi ?? null, investedUsd: p.invested ?? null, lastSellMs: p.timing?.lastSell ?? null, lastTradeMs });
     }
     cursor = body.pagination?.nextCursor ?? null;
     if (reachedOld || !body.pagination?.hasMore || !cursor) return { coins, pages: page, complete: true };

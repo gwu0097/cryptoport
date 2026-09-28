@@ -33,8 +33,9 @@ export interface StoredTradingRecord {
   coins?: { cursor: number | null; index: Record<string, CoinEntry> };
 }
 
-/** A coin's result: [month it was last sold (YYYY-MM), realized USD, return %, ticker]. */
-export type CoinEntry = [string, number, number | null, string];
+/** A coin's result: [month it was last sold (YYYY-MM), realized USD, return %,
+ * ticker, USD put in]. The fifth is missing on coins saved before 2026-09-28. */
+export type CoinEntry = [string, number, number | null, string, number?];
 
 /** One coin as the positions endpoint returns it (the adapter's shape). */
 export interface FetchedCoin {
@@ -42,6 +43,7 @@ export interface FetchedCoin {
   symbol: string;
   realizedUsd: number;
   roiPct: number | null;
+  investedUsd: number | null;
   lastSellMs: number | null;
   lastTradeMs: number;
 }
@@ -51,6 +53,8 @@ export interface CoinBrief {
   symbol: string;
   pnlUsd: number;
   roiPct: number | null;
+  /** What was put into the position; null when unknown. */
+  investedUsd: number | null;
 }
 
 export interface MonthCoins {
@@ -72,11 +76,20 @@ export function mergeCoins(prev: StoredTradingRecord["coins"] | undefined, fetch
   for (const c of fetched) {
     cursor = cursor === null ? c.lastTradeMs : Math.max(cursor, c.lastTradeMs);
     if (c.lastSellMs === null) continue; // still held: nothing realized yet
-    index[c.mint] = [monthOf(c.lastSellMs), Math.round(c.realizedUsd * 100) / 100, c.roiPct === null ? null : Math.round(c.roiPct * 10) / 10, c.symbol];
+    const entry: CoinEntry = [monthOf(c.lastSellMs), Math.round(c.realizedUsd * 100) / 100, c.roiPct === null ? null : Math.round(c.roiPct * 10) / 10, c.symbol];
+    if (c.investedUsd !== null) entry.push(Math.round(c.investedUsd * 100) / 100);
+    index[c.mint] = entry;
   }
   const oldest = monthOf(nowMs - 365 * 24 * 60 * 60 * 1000);
   for (const [mint, e] of Object.entries(index)) if (e[0] < oldest) delete index[mint];
   return { cursor, index };
+}
+
+/** What was put in, from the result and its return (return = profit ÷ put
+ * in) — for coins saved before the amount was. Unreliable near 0%, so none. */
+export function investedFrom(pnlUsd: number, roiPct: number | null): number | null {
+  if (roiPct === null || Math.abs(roiPct) < 1) return null;
+  return Math.abs((pnlUsd * 100) / roiPct);
 }
 
 /** A month's coins across records: how many, how many won, and the biggest
@@ -84,8 +97,8 @@ export function mergeCoins(prev: StoredTradingRecord["coins"] | undefined, fetch
 export function coinsByMonth(records: readonly StoredTradingRecord[]): Record<string, MonthCoins> {
   const by = new Map<string, CoinBrief[]>();
   for (const r of records) {
-    for (const [mint, [month, pnlUsd, roiPct, symbol]] of Object.entries(r.coins?.index ?? {})) {
-      by.set(month, [...(by.get(month) ?? []), { mint, symbol, pnlUsd, roiPct }]);
+    for (const [mint, [month, pnlUsd, roiPct, symbol, invested]] of Object.entries(r.coins?.index ?? {})) {
+      by.set(month, [...(by.get(month) ?? []), { mint, symbol, pnlUsd, roiPct, investedUsd: invested ?? investedFrom(pnlUsd, roiPct) }]);
     }
   }
   const out: Record<string, MonthCoins> = {};
