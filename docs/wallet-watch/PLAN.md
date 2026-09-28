@@ -265,8 +265,10 @@ category (`coin_categories`) plus `fiat:USD`.
 3. **Watch Insights** — convergence, track record, early/late, cash ratio, group flows,
    overlap with my portfolio. *Gate:* each metric hand-checked for one
    wallet from its movements.
-4. **Later:** alerts (Discord, reusing `hold/signal-alerts`),
-   transaction-level trades, shared/public groups.
+4. **Activity check** (transactions since the morning read, on demand) —
+   below. *Gate:* below.
+5. **Later:** alerts (Discord, reusing `hold/signal-alerts`), shared/public
+   groups.
 
 ## Decisions (owner, 2026-09-26)
 
@@ -326,3 +328,175 @@ movement) and the early/late and cash-ratio data sources are named (#11).
 - Early/late reads each traded coin's stored price history; coins without
   30 days of history before the entry show "—" (a CoinGecko backfill for
   them would be a budgeted decision, §5).
+
+## Phase 4 — Activity check (plan, 2026-09-28)
+
+### Goal
+
+The owner at their desk mid-day: "since this morning's 08:00 read, has
+anyone I watch bought, added, trimmed or sold?" — in seconds, on demand,
+without re-reading every balance. Nothing runs in the background (owner:
+"if I'm not looking at the app, it doesn't matter when the scan runs"). The
+daily full read stays the source of truth.
+
+### Decisions (owner, 2026-09-28)
+
+- On demand only: an **Activity check** button on the Dashboard's Wallet
+  Watch panel and on Wallet Watch (the selected group's addresses).
+- Results are **saved until the next morning's read** and **appended** by
+  later checks, never overwritten.
+- Each check reads only **since its own last check** (a cursor per
+  address), but lines are judged on **the whole day** against the morning
+  snapshot — two 3% adds are one 6% line.
+- Same bar as the daily read: ≥ $100 and (≥ 1% of the position or ≥ $5,000).
+- Each line shows the trade's price, the price now and the change
+  (as the feed already does).
+
+### Sources — checked live 2026-09-28 on the watched wallets
+
+| Wallets | Source | Live result |
+|---|---|---|
+| EVM (8 addresses, 1–27 chains each) | Alchemy `alchemy_getAssetTransfers` (existing `adapters/alchemy.ts`), from/to, `external`+`erc20`, from the cursor block; only chains in the morning snapshot that Alchemy serves (`ALCHEMY_HOSTS`) | ~0.9 s per chain, 2 calls; VirtualBacon's AURORA sale found at 11:47 UTC with the exact quantity the 17:12 full read later recorded |
+| Solana (11 addresses) | Helius Enhanced Transactions `GET /v0/addresses/{a}/transactions` (100 per page, `until=<signature>` cursor) | 0.6–1 s per page; `until` returns exactly the newer ones. **7 of 10 gem wallets had 95–100+ transactions in 24 h** — mostly spam drops, NFT bids, pump.fun noise; a handful of real swaps |
+| Hyperliquid (3 venue accounts) | `userFillsByTime` from the cursor time | ~0.6 s, 1 call, free |
+| Bitcoin (1) | Blockstream (existing `bitcoinTx.ts`) | 1 call |
+
+EVM chains Alchemy doesn't serve (PulseChain, Merlin, Manta, …) and other
+venues (Lighter, Aster, Polymarket) are **not checked** and named as such;
+the 08:00 read covers them.
+
+### How a check works
+
+1. Claim nothing, poll nothing: a route handler (`api/wallet-watch/check`,
+   outside the Server Action queue) streams one NDJSON line per address as
+   it finishes, like Refresh positions — so no status checks at all.
+2. Per address, read from its cursor to now (never checked: newest-first
+   back to the last read's start), paging (Solana up to `MAX_PAGES` = 5, i.e. 500
+   transactions; past that the address is named "too busy — see the
+   morning read").
+3. Reduce each transaction to **net quantity change per coin for this
+   address** (Helius `tokenBalanceChanges`/`nativeBalanceChanges` for the
+   owner; Alchemy's in/out legs). This ignores the transaction's label, so
+   pump.fun "UNKNOWN" swaps count and spam that nets to a coin we don't
+   price is dropped. Contracts/mints resolve to a `price_key` the same way
+   a sync does (`withPriceKeys`); an unpriced, unlisted coin is skipped
+   (as the daily diff skips it).
+4. Classify: a transaction with an out leg and an in leg is a **swap**
+   (bought/sold; its price = the other leg's value ÷ quantity when that leg
+   is SOL, ETH or a stablecoin); a one-legged transaction is a **transfer**
+   ("received"/"sent"), never called a buy or sale. Transfers between two
+   addresses of the same influencer net to zero.
+5. Save the per-coin legs (appended to `tx_activity`, keyed by transaction),
+   move the cursor. A source that fails leaves the cursor where it was and the
+   address is named "not checked" — never shown as "no activity" (§4.3).
+6. The feed recomputes the day's lines per influencer: sum of today's rows
+   per coin vs the morning snapshot's quantity, same rule as `watchDiff.ts`
+   (shared pure function), marked "since 08:00 · from transactions", with
+   lines new since the previous check highlighted.
+7. The next read (08:00 or a Refresh) makes the official movements from
+   balances, drops the legs before its start time, and keeps the cursor
+   (a position in the chain's history, not a day). See review items 2–4.
+
+Shared per address, like `watched_addresses`: a check by any user updates
+the rows every watcher sees, and an address checked in the last 5 minutes
+is reused, not re-read.
+
+### Data model (SQL handed over before code; revised after review)
+
+No new table: the day's activity is a cache that the next read replaces, so
+it lives on the shared `watched_addresses` row (existing RLS, one write per
+address):
+- `tx_activity jsonb` — the day's per-coin legs found by checks since the
+  last read's start: `{txId, assetKey, sourceChain, priceKey, ticker,
+  qtyDelta, kind: "swap"|"transfer", counterparty, priceUsd, at,
+  checkedAt}`; appended (deduped by txId + assetKey), never overwritten.
+- `tx_cursor jsonb` — where the last check stopped, per source (EVM chain →
+  block, `sol` → signature, `hl` → fill time). Never a day boundary.
+- `tx_checked_at`, `tx_check_status`.
+The day boundary is the last read's **start** time, stored in the snapshot
+(`snapshot.readStartedAt`, no column).
+
+### Budget (per check of all 19 addresses, measured counts above)
+
+- **Helius:** 1–5 pages per busy Solana wallet on the first check of the
+  day, ~1 on later ones → ~15–25 calls. Enhanced Transactions are priced
+  per call in Helius credits (published rate 100 credits/call — to confirm
+  on the Helius dashboard before build).
+- **Alchemy:** 2 calls per checked chain → ~70 (Vitalik alone is ~40); a
+  few thousand compute units, against 30M/month free.
+- **Hyperliquid, Blockstream:** 4 free calls.
+- **CoinGecko:** 0 (prices from `asset_prices`; a coin never priced before
+  goes through `ensureAssetPrices`' one batched call).
+- **Supabase:** ~5 requests per check (read snapshots + cursors, one
+  transfers upsert, one cursor upsert, one read for the feed) and no
+  polling.
+
+### At 10× (190 addresses)
+
+A full check becomes ~1,000 external calls — so a check is per **group**
+(the selected one), addresses are shared across users with the 5-minute
+reuse, and Alchemy chains are limited to the ones in the morning snapshot.
+Helius credits are the first limit to watch.
+
+### What fails and how it shows
+
+A source error: that address "not checked (Helius: …)", cursor unmoved. A
+wallet over the page cap: "too busy". A chain with no source: "not checked
+— covered by the 08:00 read". A transfer we can't price: not shown (like
+the daily diff). A transfer to an exchange: "sent", not "sold".
+
+### Gate
+
+Unit tests for the reduction (swap vs transfer, same-owner netting, the
+day's cumulative rule, a failed source never reads as empty). Then two
+real checks on the owner's list: every line checked against Solscan /
+Etherscan for three wallets, and the next morning's read confirms the
+day's lines (same coins, same direction).
+
+### Design review (Fable, 2026-09-28) — adopted
+
+1. **EVM sales for ETH.** `alchemy.ts` reads only `external`+`erc20`;
+   routers pay ETH out as internal transfers. Request `internal` on each
+   chain whose Alchemy host accepts it (checked live per host at build);
+   elsewhere a token-out with no other leg in a DEX transaction is "sold —
+   ETH leg not tracked", priced from `asset_prices`, never "sent".
+2. **Cursor ≠ day.** The cursor is only where the last check stopped. The
+   day is a time filter on `at` (≥ the last read's start). A never-checked
+   address pages newest-first until it crosses the boundary, then sets its
+   cursor.
+3. **Boundary = the read's start.** `refreshWatchedAddress` stamps
+   `snapshotAt` after the balances return (reads take minutes), so a trade
+   inside the read would be in neither. The boundary is the read's start
+   time (an overlap double-counts for at most a day; a gap would hide a
+   trade).
+4. The hand-off lives in `refreshWatchedAddress` (every snapshot write, a
+   Refresh included): it drops `tx_activity` legs before its start. The feed
+   also filters `at ≥ boundary`, so a late check write can't double count.
+5. A check claims each address compare-and-set on `tx_checked_at` (the
+   reuse window), like `claimWatchedAddresses`; a chain's cursor moves only
+   after its calls all succeeded and its legs are saved.
+6. Coins whose snapshot rows are `kept` (a failed source this morning) are
+   not sized — as `diffSnapshots` skips them.
+7. Same-influencer netting happens at feed time (influencers are per user;
+   the row is per address): each leg stores its `counterparty`.
+8. Page cap (Solana 5 pages, Alchemy `maxCount` 100 × 5): the cursor moves
+   to the newest anyway, what was read is saved, status "partial — N+
+   transactions".
+9. Solana fees and rent are added back to the fee payer's SOL change; a SOL
+   change under a small per-transaction floor with no other leg is ignored.
+10. **Helius budget:** ~20 calls × 100 credits per check; at ~10 checks a
+    day that's ~600K credits a month — most of a free plan, shared with
+    wallet syncs. Capped: a 15-minute reuse window per address, checks run
+    on the selected group only. The owner confirms the plan's credits first.
+11. Supabase: streaming writes per address — about 2 requests per address
+    plus 3 (~40 for 19 addresses), no polling.
+12. `assetKey` uses `watchDiff.ts` `assetOf`'s rule on a SnapshotRow-shaped
+    leg; wSOL/WETH key via `withPriceKeys` but count as SOL/ETH for the
+    other-leg price.
+13. Hyperliquid legs key by fill `tid`; a perp flip within the day is named
+    (its key includes the side). Spot fills → `hl:<TOKEN>`.
+14. "New since your last check" is per viewer (`usePersistedState`), not the
+    shared `checked_at`. The route sets `maxDuration`; addresses it doesn't
+    reach are "not checked". No token-registry refresh hook in the check.
+15. Reorgs: re-read a couple of minutes of blocks behind the cursor
+    (idempotent); the next read bounds any damage to one day.
