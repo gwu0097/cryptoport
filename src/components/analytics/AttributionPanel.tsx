@@ -125,7 +125,7 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: Wallet
 }
 
 /** Biggest price contributors one way, bars scaled to the largest of all. */
-function Movers({ title, rows, scale }: { title: string; rows: Attribution["contributions"]; scale: number }) {
+function Movers({ title, rows, rest, scale }: { title: string; rows: Attribution["contributions"]; rest: { count: number; usd: number }; scale: number }) {
   return (
     <div>
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">{title}</p>
@@ -150,6 +150,16 @@ function Movers({ title, rows, scale }: { title: string; rows: Attribution["cont
               </span>
             </li>
           ))}
+          {/* The rest of that side, so the two lists add up to "From price
+              moves" — on a broad red day most of it is the long tail. */}
+          {rest.count > 0 && (
+            <li className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-sm text-fg-muted">
+              <span className="col-span-2">
+                + {rest.count} more coin{rest.count === 1 ? "" : "s"}
+              </span>
+              <span className={`text-right tabular-nums ${tone(rest.usd)}`}>{formatUsdSigned(rest.usd)}</span>
+            </li>
+          )}
         </ul>
       )}
     </div>
@@ -171,8 +181,13 @@ export function AttributionPanel({
   const { dialogRef, open, openDialog } = useLazyDialog();
   const [window, setWindow] = usePersistedState<AttributionWindow>("cryptoport:analyticsAttributionWindow", "7d");
   const a = byWindow[window] ?? byWindow["7d"];
-  const gains = a.contributions.filter((c) => c.usd > 0).slice(0, TOP);
-  const drags = a.contributions.filter((c) => c.usd < 0).slice(0, TOP);
+  const allGains = a.contributions.filter((c) => c.usd > 0);
+  const allDrags = a.contributions.filter((c) => c.usd < 0);
+  const gains = allGains.slice(0, TOP);
+  const drags = allDrags.slice(0, TOP);
+  const restOf = (all: typeof allGains) => ({ count: all.length - TOP, usd: all.slice(TOP).reduce((s, c) => s + c.usd, 0) });
+  // Whatever of the price figure isn't in a listed coin (should be ~0).
+  const unlisted = a.priceUsd - a.contributions.reduce((s, c) => s + c.usd, 0);
   const scale = Math.max(1, ...[...gains, ...drags].map((c) => Math.abs(c.usd)));
 
   return (
@@ -204,9 +219,14 @@ export function AttributionPanel({
         />
       </div>
       <div className="mt-5 grid gap-6 md:grid-cols-2">
-        <Movers title="Biggest gains from price" rows={gains} scale={scale} />
-        <Movers title="Biggest losses from price" rows={drags} scale={scale} />
+        <Movers title="Biggest gains from price" rows={gains} rest={restOf(allGains)} scale={scale} />
+        <Movers title="Biggest losses from price" rows={drags} rest={restOf(allDrags)} scale={scale} />
       </div>
+      <p className="mt-3 text-xs text-fg-muted">
+        {allGains.length + allDrags.length} coins moved on price: {allGains.length} up ({formatUsdSigned(allGains.reduce((s, c) => s + c.usd, 0))}), {allDrags.length} down (
+        {formatUsdSigned(allDrags.reduce((s, c) => s + c.usd, 0))}).
+        {Math.abs(unlisted) >= 1 && <> {formatUsdSigned(unlisted)} of the price figure isn&apos;t in a single coin.</>}
+      </p>
       {a.unattributed.tickers.length > 0 && (
         <p className="mt-4 text-xs text-fg-muted">
           {a.unattributed.tickers.length} holdings have no {window} price change to split out (protocol positions, perp margin, tokens
