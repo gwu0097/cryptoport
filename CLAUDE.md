@@ -97,7 +97,11 @@ owner's.
   `adapters/solanaTracker.ts`), reused for an hour (`tradingRecordLoad.ts`),
   stored on `watched_addresses.trading_record` and summarized by pure
   `tradingRecord.ts` (months, 30/90 days, best month's and day's share of
-  the year). Never automatic: Helius history scans cost ~3,300–7,700
+  the year). Its coins (hover a month: biggest gains and losses, with copy
+  buttons) come from the positions endpoint newest-first: a year the first
+  time (Hash: 22 requests, 1,780 coins, 144 KB), then only coins traded
+  since `coins.cursor` (a refresh: 3 requests); a coin counts once, in the
+  month it was last sold (`mergeCoins`). Never automatic: Helius history scans cost ~3,300–7,700
   credits per busy wallet-month, this costs 2 of 2,500 monthly requests.
   **Sharing:** an influencer's owner can share it
   (`watch_influencers.share_token`, a random UUID; null = not shared) at

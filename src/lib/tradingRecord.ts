@@ -27,6 +27,78 @@ export interface StoredTradingRecord {
   /** Largest decline from a peak over the year, in USD and %. */
   drawdownUsd: number | null;
   drawdownPct: number | null;
+  /** Each coin traded in the past 12 months (Solana Tracker's positions),
+   * so a month's bar can list its coins. Built once, then only newer coins
+   * are fetched: `cursor` is the newest last-trade time seen (ms). */
+  coins?: { cursor: number | null; index: Record<string, CoinEntry> };
+}
+
+/** A coin's result: [month it was last sold (YYYY-MM), realized USD, return %, ticker]. */
+export type CoinEntry = [string, number, number | null, string];
+
+/** One coin as the positions endpoint returns it (the adapter's shape). */
+export interface FetchedCoin {
+  mint: string;
+  symbol: string;
+  realizedUsd: number;
+  roiPct: number | null;
+  lastSellMs: number | null;
+  lastTradeMs: number;
+}
+
+export interface CoinBrief {
+  mint: string;
+  symbol: string;
+  pnlUsd: number;
+  roiPct: number | null;
+}
+
+export interface MonthCoins {
+  count: number;
+  wins: number;
+  top: CoinBrief[];
+  bottom: CoinBrief[];
+}
+
+const MONTH_TOP = 5;
+const monthOf = (ms: number) => new Date(ms).toISOString().slice(0, 7);
+
+/** The coin index after a load: previous entries, then the fetched ones
+ * (a coin traded again moves to its new month — counted once), coins not
+ * yet sold skipped, and anything older than 12 months dropped. */
+export function mergeCoins(prev: StoredTradingRecord["coins"] | undefined, fetched: readonly FetchedCoin[], nowMs: number): NonNullable<StoredTradingRecord["coins"]> {
+  const index: Record<string, CoinEntry> = { ...(prev?.index ?? {}) };
+  let cursor = prev?.cursor ?? null;
+  for (const c of fetched) {
+    cursor = cursor === null ? c.lastTradeMs : Math.max(cursor, c.lastTradeMs);
+    if (c.lastSellMs === null) continue; // still held: nothing realized yet
+    index[c.mint] = [monthOf(c.lastSellMs), Math.round(c.realizedUsd * 100) / 100, c.roiPct === null ? null : Math.round(c.roiPct * 10) / 10, c.symbol];
+  }
+  const oldest = monthOf(nowMs - 365 * 24 * 60 * 60 * 1000);
+  for (const [mint, e] of Object.entries(index)) if (e[0] < oldest) delete index[mint];
+  return { cursor, index };
+}
+
+/** A month's coins across records: how many, how many won, and the biggest
+ * gains and losses (with the mint, for the copy button). */
+export function coinsByMonth(records: readonly StoredTradingRecord[]): Record<string, MonthCoins> {
+  const by = new Map<string, CoinBrief[]>();
+  for (const r of records) {
+    for (const [mint, [month, pnlUsd, roiPct, symbol]] of Object.entries(r.coins?.index ?? {})) {
+      by.set(month, [...(by.get(month) ?? []), { mint, symbol, pnlUsd, roiPct }]);
+    }
+  }
+  const out: Record<string, MonthCoins> = {};
+  for (const [month, coins] of by) {
+    const sorted = [...coins].sort((a, b) => b.pnlUsd - a.pnlUsd);
+    out[month] = {
+      count: coins.length,
+      wins: coins.filter((c) => c.pnlUsd > 0).length,
+      top: sorted.filter((c) => c.pnlUsd > 0).slice(0, MONTH_TOP),
+      bottom: sorted.filter((c) => c.pnlUsd < 0).reverse().slice(0, MONTH_TOP),
+    };
+  }
+  return out;
 }
 
 export interface TradingSummary {
@@ -45,6 +117,8 @@ export interface TradingSummary {
   bestDayShare: number | null;
   drawdownUsd: number | null;
   drawdownPct: number | null;
+  /** Per month: the coins sold in it (when the coin list is loaded). */
+  monthCoins: Record<string, MonthCoins>;
 }
 
 const addDays = (date: string, n: number) => {
@@ -116,5 +190,6 @@ export function summarizeTrading(records: readonly StoredTradingRecord[], today:
     bestDayShare: yearUsd > 0 && best ? best[1].usd / yearUsd : null,
     drawdownUsd: one?.drawdownUsd ?? null,
     drawdownPct: one?.drawdownPct ?? null,
+    monthCoins: coinsByMonth(records),
   };
 }

@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LineChart } from "lucide-react";
-import type { TradingSummary } from "@/lib/tradingRecord";
+import type { CoinBrief, MonthCoins, TradingSummary } from "@/lib/tradingRecord";
 import { formatCompactUsd, formatPercent } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { CopyButton } from "@/components/CopyButton";
 
 const signedCompact = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatCompactUsd(Math.abs(v))}`;
 const tone = (v: number) => (v > 0 ? "text-positive" : v < 0 ? "text-negative" : "text-fg");
@@ -29,6 +30,57 @@ function lastTwelve(months: TradingSummary["months"], today: string) {
     out.push(by.get(m) ?? { month: m, realizedUsd: 0, trades: 0 });
   }
   return out;
+}
+
+function CoinRow({ c }: { c: CoinBrief }) {
+  return (
+    <li className="flex items-center justify-between gap-2 text-xs">
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <span className="truncate font-medium text-fg">{c.symbol}</span>
+        <CopyButton value={c.mint} label={`Copy ${c.symbol} contract`} title={`Copy ${c.symbol}'s contract: ${c.mint}`} />
+      </span>
+      <span className="shrink-0 tabular-nums">
+        <span className={tone(c.pnlUsd)}>{signedCompact(c.pnlUsd)}</span>
+        {c.roiPct !== null && <span className="text-fg-muted"> ({formatPercent(c.roiPct)})</span>}
+      </span>
+    </li>
+  );
+}
+
+/** The coins sold in a month (hover or tap its bar): how many, how many
+ * won, the biggest gains and losses. A coin counts in the month it was last
+ * sold, so these needn't add up exactly to the bar (daily figures). */
+function MonthDetail({ month, realizedUsd, coins, hasCoinList }: { month: string; realizedUsd: number; coins: MonthCoins | undefined; hasCoinList: boolean }) {
+  const label = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
+  return (
+    <div className="mt-3 rounded-lg border border-border/60 p-3">
+      <p className="text-sm">
+        <span className="font-semibold text-fg">{label}</span> <span className={tone(realizedUsd)}>{signedCompact(realizedUsd)}</span>
+        {coins && (
+          <span className="text-xs text-fg-muted">
+            {" "}
+            · {coins.count.toLocaleString()} coins sold · {coins.count > 0 ? Math.round((coins.wins / coins.count) * 100) : 0}% won
+          </span>
+        )}
+      </p>
+      {!hasCoinList ? (
+        <p className="mt-1 text-xs text-fg-muted">Refresh the record to list each month&apos;s coins.</p>
+      ) : !coins ? (
+        <p className="mt-1 text-xs text-fg-muted">No coins sold this month.</p>
+      ) : (
+        <div className="mt-2 grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Biggest gains</p>
+            {coins.top.length === 0 ? <p className="text-xs text-fg-muted">None</p> : <ul className="space-y-1">{coins.top.map((c) => <CoinRow key={c.mint} c={c} />)}</ul>}
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Biggest losses</p>
+            {coins.bottom.length === 0 ? <p className="text-xs text-fg-muted">None</p> : <ul className="space-y-1">{coins.bottom.map((c) => <CoinRow key={c.mint} c={c} />)}</ul>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Figure({ label, value, caption, valueClass }: { label: string; value: string; caption?: string; valueClass?: string }) {
@@ -67,6 +119,7 @@ export function TradingRecordPanel({
   serverNowSec: number;
 }) {
   const router = useRouter();
+  const [month, setMonth] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,11 +186,19 @@ export function TradingRecordPanel({
           </div>
 
           <div className="mt-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">Realized profit by month</p>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">Realized profit by month · hover or tap a month for its coins</p>
             <div className="overflow-x-auto">
               <div className="grid min-w-[36rem] grid-cols-12 gap-1.5">
                 {months.map((m) => (
-                  <div key={m.month} className="flex flex-col items-center" title={`${m.month}: ${signedCompact(m.realizedUsd)} · ${m.trades.toLocaleString()} trades`}>
+                  <button
+                    type="button"
+                    key={m.month}
+                    onMouseEnter={() => setMonth(m.month)}
+                    onFocus={() => setMonth(m.month)}
+                    onClick={() => setMonth(m.month)}
+                    aria-pressed={month === m.month}
+                    className={`flex flex-col items-center rounded ${month === m.month ? "bg-surface-raised/60" : ""}`}
+                  >
                     <span className={`text-[10px] tabular-nums ${tone(m.realizedUsd)}`}>{m.trades > 0 ? signedCompact(m.realizedUsd) : "—"}</span>
                     <div className="relative mt-1 h-24 w-full rounded bg-surface-raised">
                       <div className="absolute inset-x-0 top-1/2 h-px bg-border" />
@@ -149,11 +210,13 @@ export function TradingRecordPanel({
                       )}
                     </div>
                     <span className="mt-1 text-[10px] text-fg-muted">{MONTH.format(new Date(`${m.month}-01T00:00:00Z`))}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
           </div>
+
+          {month && <MonthDetail month={month} realizedUsd={months.find((m) => m.month === month)?.realizedUsd ?? 0} coins={summary.monthCoins[month]} hasCoinList={Object.keys(summary.monthCoins).length > 0} />}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Figure label="Win rate (all time)" value={at.winRatePct !== null ? `${at.winRatePct.toFixed(1)}%` : "—"} caption={`${at.wins.toLocaleString()} of ${at.closed.toLocaleString()} closed coins · holds ${hold(at.avgHoldSecs)} on average`} />

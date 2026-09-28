@@ -1,6 +1,6 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
-import type { StoredTradingRecord } from "../tradingRecord";
+import { mergeCoins, type FetchedCoin, type StoredTradingRecord } from "../tradingRecord";
 
 // Solana Tracker's PnL v2 API (docs.solanatracker.io/guides/pnl-v2): a
 // Solana wallet's trading record in USD. Free plan: 2,500 requests a month,
@@ -48,10 +48,52 @@ interface Performance {
 
 const iso = (ms: number | null | undefined) => (ms ? new Date(ms).toISOString() : null);
 
-/** A wallet's trading record: all-time totals and the past year's days. */
-export async function fetchTradingRecord(address: string): Promise<StoredTradingRecord> {
+interface PositionsPage {
+  positions?: {
+    token: string;
+    pnl?: { realized?: number };
+    roi?: number | null;
+    timing?: { lastSell?: number | null; lastTrade?: number };
+    meta?: { symbol?: string };
+  }[];
+  pagination?: { hasMore?: boolean; nextCursor?: string | null };
+}
+
+/** Pages of coins per load at most (100 each): a year of a trader as busy
+ * as Hash (2,394 coins) is ~24. */
+export const MAX_POSITION_PAGES = 25;
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Coins newest-first (by last trade), down to `sinceMs` — the last load's
+ * newest, so a refresh reads only what's new (usually one page) — or a
+ * year back on the first load. */
+async function fetchCoinsSince(address: string, sinceMs: number | null, nowMs: number): Promise<{ coins: FetchedCoin[]; pages: number; complete: boolean }> {
+  const stop = sinceMs ?? nowMs - YEAR_MS;
+  const coins: FetchedCoin[] = [];
+  let cursor: string | null = null;
+  for (let page = 1; page <= MAX_POSITION_PAGES; page++) {
+    const body: PositionsPage = await get<PositionsPage>(`${address}/positions?currency=usd&sort=last_trade&direction=desc${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    let reachedOld = false;
+    for (const p of body.positions ?? []) {
+      const lastTradeMs = p.timing?.lastTrade ?? 0;
+      if (lastTradeMs <= stop) {
+        reachedOld = true;
+        break;
+      }
+      coins.push({ mint: p.token, symbol: p.meta?.symbol ?? p.token.slice(0, 4), realizedUsd: p.pnl?.realized ?? 0, roiPct: p.roi ?? null, lastSellMs: p.timing?.lastSell ?? null, lastTradeMs });
+    }
+    cursor = body.pagination?.nextCursor ?? null;
+    if (reachedOld || !body.pagination?.hasMore || !cursor) return { coins, pages: page, complete: true };
+  }
+  return { coins, pages: MAX_POSITION_PAGES, complete: false };
+}
+
+/** A wallet's trading record: all-time totals, the past year's days, and
+ * its coins (only those traded since `prev` was loaded). */
+export async function fetchTradingRecord(address: string, prev: StoredTradingRecord | null, nowMs: number): Promise<StoredTradingRecord> {
   const summary = await get<Summary>(`${address}?currency=usd`);
   const perf = await get<Performance>(`${address}/performance?days=365&currency=usd`);
+  const fetched = await fetchCoinsSince(address, prev?.coins?.cursor ?? null, nowMs);
   const s = summary.summary ?? {};
   const t = summary.analysis?.tokens ?? {};
   return {
@@ -69,5 +111,6 @@ export async function fetchTradingRecord(address: string): Promise<StoredTrading
     days: (perf.days ?? []).map((d) => [d.date, d.realizedPnl, d.trades] as [string, number, number]),
     drawdownUsd: perf.drawdown?.amount ?? null,
     drawdownPct: perf.drawdown?.percent ?? null,
+    coins: mergeCoins(prev?.coins, fetched.coins, nowMs),
   };
 }

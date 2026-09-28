@@ -140,7 +140,7 @@ export const API_SERVICES: ApiService[] = [
     tier: "free-signup",
     plan: "Free Data API",
     limits: "2,500 requests a month; 3 requests a second.",
-    usedFor: "Wallet Watch trading records: a Solana address's all-time profit and loss, win rate and the past year day by day, in USD — 2 requests per address, only when someone clicks Load (reused for an hour).",
+    usedFor: "Wallet Watch trading records: a Solana address's all-time profit and loss, win rate, the past year day by day and each coin's result, in USD — only when someone clicks Load (reused for an hour). First load of a very active trader ~22 requests (a year of coins), each refresh ~3.",
     scaling: "One request per wallet per refresh — fine ad hoc. Paid plans from €50/month if records refresh often or for many users.",
     env: ["SOLANA_TRACKER_API_KEY"],
     hosts: ["data.solanatracker.io"],
