@@ -9,6 +9,7 @@ import { evmCheckable, INTERNAL_TRANSFER_CHAINS, MAX_PAGES, readBitcoin, readEvm
 import { CASH_KEYS, toLegs, type ActivityBase, type ActivityLeg, type LegIdentity, type RawChange, type TxActivity } from "./watchActivity";
 import { assetStates, contractKeys } from "./watchDiff";
 import { deriveJobStatus } from "./jobStatus";
+import { WEBHOOK_NETWORKS } from "./alchemyWebhookTx";
 import { parseNumeric } from "./valuation";
 import type { AssetStats } from "./queries";
 import type { WatchSnapshot } from "./watchSnapshot";
@@ -138,7 +139,9 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
     // transaction, since it went live): the running discrepancy check.
     const liveSince = row.live && row.live_since ? Date.parse(row.live_since) : null;
     const known = new Set((row.tx_activity?.legs ?? []).map((l) => `${l.txId}|${l.assetKey}`));
-    const missed = liveSince === null ? 0 : new Set(legs.filter((l) => l.kind === "swap" && Date.parse(l.at) >= liveSince && !known.has(`${l.txId}|${l.assetKey}`)).map((l) => l.txId)).size;
+    // (On EVM only the networks the webhook covers: a Base trade isn't a miss.)
+    const covered = (l: ActivityLeg) => row.chain !== "ETH" || l.sourceChain in WEBHOOK_NETWORKS;
+    const missed = liveSince === null ? 0 : new Set(legs.filter((l) => l.kind === "swap" && covered(l) && Date.parse(l.at) >= liveSince && !known.has(`${l.txId}|${l.assetKey}`)).map((l) => l.txId)).size;
     const added = await appendActivity(row.chain, row.address, row.last_refresh_at!, boundary, legs, base, { tx_cursor: cursor });
     if (added === null) return outcome(true, "a full read finished meanwhile — check again");
     const notes = [
@@ -174,7 +177,17 @@ export const pricesFromStats = (stats: ReadonlyMap<string, AssetStats>): PriceLo
     return usd === null ? [] : [[k, usd] as [string, number]];
   }));
 
-export async function identifyLegs(changes: readonly RawChange[], snapshot: WatchSnapshot, lookup: PriceLookup, checkedAt: string, source: "webhook" | "check"): Promise<ActivityLeg[]> {
+/** `noNativeLegs`: chains whose source can't show a router's native payout
+ * (the activity check's Alchemy reads); a source that delivers internal
+ * transfers (the Alchemy webhook, phase 6) passes an empty set. */
+export async function identifyLegs(
+  changes: readonly RawChange[],
+  snapshot: WatchSnapshot,
+  lookup: PriceLookup,
+  checkedAt: string,
+  source: "webhook" | "check",
+  noNativeLegs: ReadonlySet<string> = NO_NATIVE_LEGS,
+): Promise<ActivityLeg[]> {
   if (changes.length === 0) return [];
   const byContract = contractKeys(snapshot);
   const tickerOf = new Map<string, string>();
@@ -208,7 +221,7 @@ export async function identifyLegs(changes: readonly RawChange[], snapshot: Watc
   const priceOf = (k: string | null) => (k ? (priced.get(k) ?? null) : null);
   const valueOf = (k: string | null) => (k && VALUE_KEYS.has(k) ? priceOf(k) : null);
   const inSnapshot = new Set(assetStates(snapshot).keys());
-  const legs = toLegs(changes, identify, valueOf, NO_NATIVE_LEGS, checkedAt).filter((l) => l.kind !== "transfer" || inSnapshot.has(l.assetKey) || priceOf(l.priceKey) !== null);
+  const legs = toLegs(changes, identify, valueOf, noNativeLegs, checkedAt).filter((l) => l.kind !== "transfer" || inSnapshot.has(l.assetKey) || priceOf(l.priceKey) !== null);
 
   // New coins from swaps: priced now, and named from the price source.
   for (const l of legs) l.source = source;

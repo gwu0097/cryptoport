@@ -500,15 +500,16 @@ export async function getTradingRecord(influencer: WatchFeedInfluencer, today: s
 }
 
 /** Live-update state for an influencer's Solana addresses (phase 5). */
-export async function getLiveStatus(influencer: WatchFeedInfluencer): Promise<{ solana: number; live: boolean; liveSince: string | null; lastEventAt: string | null }> {
-  const sol = influencer.addresses.filter((a) => a.chain === "SOL").map((a) => a.address);
-  if (sol.length === 0) return { solana: 0, live: false, liveSince: null, lastEventAt: null };
+export async function getLiveStatus(influencer: WatchFeedInfluencer): Promise<{ addresses: number; live: boolean; liveSince: string | null; lastEventAt: string | null }> {
+  // Solana (Helius, phase 5) and EVM (Alchemy, phase 6) addresses.
+  const covered = influencer.addresses.filter((a) => a.chain === "SOL" || a.chain === "ETH");
+  if (covered.length === 0) return { addresses: 0, live: false, liveSince: null, lastEventAt: null };
   const db = await userDb();
-  const { data, error } = await db.from("watched_addresses").select("live, live_since, live_last_event_at").eq("chain", "SOL").in("address", sol);
+  const { data, error } = await db.from("watched_addresses").select("chain, address, live, live_since, live_last_event_at").in("chain", ["SOL", "ETH"]).in("address", covered.map((a) => a.address));
   if (error) throw new Error(`Failed to load live state: ${error.message}`);
   const rows = data as { live: boolean; live_since: string | null; live_last_event_at: string | null }[];
   return {
-    solana: sol.length,
+    addresses: covered.length,
     live: rows.some((r) => r.live),
     liveSince: rows.map((r) => r.live_since).filter((t): t is string => !!t).sort()[0] ?? null,
     lastEventAt: rows.map((r) => r.live_last_event_at).filter((t): t is string => !!t).sort().at(-1) ?? null,

@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireAdmin } from "@/lib/adminAuth";
 import { syncLiveWebhook } from "@/lib/webhookSync";
+import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
 import { detectChain } from "@/lib/lookup";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
@@ -255,37 +256,47 @@ export async function addSharedInfluencer(token: string): Promise<WatchActionRes
 }
 
 /**
- * Owner only (it spends the owner's Helius credits): live updates for an
- * influencer's Solana addresses via the app's Helius webhook
- * (docs/wallet-watch/PLAN.md, phase 5). If Helius refuses, the addresses go
- * back to how they were.
+ * Owner only (it spends the owner's Helius credits and Alchemy compute
+ * units): live updates for an influencer's Solana addresses via the app's
+ * Helius webhook (docs/wallet-watch/PLAN.md, phase 5) and its EVM addresses
+ * via the Alchemy webhooks for Ethereum, Arbitrum and Robinhood Chain
+ * (phase 6). If a provider refuses, that chain's addresses go back to how
+ * they were. live_since starts after the webhook's propagation time: a
+ * trade in that gap (Hash's NIBS sale, 23 s after turning on) isn't a miss.
  */
 const WEBHOOK_PROPAGATION_MS = 2 * 60 * 1000;
+const LIVE_SYNC: Record<"SOL" | "ETH", () => Promise<unknown>> = { SOL: syncLiveWebhook, ETH: syncAlchemyWebhooks };
 
 export async function setInfluencerLive(influencerId: string, on: boolean): Promise<WatchActionResult> {
   await requireAdmin();
   const db = await userDb();
-  const { data, error } = await db.from("watch_influencer_addresses").select("address").eq("influencer_id", influencerId).eq("chain", "SOL");
+  const { data, error } = await db.from("watch_influencer_addresses").select("chain, address").eq("influencer_id", influencerId).in("chain", ["SOL", "ETH"]);
   if (error) return { ok: false, error: error.message };
-  const addresses = (data as { address: string }[]).map((a) => a.address);
-  if (addresses.length === 0) return { ok: false, error: "Live updates cover Solana addresses — this influencer has none." };
+  const rows = data as { chain: "SOL" | "ETH"; address: string }[];
+  if (rows.length === 0) return { ok: false, error: "Live updates cover Solana and EVM addresses — this influencer has neither." };
   const svc = serviceDb();
-  const { error: setError } = await svc
-    .from("watched_addresses")
-    // live_since starts after Helius's up-to-2-minute propagation: a trade in
-    // that gap (Hash's NIBS sale, 23 s after turning on) isn't a miss.
-    .update(on ? { live: true, live_since: new Date(Date.now() + WEBHOOK_PROPAGATION_MS).toISOString() } : { live: false, live_since: null })
-    .eq("chain", "SOL")
-    .in("address", addresses);
-  if (setError) return { ok: false, error: setError.message };
-  clearLiveCache();
-  try {
-    await syncLiveWebhook();
-  } catch (e) {
-    await svc.from("watched_addresses").update(on ? { live: false, live_since: null } : { live: true }).eq("chain", "SOL").in("address", addresses);
+  const errors: string[] = [];
+  for (const chain of ["SOL", "ETH"] as const) {
+    const addresses = rows.filter((r) => r.chain === chain).map((r) => r.address);
+    if (addresses.length === 0) continue;
+    const { error: setError } = await svc
+      .from("watched_addresses")
+      .update(on ? { live: true, live_since: new Date(Date.now() + WEBHOOK_PROPAGATION_MS).toISOString() } : { live: false, live_since: null })
+      .eq("chain", chain)
+      .in("address", addresses);
+    if (setError) {
+      errors.push(setError.message);
+      continue;
+    }
     clearLiveCache();
-    return { ok: false, error: (e as Error).message };
+    try {
+      await LIVE_SYNC[chain]();
+    } catch (e) {
+      await svc.from("watched_addresses").update(on ? { live: false, live_since: null } : { live: true }).eq("chain", chain).in("address", addresses);
+      errors.push((e as Error).message);
+    }
   }
+  clearLiveCache();
   revalidate(influencerId);
-  return { ok: true, influencerId };
+  return errors.length > 0 ? { ok: false, error: errors.join(" · ") } : { ok: true, influencerId };
 }

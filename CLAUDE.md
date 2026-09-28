@@ -108,7 +108,18 @@ owner's.
   second (Risk, 2026-09-28) — without moving
   the cursor, so Refresh activity still reads the history and reports
   "webhook missed N" for live wallets (the running discrepancy check).
-  Turning it on only works from the deployed site (Helius needs a public URL).
+  **EVM** (phase 6): the same switch puts an influencer's EVM addresses on
+  the app's Alchemy Address Activity webhooks — one per network, Ethereum,
+  Arbitrum and Robinhood Chain (`alchemyWebhookTx.ts` `WEBHOOK_NETWORKS`;
+  every live address on all three), kept in step by
+  `alchemyWebhookSync.ts` (Notify API, `ALCHEMY_NOTIFY_TOKEN`; ids and
+  signing keys in `app_settings` `alchemy_webhooks`). Deliveries POST to
+  `api/wallet-watch/evm-webhook`, verified by `X-Alchemy-Signature` (HMAC of
+  the raw body with that webhook's key); `alchemyChanges` reduces them as
+  `readEvmChain` does, with the router's ETH payout (internal transfers,
+  delivered on all three) so no leg is "unclear". On an EVM row "webhook
+  missed" counts only those three networks.
+  Turning it on only works from the deployed site (the providers need a public URL).
   Open pages update by themselves: after a delivery adds a new line, the
   receiver sends one empty Supabase Realtime broadcast (`liveBroadcast.ts`,
   channel in `liveChannel.ts`); an activity panel showing a live influencer
@@ -219,7 +230,7 @@ Env var names (values only in `.env.local` / Vercel): `NEXT_PUBLIC_SUPABASE_URL`
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
 `NEXT_PUBLIC_SITE_URL`, `COINGECKO_API_KEY`, `COINGECKO_API_KEY_BACKUP`,
 `ETHERSCAN_API_KEY`, `HELIUS_API_KEY`, `ALCHEMY_API_KEY`, `ZERION_API_KEY`,
-`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `HELIUS_WEBHOOK_SECRET`, `SECRETS_ENCRYPTION_KEY`,
+`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `HELIUS_WEBHOOK_SECRET`, `ALCHEMY_NOTIFY_TOKEN`, `SECRETS_ENCRYPTION_KEY`,
 `ADMIN_EMAIL`, `CRON_SECRET` (Vercel only); scripts only:
 `SCREENER_ARCHIVE_DIR`, `SIGNALS_ARCHIVE_DIR`.
 

@@ -73,7 +73,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         valueExtra={
           <>
             <InfluencerEditor influencer={influencer} groups={groups} />
-            {live && live.solana > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
+            {live && live.addresses > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
           </>
         }
         activityTop={

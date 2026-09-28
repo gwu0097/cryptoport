@@ -7,7 +7,9 @@ import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
 
 /** Owner only: live updates for this influencer via the Helius webhook
- * (phase 5) — each delivered transaction is 1 Helius credit. */
+ * (Solana, phase 5) and the Alchemy webhooks (Ethereum, Arbitrum, Robinhood
+ * Chain, phase 6) — each delivered transaction is 1 Helius credit or ~40
+ * Alchemy compute units. */
 export function LiveToggle({ influencerId, live, liveSince, lastEventAt, serverNowSec }: { influencerId: string; live: boolean; liveSince: string | null; lastEventAt: string | null; serverNowSec: number }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export function LiveToggle({ influencerId, live, liveSince, lastEventAt, serverN
         variant="secondary"
         size="sm"
         disabled={pending}
-        title="Owner only. A Helius webhook pushes this wallet's trades as they happen: 1 credit per transaction, 100 per change to the webhook."
+        title="Owner only. Webhooks push this wallet's trades as they happen — Solana via Helius (1 credit per transaction, 100 per change to the webhook), Ethereum, Arbitrum and Robinhood Chain via Alchemy (~40 compute units per transaction). Other EVM chains still need Refresh activity."
         onClick={() =>
           start(async () => {
             setError(null);

@@ -638,6 +638,25 @@ webhooks** (Alchemy Notify).
   "unclear" (sent or sold), as in the activity check.
 - The owner's Live switch (phase 5) extends to EVM influencers.
 
+### Built 2026-09-28
+
+- `alchemyWebhookTx.ts` (pure, tested): network map, `alchemyChanges`
+  (token category is `"token"` in the payload, not `"erc20"`; NFTs and
+  `log.removed` skipped; `value` null → `rawValue`/`decimals`; no
+  per-transfer time — the delivery's `createdAt`), `validAlchemySignature`.
+- `alchemyWebhookSync.ts`: create (`POST /api/create-webhook`, returns
+  `signing_key`), `PATCH /api/update-webhook-addresses` with the diff
+  against the stored list, `DELETE /api/delete-webhook?webhook_id=`.
+- **Deviation:** every live EVM address goes on all three networks, not
+  only those its snapshot holds — an address costs nothing until it moves,
+  and a first trade on a new chain isn't missed.
+- Alchemy's docs list internal transfers as delivered on Ethereum,
+  Arbitrum and Robinhood Chain (unlike `alchemy_getAssetTransfers`, which
+  has them only on eth/base/matic), so webhook legs are never "unclear".
+  To confirm on the first live Arbitrum sale.
+- Signing keys are cached per instance for 60 s; an unknown webhook id
+  re-reads them at most every 5 s.
+
 ### Gate
 
 Unit tests for the Alchemy payload reduction (a swap with an internal ETH
