@@ -12,11 +12,24 @@ import type { StoredTradingRecord } from "../tradingRecord";
 const BASE = "https://data.solanatracker.io/v2/pnl/wallets";
 const API_KEY = process.env.SOLANA_TRACKER_API_KEY;
 
+/** A wallet Solana Tracker hasn't computed yet can answer 500 ("Failed to
+ * fetch wallet overview") and then 200 moments later (Ethan Prosper,
+ * 2026-09-28) — so a server error is retried twice, 3 s apart. */
+const SERVER_ERROR_RETRIES = 2;
+const SERVER_ERROR_WAIT_MS = 3000;
+
 async function get<T>(path: string): Promise<T> {
   if (!API_KEY) throw new Error("Solana Tracker: no API key");
-  const res = await fetchWithRetry(`${BASE}/${path}`, { headers: { "x-api-key": API_KEY }, cache: "no-store" });
-  if (!res.ok) throw new Error(`Solana Tracker: HTTP ${res.status} ${(await res.text()).slice(0, 120)}`);
-  return (await res.json()) as T;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchWithRetry(`${BASE}/${path}`, { headers: { "x-api-key": API_KEY }, cache: "no-store" });
+    if (res.ok) return (await res.json()) as T;
+    const text = (await res.text()).slice(0, 120);
+    if (res.status >= 500 && attempt < SERVER_ERROR_RETRIES) {
+      await new Promise((r) => setTimeout(r, SERVER_ERROR_WAIT_MS));
+      continue;
+    }
+    throw new Error(`Solana Tracker: HTTP ${res.status} ${text}`);
+  }
 }
 
 interface Summary {
