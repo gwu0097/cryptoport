@@ -263,6 +263,8 @@ export function watchJobStatus(addresses: readonly WatchedAddressView[], nowMs: 
     startedAt,
     outcome: running ? null : (worst?.outcome ?? null),
     detail: running ? "syncing" : (worst?.detail ?? null),
+    // Only the cron is reading: shown as reading, never polled for.
+    scheduled: running && each.every((s) => !s.running || s.scheduled),
   };
 }
 

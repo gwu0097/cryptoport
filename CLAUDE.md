@@ -500,6 +500,15 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   derivation live in `src/lib/jobStatus.ts` (`deriveJobStatus`). UI:
   `components/jobs/` — `useJob` + `JobButton` (locked for the real duration),
   `SlowJobHint`, one `JobPoller` loop over `/api/job-status`.
+- **Live status checks are only for a job a user started and is waiting on**
+  (owner rule, 2026-09-28). They exist so a click that takes 30 s–2 min
+  visibly works; each check is several Supabase requests (§5). Background
+  work nobody is watching — a cron — is never polled for, even with a page
+  open: its claim uses `SCHEDULED_STATUS` (`jobStatus.ts`; `JobStatus.
+  scheduled`), which `useJob` doesn't poll, and the page shows its result
+  on the next load. Pick the interval for the job's length and importance:
+  2.5 s (`useJob` default) for your own wallets' sync and prices, 10 s for
+  Wallet Watch's minutes-long reads (`RefreshWatchButton`).
 - **Completion reaches the browser through `JobPoller` → `notifyJobsComplete()`**,
   never through a `revalidatePath` inside `after()` (its response is already
   sent). One notify in flight at a time (it waits in the Server Action queue

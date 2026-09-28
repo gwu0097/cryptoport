@@ -9,7 +9,9 @@ import type { JobStatus } from "@/lib/jobStatus";
 /** Re-reads the addresses of one or more influencers in the background;
  * locked while any of them is being read (watchRefresh.ts). */
 export function RefreshWatchButton({ influencerIds, status, label = "Refresh" }: { influencerIds: string[]; status: JobStatus; label?: string }) {
-  const { busy, submit, error } = useJob({ status, start: () => refreshInfluencers(influencerIds) });
+  // 10 s, not the 2.5 s default: these reads take minutes, and someone
+  // else's wallets can wait a few seconds longer than your own.
+  const { busy, submit, error } = useJob({ status, start: () => refreshInfluencers(influencerIds), pollMs: 10_000 });
   if (influencerIds.length === 0) return null;
   return (
     <span className="inline-flex flex-col items-end gap-1">

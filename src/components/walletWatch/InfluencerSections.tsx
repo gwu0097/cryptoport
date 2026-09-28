@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { isInProgressStatus } from "@/lib/jobStatus";
 import { ExternalLink, Search } from "lucide-react";
 import type { InfluencerDetail, WatchedInfluencer, WatchMovementView } from "@/lib/watchQuery";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
@@ -124,9 +125,9 @@ export function InfluencerSections({
                 <ShareLinkButton compact paths={[lookupPath(a.address)]} label="Copy lookup link" />
                 <span className="tabular-nums text-fg-muted">{a.valueUsd === null ? "—" : formatUsd(a.valueUsd)}</span>
                 <span className="text-xs text-fg-muted">
-                  {a.refreshStatus === "syncing" ? "reading now…" : <AgeText at={a.lastRefreshAt} serverNowSec={serverNowSec} prefix="read " />}
+                  {isInProgressStatus(a.refreshStatus) ? "reading now…" : <AgeText at={a.lastRefreshAt} serverNowSec={serverNowSec} prefix="read " />}
                 </span>
-                {a.lastRefreshStatus && a.lastRefreshStatus !== "ok" && a.refreshStatus !== "syncing" && (
+                {a.lastRefreshStatus && a.lastRefreshStatus !== "ok" && !isInProgressStatus(a.refreshStatus) && (
                   <span className={`text-xs ${a.lastRefreshStatus.startsWith("error:") ? "text-negative" : "text-warning"}`} title={a.lastRefreshStatus}>
                     {a.lastRefreshStatus.startsWith("error:") ? "last read failed" : "partly read"}
                   </span>
@@ -164,7 +165,7 @@ export function InfluencerSections({
         />
       ) : (
         <Panel>
-          <p className="text-sm text-fg-muted">{influencer.addresses.some((a) => a.refreshStatus === "syncing") ? "Reading these addresses…" : "Not read yet."}</p>
+          <p className="text-sm text-fg-muted">{influencer.addresses.some((a) => isInProgressStatus(a.refreshStatus)) ? "Reading these addresses…" : "Not read yet."}</p>
         </Panel>
       )}
     </>

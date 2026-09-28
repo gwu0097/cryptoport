@@ -77,7 +77,10 @@ export function useJob({
     }
   }, [status.running, status.startedAt, baseline]);
 
-  useJobPolling(busy && !isPending, pollMs);
+  // A job a cron started (status.scheduled) isn't polled for: nobody is
+  // waiting on it, and each poll is several Supabase requests. The next
+  // page load shows its result. A run this click started always is.
+  useJobPolling(busy && !isPending && (baseline !== undefined || !status.scheduled), pollMs);
 
   return { busy, isPending, error, submit };
 }

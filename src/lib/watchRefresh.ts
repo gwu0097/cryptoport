@@ -7,7 +7,7 @@ import { mapWithConcurrency } from "./adapters/http";
 import { carryForward, keptNote } from "./carryForward";
 import { getAssetStatsMap, getPriceMap, type AssetStats } from "./queries";
 import { aggregate, valueHolding } from "./valuation";
-import { JOB_STALE_MS } from "./jobStatus";
+import { JOB_STALE_MS, SCHEDULED_STATUS } from "./jobStatus";
 import { buildSnapshot, previousContracts, snapshotRowToAdapter, type SnapshotRow, type WatchSnapshot } from "./watchSnapshot";
 import { assetOf, assetStates, contractKeys, diffSnapshots, type AssetState } from "./watchDiff";
 import { positionChanges, type OpenPosition } from "./watchPositions";
@@ -48,18 +48,19 @@ export async function ensureWatchedAddress(key: WatchedKey): Promise<void> {
 }
 
 /** Claims the addresses not already being refreshed (compare-and-set, like a
- * wallet sync); returns the ones claimed. */
-export async function claimWatchedAddresses(keys: readonly WatchedKey[]): Promise<WatchedKey[]> {
+ * wallet sync); returns the ones claimed. The cron claims with
+ * SCHEDULED_STATUS so no open page polls for a read nobody asked for. */
+export async function claimWatchedAddresses(keys: readonly WatchedKey[], marker: "syncing" | typeof SCHEDULED_STATUS = "syncing"): Promise<WatchedKey[]> {
   const staleBefore = new Date(Date.now() - JOB_STALE_MS).toISOString();
   const startedAt = new Date().toISOString();
   const claimed: WatchedKey[] = [];
   for (const k of keys) {
     const { data, error } = await serviceDb()
       .from("watched_addresses")
-      .update({ refresh_status: "syncing", refresh_started_at: startedAt })
+      .update({ refresh_status: marker, refresh_started_at: startedAt })
       .eq("chain", k.chain)
       .eq("address", k.address)
-      .or(`refresh_status.neq.syncing,refresh_status.is.null,refresh_started_at.lt.${staleBefore}`)
+      .or(`refresh_status.not.in.(syncing,${SCHEDULED_STATUS}),refresh_status.is.null,refresh_started_at.lt.${staleBefore}`)
       .select("chain");
     if (error) throw new Error(`Failed to start refresh: ${error.message}`);
     if (data && data.length > 0) claimed.push(k);
@@ -142,11 +143,11 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
     const movements = diffSnapshots(previous, snapshot, priceOf);
     const { data: openRows, error: openError } = await db
       .from("watched_positions")
-      .select("asset_key, opened_at, closed_at")
+      .select("chain, address, asset_key, opened_at, position_type, ticker, price_key, held_at_start, entry_price, entry_qty, last_qty, last_seen_at, closed_at, exit_price")
       .eq("chain", chain)
       .eq("address", address);
     if (openError) throw new Error(openError.message);
-    const positions = openRows as { asset_key: string; opened_at: string; closed_at: string | null }[];
+    const positions = openRows as ({ asset_key: string; opened_at: string; closed_at: string | null } & Record<string, unknown>)[];
     const open: OpenPosition[] = positions.filter((p) => !p.closed_at).map((p) => ({ assetKey: p.asset_key, openedAt: p.opened_at }));
     const changes = positionChanges({
       // Addresses read before positions were tracked start from here too.
@@ -174,6 +175,20 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
       const v = valueHolding({ ticker: r.ticker, qty: r.qty ?? null, usd_override: null, source: "auto", price_key: r.price_key }, prices);
       return v.kind === "priced" ? sum + v.usd : sum;
     }, 0);
+    // Closed and still-held positions in one request (not one per position:
+    // each request is a log line, CLAUDE.md §5): their stored rows with the
+    // changed fields, upserted on the key. A close wins over a touch.
+    const stored = new Map(positions.map((p) => [`${p.asset_key}|${p.opened_at}`, p]));
+    const updated = new Map<string, Record<string, unknown>>();
+    for (const t of changes.touches) {
+      const row = stored.get(`${t.assetKey}|${t.openedAt}`);
+      if (row) updated.set(`${t.assetKey}|${t.openedAt}`, { ...row, last_qty: t.qty, last_seen_at: snapshotAt });
+    }
+    for (const c of changes.closes) {
+      const row = stored.get(`${c.assetKey}|${c.openedAt}`);
+      if (row) updated.set(`${c.assetKey}|${c.openedAt}`, { ...row, closed_at: snapshotAt, exit_price: c.exitPrice, last_qty: 0, last_seen_at: snapshotAt });
+    }
+    const updates = [...updated.values()];
     // Best-effort after the snapshot is saved: a failure here is named in the
     // status but never loses the read.
     const writes = await Promise.all([
@@ -222,12 +237,7 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
             })),
             { onConflict: "chain,address,asset_key,opened_at", ignoreDuplicates: true },
           ),
-      ...changes.closes.map((c) =>
-        db.from("watched_positions").update({ closed_at: snapshotAt, exit_price: c.exitPrice, last_qty: 0, last_seen_at: snapshotAt }).eq("chain", chain).eq("address", address).eq("asset_key", c.assetKey).eq("opened_at", c.openedAt),
-      ),
-      ...changes.touches.map((t) =>
-        db.from("watched_positions").update({ last_qty: t.qty, last_seen_at: snapshotAt }).eq("chain", chain).eq("address", address).eq("asset_key", t.assetKey).eq("opened_at", t.openedAt),
-      ),
+      updates.length === 0 ? Promise.resolve({ error: null }) : db.from("watched_positions").upsert(updates, { onConflict: "chain,address,asset_key,opened_at" }),
     ]);
     const failed = writes.map((w) => w.error?.message).filter(Boolean);
     if (failed.length > 0) {

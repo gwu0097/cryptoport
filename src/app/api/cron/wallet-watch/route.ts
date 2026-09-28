@@ -4,6 +4,7 @@ import { ensureAssetPrices } from "@/lib/adapters/assetPrices";
 import { mapWithConcurrency } from "@/lib/adapters/http";
 import { getAssetStatsMap } from "@/lib/queries";
 import { claimWatchedAddresses, refreshWatchedAddress, type WatchedKey } from "@/lib/watchRefresh";
+import { SCHEDULED_STATUS } from "@/lib/jobStatus";
 import type { WatchSnapshot } from "@/lib/watchSnapshot";
 
 // Wallet Watch's daily read (docs/wallet-watch/PLAN.md, phase 2): every
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   await ensureAssetPrices(keys, "watch-cron").catch(() => {});
   const stats = await getAssetStatsMap().catch(() => new Map());
 
-  const claimed = await claimWatchedAddresses(rows.map(({ chain, address }) => ({ chain, address })));
+  const claimed = await claimWatchedAddresses(rows.map(({ chain, address }) => ({ chain, address })), SCHEDULED_STATUS);
   let read = 0;
   const skipped: WatchedKey[] = [];
   await mapWithConcurrency(claimed, CONCURRENCY, async (k) => {

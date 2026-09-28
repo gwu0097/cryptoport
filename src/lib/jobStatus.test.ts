@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveJobStatus, JOB_STALE_MS } from "./jobStatus.ts";
+import { deriveJobStatus, isInProgressStatus, JOB_STALE_MS } from "./jobStatus.ts";
 
 const NOW = Date.parse("2026-01-01T00:10:00.000Z");
 
@@ -66,4 +66,16 @@ test("terminal 'N/M ticker(s) failed' (refreshPrices' own shape): partial outcom
 test("terminal 'no priced holdings': ok outcome, not misread as an error", () => {
   const s = deriveJobStatus({ status: "no priced holdings", started_at: null }, NOW);
   assert.equal(s.outcome, "ok");
+});
+
+test("a cron's claim is running but scheduled; a user's is not", () => {
+  const now = Date.parse("2026-09-28T08:01:00Z");
+  const cron = deriveJobStatus({ status: "scheduled", started_at: "2026-09-28T08:00:00Z" }, now);
+  assert.equal(cron.running, true);
+  assert.equal(cron.scheduled, true);
+  const user = deriveJobStatus({ status: "syncing", started_at: "2026-09-28T08:00:00Z" }, now);
+  assert.equal(user.running, true);
+  assert.equal(user.scheduled, false);
+  assert.equal(isInProgressStatus("scheduled"), true);
+  assert.equal(isInProgressStatus("ok"), false);
 });

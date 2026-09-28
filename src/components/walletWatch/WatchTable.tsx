@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { isInProgressStatus } from "@/lib/jobStatus";
 import { ExternalLink } from "lucide-react";
 import type { WatchedInfluencer, WatchGroup } from "@/lib/watchQuery";
 import { formatUsd } from "@/lib/format";
@@ -55,7 +56,7 @@ export function WatchTable({ influencers, groups, serverNowSec }: { influencers:
         </thead>
         <tbody>
           {rows.map((i) => {
-            const reading = i.addresses.some((a) => a.refreshStatus === "syncing");
+            const reading = i.addresses.some((a) => isInProgressStatus(a.refreshStatus));
             const failed = i.addresses.filter((a) => a.lastRefreshStatus?.startsWith("error:")).length;
             return (
               <tr key={i.id} className={trClass}>

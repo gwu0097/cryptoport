@@ -26,6 +26,9 @@ export interface JobStatus {
    * full detail (e.g. "3/50 ticker(s) failed") show this directly rather
    * than this module inventing a lossy summary. */
   detail: string | null;
+  /** Running, but started by a scheduled job (a cron) rather than a user.
+   * Nobody is waiting on it, so no page polls for it (useJob.ts). */
+  scheduled?: boolean;
 }
 
 /** What a job-starting Server Action returns instead of either throwing
@@ -40,7 +43,14 @@ export type JobStartResult = { started: true } | { started: false; reason: strin
 // and the platform actually tearing the function down.
 export const JOB_STALE_MS = 300_000 + 60_000;
 
-const IN_PROGRESS_STATUSES = new Set(["syncing", "refreshing"]);
+/** The in-progress marker a cron claims with instead of "syncing". */
+export const SCHEDULED_STATUS = "scheduled";
+const IN_PROGRESS_STATUSES = new Set(["syncing", "refreshing", SCHEDULED_STATUS]);
+
+/** Whether a raw status string is an in-progress marker (stale or not). */
+export function isInProgressStatus(status: string | null): boolean {
+  return status !== null && IN_PROGRESS_STATUSES.has(status);
+}
 
 export function deriveJobStatus(
   row: { started_at: string | null; status: string | null },
@@ -61,5 +71,5 @@ export function deriveJobStatus(
     else outcome = "ok";
   }
 
-  return { running, stale, startedAt: row.started_at, outcome, detail: row.status };
+  return { running, stale, startedAt: row.started_at, outcome, detail: row.status, scheduled: running && row.status === SCHEDULED_STATUS };
 }
