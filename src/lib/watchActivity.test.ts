@@ -124,3 +124,13 @@ test("SOL in and out is cash, never a round trip", () => {
   ];
   assert.ok(dayLines([day(legs)], new Set(), () => 119.58).every((l) => l.kind !== "roundtrip"));
 });
+
+test("a net buy is priced by its latest buys, not an earlier round trip (Hash's NIBS)", () => {
+  const legs = [
+    leg({ txId: "a", qtyDelta: 11_605_144, priceUsd: 0.00004323, at: "2026-09-28T20:10:52Z" }),
+    leg({ txId: "b", qtyDelta: -11_605_144, priceUsd: 0.00003233, at: "2026-09-28T20:11:50Z" }),
+    leg({ txId: "c", qtyDelta: 19_408_175, priceUsd: 0.00005, at: "2026-09-28T20:51:54Z" }),
+  ];
+  const net = dayLines([day(legs)], new Set(), () => 0.0000444).find((l) => l.kind === "new")!;
+  assert.equal(net.tradePrice, 0.00005);
+});

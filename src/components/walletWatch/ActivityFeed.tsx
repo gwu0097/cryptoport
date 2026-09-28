@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { WatchMovementView } from "@/lib/watchQuery";
 import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
+import { CASH_KEYS } from "@/lib/watchActivity";
 import { CopyButton } from "@/components/CopyButton";
 
 const VERB: Record<WatchMovementView["kind"], { token: string; perp: string; prediction: string }> = {
@@ -10,6 +11,10 @@ const VERB: Record<WatchMovementView["kind"], { token: string; perp: string; pre
   trimmed: { token: "trimmed", perp: "reduced", prediction: "sold part of" },
   exited: { token: "sold all", perp: "closed", prediction: "exited" },
 };
+
+/** SOL, USDC and the like: the coins trades are paid in. Their balance
+ * moving is cash from sales or spent on buys, not an investment decision. */
+const isCash = (m: WatchMovementView) => m.positionType === "token" && !!m.priceKey && CASH_KEYS.has(m.priceKey);
 
 function what(m: WatchMovementView): string {
   if (m.positionType === "perp") return `${m.side ?? ""} ${m.ticker}`.trim();
@@ -55,7 +60,7 @@ export function ActivityFeed({ movements, serverNowSec, showNames = true }: { mo
                   {m.influencerName}
                 </Link>
               )}{" "}
-              <span className={buying ? "text-positive" : "text-negative"}>{VERB[m.kind][m.positionType]}</span>{" "}
+              <span className={buying ? "text-positive" : "text-negative"}>{isCash(m) ? (buying ? "cash up" : "cash down") : VERB[m.kind][m.positionType]}</span>{" "}
               <span className="text-fg">{what(m)}</span>
               {m.contract && (
                 <span className="ml-1 inline-flex align-middle">

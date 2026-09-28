@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import type { WatchDayLine } from "@/lib/watchQuery";
+import { CASH_KEYS } from "@/lib/watchActivity";
 import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +16,8 @@ import { NowPrice } from "./ActivityFeed";
  * buy or sale), or a token out we can't tell apart (watchActivity.ts). */
 function verb(l: WatchDayLine): string {
   if (l.kind === "roundtrip") return "bought and sold";
+  // The coin trades are paid in: its balance moving is cash, not a decision.
+  if (l.priceKey && CASH_KEYS.has(l.priceKey)) return l.qtyAfter > l.qtyBefore ? "cash up" : "cash down";
   if (l.via === "unclear") return l.kind === "exited" ? "sent or sold all" : "sent or sold";
   const transfer = l.via === "transfer";
   switch (l.kind) {
@@ -156,6 +159,9 @@ export function DayActivity({
                       <CopyButton value={l.contract} label={`Copy ${l.ticker} contract`} title={`Copy ${l.ticker}'s contract${l.contractChain ? ` (${l.contractChain})` : ""}: ${l.contract}`} />
                     </span>
                   )}
+                  {!trip && l.priceKey && CASH_KEYS.has(l.priceKey) && (
+                    <span className="text-xs text-fg-muted"> · {l.qtyAfter > l.qtyBefore ? "from sales and transfers in" : "spent on buys, fees and transfers out"}</span>
+                  )}
                   {trip && (
                     <span className="text-xs text-fg-muted">
                       {" "}
@@ -163,7 +169,7 @@ export function DayActivity({
                       <span className={trip.pnlPct >= 0 ? "text-positive" : "text-negative"}>({formatPercent(trip.pnlPct)})</span>
                     </span>
                   )}
-                  {!trip && l.tradePrice !== null && <span className="text-xs text-fg-muted"> at {formatPrice(l.tradePrice)}</span>}
+                  {!trip && l.tradePrice !== null && !(l.priceKey && CASH_KEYS.has(l.priceKey)) && <span className="text-xs text-fg-muted"> at {formatPrice(l.tradePrice)}</span>}
                   {!trip && l.tradePrice !== null && l.tradePrice > 0 && l.nowUsd !== null && l.nowAt !== null && Date.parse(l.nowAt) > Date.parse(l.lastAt) && (
                     <NowPrice nowUsd={l.nowUsd} nowAt={l.nowAt} movePrice={l.tradePrice} serverNowSec={serverNowSec} />
                   )}

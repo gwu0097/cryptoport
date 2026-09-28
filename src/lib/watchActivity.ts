@@ -200,6 +200,27 @@ export interface RoundTrip {
   lastSellAt: string;
 }
 
+/** The price of what's left after the day's trading: for a net buy, the
+ * most recent buys covering it (a round trip earlier in the day isn't this
+ * position); for a net sale, the most recent sales. Null without a priced swap. */
+export function netTradePrice(legs: readonly ActivityLeg[], delta: number): number | null {
+  if (delta === 0) return null;
+  const side = legs
+    .filter((l) => l.kind === "swap" && l.priceUsd !== null && Math.sign(l.qtyDelta) === Math.sign(delta))
+    .sort((a, b) => b.at.localeCompare(a.at));
+  let need = Math.abs(delta);
+  let qty = 0;
+  let usd = 0;
+  for (const l of side) {
+    if (need <= 0) break;
+    const take = Math.min(need, Math.abs(l.qtyDelta));
+    qty += take;
+    usd += take * l.priceUsd!;
+    need -= take;
+  }
+  return qty > 0 ? usd / qty : null;
+}
+
 /** A coin's round trip within the day, when it was bought and later sold in
  * priced swaps worth at least MOVE_MIN_USD. */
 export function roundTrip(legs: readonly ActivityLeg[]): RoundTrip | null {
@@ -290,9 +311,7 @@ export function dayLines(activities: readonly TxActivity[], ownAddresses: Readon
 
     // The net change since the morning (what's left after any round trip).
     const delta = legs.reduce((s, l) => s + l.qtyDelta, 0);
-    const swaps = legs.filter((l) => l.kind === "swap" && l.priceUsd !== null);
-    const swapQty = swaps.reduce((s, l) => s + Math.abs(l.qtyDelta), 0);
-    const tradePrice = swapQty > 0 ? swaps.reduce((s, l) => s + Math.abs(l.qtyDelta) * l.priceUsd!, 0) / swapQty : null;
+    const tradePrice = netTradePrice(legs, delta);
     const price = priceNow(legs[0].priceKey) ?? tradePrice;
     if (price === null) continue; // can't be sized — like the daily diff
     const qtyAfter = b.qty + delta;
