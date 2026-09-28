@@ -22,10 +22,14 @@
 
 import type { SnapshotRow, WatchSnapshot } from "./watchSnapshot.ts";
 
-/** A change must be at least this share of the previous quantity … */
-export const MOVE_MIN_SHARE = 0.05;
-/** … and at least this many dollars at today's price. */
+/** A change must be at least this many dollars at today's price … */
 export const MOVE_MIN_USD = 100;
+/** … and at least this share of the previous quantity (quantity only, so
+ * price never moves it; rewards and rebasing stay well under 1% a day) … */
+export const MOVE_MIN_SHARE = 0.01;
+/** … unless it's at least this many dollars: a big add to a huge position
+ * is a real buy whatever its share (owner decision 2026-09-28). */
+export const MOVE_ALWAYS_USD = 5_000;
 
 export type PositionType = "token" | "perp" | "prediction";
 export type MoveKind = "new" | "added" | "trimmed" | "exited";
@@ -140,7 +144,7 @@ export function diffSnapshots(
     if (price === null) continue;
     const usd = delta * price;
     if (Math.abs(usd) < MOVE_MIN_USD) continue;
-    if (qtyBefore > 0 && Math.abs(delta) < MOVE_MIN_SHARE * qtyBefore) continue;
+    if (qtyBefore > 0 && Math.abs(delta) < MOVE_MIN_SHARE * qtyBefore && Math.abs(usd) < MOVE_ALWAYS_USD) continue;
     // What's left worth under a dollar is a closed position, not a trim.
     const closed = qtyAfter <= 0 || qtyAfter * price < 1;
     const kind: MoveKind = qtyBefore <= 0 ? "new" : closed ? "exited" : delta > 0 ? "added" : "trimmed";

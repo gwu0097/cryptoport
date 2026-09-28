@@ -29,10 +29,20 @@ test("new, added, trimmed and exited, sized at today's price", () => {
 
 test("price moves and small changes are not movements", () => {
   const before = snap([coin("ETH", 10, "ethereum", "eth"), coin("WIF", 1000, "solana", "wif")]);
-  // ETH +1% of quantity ($400 but under 5%); WIF +40 ($80, under $100).
-  const after = snap([coin("ETH", 10.1, "ethereum", "eth"), coin("WIF", 1040, "solana", "wif")]);
+  // ETH +0.5% of quantity ($200 but under 1%); WIF +40 ($80, under $100).
+  const after = snap([coin("ETH", 10.05, "ethereum", "eth"), coin("WIF", 1040, "solana", "wif")]);
   assert.deepEqual(diffSnapshots(before, after, priceOf), []);
   assert.ok(MOVE_MIN_USD === 100);
+});
+
+test("an add of 1% counts, and a big add to a huge position counts whatever its share", () => {
+  const before = snap([coin("ETH", 10, "ethereum", "eth"), coin("WIF", 1_000_000, "solana", "wif")]);
+  // ETH +2% ($400); WIF +0.5% of a huge position, but $10,000 (≥ $5,000).
+  const after = snap([coin("ETH", 10.2, "ethereum", "eth"), coin("WIF", 1_005_000, "solana", "wif")]);
+  assert.deepEqual(
+    diffSnapshots(before, after, priceOf).map((m) => [m.ticker, m.kind]),
+    [["WIF", "added"], ["ETH", "added"]],
+  );
 });
 
 test("the same coin on another chain is one asset: bridging isn't a movement", () => {

@@ -53,7 +53,7 @@ owner's.
   anything stored last time; dust and spam only counted). Caps are a
   database trigger (`watch_enforce_caps`). Each read also records what
   changed since the last one (`watchDiff.ts`: only a quantity change of
-  ≥ 5% and ≥ $100 is a movement; coins summed across chains; venue cash,
+  ≥ $100 and either ≥ 1% of the position or ≥ $5,000 is a movement; coins summed across chains; venue cash,
   kept rows, unpriced and illiquid coins never move), each position's life
   (`watchPositions.ts`, `watched_positions`) and the day's value
   (`watched_address_daily`). `/api/cron/wallet-watch` (08:00 UTC) reads

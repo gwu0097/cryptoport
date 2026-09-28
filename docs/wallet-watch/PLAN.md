@@ -138,7 +138,9 @@ change between two snapshots is always recorded (review #5):
 - Kinds: `new`, `added`, `trimmed`, `exited` (quantity to zero, all chains
   read successfully), `perp_opened`, `perp_closed`, `perp_resized` (size,
   not margin — margin moves with PnL). A change counts when it's at least
-  5% of the previous quantity and at least $100 (named constants).
+  $100 and either at least 1% of the previous quantity or at least $5,000
+  (named constants; 5% until 2026-09-28, which hid real adds to big
+  positions).
 - **Venue cash** (Hyperliquid/Lighter/Aster account cash, vault equity)
   moves with PnL and funding every day, so it's never a token movement.
 - Liquid staking and wrapping (ETH → stETH, via `liquid_staking_tokens`)

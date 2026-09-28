@@ -82,7 +82,7 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
       </Panel>
       <Panel
         title={selected ? `Activity · ${selected.name}` : "Activity"}
-        description="What they bought and sold between reads — sized at that read's price. A buy and sell between two reads doesn't show; changes under $100 or 5% of a position are left out."
+        description="What they bought and sold between reads — sized at that read's price. A buy and sell between two reads doesn't show; changes under $100, or under 1% of a position and $5,000, are left out."
         className="mb-4"
       >
         <ActivityFeed movements={movements} serverNowSec={nowSec} />
