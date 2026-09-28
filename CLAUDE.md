@@ -91,6 +91,17 @@ owner's.
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
   drops older legs (`trimToBoundary`). An address checked in the last
   15 minutes is reused (`CHECK_REUSE_MS`, Helius credits).
+  **Live updates** (phase 5, owner-only switch per influencer, Solana): one
+  app-owned Helius "raw" webhook (`webhookSync.ts`: created/updated/deleted
+  to match `watched_addresses.live`, 100 credits per change; 1 per delivered
+  transaction) POSTs to `api/wallet-watch/webhook` (checks the
+  `HELIUS_WEBHOOK_SECRET` Authorization header). `webhookTx.ts` reduces a raw
+  transaction exactly as `readSolana` does (checked on 4 real trades);
+  spam that only arrives is dropped before any request (`worthSaving`); legs
+  are appended to `tx_activity` tagged `source: "webhook"` without moving
+  the cursor, so Refresh activity still reads the history and reports
+  "webhook missed N" for live wallets (the running discrepancy check).
+  Turning it on only works from the deployed site (Helius needs a public URL).
   **Trading record** (an influencer's page, Solana addresses only): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in
   USD — 2 requests (all-time summary + the past 365 days by day,
@@ -189,7 +200,7 @@ Env var names (values only in `.env.local` / Vercel): `NEXT_PUBLIC_SUPABASE_URL`
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
 `NEXT_PUBLIC_SITE_URL`, `COINGECKO_API_KEY`, `COINGECKO_API_KEY_BACKUP`,
 `ETHERSCAN_API_KEY`, `HELIUS_API_KEY`, `ALCHEMY_API_KEY`, `ZERION_API_KEY`,
-`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `SECRETS_ENCRYPTION_KEY`,
+`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `HELIUS_WEBHOOK_SECRET`, `SECRETS_ENCRYPTION_KEY`,
 `ADMIN_EMAIL`, `CRON_SECRET` (Vercel only); scripts only:
 `SCREENER_ARCHIVE_DIR`, `SIGNALS_ARCHIVE_DIR`.
 

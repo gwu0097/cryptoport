@@ -39,6 +39,8 @@ export interface CheckRow {
   tx_checked_at: string | null;
   last_refresh_at: string | null;
   refresh_status: string | null;
+  live: boolean | null;
+  live_since: string | null;
 }
 
 export interface CheckOutcome {
@@ -56,7 +58,7 @@ export async function claimActivityCheck(keys: readonly { chain: string; address
   const wanted = new Set(keys.map((k) => `${k.chain}|${k.address}`));
   const { data, error } = await db
     .from("watched_addresses")
-    .select("chain, address, snapshot, tx_activity, tx_cursor, tx_checked_at, last_refresh_at, refresh_status")
+    .select("chain, address, snapshot, tx_activity, tx_cursor, tx_checked_at, last_refresh_at, refresh_status, live, live_since")
     .in("address", [...new Set(keys.map((k) => k.address))]);
   if (error) throw new Error(`Failed to load addresses: ${error.message}`);
   const rows = (data as CheckRow[]).filter((r) => wanted.has(`${r.chain}|${r.address}`));
@@ -121,7 +123,7 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
     });
     // Only a source that answered moves its cursor (saved with its legs below).
 
-    const legs = await identifyLegs(changes, snapshot, stats, checkedAt);
+    const legs = await identifyLegs(changes, snapshot, pricesFromStats(stats), checkedAt, "check");
     const states = assetStates(snapshot);
     const base: Record<string, ActivityBase> = {};
     for (const l of legs) {
@@ -130,8 +132,12 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
     }
     const activity = appendLegs(row.tx_activity, boundary, legs, base);
     const added = activity.legs.length - (row.tx_activity?.boundary === boundary ? row.tx_activity.legs.length : 0);
+    // Live wallets (phase 5): swaps since it went live that the webhook hadn't saved.
+    const liveSince = row.live && row.live_since ? Date.parse(row.live_since) : null;
+    const missed = liveSince === null ? 0 : activity.legs.slice(activity.legs.length - added).filter((l) => l.kind === "swap" && Date.parse(l.at) >= liveSince).length;
     const notes = [
       added > 0 ? `${added} new coin move${added === 1 ? "" : "s"}` : "nothing new",
+      liveSince !== null ? `webhook missed ${missed}` : "",
       partial ? `partial — over ${MAX_PAGES * 100} transactions since the last check` : "",
       failed.length > 0 ? `not checked: ${failed.join("; ")}` : "",
       notChecked.filter((c) => !VENUES.has(c)).length > 0 ? `no source for ${notChecked.filter((c) => !VENUES.has(c)).join(", ")}` : "",
@@ -160,7 +166,17 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
  * it doesn't hold. A one-way transfer of a coin that's neither in the
  * snapshot nor priced is spam and isn't kept. New coins bought in a swap are
  * priced (one batched pass) so the feed can size them. */
-async function identifyLegs(changes: readonly RawChange[], snapshot: WatchSnapshot, stats: ReadonlyMap<string, AssetStats>, checkedAt: string): Promise<ActivityLeg[]> {
+/** USD prices for these keys (a request's cached map, or a direct read). */
+export type PriceLookup = (keys: string[]) => Promise<ReadonlyMap<string, number>>;
+
+/** A lookup over a map the caller already has (a check's asset stats). */
+export const pricesFromStats = (stats: ReadonlyMap<string, AssetStats>): PriceLookup => async (keys) =>
+  new Map(keys.flatMap((k) => {
+    const usd = parseNumeric(stats.get(k)?.usd ?? null);
+    return usd === null ? [] : [[k, usd] as [string, number]];
+  }));
+
+export async function identifyLegs(changes: readonly RawChange[], snapshot: WatchSnapshot, lookup: PriceLookup, checkedAt: string, source: "webhook" | "check"): Promise<ActivityLeg[]> {
   if (changes.length === 0) return [];
   const byContract = contractKeys(snapshot);
   const tickerOf = new Map<string, string>();
@@ -188,13 +204,17 @@ async function identifyLegs(changes: readonly RawChange[], snapshot: WatchSnapsh
     const key = keyOf.get(id);
     return key ? { assetKey: key, priceKey: key, ticker: c.symbol ?? "" } : null;
   };
-  const priceOf = (k: string | null) => (k ? (parseNumeric(stats.get(k)?.usd ?? null) ?? null) : null);
+  // Every key these changes could touch, priced in one go.
+  const candidateKeys = [...new Set([...CASH_KEYS, ...byContract.values(), ...[...nativeOf.values()].map((n) => n.key), ...[...keyOf.values()].filter((k): k is string => !!k)])];
+  const priced = await lookup(candidateKeys);
+  const priceOf = (k: string | null) => (k ? (priced.get(k) ?? null) : null);
   const valueOf = (k: string | null) => (k && VALUE_KEYS.has(k) ? priceOf(k) : null);
   const inSnapshot = new Set(assetStates(snapshot).keys());
   const legs = toLegs(changes, identify, valueOf, NO_NATIVE_LEGS, checkedAt).filter((l) => l.kind !== "transfer" || inSnapshot.has(l.assetKey) || priceOf(l.priceKey) !== null);
 
   // New coins from swaps: priced now, and named from the price source.
-  const fresh = [...new Set(legs.filter((l) => l.kind === "swap" && l.priceKey && !stats.has(l.priceKey)).map((l) => l.priceKey!))];
+  for (const l of legs) l.source = source;
+  const fresh = [...new Set(legs.filter((l) => l.kind === "swap" && l.priceKey && !priced.has(l.priceKey)).map((l) => l.priceKey!))];
   if (fresh.length > 0) await ensureAssetPrices(fresh, "watch-check").catch(() => {});
   const unnamed = [...new Set(legs.filter((l) => !l.ticker && l.priceKey).map((l) => l.priceKey!))];
   if (unnamed.length > 0) {

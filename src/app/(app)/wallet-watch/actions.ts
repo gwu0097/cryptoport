@@ -3,7 +3,10 @@
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
-import { userDb } from "@/lib/supabase";
+import { serviceDb, userDb } from "@/lib/supabase";
+import { requireAdmin } from "@/lib/adminAuth";
+import { syncLiveWebhook } from "@/lib/webhookSync";
+import { clearLiveCache } from "@/lib/liveActivity";
 import { detectChain } from "@/lib/lookup";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { claimWatchedAddresses, ensureWatchedAddress, refreshWatchedAddresses, type WatchedKey } from "@/lib/watchRefresh";
@@ -246,6 +249,38 @@ export async function addSharedInfluencer(token: string): Promise<WatchActionRes
   if (addrError) {
     await db.from("watch_influencers").delete().eq("id", influencerId);
     return { ok: false, error: friendly(addrError.message) };
+  }
+  revalidate(influencerId);
+  return { ok: true, influencerId };
+}
+
+/**
+ * Owner only (it spends the owner's Helius credits): live updates for an
+ * influencer's Solana addresses via the app's Helius webhook
+ * (docs/wallet-watch/PLAN.md, phase 5). If Helius refuses, the addresses go
+ * back to how they were.
+ */
+export async function setInfluencerLive(influencerId: string, on: boolean): Promise<WatchActionResult> {
+  await requireAdmin();
+  const db = await userDb();
+  const { data, error } = await db.from("watch_influencer_addresses").select("address").eq("influencer_id", influencerId).eq("chain", "SOL");
+  if (error) return { ok: false, error: error.message };
+  const addresses = (data as { address: string }[]).map((a) => a.address);
+  if (addresses.length === 0) return { ok: false, error: "Live updates cover Solana addresses — this influencer has none." };
+  const svc = serviceDb();
+  const { error: setError } = await svc
+    .from("watched_addresses")
+    .update(on ? { live: true, live_since: new Date().toISOString() } : { live: false, live_since: null })
+    .eq("chain", "SOL")
+    .in("address", addresses);
+  if (setError) return { ok: false, error: setError.message };
+  clearLiveCache();
+  try {
+    await syncLiveWebhook();
+  } catch (e) {
+    await svc.from("watched_addresses").update(on ? { live: false, live_since: null } : { live: true }).eq("chain", "SOL").in("address", addresses);
+    clearLiveCache();
+    return { ok: false, error: (e as Error).message };
   }
   revalidate(influencerId);
   return { ok: true, influencerId };

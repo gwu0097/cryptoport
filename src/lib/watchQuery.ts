@@ -473,6 +473,22 @@ export async function getTradingRecord(influencer: WatchFeedInfluencer, today: s
   };
 }
 
+/** Live-update state for an influencer's Solana addresses (phase 5). */
+export async function getLiveStatus(influencer: WatchFeedInfluencer): Promise<{ solana: number; live: boolean; liveSince: string | null; lastEventAt: string | null }> {
+  const sol = influencer.addresses.filter((a) => a.chain === "SOL").map((a) => a.address);
+  if (sol.length === 0) return { solana: 0, live: false, liveSince: null, lastEventAt: null };
+  const db = await userDb();
+  const { data, error } = await db.from("watched_addresses").select("live, live_since, live_last_event_at").eq("chain", "SOL").in("address", sol);
+  if (error) throw new Error(`Failed to load live state: ${error.message}`);
+  const rows = data as { live: boolean; live_since: string | null; live_last_event_at: string | null }[];
+  return {
+    solana: sol.length,
+    live: rows.some((r) => r.live),
+    liveSince: rows.map((r) => r.live_since).filter((t): t is string => !!t).sort()[0] ?? null,
+    lastEventAt: rows.map((r) => r.live_last_event_at).filter((t): t is string => !!t).sort().at(-1) ?? null,
+  };
+}
+
 /** An influencer's value per day: the sum of its addresses' daily rows, only
  * on days every address has one (a partial day would look like a drop). */
 export async function getInfluencerDailyValue(influencer: WatchedInfluencer, client?: Awaited<ReturnType<typeof userDb>>): Promise<{ date: string; total: number }[]> {

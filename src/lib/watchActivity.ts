@@ -56,6 +56,9 @@ export interface ActivityLeg {
   at: string;
   /** When the check that found it ran. */
   checkedAt: string;
+  /** Who found it: the live webhook or a Refresh activity check (phase 5 —
+   * a check on a live wallet counts what the webhook missed). */
+  source?: "webhook" | "check";
 }
 
 /** A coin's quantity in the morning snapshot (summed across chains), and

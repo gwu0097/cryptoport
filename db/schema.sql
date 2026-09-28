@@ -2476,6 +2476,18 @@ alter table cryptoport.watched_addresses
   add column if not exists trading_record        jsonb,
   add column if not exists trading_record_at     timestamptz,
   add column if not exists trading_record_status text;
+-- 2026-09-28, phase 5: live updates via the app's Helius webhook.
+alter table cryptoport.watched_addresses
+  add column if not exists live               boolean not null default false,
+  add column if not exists live_since         timestamptz,
+  add column if not exists live_last_event_at timestamptz;
+create table if not exists cryptoport.app_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table cryptoport.app_settings enable row level security;
+grant all on cryptoport.app_settings to service_role;
 grant all on cryptoport.watched_addresses to service_role;
 grant select on cryptoport.watched_addresses to authenticated;
 create policy "watched_addresses: watchers only" on cryptoport.watched_addresses
