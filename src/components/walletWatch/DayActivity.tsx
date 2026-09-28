@@ -176,6 +176,22 @@ function tradeText(t: CoinTrade, ticker: string): string {
 const SIDE: Record<CoinTrade["side"], string> = { buy: "Buy", sell: "Sell", received: "Received", sent: "Sent" };
 const sideTone = (t: CoinTrade) => (t.side === "buy" || t.side === "received" ? "text-positive" : "text-negative");
 
+/** "Buy 1.00 SOL ($118) at $0.0002516 · 3:28 PM" — the latest trade: what
+ * was paid and the price, not the token count (owner 2026-09-28). */
+function LastTrade({ t, ticker }: { t: CoinTrade; ticker: string }) {
+  const cash = pay(t.payQty, t.payTicker);
+  const price = t.usd !== null && t.qty > 0 ? t.usd / t.qty : null;
+  return (
+    <>
+      <span className={sideTone(t)}>{SIDE[t.side]}</span>{" "}
+      <span className="text-fg">{cash ?? `${compactQty(t.qty)} ${ticker}`}</span>
+      {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)})</span>}
+      {price !== null && <span className="text-fg"> at {formatPrice(price)}</span>}
+      <span className="text-fg-muted"> · {TIME.format(new Date(t.at))}</span>
+    </>
+  );
+}
+
 /** Bought or sold: the cash side and its dollar value. */
 function Amount({ payQty, usd, ticker, qty, tone }: { payQty: number | null; usd: number | null; ticker: string | null; qty: number; tone: string }) {
   if (qty <= 0) return <span className="text-fg-muted">—</span>;
@@ -219,9 +235,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
           {/* The latest trade on its own line: a new one replaces it, and it rolls into the totals. */}
           <p className="text-xs">
             <span className="text-fg-muted">Last: </span>
-            <span className={sideTone(c.trades[0])}>{SIDE[c.trades[0].side]}</span> <span className="text-fg">{tradeText(c.trades[0], c.ticker)}</span>
-            {c.trades[0].usd !== null && <span className="text-fg-muted"> ({formatUsd(c.trades[0].usd)})</span>}
-            <span className="text-fg-muted"> · {TIME.format(new Date(c.trades[0].at))}</span>
+            <LastTrade t={c.trades[0]} ticker={c.ticker} />
           </p>
         </td>
         <td className={`${tdClass} tabular-nums`}>
@@ -297,6 +311,61 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
   );
 }
 
+const BUSY_COINS = 3;
+
+/** A busy trader's day on one row: how many coins, totals, net result, what's
+ * still open, and the tickers colored by result — their coin rows behind a toggle. */
+function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; latest: number; serverNowSec: number }) {
+  const [open, setOpen] = useState(false);
+  const first = coins[0];
+  const sum = (f: (c: WatchCoinDay) => number | null) => coins.reduce((s, c) => s + (f(c) ?? 0), 0);
+  const realized = sum((c) => c.realizedUsd);
+  const openCount = coins.filter((c) => c.holdingQty > 0).length;
+  const lastAt = coins.map((c) => c.lastAt).sort().at(-1)!;
+  const isNew = coins.some((c) => Date.parse(c.firstCheckedAt) >= latest);
+  const byResult = [...coins].sort((a, b) => Math.abs(b.realizedUsd ?? 0) - Math.abs(a.realizedUsd ?? 0));
+  return (
+    <>
+      <tr className={`${trClass} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+        <td className={tdClass}>
+          {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
+          <Link href={`/wallet-watch/${first.influencerId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-fg hover:underline">
+            {first.influencerName}
+          </Link>
+        </td>
+        <td className={tdClass}>
+          <span className="font-semibold text-fg">{coins.length} coins today</span>
+          <p className="text-xs text-fg-muted">
+            {sum((c) => c.buys)} buys · {sum((c) => c.sells)} sells{openCount > 0 && ` · ${openCount} still open`}
+          </p>
+          <p className="mt-0.5 flex flex-wrap gap-x-1.5 text-xs">
+            {byResult.map((c) => (
+              <span key={c.assetKey} className={c.realizedUsd === null ? "text-fg-muted" : c.realizedUsd >= 0 ? "text-positive" : "text-negative"} title={c.realizedUsd !== null ? formatUsdSigned(c.realizedUsd) : "still open"}>
+                {c.ticker}
+              </span>
+            ))}
+          </p>
+        </td>
+        <td className={`${tdClass} tabular-nums text-positive`}>{formatUsd(sum((c) => c.boughtUsd))}</td>
+        <td className={`${tdClass} tabular-nums text-negative`}>{formatUsd(sum((c) => c.soldUsd))}</td>
+        <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatUsd(coins.reduce((s, c) => s + (c.nowUsd !== null ? c.holdingQty * c.nowUsd : 0), 0))}</td>
+        <td className={`${tdClass} tabular-nums`}>
+          <span className={realized >= 0 ? "text-positive" : "text-negative"} title="Net result of what was bought and sold today">
+            {formatUsdSigned(realized)}
+          </span>
+          <span className="block text-xs text-fg-muted">net, sold today</span>
+        </td>
+        <td className={`${tdClass} text-right`}>
+          <span className="whitespace-nowrap text-xs text-fg-muted">
+            <AgeText at={lastAt} serverNowSec={serverNowSec} /> {open ? "▴" : "▾"}
+          </span>
+        </td>
+      </tr>
+      {open && coins.map((c) => <CoinRows key={c.assetKey} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames serverNowSec={serverNowSec} />)}
+    </>
+  );
+}
+
 /** The coins as a sortable table (site convention: SortableHeader +
  * usePersistedState), newest activity first by default. */
 function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number }) {
@@ -310,10 +379,25 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
     return sortDir === "desc" ? -cmp : cmp;
   });
   const head = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
+  // A trader with more than BUSY_COINS coins today is one summary row, in
+  // the place of their first coin in the current order (owner: Risk trades
+  // so many a day that his rows drown everyone else's).
+  const byTrader = new Map<string, WatchCoinDay[]>();
+  for (const c of sorted) byTrader.set(c.influencerId, [...(byTrader.get(c.influencerId) ?? []), c]);
+  const placed = new Set<string>();
+  const items: ({ kind: "coin"; c: WatchCoinDay } | { kind: "group"; coins: WatchCoinDay[] })[] = [];
+  for (const c of sorted) {
+    const mine = byTrader.get(c.influencerId)!;
+    if (!showNames || mine.length <= BUSY_COINS) items.push({ kind: "coin", c });
+    else if (!placed.has(c.influencerId)) {
+      placed.add(c.influencerId);
+      items.push({ kind: "group", coins: mine });
+    }
+  }
   return (
-    <div className="mt-1 overflow-x-auto">
+    <div className="mt-1 max-h-[34rem] overflow-auto overscroll-contain">
       <table className={tableClass}>
-        <thead>
+        <thead className="sticky top-0 z-10 bg-surface">
           <tr className={theadRowClass}>
             {showNames && head("Trader", "trader")}
             {head("Coin", "coin")}
@@ -325,9 +409,13 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
           </tr>
         </thead>
         <tbody>
-          {sorted.map((c) => (
-            <CoinRows key={`${c.influencerId}|${c.assetKey}`} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />
-          ))}
+          {items.map((it) =>
+            it.kind === "coin" ? (
+              <CoinRows key={`${it.c.influencerId}|${it.c.assetKey}`} c={it.c} isNew={Date.parse(it.c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />
+            ) : (
+              <TraderGroup key={it.coins[0].influencerId} coins={it.coins} latest={latest} serverNowSec={serverNowSec} />
+            ),
+          )}
         </tbody>
       </table>
     </div>
