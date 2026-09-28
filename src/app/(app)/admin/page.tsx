@@ -10,7 +10,7 @@ import { formatUsd } from "@/lib/format";
 import { getEffectiveTimeZone } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Admin · CryptoPort" };
+export const metadata = { title: "Owner's console · CryptoPort" };
 
 /**
  * Who's using cryptoport — the entry point into the read-only admin view
@@ -28,12 +28,17 @@ export default async function AdminPage() {
   return (
     <>
       <PageHeader
-        title="Admin"
+        title="Owner's console"
         subtitle="Who's using cryptoport, and a read-only peek at what they see."
         actions={
-          <Link href="/admin/pricing" className="text-sm text-accent hover:underline">
-            Pricing coverage →
-          </Link>
+          <span className="flex flex-wrap gap-4">
+            <Link href="/admin/apis" className="text-sm text-accent hover:underline">
+              API list →
+            </Link>
+            <Link href="/admin/pricing" className="text-sm text-accent hover:underline">
+              Pricing coverage →
+            </Link>
+          </span>
         }
       />
 

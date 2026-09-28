@@ -134,8 +134,9 @@ never leave a destructive script anywhere.
 
 - `src/app/(app)/` — the app's pages (the nav list is
   `components/layout/navItems.tsx`). Every page renders per request and is
-  viewable as a guest, except `admin` (`requireAdmin()` in
-  `src/lib/adminAuth.ts` → `notFound()` for anyone but `ADMIN_EMAIL`).
+  viewable as a guest, except `admin` — "Owner's console" in the UI
+  (`requireAdmin()` in `src/lib/adminAuth.ts` → `notFound()` for anyone but
+  `ADMIN_EMAIL`): users, pricing coverage, the API list.
   `wallets/actions.ts` holds the sync and price-refresh actions. Also
   `src/app/(auth)/` (sign-in) and `src/app/lookup/` (public address lookup).
 - `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry}` (schedules
@@ -461,6 +462,14 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
     limit 50`, then per path: `select log_attributes['request.path'] as path,
     count(*) as n from logs where source = 'edge_logs' group by path order
     by n desc limit 30`. (DECISIONS: 2026-09-26 Supabase log ingestion)
+- **Every service that could need an upgrade is on the API list**
+  (`src/lib/apiRegistry.ts`, Owner's console → API list): its tier (free
+  without sign-up / with sign-up / paid), plan, limits and what breaks first
+  as users grow. A service that's free and scales (a chain's own public
+  node, a user's own exchange key, a link) goes in `UNLISTED_HOSTS` with why.
+  `apiRegistry.test.ts` fails on any https host in the code that's in
+  neither — add the entry in the same change that adds the call, and keep
+  plans and limits true when they change. (Owner decision 2026-09-28.)
 - **Batch and dedupe by design:** one pricing pass per event, deduped across
   wallets and users (`ensureAssetPrices` reuses fresh prices); batched endpoints
   (`/coins/markets` by id, `per_page` = batch size); slow-changing data cached in

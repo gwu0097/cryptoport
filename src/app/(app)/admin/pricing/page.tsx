@@ -9,7 +9,7 @@ import { SPAM_LABEL, type SpamSign } from "@/lib/unrecognizedTokens";
 import { UnrecognizedCandidatesTable } from "@/components/admin/UnrecognizedCandidatesTable";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Pricing coverage · Admin · CryptoPort" };
+export const metadata = { title: "Pricing coverage · Owner's console · CryptoPort" };
 
 /**
  * Every coin holding across every user's active wallets that has no price,

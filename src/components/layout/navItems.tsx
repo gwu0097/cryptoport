@@ -87,7 +87,7 @@ export const SETTINGS_ITEM: NavItemData = { href: "/settings", label: "Settings"
 // components — ADMIN_EMAIL never does. This is a convenience (a non-admin
 // no chart shows a dead link) — src/lib/adminAuth.ts's requireAdmin() on
 // the routes themselves is the actual security boundary.
-export const ADMIN_ITEM: NavItemData = { href: "/admin", label: "Admin", icon: ShieldCheck };
+export const ADMIN_ITEM: NavItemData = { href: "/admin", label: "Owner's console", icon: ShieldCheck };
 
 export function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
