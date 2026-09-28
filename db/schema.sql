@@ -2471,6 +2471,11 @@ alter table cryptoport.watched_addresses
   add column if not exists tx_cursor       jsonb,
   add column if not exists tx_checked_at   timestamptz,
   add column if not exists tx_check_status text;
+-- 2026-09-28: the trading record from Solana Tracker (tradingRecord.ts), on demand.
+alter table cryptoport.watched_addresses
+  add column if not exists trading_record        jsonb,
+  add column if not exists trading_record_at     timestamptz,
+  add column if not exists trading_record_status text;
 grant all on cryptoport.watched_addresses to service_role;
 grant select on cryptoport.watched_addresses to authenticated;
 create policy "watched_addresses: watchers only" on cryptoport.watched_addresses

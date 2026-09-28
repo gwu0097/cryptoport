@@ -52,6 +52,7 @@ export function InfluencerSections({
   serverNowSec,
   baseHref,
   valueExtra,
+  afterValue,
   addressExtra,
   addressesFooter,
 }: {
@@ -66,6 +67,8 @@ export function InfluencerSections({
   /** This page's own URL, for the holdings filters. */
   baseHref: string;
   valueExtra?: ReactNode;
+  /** A section between the value card and the chart (the trading record). */
+  afterValue?: ReactNode;
   /** Per-address controls (the owner's remove button). */
   addressExtra?: (address: WatchedInfluencer["addresses"][number]) => ReactNode;
   addressesFooter?: ReactNode;
@@ -80,6 +83,7 @@ export function InfluencerSections({
         {valueExtra && <div className="mt-4">{valueExtra}</div>}
       </Panel>
 
+      {afterValue}
       <Panel title="Value over time" className="mb-4">
         {daily.length < 2 ? (
           <p className="text-sm text-fg-muted">The chart fills in as the wallet is read each day ({daily.length} day{daily.length === 1 ? "" : "s"} so far).</p>

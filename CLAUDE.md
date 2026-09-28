@@ -91,6 +91,14 @@ owner's.
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
   drops older legs (`trimToBoundary`). An address checked in the last
   15 minutes is reused (`CHECK_REUSE_MS`, Helius credits).
+  **Trading record** (an influencer's page, Solana addresses only): "Load
+  trading record" pulls each address's profit and loss from Solana Tracker in
+  USD — 2 requests (all-time summary + the past 365 days by day,
+  `adapters/solanaTracker.ts`), reused for an hour (`tradingRecordLoad.ts`),
+  stored on `watched_addresses.trading_record` and summarized by pure
+  `tradingRecord.ts` (months, 30/90 days, best month's and day's share of
+  the year). Never automatic: Helius history scans cost ~3,300–7,700
+  credits per busy wallet-month, this costs 2 of 2,500 monthly requests.
   **Sharing:** an influencer's owner can share it
   (`watch_influencers.share_token`, a random UUID; null = not shared) at
   `/wallet-watch/shared/<token>` — any signed-in user sees it read-only

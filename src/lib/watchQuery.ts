@@ -10,6 +10,7 @@ import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import type { Holding } from "./types";
 import { mergeSameCoin } from "./mergeHoldings";
 import { contractFromKey, dayLines, type DayLine, type TxActivity } from "./watchActivity";
+import { summarizeTrading, type StoredTradingRecord, type TradingSummary } from "./tradingRecord";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
 // Wallet Watch reads (docs/wallet-watch/PLAN.md). All through userDb(): the
@@ -419,6 +420,32 @@ export async function getWatchDayActivity(
     for (const l of dayLines(activities, new Set(i.addresses.map((a) => a.address)), priceNow)) lines.push({ ...l, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(l.priceKey), nowAt: (l.priceKey && stats.get(l.priceKey)?.updatedAt) || null });
   }
   return { lines: lines.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues };
+}
+
+/** An influencer's trading record (tradingRecord.ts): its Solana
+ * addresses' stored records, summarized. One request; never calls the API. */
+export async function getTradingRecord(influencer: WatchFeedInfluencer, today: string): Promise<{
+  summary: TradingSummary | null;
+  loadedAt: string | null;
+  solanaAddresses: number;
+  otherAddresses: number;
+  errors: string[];
+}> {
+  const sol = influencer.addresses.filter((a) => a.chain === "SOL").map((a) => a.address);
+  const otherAddresses = influencer.addresses.length - sol.length;
+  if (sol.length === 0) return { summary: null, loadedAt: null, solanaAddresses: 0, otherAddresses, errors: [] };
+  const db = await userDb();
+  const { data, error } = await db.from("watched_addresses").select("address, trading_record, trading_record_at, trading_record_status").eq("chain", "SOL").in("address", sol);
+  if (error) throw new Error(`Failed to load the trading record: ${error.message}`);
+  const rows = data as { address: string; trading_record: StoredTradingRecord | null; trading_record_at: string | null; trading_record_status: string | null }[];
+  const records = rows.map((r) => r.trading_record).filter((r): r is StoredTradingRecord => !!r);
+  return {
+    summary: summarizeTrading(records, today),
+    loadedAt: rows.map((r) => r.trading_record_at).filter((t): t is string => !!t).sort()[0] ?? null,
+    solanaAddresses: sol.length,
+    otherAddresses,
+    errors: rows.filter((r) => r.trading_record_status?.startsWith("error")).map((r) => `${r.address.slice(0, 6)}…: ${r.trading_record_status}`),
+  };
 }
 
 /** An influencer's value per day: the sum of its addresses' daily rows, only

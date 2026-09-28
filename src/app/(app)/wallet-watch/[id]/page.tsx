@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getInfluencerDailyValue, getInfluencerDetail, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
+import { getInfluencerDailyValue, getInfluencerDetail, getTradingRecord, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { SignInPrompt } from "@/components/SignInPrompt";
@@ -11,6 +11,7 @@ import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
 import { RefreshWatchButton } from "@/components/walletWatch/RefreshWatchButton";
 import { ShareInfluencerButton } from "@/components/walletWatch/ShareInfluencerButton";
 import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/InfluencerSections";
+import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet Watch · CryptoPort" };
@@ -24,7 +25,8 @@ export default async function InfluencerPage({ params, searchParams }: { params:
   if (!detail) notFound();
   const { influencer, groups, holdings, notListed } = detail;
   const nowSec = requestNowSec();
-  const [movements, daily] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer)]);
+  const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
+  const [movements, daily, record] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer), getTradingRecord(influencer, today)]);
 
   return (
     <>
@@ -51,6 +53,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         serverNowSec={nowSec}
         baseHref={`/wallet-watch/${influencer.id}`}
         valueExtra={<InfluencerEditor influencer={influencer} groups={groups} />}
+        afterValue={<TradingRecordPanel influencerId={influencer.id} {...record} today={today} serverNowSec={nowSec} />}
         addressExtra={(a) => <RemoveAddressButton addressId={a.id} influencerId={influencer.id} address={a.address} />}
         addressesFooter={
           influencer.addresses.length < 5 ? <WatchAddressForm options={{ influencers: [], groups: [] }} influencerId={influencer.id} label="Add another address" /> : undefined
