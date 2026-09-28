@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getInfluencerDailyValue, getInfluencerDetail, getTradingRecord, getWatchDayActivity, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
+import { getInfluencerDailyValue, getInfluencerDetail, getTradingRecord, getWatchDayActivity, getWatchedInfluencer, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { SignInPrompt } from "@/components/SignInPrompt";
@@ -22,12 +22,21 @@ export default async function InfluencerPage({ params, searchParams }: { params:
   if (!(await getUser())) return <SignInPrompt message="Log in to see the wallets you watch." />;
   const { id } = await params;
   const filters = await searchParams;
-  const detail = await getInfluencerDetail(id, filters.merge === "1");
-  if (!detail) notFound();
-  const { influencer, groups, holdings, notListed } = detail;
+  // The influencer's own rows first (small), then everything else at once —
+  // holdings are valued while the activity, history and records load.
+  const watched = await getWatchedInfluencer(id);
+  if (!watched) notFound();
   const nowSec = requestNowSec();
   const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
-  const [movements, daily, record, day] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer), getTradingRecord(influencer, today), getWatchDayActivity([influencer])]);
+  const [detail, movements, daily, record, day] = await Promise.all([
+    getInfluencerDetail(id, filters.merge === "1"),
+    getWatchMovements([watched.influencer]),
+    getInfluencerDailyValue(watched.influencer),
+    getTradingRecord(watched.influencer, today),
+    getWatchDayActivity([watched.influencer]),
+  ]);
+  if (!detail) notFound();
+  const { influencer, groups, holdings, notListed } = detail;
 
   return (
     <>

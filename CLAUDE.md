@@ -572,6 +572,11 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `<Suspense key={…params}>` — see `trend-finder/page.tsx`,
   `encyclopedia/page.tsx`, `signals/page.tsx`. (DECISIONS: before 2026-09-22
   searchParams)
+  The same holds for a dynamic segment: going from `/wallet-watch/A` to
+  `/wallet-watch/B` only changes `[id]`, so a route with an `[id]` page
+  needs its own `loading.tsx` there (`wallet-watch/[id]/loading.tsx`).
+  And a detail page reads only its own rows — never a list page's
+  everything-query filtered afterwards (`watchQuery.ts` `readWatch(onlyId)`).
 - **Relative times** ("x ago") use a request-anchored clock —
   `requestNowSec()` (`requestClock.ts`) on the server, `useNowSec(serverNowSec)`
   (`components/useServerNow.ts`) on the client — never `Date.now()` at render
