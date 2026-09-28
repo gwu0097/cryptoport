@@ -84,7 +84,9 @@ owner's.
   coin's net change per transaction (`watchActivity.ts`: swap / transfer /
   "unclear" where Alchemy can't see a router's native payout — it can only
   on eth, base, matic) and judged for the whole day by `watchDiff.ts`
-  `moveKind` against the snapshot. Saved on `watched_addresses`
+  `moveKind` against the snapshot; a coin bought and then sold within the
+  day is its own "round trip" line (buy → sell price, %; `roundTrip`), even
+  when it nets to zero. Saved on `watched_addresses`
   (`tx_activity` appended, `tx_cursor` per source) until the next read,
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
   drops older legs (`trimToBoundary`). An address checked in the last

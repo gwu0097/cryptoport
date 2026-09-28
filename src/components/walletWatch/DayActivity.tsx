@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import type { WatchDayLine } from "@/lib/watchQuery";
-import { formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
+import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/CopyButton";
@@ -14,6 +14,7 @@ import { NowPrice } from "./ActivityFeed";
 /** Verbs by how it happened: a trade, or a plain transfer (never called a
  * buy or sale), or a token out we can't tell apart (watchActivity.ts). */
 function verb(l: WatchDayLine): string {
+  if (l.kind === "roundtrip") return "bought and sold";
   if (l.via === "unclear") return l.kind === "exited" ? "sent or sold all" : "sent or sold";
   const transfer = l.via === "transfer";
   switch (l.kind) {
@@ -26,6 +27,12 @@ function verb(l: WatchDayLine): string {
     case "exited":
       return transfer ? "sent all" : "sold all";
   }
+}
+
+/** How long a round trip lasted: "9m", "3h 20m". */
+function heldFor(from: string, to: string): string {
+  const min = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 60000));
+  return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
 }
 
 /** Runs the activity check for these influencers, streaming one line per
@@ -128,7 +135,8 @@ export function DayActivity({
       ) : (
         <ul className="mt-1 divide-y divide-border/60">
           {lines.map((l) => {
-            const buying = l.qtyAfter > l.qtyBefore;
+            const trip = l.roundTrip;
+            const buying = trip ? trip.pnlUsd >= 0 : l.qtyAfter > l.qtyBefore;
             const isNew = Date.parse(l.firstCheckedAt) >= latest;
             return (
               <li key={`${l.influencerId}|${l.assetKey}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 text-sm">
@@ -141,15 +149,22 @@ export function DayActivity({
                   )}{" "}
                   <span className={buying ? "text-positive" : "text-negative"}>{verb(l)}</span>{" "}
                   <span className="text-fg">
-                    {formatQty(Math.abs(l.qtyAfter - l.qtyBefore))} {l.ticker}
+                    {formatQty(trip ? trip.qty : Math.abs(l.qtyAfter - l.qtyBefore))} {l.ticker}
                   </span>
                   {l.contract && (
                     <span className="ml-1 inline-flex align-middle">
                       <CopyButton value={l.contract} label={`Copy ${l.ticker} contract`} title={`Copy ${l.ticker}'s contract${l.contractChain ? ` (${l.contractChain})` : ""}: ${l.contract}`} />
                     </span>
                   )}
-                  {l.tradePrice !== null && <span className="text-xs text-fg-muted"> at {formatPrice(l.tradePrice)}</span>}
-                  {l.tradePrice !== null && l.tradePrice > 0 && l.nowUsd !== null && l.nowAt !== null && Date.parse(l.nowAt) > Date.parse(l.lastAt) && (
+                  {trip && (
+                    <span className="text-xs text-fg-muted">
+                      {" "}
+                      within {heldFor(trip.firstBuyAt, trip.lastSellAt)} · paid {formatPrice(trip.buyPrice)} → sold at {formatPrice(trip.sellPrice)}{" "}
+                      <span className={trip.pnlPct >= 0 ? "text-positive" : "text-negative"}>({formatPercent(trip.pnlPct)})</span>
+                    </span>
+                  )}
+                  {!trip && l.tradePrice !== null && <span className="text-xs text-fg-muted"> at {formatPrice(l.tradePrice)}</span>}
+                  {!trip && l.tradePrice !== null && l.tradePrice > 0 && l.nowUsd !== null && l.nowAt !== null && Date.parse(l.nowAt) > Date.parse(l.lastAt) && (
                     <NowPrice nowUsd={l.nowUsd} nowAt={l.nowAt} movePrice={l.tradePrice} serverNowSec={serverNowSec} />
                   )}
                 </span>

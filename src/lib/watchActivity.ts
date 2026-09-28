@@ -9,7 +9,7 @@
 // transactions a day, 2026-09-28). The day's lines are judged by the daily
 // diff's own rule (watchDiff.ts moveKind) against the morning snapshot.
 
-import { moveKind, type MoveKind } from "./watchDiff.ts";
+import { MOVE_MIN_USD, moveKind, type MoveKind } from "./watchDiff.ts";
 
 /** One transaction's net change of one coin for the address. */
 export interface RawChange {
@@ -180,6 +180,37 @@ export function contractFromKey(key: string): string | null {
   return /^0x[0-9a-fA-F]{40}$/.test(rest) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(rest) ? rest : null;
 }
 
+/** Bought and then sold within the day: the part sold, at the average buy
+ * and sell prices of its swaps. */
+export interface RoundTrip {
+  qty: number;
+  buyPrice: number;
+  sellPrice: number;
+  pnlUsd: number;
+  pnlPct: number;
+  firstBuyAt: string;
+  lastSellAt: string;
+}
+
+/** A coin's round trip within the day, when it was bought and later sold in
+ * priced swaps worth at least MOVE_MIN_USD. */
+export function roundTrip(legs: readonly ActivityLeg[]): RoundTrip | null {
+  const swaps = legs.filter((l) => l.kind === "swap" && l.priceUsd !== null);
+  const buys = swaps.filter((l) => l.qtyDelta > 0);
+  if (buys.length === 0) return null;
+  const firstBuyAt = buys.map((l) => l.at).sort()[0];
+  const sells = swaps.filter((l) => l.qtyDelta < 0 && l.at > firstBuyAt);
+  if (sells.length === 0) return null;
+  const bought = buys.reduce((s, l) => s + l.qtyDelta, 0);
+  const sold = sells.reduce((s, l) => s - l.qtyDelta, 0);
+  const buyPrice = buys.reduce((s, l) => s + l.qtyDelta * l.priceUsd!, 0) / bought;
+  const sellPrice = sells.reduce((s, l) => s - l.qtyDelta * l.priceUsd!, 0) / sold;
+  const qty = Math.min(bought, sold);
+  const cost = qty * buyPrice;
+  if (Math.max(cost, qty * sellPrice) < MOVE_MIN_USD) return null;
+  return { qty, buyPrice, sellPrice, pnlUsd: qty * (sellPrice - buyPrice), pnlPct: (sellPrice / buyPrice - 1) * 100, firstBuyAt, lastSellAt: sells.map((l) => l.at).sort().at(-1)! };
+}
+
 export interface DayLine {
   assetKey: string;
   ticker: string;
@@ -189,7 +220,11 @@ export interface DayLine {
   /** The chain that contract is on. */
   contractChain: string | null;
   priceKey: string | null;
-  kind: MoveKind;
+  /** A net change since the morning, or a round trip: bought and sold
+   * within the day (owner 2026-09-28: a flip at a loss is worth seeing). */
+  kind: MoveKind | "roundtrip";
+  /** Set on a round trip. */
+  roundTrip?: RoundTrip;
   /** How it happened: trades, plain transfers, both, or unclear. */
   via: "swap" | "transfer" | "mixed" | "unclear";
   qtyBefore: number;
@@ -231,6 +266,20 @@ export function dayLines(activities: readonly TxActivity[], ownAddresses: Readon
   for (const [key, legs] of byKey) {
     const b = base.get(key) ?? { qty: 0, kept: false };
     if (b.kept) continue; // this morning's quantity wasn't read
+    const contracts = [...new Set(legs.map((l) => l.contract ?? contractFromKey(l.assetKey)).filter((c): c is string => !!c))];
+    const chains = [...new Set(legs.filter((l) => l.contract ?? contractFromKey(l.assetKey)).map((l) => l.sourceChain))];
+    const common = {
+      assetKey: key,
+      ticker: legs[0].ticker,
+      contract: contracts.length === 1 ? contracts[0] : null,
+      contractChain: contracts.length === 1 && chains.length === 1 ? chains[0] : null,
+      priceKey: legs[0].priceKey,
+      firstCheckedAt: legs.map((l) => l.checkedAt).sort()[0],
+    };
+    const trip = roundTrip(legs);
+    if (trip) out.push({ ...common, kind: "roundtrip", via: "swap", qtyBefore: 0, qtyAfter: 0, usdDelta: trip.pnlUsd, tradePrice: trip.buyPrice, lastAt: trip.lastSellAt, roundTrip: trip });
+
+    // The net change since the morning (what's left after any round trip).
     const delta = legs.reduce((s, l) => s + l.qtyDelta, 0);
     const swaps = legs.filter((l) => l.kind === "swap" && l.priceUsd !== null);
     const swapQty = swaps.reduce((s, l) => s + Math.abs(l.qtyDelta), 0);
@@ -242,23 +291,7 @@ export function dayLines(activities: readonly TxActivity[], ownAddresses: Readon
     if (!kind) continue;
     const kinds = new Set(legs.map((l) => l.kind));
     const via = kinds.size > 1 ? (kinds.has("unclear") && !kinds.has("swap") ? "unclear" : "mixed") : [...kinds][0];
-    const contracts = [...new Set(legs.map((l) => l.contract ?? contractFromKey(l.assetKey)).filter((c): c is string => !!c))];
-    const chains = [...new Set(legs.filter((l) => l.contract ?? contractFromKey(l.assetKey)).map((l) => l.sourceChain))];
-    out.push({
-      assetKey: key,
-      ticker: legs[0].ticker,
-      contract: contracts.length === 1 ? contracts[0] : null,
-      contractChain: contracts.length === 1 && chains.length === 1 ? chains[0] : null,
-      priceKey: legs[0].priceKey,
-      kind,
-      via,
-      qtyBefore: b.qty,
-      qtyAfter,
-      usdDelta: delta * price,
-      tradePrice,
-      lastAt: legs.map((l) => l.at).sort().at(-1)!,
-      firstCheckedAt: legs.map((l) => l.checkedAt).sort()[0],
-    });
+    out.push({ ...common, kind, via, qtyBefore: b.qty, qtyAfter, usdDelta: delta * price, tradePrice, lastAt: legs.map((l) => l.at).sort().at(-1)! });
   }
   return out.sort((x, y) => y.lastAt.localeCompare(x.lastAt));
 }

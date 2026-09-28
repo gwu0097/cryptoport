@@ -97,3 +97,22 @@ test("the copied contract is the token's own, never guessed", () => {
   assert.equal(line.contract, "Mint111111111111111111111111111111");
   assert.equal(line.contractChain, "solana");
 });
+
+test("a flip within the day is its own line — Hash's DUKE, bought and sold 9 minutes later at -63%", () => {
+  const legs = [
+    leg({ txId: "b1", qtyDelta: 20_808_096, priceUsd: 0.0000144, at: "2026-09-28T18:00:34Z" }),
+    leg({ txId: "b2", qtyDelta: 8_062_262, priceUsd: 0.0000149, at: "2026-09-28T18:02:05Z" }),
+    leg({ txId: "s1", qtyDelta: -28_870_358, priceUsd: 0.00000542, at: "2026-09-28T18:09:35Z" }),
+  ];
+  const lines = dayLines([day(legs)], new Set(), () => 0.0000054);
+  assert.equal(lines.length, 1); // net zero: only the round trip
+  const t = lines[0];
+  assert.equal(t.kind, "roundtrip");
+  assert.ok(t.roundTrip!.pnlPct < -60 && t.roundTrip!.pnlPct > -65);
+  assert.ok(t.usdDelta < -250 && t.usdDelta > -280);
+});
+
+test("a sale of morning holdings before any buy is not a round trip", () => {
+  const legs = [leg({ txId: "s", qtyDelta: -10_000, priceUsd: 0.02, at: "2026-09-28T09:00:00Z" }), leg({ txId: "b", qtyDelta: 10_000, priceUsd: 0.02, at: "2026-09-28T10:00:00Z" })];
+  assert.ok(dayLines([day(legs, { "jup:gem": { qty: 50_000, kept: false } })], new Set(), () => 0.02).every((l) => l.kind !== "roundtrip"));
+});
