@@ -206,7 +206,7 @@ function Amount({ payQty, usd, ticker, qty, tone }: { payQty: number | null; usd
 /** One coin's row, and its trades underneath when opened. */
 function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
-  const closed = c.holdingQty <= 0 && c.sells > 0;
+  const closed = soldOut(c);
   const holdingUsd = c.nowUsd !== null ? c.holdingQty * c.nowUsd : null;
   const sinceEntry = c.avgEntryUsd && c.nowUsd !== null && !closed ? ((c.nowUsd - c.avgEntryUsd) / c.avgEntryUsd) * 100 : null;
   const cols = showNames ? 8 : 7;
@@ -313,14 +313,21 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
 
 const BUSY_COINS = 3;
 
-/** A busy trader's day on one row: how many coins, totals, net result, what's
- * still open, and the tickers colored by result — their coin rows behind a toggle. */
+/** Nothing left worth having: none held, or a leftover under $1 (the daily
+ * read's rule — Risk's OPG crumb read "holding 0 ($0.00)" but "open"). */
+function soldOut(c: WatchCoinDay): boolean {
+  if (c.sells === 0) return false;
+  if (c.holdingQty <= 0) return true;
+  return c.nowUsd !== null && c.holdingQty * c.nowUsd < 1;
+}
+
+/** A busy trader's sold-out coins on one row: how many, totals, net result
+ * and the tickers colored by result — their coin rows behind a toggle. */
 function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; latest: number; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
   const first = coins[0];
   const sum = (f: (c: WatchCoinDay) => number | null) => coins.reduce((s, c) => s + (f(c) ?? 0), 0);
   const realized = sum((c) => c.realizedUsd);
-  const openCount = coins.filter((c) => c.holdingQty > 0).length;
   const lastAt = coins.map((c) => c.lastAt).sort().at(-1)!;
   const isNew = coins.some((c) => Date.parse(c.firstCheckedAt) >= latest);
   const byResult = [...coins].sort((a, b) => Math.abs(b.realizedUsd ?? 0) - Math.abs(a.realizedUsd ?? 0));
@@ -334,9 +341,9 @@ function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; l
           </Link>
         </td>
         <td className={tdClass}>
-          <span className="font-semibold text-fg">{coins.length} coins today</span>
+          <span className="font-semibold text-fg">{coins.length} coins sold out today</span>
           <p className="text-xs text-fg-muted">
-            {sum((c) => c.buys)} buys · {sum((c) => c.sells)} sells{openCount > 0 && ` · ${openCount} still open`}
+            {sum((c) => c.buys)} buys · {sum((c) => c.sells)} sells
           </p>
           <p className="mt-0.5 flex flex-wrap gap-x-1.5 text-xs">
             {byResult.map((c) => (
@@ -348,7 +355,7 @@ function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; l
         </td>
         <td className={`${tdClass} tabular-nums text-positive`}>{formatUsd(sum((c) => c.boughtUsd))}</td>
         <td className={`${tdClass} tabular-nums text-negative`}>{formatUsd(sum((c) => c.soldUsd))}</td>
-        <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatUsd(coins.reduce((s, c) => s + (c.nowUsd !== null ? c.holdingQty * c.nowUsd : 0), 0))}</td>
+        <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>sold all</td>
         <td className={`${tdClass} tabular-nums`}>
           <span className={realized >= 0 ? "text-positive" : "text-negative"} title="Net result of what was bought and sold today">
             {formatUsdSigned(realized)}
@@ -379,19 +386,27 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
     return sortDir === "desc" ? -cmp : cmp;
   });
   const head = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
-  // A trader with more than BUSY_COINS coins today is one summary row, in
-  // the place of their first coin in the current order (owner: Risk trades
-  // so many a day that his rows drown everyone else's).
+  // A trader with more than BUSY_COINS coins today folds the ones they've
+  // completely sold out of into one summary row (owner: Risk's rows drowned
+  // everyone else's). Open positions and their most recent coin keep their
+  // own rows — those aren't finished (owner 2026-09-28).
   const byTrader = new Map<string, WatchCoinDay[]>();
   for (const c of sorted) byTrader.set(c.influencerId, [...(byTrader.get(c.influencerId) ?? []), c]);
+  const folded = new Map<string, WatchCoinDay[]>();
+  for (const [id, mine] of byTrader) {
+    if (!showNames || mine.length <= BUSY_COINS) continue;
+    const newest = mine.reduce((a, c) => (c.lastAt > a.lastAt ? c : a));
+    const done = mine.filter((c) => c !== newest && soldOut(c));
+    if (done.length >= 2) folded.set(id, done);
+  }
   const placed = new Set<string>();
   const items: ({ kind: "coin"; c: WatchCoinDay } | { kind: "group"; coins: WatchCoinDay[] })[] = [];
   for (const c of sorted) {
-    const mine = byTrader.get(c.influencerId)!;
-    if (!showNames || mine.length <= BUSY_COINS) items.push({ kind: "coin", c });
+    const done = folded.get(c.influencerId);
+    if (!done || !done.includes(c)) items.push({ kind: "coin", c });
     else if (!placed.has(c.influencerId)) {
       placed.add(c.influencerId);
-      items.push({ kind: "group", coins: mine });
+      items.push({ kind: "group", coins: done });
     }
   }
   return (
