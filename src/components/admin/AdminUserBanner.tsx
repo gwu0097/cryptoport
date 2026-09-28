@@ -6,7 +6,7 @@ const TABS = [
   { suffix: "/assets", label: "Assets" },
 ] as const;
 
-/** The one thing every /admin/[userId]/* page renders first — impossible
+/** The one thing every /admin/users/[userId]/* page renders first — impossible
  * to miss that this is someone else's data, not the admin's own. Read-only
  * by construction (see adminQueries.ts/queries.ts's own opts.userId doc
  * comments) — this banner is the visual reminder, not the enforcement. */
@@ -20,7 +20,7 @@ export function AdminUserBanner({ userId, displayName, active }: { userId: strin
         {TABS.map((tab) => (
           <Link
             key={tab.suffix}
-            href={`/admin/${userId}${tab.suffix}`}
+            href={`/admin/users/${userId}${tab.suffix}`}
             className={`rounded-md px-3 py-1.5 text-sm transition ${
               active === tab.suffix ? "bg-warning/20 font-medium text-fg" : "text-fg-muted hover:text-fg"
             }`}

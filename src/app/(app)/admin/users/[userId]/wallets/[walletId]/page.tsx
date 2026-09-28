@@ -126,7 +126,7 @@ export default async function AdminWalletDetailPage({
             grandTotal={total}
             hideUnpriced={false}
             hideLow={false}
-            baseHref={`/admin/${userId}/wallets/${walletId}`}
+            baseHref={`/admin/users/${userId}/wallets/${walletId}`}
             emptyMessage="No holdings."
           />
         </div>

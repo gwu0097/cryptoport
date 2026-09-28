@@ -1,6 +1,5 @@
 import { requireAdmin } from "@/lib/adminAuth";
 import { API_SERVICES, TIER_LABEL, UNLISTED_HOSTS, type ApiService, type ApiTier } from "@/lib/apiRegistry";
-import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 
 export const metadata = { title: "API list · Owner's console · CryptoPort" };
@@ -25,7 +24,7 @@ export default async function ApiListPage() {
 
   return (
     <>
-      <PageHeader title="API list" subtitle="Services that could need an upgrade as users grow — what we use, on which plan, and what breaks first." />
+      <p className="mb-4 text-sm text-fg-muted">Services that could need an upgrade as users grow — what we use, on which plan, and what breaks first.</p>
       <Panel className="mb-4">
         <p className="text-sm text-fg">
           {API_SERVICES.length} services: {count("paid")} paid, {count("free-signup")} free with sign-up, {count("free-no-signup")} free without sign-up.

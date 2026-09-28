@@ -71,8 +71,8 @@ export default async function AdminUserDashboardPage({ params }: { params: Promi
       </div>
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <MoverList title="Top gainers (24h) · Holdings" items={gainers} href={`/admin/${userId}/assets`} />
-        <MoverList title="Top losers (24h) · Holdings" items={losers} href={`/admin/${userId}/assets`} />
+        <MoverList title="Top gainers (24h) · Holdings" items={gainers} href={`/admin/users/${userId}/assets`} />
+        <MoverList title="Top losers (24h) · Holdings" items={losers} href={`/admin/users/${userId}/assets`} />
       </div>
     </>
   );

@@ -136,7 +136,9 @@ never leave a destructive script anywhere.
   `components/layout/navItems.tsx`). Every page renders per request and is
   viewable as a guest, except `admin` — "Owner's console" in the UI
   (`requireAdmin()` in `src/lib/adminAuth.ts` → `notFound()` for anyone but
-  `ADMIN_EMAIL`): users, pricing coverage, the API list.
+  `ADMIN_EMAIL`): one tab per feature (`admin/layout.tsx`,
+  `components/admin/OwnerConsoleTabs.tsx`) — Users (`/admin/users`, each
+  user read-only at `/admin/users/<id>`), API list, Pricing coverage.
   `wallets/actions.ts` holds the sync and price-refresh actions. Also
   `src/app/(auth)/` (sign-in) and `src/app/lookup/` (public address lookup).
 - `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry}` (schedules

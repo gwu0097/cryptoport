@@ -46,7 +46,7 @@ function sortValue(wallet: WalletWithTotal, key: SortKey): number | string {
  * — see CLAUDE.md's UI conventions section: every table gets this by
  * default now, not as a one-off request per table.
  *
- * Each row still links through to `/admin/{userId}/wallets/{wallet.id}` —
+ * Each row still links through to `/admin/users/{userId}/wallets/{wallet.id}` —
  * reported directly: "I can peek at the wallets but I can't go into
  * them." That page is the same kind of read-only-by-construction reuse,
  * just for a single wallet's holdings/sync status instead of the list.
@@ -96,7 +96,7 @@ export function AdminWalletsTable({ userId, wallets }: { userId: string; wallets
           {sorted.map((wallet) => (
             <tr key={wallet.id} className={trClass}>
               <td className={tdClass}>
-                <Link href={`/admin/${userId}/wallets/${wallet.id}`} className="hover:text-accent hover:underline">
+                <Link href={`/admin/users/${userId}/wallets/${wallet.id}`} className="hover:text-accent hover:underline">
                   {wallet.name}
                 </Link>
               </td>

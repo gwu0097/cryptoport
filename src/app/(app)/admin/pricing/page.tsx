@@ -1,7 +1,6 @@
 import { requireAdmin } from "@/lib/adminAuth";
 import { getPricingCoverage } from "@/lib/pricingCoverageQuery";
 import { GAP_LABEL, type GapCause } from "@/lib/pricingCoverage";
-import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { PricingGapsTable } from "@/components/admin/PricingGapsTable";
 import { getUnrecognizedCoverage } from "@/lib/unrecognizedTokensQuery";
@@ -30,7 +29,7 @@ export default async function PricingCoveragePage() {
 
   return (
     <>
-      <PageHeader title="Pricing coverage" subtitle="Coin holdings with no price, across every user, and why." />
+      <p className="mb-4 text-sm text-fg-muted">Coin holdings with no price, across every user, and why.</p>
 
       <div className="flex flex-col gap-6">
         <Panel>
