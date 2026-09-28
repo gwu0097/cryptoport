@@ -53,6 +53,7 @@ export function InfluencerSections({
   baseHref,
   valueExtra,
   afterValue,
+  activityTop,
   addressExtra,
   addressesFooter,
 }: {
@@ -69,6 +70,8 @@ export function InfluencerSections({
   valueExtra?: ReactNode;
   /** A section between the value card and the chart (the trading record). */
   afterValue?: ReactNode;
+  /** Above the Activity feed: today's activity check (owner's page only). */
+  activityTop?: ReactNode;
   /** Per-address controls (the owner's remove button). */
   addressExtra?: (address: WatchedInfluencer["addresses"][number]) => ReactNode;
   addressesFooter?: ReactNode;
@@ -93,6 +96,7 @@ export function InfluencerSections({
       </Panel>
 
       <Panel title="Activity" description="Changes between reads, sized at that read's price." className="mb-4">
+        {activityTop}
         <ActivityFeed movements={movements} serverNowSec={serverNowSec} showNames={false} />
       </Panel>
 

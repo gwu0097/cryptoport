@@ -139,7 +139,7 @@ export function DayActivity({
             const buying = trip ? trip.pnlUsd >= 0 : l.qtyAfter > l.qtyBefore;
             const isNew = Date.parse(l.firstCheckedAt) >= latest;
             return (
-              <li key={`${l.influencerId}|${l.assetKey}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 text-sm">
+              <li key={`${l.influencerId}|${l.assetKey}|${l.kind}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 text-sm">
                 <span className="min-w-0">
                   {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
                   {showNames && (

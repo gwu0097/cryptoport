@@ -72,6 +72,14 @@ export interface TxActivity {
   base: Record<string, ActivityBase>;
 }
 
+/** The coins trades are paid in — natives, their wrapped copies and dollar
+ * stablecoins. They price the other side of a swap, and moving in and out of
+ * them is cash, never a round trip. */
+export const CASH_KEYS: ReadonlySet<string> = new Set([
+  "solana", "wrapped-solana", "ethereum", "weth", "binancecoin", "wbnb", "matic-network", "polygon-ecosystem-token",
+  "avalanche-2", "bitcoin", "usd-coin", "tether", "dai", "usds", "ethena-usde", "first-digital-usd", "paypal-usd", "usd1-wlfi",
+]);
+
 /** Native SOL moves under this per transaction (rent, fees, tips) without
  * any other coin are not activity. */
 export const SOL_DUST = 0.005;
@@ -195,6 +203,7 @@ export interface RoundTrip {
 /** A coin's round trip within the day, when it was bought and later sold in
  * priced swaps worth at least MOVE_MIN_USD. */
 export function roundTrip(legs: readonly ActivityLeg[]): RoundTrip | null {
+  if (legs.some((l) => l.priceKey && CASH_KEYS.has(l.priceKey))) return null; // cash moves, not a trade
   const swaps = legs.filter((l) => l.kind === "swap" && l.priceUsd !== null);
   const buys = swaps.filter((l) => l.qtyDelta > 0);
   if (buys.length === 0) return null;

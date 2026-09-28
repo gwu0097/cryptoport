@@ -116,3 +116,11 @@ test("a sale of morning holdings before any buy is not a round trip", () => {
   const legs = [leg({ txId: "s", qtyDelta: -10_000, priceUsd: 0.02, at: "2026-09-28T09:00:00Z" }), leg({ txId: "b", qtyDelta: 10_000, priceUsd: 0.02, at: "2026-09-28T10:00:00Z" })];
   assert.ok(dayLines([day(legs, { "jup:gem": { qty: 50_000, kept: false } })], new Set(), () => 0.02).every((l) => l.kind !== "roundtrip"));
 });
+
+test("SOL in and out is cash, never a round trip", () => {
+  const legs = [
+    leg({ assetKey: "solana", priceKey: "solana", ticker: "SOL", txId: "a", qtyDelta: 3.1, priceUsd: 119.6, at: "2026-09-28T18:00:00Z" }),
+    leg({ assetKey: "solana", priceKey: "solana", ticker: "SOL", txId: "b", qtyDelta: -3.1, priceUsd: 119.58, at: "2026-09-28T18:27:00Z" }),
+  ];
+  assert.ok(dayLines([day(legs)], new Set(), () => 119.58).every((l) => l.kind !== "roundtrip"));
+});

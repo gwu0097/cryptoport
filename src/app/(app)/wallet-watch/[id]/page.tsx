@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getInfluencerDailyValue, getInfluencerDetail, getTradingRecord, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
+import { getInfluencerDailyValue, getInfluencerDetail, getTradingRecord, getWatchDayActivity, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { SignInPrompt } from "@/components/SignInPrompt";
@@ -12,6 +12,7 @@ import { RefreshWatchButton } from "@/components/walletWatch/RefreshWatchButton"
 import { ShareInfluencerButton } from "@/components/walletWatch/ShareInfluencerButton";
 import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/InfluencerSections";
 import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
+import { DayActivity } from "@/components/walletWatch/DayActivity";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet Watch · CryptoPort" };
@@ -26,7 +27,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
   const { influencer, groups, holdings, notListed } = detail;
   const nowSec = requestNowSec();
   const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
-  const [movements, daily, record] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer), getTradingRecord(influencer, today)]);
+  const [movements, daily, record, day] = await Promise.all([getWatchMovements([influencer]), getInfluencerDailyValue(influencer), getTradingRecord(influencer, today), getWatchDayActivity([influencer])]);
 
   return (
     <>
@@ -53,6 +54,16 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         serverNowSec={nowSec}
         baseHref={`/wallet-watch/${influencer.id}`}
         valueExtra={<InfluencerEditor influencer={influencer} groups={groups} />}
+        activityTop={
+          <DayActivity
+            lines={day.lines}
+            checkedAt={day.checkedAt[influencer.id] ?? null}
+            issues={day.issues}
+            influencerIds={[influencer.id]}
+            serverNowSec={nowSec}
+            showNames={false}
+          />
+        }
         afterValue={<TradingRecordPanel influencerId={influencer.id} {...record} today={today} serverNowSec={nowSec} />}
         addressExtra={(a) => <RemoveAddressButton addressId={a.id} influencerId={influencer.id} address={a.address} />}
         addressesFooter={

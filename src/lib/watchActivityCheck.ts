@@ -5,7 +5,7 @@ import { ensureAssetPrices } from "./adapters/assetPrices";
 import { ALCHEMY_HOSTS } from "./adapters/alchemy";
 import { mapWithConcurrency } from "./adapters/http";
 import { evmCheckable, INTERNAL_TRANSFER_CHAINS, MAX_PAGES, readBitcoin, readEvmChain, readSolana, type SourceRead } from "./adapters/watchActivitySources";
-import { appendLegs, toLegs, type ActivityBase, type ActivityLeg, type LegIdentity, type RawChange, type TxActivity } from "./watchActivity";
+import { appendLegs, CASH_KEYS, toLegs, type ActivityBase, type ActivityLeg, type LegIdentity, type RawChange, type TxActivity } from "./watchActivity";
 import { assetStates, contractKeys } from "./watchDiff";
 import { isInProgressStatus } from "./jobStatus";
 import { parseNumeric } from "./valuation";
@@ -23,12 +23,8 @@ import type { WatchSnapshot } from "./watchSnapshot";
 export const CHECK_REUSE_MS = 15 * 60 * 1000;
 const CONCURRENCY = 4;
 
-/** Coins whose price sizes the other side of a swap: natives, their wrapped
- * copies and dollar stablecoins. */
-const VALUE_KEYS: ReadonlySet<string> = new Set([
-  "solana", "wrapped-solana", "ethereum", "weth", "binancecoin", "wbnb", "matic-network", "polygon-ecosystem-token",
-  "avalanche-2", "bitcoin", "usd-coin", "tether", "dai", "usds", "ethena-usde", "first-digital-usd", "paypal-usd", "usd1-wlfi",
-]);
+/** Coins whose price sizes the other side of a swap (watchActivity.ts). */
+const VALUE_KEYS = CASH_KEYS;
 /** Served EVM chains whose source can't see a router's native payout. */
 const NO_NATIVE_LEGS: ReadonlySet<string> = new Set(Object.keys(ALCHEMY_HOSTS).filter((c) => !INTERNAL_TRANSFER_CHAINS.has(c)));
 /** Snapshot chains that are venues, not chains — the morning read covers them. */
