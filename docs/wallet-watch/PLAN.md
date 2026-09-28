@@ -593,3 +593,55 @@ transfer, a failed transaction, a duplicate delivery). Then turn Live on
 for Swing traders only; for two days compare every delivered trade with
 KOLScan/Solscan and with Refresh activity (same lines), and read the
 Helius dashboard's event count against the estimate.
+
+## Phase 6 — Live updates for EVM wallets via Alchemy webhooks (plan, 2026-09-28)
+
+### Goal
+
+Phase 5's live updates for EVM influencers, starting with **Ethereum,
+Arbitrum and Robinhood Chain** (owner). Helius is Solana-only; Alchemy —
+already the app's EVM provider — has the equivalent: **Address Activity
+webhooks** (Alchemy Notify).
+
+### Checked 2026-09-28 (Alchemy docs)
+
+- Networks: 30+ EVM chains incl. Ethereum, Arbitrum, **Robinhood Chain**,
+  Base, Optimism, Polygon, BNB, Avalanche.
+- One webhook per network; up to 100,000 addresses each.
+- **Free plan: 5 webhooks per account** — three networks use 3.
+- Billed by bandwidth: 0.04 CU per byte, ~40 CU per event (~1 KB). The free
+  plan's 30M CU/month is shared with syncs and the activity check; a busy
+  address (Vitalik receives many spam transfers) could be tens of thousands
+  of events a month — measured on the Alchemy dashboard after turning it on.
+- Payload: the transfers themselves (from, to, value, asset, category —
+  external / internal / token — raw contract, hash, block), grouped per
+  transaction by us — the same shape `readEvmChain` already reduces.
+- Deliveries are signed: `X-Alchemy-Signature` (HMAC-SHA256 of the body with
+  the webhook's signing key) — verified before anything is read.
+
+### Design (mirrors phase 5)
+
+- `alchemyWebhookSync.ts`: one app-owned webhook per network, created via
+  the Notify API (needs the dashboard's **Notify auth token**,
+  `ALCHEMY_NOTIFY_TOKEN`) and its address list replaced when live changes;
+  each webhook's id and signing key stored in `app_settings`.
+- A live EVM influencer's address goes on the networks its snapshot holds,
+  among the three.
+- Route `POST /api/wallet-watch/evm-webhook`: verify the signature, group
+  the activity by transaction hash → `RawChange`s (the `readEvmChain` rules:
+  outgoing negative, self-transfers skipped, native via external/internal),
+  → `identifyLegs` → `appendActivity` (compare-and-set) → broadcast.
+- Spam: EVM wallets get airdropped tokens constantly — a one-way incoming
+  token is dropped before any request (`worthSaving`, as on Solana).
+- Internal transfers (the ETH a router pays back on a sale) — delivered on
+  Ethereum; where a network doesn't deliver them, a one-way token out stays
+  "unclear" (sent or sold), as in the activity check.
+- The owner's Live switch (phase 5) extends to EVM influencers.
+
+### Gate
+
+Unit tests for the Alchemy payload reduction (a swap with an internal ETH
+leg, a sale on Arbitrum, an airdrop, a self-transfer, a bad signature).
+Then one live EVM influencer for a day: every delivered trade vs Etherscan /
+Arbiscan and vs Refresh activity ("webhook missed" 0), and the Alchemy
+dashboard's CU use vs the estimate.
