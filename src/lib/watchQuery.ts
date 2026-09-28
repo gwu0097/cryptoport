@@ -9,7 +9,7 @@ import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import type { Holding } from "./types";
 import { mergeSameCoin } from "./mergeHoldings";
-import { dayLines, type DayLine, type TxActivity } from "./watchActivity";
+import { contractFromKey, dayLines, type DayLine, type TxActivity } from "./watchActivity";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
 // Wallet Watch reads (docs/wallet-watch/PLAN.md). All through userDb(): the
@@ -288,6 +288,9 @@ export interface WatchMovementView {
   usdDelta: number | null;
   /** usdDelta as a share of the wallet after the read (conviction). */
   walletShare: number | null;
+  /** The token's contract / mint, when its key spells it out (the copy
+   * button); null for a native coin or a key that doesn't. */
+  contract: string | null;
   /** The coin's stored price now (asset_prices) and when it was priced —
    * only when priced after this move, so it can say how far the price has
    * run since. Tokens only. */
@@ -369,6 +372,7 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
         priceUsd: num(r.price_usd),
         usdDelta: usd,
         walletShare: usd !== null && total !== null && total > 0 ? Math.abs(usd) / total : null,
+        contract: r.position_type === "token" ? contractFromKey(r.asset_key as string) : null,
         nowUsd: priceIsNewer ? now!.usd : null,
         nowAt: priceIsNewer ? now!.updatedAt : null,
       },

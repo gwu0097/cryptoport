@@ -8,6 +8,7 @@ import type { WatchDayLine } from "@/lib/watchQuery";
 import { formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
+import { CopyButton } from "@/components/CopyButton";
 import { NowPrice } from "./ActivityFeed";
 
 /** Verbs by how it happened: a trade, or a plain transfer (never called a
@@ -142,6 +143,11 @@ export function DayActivity({
                   <span className="text-fg">
                     {formatQty(Math.abs(l.qtyAfter - l.qtyBefore))} {l.ticker}
                   </span>
+                  {l.contract && (
+                    <span className="ml-1 inline-flex align-middle">
+                      <CopyButton value={l.contract} label={`Copy ${l.ticker} contract`} title={`Copy ${l.ticker}'s contract${l.contractChain ? ` (${l.contractChain})` : ""}: ${l.contract}`} />
+                    </span>
+                  )}
                   {l.tradePrice !== null && <span className="text-xs text-fg-muted"> at {formatPrice(l.tradePrice)}</span>}
                   {l.tradePrice !== null && l.tradePrice > 0 && l.nowUsd !== null && l.nowAt !== null && Date.parse(l.nowAt) > Date.parse(l.lastAt) && (
                     <NowPrice nowUsd={l.nowUsd} nowAt={l.nowAt} movePrice={l.tradePrice} serverNowSec={serverNowSec} />

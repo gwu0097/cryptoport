@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendLegs, dayLines, toLegs, trimToBoundary, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity.ts";
+import { appendLegs, contractFromKey, dayLines, toLegs, trimToBoundary, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity.ts";
 
 const SOL = 120;
 const known: Record<string, { assetKey: string; priceKey: string; ticker: string }> = {
@@ -86,4 +86,14 @@ test("legs before the boundary never count; appending dedupes and a new read's b
   assert.deepEqual(again.legs.map((l) => l.txId), ["a", "b"]);
   const next = trimToBoundary(again, "2026-09-29T08:00:00Z");
   assert.deepEqual(next?.legs, []);
+});
+
+test("the copied contract is the token's own, never guessed", () => {
+  assert.equal(contractFromKey("jup:HSUMi4rMgjrx7zRUabw3ogGu1pa5hmF2eVcXj9Apump"), "HSUMi4rMgjrx7zRUabw3ogGu1pa5hmF2eVcXj9Apump");
+  assert.equal(contractFromKey("eth:0x1f9840a85d5af5bf1d1762f925bdaddc4201f984"), "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984");
+  assert.equal(contractFromKey("hl:PURR"), null);
+  assert.equal(contractFromKey("uniswap"), null);
+  const line = dayLines([day([leg({ qtyDelta: 50_000, contract: "Mint111111111111111111111111111111" })])], new Set(), () => 0.01)[0];
+  assert.equal(line.contract, "Mint111111111111111111111111111111");
+  assert.equal(line.contractChain, "solana");
 });

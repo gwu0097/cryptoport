@@ -9,7 +9,7 @@ import { Copy, Check } from "lucide-react";
  * (a holding's ticker/contract), not a truncated-value display alongside
  * it. stopPropagation matters here specifically because every caller so
  * far sits inside a clickable table row (AssetsTable's expand-on-click). */
-export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+export function CopyButton({ value, label = "Copy", title }: { value: string; label?: string; title?: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy(e: MouseEvent<HTMLButtonElement>) {
@@ -29,6 +29,7 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
       type="button"
       onClick={copy}
       aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : title}
       className="shrink-0 text-fg-muted hover:text-fg"
     >
       {copied ? <Check className="size-3" aria-hidden="true" /> : <Copy className="size-3" aria-hidden="true" />}

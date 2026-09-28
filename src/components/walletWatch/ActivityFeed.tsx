@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { WatchMovementView } from "@/lib/watchQuery";
 import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
+import { CopyButton } from "@/components/CopyButton";
 
 const VERB: Record<WatchMovementView["kind"], { token: string; perp: string; prediction: string }> = {
   new: { token: "bought", perp: "opened", prediction: "bet on" },
@@ -56,6 +57,11 @@ export function ActivityFeed({ movements, serverNowSec, showNames = true }: { mo
               )}{" "}
               <span className={buying ? "text-positive" : "text-negative"}>{VERB[m.kind][m.positionType]}</span>{" "}
               <span className="text-fg">{what(m)}</span>
+              {m.contract && (
+                <span className="ml-1 inline-flex align-middle">
+                  <CopyButton value={m.contract} label={`Copy ${m.ticker} contract`} title={`Copy ${m.ticker}'s contract: ${m.contract}`} />
+                </span>
+              )}
               {m.priceUsd !== null && m.positionType === "token" && <span className="text-xs text-fg-muted"> at {formatPrice(m.priceUsd)}</span>}
               {m.nowUsd !== null && m.nowAt !== null && m.priceUsd !== null && m.priceUsd > 0 && (
                 <NowPrice nowUsd={m.nowUsd} nowAt={m.nowAt} movePrice={m.priceUsd} serverNowSec={serverNowSec} />

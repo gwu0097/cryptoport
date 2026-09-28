@@ -44,6 +44,9 @@ export interface ActivityLeg {
   sourceChain: string;
   priceKey: string | null;
   ticker: string;
+  /** Token contract / mint (null: the native coin). Missing on legs saved
+   * before 2026-09-28's copy button. */
+  contract?: string | null;
   qtyDelta: number;
   kind: LegKind;
   counterparty: string | null;
@@ -136,6 +139,7 @@ export function toLegs(
         sourceChain: c.chain,
         priceKey: id.priceKey,
         ticker: id.ticker,
+        contract: c.contract,
         qtyDelta: c.qty,
         kind,
         counterparty: swap ? null : c.counterparty,
@@ -167,9 +171,23 @@ export function trimToBoundary(prev: TxActivity | null, boundary: string): TxAct
   return { boundary, legs: prev.legs.filter((l) => Date.parse(l.at) >= since), base: {} };
 }
 
+/** The contract / mint an asset key spells out, when it does: Jupiter's
+ * `jup:<mint>` and the `<chain>:<contract>` key of a coin without a price
+ * key (watchDiff.ts assetOf). Venue keys like `hl:PURR` aren't addresses. */
+export function contractFromKey(key: string): string | null {
+  const rest = key.startsWith("jup:") ? key.slice(4) : key.includes(":") ? key.slice(key.indexOf(":") + 1) : null;
+  if (!rest) return null;
+  return /^0x[0-9a-fA-F]{40}$/.test(rest) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(rest) ? rest : null;
+}
+
 export interface DayLine {
   assetKey: string;
   ticker: string;
+  /** The token's contract / mint, to copy into a trading app — only when
+   * it's a single one (never guessed); null for a native coin. */
+  contract: string | null;
+  /** The chain that contract is on. */
+  contractChain: string | null;
   priceKey: string | null;
   kind: MoveKind;
   /** How it happened: trades, plain transfers, both, or unclear. */
@@ -224,9 +242,13 @@ export function dayLines(activities: readonly TxActivity[], ownAddresses: Readon
     if (!kind) continue;
     const kinds = new Set(legs.map((l) => l.kind));
     const via = kinds.size > 1 ? (kinds.has("unclear") && !kinds.has("swap") ? "unclear" : "mixed") : [...kinds][0];
+    const contracts = [...new Set(legs.map((l) => l.contract ?? contractFromKey(l.assetKey)).filter((c): c is string => !!c))];
+    const chains = [...new Set(legs.filter((l) => l.contract ?? contractFromKey(l.assetKey)).map((l) => l.sourceChain))];
     out.push({
       assetKey: key,
       ticker: legs[0].ticker,
+      contract: contracts.length === 1 ? contracts[0] : null,
+      contractChain: contracts.length === 1 && chains.length === 1 ? chains[0] : null,
       priceKey: legs[0].priceKey,
       kind,
       via,

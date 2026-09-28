@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { positionChanges } from "./watchPositions.ts";
 import type { AssetState, Movement } from "./watchDiff.ts";
 
-const state = (key: string, qty: number, kept = false): AssetState => ({ key, type: "token", ticker: key.toUpperCase(), label: null, priceKey: key, side: null, qty, kept });
+const state = (key: string, qty: number, kept = false): AssetState => ({ key, type: "token", ticker: key.toUpperCase(), label: null, priceKey: key, side: null, contract: null, contractChain: null, qty, kept });
 const priceOf = () => 10;
-const move = (assetKey: string, kind: Movement["kind"], qtyAfter: number): Movement => ({ assetKey, kind, positionType: "token", ticker: assetKey, label: null, priceKey: assetKey, side: null, qtyBefore: 0, qtyAfter, priceUsd: 10, usdDelta: 0 });
+const move = (assetKey: string, kind: Movement["kind"], qtyAfter: number): Movement => ({ assetKey, kind, positionType: "token", ticker: assetKey, label: null, priceKey: assetKey, side: null, qtyBefore: 0, qtyAfter, priceUsd: 10, usdDelta: 0, contract: null, contractChain: null });
 
 test("the first read records what's held as held-at-start, skipping small ones", () => {
   const c = positionChanges({ firstRead: true, states: new Map([["eth", state("eth", 50)], ["dust", state("dust", 1)]]), movements: [], open: [], now: "T1", priceOf });

@@ -56,6 +56,10 @@ export interface AssetState {
   label: string | null;
   priceKey: string | null;
   side: string | null;
+  /** The token's contract and its chain when every row of it has the same
+   * one (copied into trading apps); null for a native coin or several. */
+  contract: string | null;
+  contractChain: string | null;
   qty: number;
   /** A row in it was carried forward from the last read. */
   kept: boolean;
@@ -74,6 +78,8 @@ export interface Movement {
   /** Per unit, at this read; null when unknown (unknown is never 0). */
   priceUsd: number | null;
   usdDelta: number | null;
+  contract: string | null;
+  contractChain: string | null;
 }
 
 const VENUE_CASH_CHAINS = new Set(["hyperliquid", "lighter", "aster"]);
@@ -83,17 +89,17 @@ const VENUE_CASH_CHAINS = new Set(["hyperliquid", "lighter", "aster"]);
 export function assetOf(r: SnapshotRow): Omit<AssetState, "qty" | "kept"> | null {
   if (r.qty == null) return null;
   if (r.position_side) {
-    return { key: `perp:${r.chain ?? ""}:${r.ticker}:${r.position_side}`, type: "perp", ticker: r.ticker, label: r.display_label ?? null, priceKey: null, side: r.position_side };
+    return { key: `perp:${r.chain ?? ""}:${r.ticker}:${r.position_side}`, type: "perp", ticker: r.ticker, label: r.display_label ?? null, priceKey: null, side: r.position_side, contract: null, contractChain: null };
   }
   if (r.chain === "polymarket" || r.ticker.startsWith("POLY-")) {
-    return { key: `prediction:${r.ticker}`, type: "prediction", ticker: r.ticker, label: r.display_label ?? null, priceKey: null, side: null };
+    return { key: `prediction:${r.ticker}`, type: "prediction", ticker: r.ticker, label: r.display_label ?? null, priceKey: null, side: null, contract: null, contractChain: null };
   }
   if (r.chain && VENUE_CASH_CHAINS.has(r.chain) && r.usd_override != null) return null; // venue cash
   if (r.category !== "token") return null; // positions valued as a whole
   const isReceipt = !!r.display_label && r.display_label.includes("(as ");
   const key = r.price_key && !isReceipt ? r.price_key : r.contract ? `${r.chain ?? ""}:${r.contract.toLowerCase()}` : r.price_key ? r.price_key : null;
   if (!key) return null;
-  return { key, type: "token", ticker: r.ticker, label: r.display_label ?? null, priceKey: r.price_key ?? null, side: null };
+  return { key, type: "token", ticker: r.ticker, label: r.display_label ?? null, priceKey: r.price_key ?? null, side: null, contract: r.contract ?? null, contractChain: r.contract ? (r.chain ?? null) : null };
 }
 
 /** Every compared asset in a snapshot, quantities summed. Unrecognized
@@ -107,6 +113,11 @@ export function assetStates(snapshot: WatchSnapshot | null, previousKeyOf?: Read
     if (cur) {
       cur.qty += qty;
       cur.kept ||= kept;
+      // The same coin under two contracts (a bridged copy counted as one): no single one to copy.
+      if (cur.contract?.toLowerCase() !== base.contract?.toLowerCase()) {
+        cur.contract = null;
+        cur.contractChain = null;
+      }
     } else out.set(base.key, { ...base, qty, kept });
   };
   for (const r of snapshot?.rows ?? []) {
@@ -117,7 +128,7 @@ export function assetStates(snapshot: WatchSnapshot | null, previousKeyOf?: Read
     if (u.amount === null) continue;
     const contractKey = `${u.chain}:${u.contract.toLowerCase()}`;
     const key = previousKeyOf?.get(contractKey) ?? contractKey;
-    add({ key, type: "token", ticker: u.symbol, label: null, priceKey: previousKeyOf?.get(contractKey) ?? null, side: null }, u.amount, false);
+    add({ key, type: "token", ticker: u.symbol, label: null, priceKey: previousKeyOf?.get(contractKey) ?? null, side: null, contract: u.contract, contractChain: u.chain }, u.amount, false);
   }
   return out;
 }
@@ -171,6 +182,8 @@ export function diffSnapshots(
       qtyAfter,
       priceUsd: price,
       usdDelta: usd,
+      contract: state.contract,
+      contractChain: state.contractChain,
     });
   }
   return out.sort((x, y) => Math.abs(y.usdDelta ?? 0) - Math.abs(x.usdDelta ?? 0));
