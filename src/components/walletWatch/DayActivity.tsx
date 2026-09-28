@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { Eye, EyeOff, RefreshCw } from "lucide-react";
 import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import type { CoinTrade } from "@/lib/watchActivity";
 import { foldSoldOut, soldOut } from "@/lib/activityFold";
-import { LIVE_REFETCH_MS } from "@/lib/liveChannel";
+import { fetchDelay, minutesLeft } from "@/lib/liveWatching";
+import { useWatching } from "./useWatching";
 import { onLiveActivity } from "@/lib/liveListener";
 import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
@@ -19,15 +20,13 @@ import { CopyButton } from "@/components/CopyButton";
 
 /**
  * Live updates (phase 5): when any shown influencer is live, listen for the
- * server's "new activity" broadcast and fetch just these lines — at most once
- * a minute while visible, every two minutes in a background tab (catching up
- * at once when shown). Nothing polls; without live influencers nothing listens.
+ * server's "new activity" broadcast and fetch just these lines. How soon is
+ * the viewer's choice (liveWatching.ts): about a second with "Watching" on
+ * (at most every 15 s, for an hour), else at most every 30 minutes — in a
+ * background tab alike. Nothing polls; without live influencers nothing
+ * listens.
  */
-const CATCH_UP_AFTER_HIDDEN_MS = 30_000;
-/** A background tab fetches at most this often (a visible one: LIVE_REFETCH_MS). */
-const HIDDEN_REFETCH_MS = 2 * LIVE_REFETCH_MS;
-
-function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
+function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
   const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
   // A new server render (navigation, router.refresh) supersedes what was fetched.
   useEffect(() => {
@@ -37,51 +36,52 @@ function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly
   const key = ids.join(",");
   useEffect(() => {
     if (!live || !key) return;
-    let last = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    // Updates arrive in a background tab too (owner: "updates even if I
-    // switch the tab"), just half as often; switching back fetches at once
-    // if a broadcast is still waiting.
-    const gap = () => (document.visibilityState === "visible" ? LIVE_REFETCH_MS : HIDDEN_REFETCH_MS);
+    // The page was just rendered (fresh), unless the viewer turned Watching
+    // on: then fetch at once, to start from the latest.
+    let last = Date.now();
     const fetchNow = async () => {
       last = Date.now();
       const res = await fetch(`/api/wallet-watch/day?ids=${key}`, { cache: "no-store" }).catch(() => null);
       if (res?.ok) setFresh((await res.json()) as WatchDayActivity);
     };
+    if (watching) void fetchNow();
     const schedule = () => {
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
         void fetchNow();
-      }, Math.max(0, last + gap() - Date.now()));
-    };
-    // Back in view: a fetch still waiting on the slower background pace goes
-    // now; after a long time away (the connection may have dropped
-    // silently), catch up once.
-    let hiddenAt: number | null = null;
-    const onVisible = () => {
-      if (document.visibilityState === "hidden") {
-        hiddenAt = Date.now();
-        return;
-      }
-      const away = hiddenAt !== null && Date.now() - hiddenAt > CATCH_UP_AFTER_HIDDEN_MS;
-      hiddenAt = null;
-      if (timer || away) {
-        if (timer) clearTimeout(timer);
-        timer = null;
-        last = 0;
-        schedule();
-      }
+      }, fetchDelay(last, Date.now(), watching));
     };
     const unsubscribe = onLiveActivity(schedule); // the tab's one shared channel
-    document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (timer) clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisible);
       unsubscribe();
     };
-  }, [live, key]);
+  }, [live, key, watching]);
   return fresh;
+}
+
+/** The viewer's "Watching" switch: fast live updates for an hour. */
+function WatchingSwitch({ watching, until, nowMs, start, stop }: ReturnType<typeof useWatching>) {
+  return (
+    <button
+      type="button"
+      onClick={watching ? stop : start}
+      aria-pressed={watching}
+      title={
+        watching
+          ? "New trades show about a second after they land. Turns itself off after an hour — click to stop now."
+          : "Show new trades about a second after they land, for the next hour. Off, this panel picks them up at most every 30 minutes (or Refresh activity)."
+      }
+      className={`ml-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+        watching ? "border-positive/50 bg-positive/15 text-positive" : "border-border text-fg-muted hover:text-fg"
+      }`}
+    >
+      {watching ? <Eye className="size-3" aria-hidden="true" /> : <EyeOff className="size-3" aria-hidden="true" />}
+      {watching && until !== null ? `Watching · ${minutesLeft(until, nowMs)}m left` : "Watch"}
+    </button>
+  );
 }
 
 /** Runs the activity check for these influencers, streaming one line per
@@ -459,7 +459,8 @@ export function DayActivity({
   showButton?: boolean;
 }) {
   const live = liveIds.some((id) => influencerIds.includes(id));
-  const fresh = useLiveDay(influencerIds, live, serverCoins);
+  const watch = useWatching();
+  const fresh = useLiveDay(influencerIds, live, watch.watching, serverCoins);
   const shown = new Set(influencerIds);
   const coins = fresh ? fresh.coins.filter((c) => shown.has(c.influencerId)) : serverCoins;
   const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
@@ -473,9 +474,12 @@ export function DayActivity({
         <p className="text-sm">
           <span className="font-semibold text-fg">Since this morning&apos;s read</span>
           {live && (
-            <span className="ml-1.5 rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades appear here by themselves within about a minute (Helius webhook).">
-              live
-            </span>
+            <>
+              <span className="ml-1.5 rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades arrive by webhook as they happen (Helius for Solana, Alchemy for Ethereum, Arbitrum and Robinhood Chain); this panel shows them within a second while Watching, else within 30 minutes.">
+                live
+              </span>
+              <WatchingSwitch {...watch} />
+            </>
           )}
           <span className="text-xs text-fg-muted">
             {" · "}

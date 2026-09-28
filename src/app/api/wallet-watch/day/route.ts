@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
  * Today's activity lines for these influencers — what an open page fetches
  * when a live update arrives (phase 5), instead of re-rendering the whole
  * page. ~4 requests (the influencers, their addresses, their activity, the
- * prices of just those coins); the page calls it at most once a minute,
- * only while visible. A route handler, so it doesn't wait in the action queue.
+ * prices of just those coins); the page calls it after a live update, paced
+ * by liveWatching.ts. A route handler, so it doesn't wait in the action queue.
  */
 export async function GET(request: Request): Promise<Response> {
   if (!(await getUser())) return Response.json({ error: "Not signed in" }, { status: 401 });
