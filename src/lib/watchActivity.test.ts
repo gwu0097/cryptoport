@@ -165,3 +165,16 @@ test("selling morning holdings: the cost isn't known today, so no result is clai
   assert.equal(d.soldFromEarlier, true);
   assert.equal(d.holdingQty, 30_000);
 });
+
+test("average entry across many buys; a tiny trim of a big position stays out; a real trim shows its share", () => {
+  const buys = [1, 2, 3].map((i) => leg({ txId: `b${i}`, qtyDelta: 10_000_000, priceUsd: 0.00001 * i, at: `2026-09-28T1${i}:00:00Z` }));
+  const d = coinDays([day(buys)], new Set())[0];
+  assert.ok(Math.abs(d.avgEntryUsd! - 0.00002) < 1e-12); // ($100 + $200 + $300) / 30M
+  // Ben Armstrong: $148 of a $282K UNI position is 0.05% — not shown.
+  const tiny = [leg({ assetKey: "uniswap", priceKey: "uniswap", ticker: "UNI", txId: "s", qtyDelta: -17, priceUsd: 8.7 })];
+  assert.deepEqual(coinDays([day(tiny, { uniswap: { qty: 32_467, kept: false } })], new Set()), []);
+  // Selling 12% of it is shown, with its share.
+  const trim = [leg({ assetKey: "uniswap", priceKey: "uniswap", ticker: "UNI", txId: "s", qtyDelta: -3_896, priceUsd: 8.7 })];
+  const t = coinDays([day(trim, { uniswap: { qty: 32_467, kept: false } })], new Set())[0];
+  assert.ok(Math.abs(t.soldShareOfPosition! - 0.12) < 0.001);
+});

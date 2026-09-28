@@ -374,6 +374,11 @@ export interface CoinDay {
   realizedPct: number | null;
   /** Some of what was sold was held before today (its cost isn't known here). */
   soldFromEarlier: boolean;
+  /** Average price paid across today's buys, and received across today's sales. */
+  avgEntryUsd: number | null;
+  avgExitUsd: number | null;
+  /** With no buys today: the share of the morning position sold (0–1). */
+  soldShareOfPosition: number | null;
   firstAt: string;
   lastAt: string;
   firstCheckedAt: string;
@@ -430,6 +435,15 @@ export function coinDays(activities: readonly TxActivity[], ownAddresses: Readon
     const realizedUsd = matched > 0 && boughtUsd !== null && soldUsd !== null && boughtQty > 0 && soldQty > 0 ? matched * (soldUsd / soldQty - boughtUsd / boughtQty) : null;
     const size = Math.max(boughtUsd ?? 0, soldUsd ?? 0, ...trades.map((t) => t.usd ?? 0));
     if (size < MOVE_MIN_USD) continue;
+    const avgEntryUsd = boughtUsd !== null && boughtQty > 0 ? boughtUsd / boughtQty : null;
+    const avgExitUsd = soldUsd !== null && soldQty > 0 ? soldUsd / soldQty : null;
+    const netQty = legs.reduce((s, l) => s + l.qtyDelta, 0);
+    // Nothing bought today: only trimming or adding to what was already held —
+    // the daily read's bar (≥ 1% of the position or ≥ $5,000) keeps it quiet.
+    if (buys.length === 0) {
+      const price = avgExitUsd ?? (trades.find((t) => t.usd !== null && t.qty > 0) ? trades.find((t) => t.usd !== null)!.usd! / trades.find((t) => t.usd !== null)!.qty : null);
+      if (price === null || !moveKind(heldBefore, Math.max(0, heldBefore + netQty), price)) continue;
+    }
     const first = legs.reduce((a, l) => (l.at < a.at ? l : a));
     out.push({
       assetKey: key,
@@ -452,6 +466,9 @@ export function coinDays(activities: readonly TxActivity[], ownAddresses: Readon
       realizedUsd,
       realizedPct: realizedUsd !== null && boughtUsd ? (realizedUsd / (matched * (boughtUsd / boughtQty))) * 100 : null,
       soldFromEarlier: soldQty > boughtQty + 1e-9,
+      avgEntryUsd,
+      avgExitUsd,
+      soldShareOfPosition: buys.length === 0 && heldBefore > 0 && soldQty > 0 ? Math.min(1, soldQty / heldBefore) : null,
       firstAt: trades.at(-1)!.at,
       lastAt: trades[0].at,
       firstCheckedAt: legs.map((l) => l.checkedAt).sort()[0],

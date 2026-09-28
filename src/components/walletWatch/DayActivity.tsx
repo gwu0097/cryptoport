@@ -5,18 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
+import type { CoinTrade } from "@/lib/watchActivity";
 import { ACTIVITY_CHANNEL, ACTIVITY_EVENT, LIVE_REFETCH_MS } from "@/lib/liveChannel";
 import { browserSupabase } from "@/lib/supabaseBrowser";
-import { formatPercent, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
+import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
+import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { SortableHeader } from "@/components/ui/SortableHeader";
+import { usePersistedState } from "@/components/usePersistedState";
 import { AgeText } from "@/components/AgeText";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/CopyButton";
-
-/** How long a round trip lasted: "9m", "3h 20m". */
-function heldFor(from: string, to: string): string {
-  const min = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 60000));
-  return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
-}
 
 /**
  * Live updates (phase 5): when any shown influencer is live, listen for the
@@ -125,75 +123,189 @@ export function ActivityCheckButton({ influencerIds }: { influencerIds: string[]
   );
 }
 
-const qty = (n: number) => formatQty(n);
+const compactQty = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : formatQty(n));
 const pay = (n: number | null, ticker: string | null) => (n !== null && ticker ? `${n < 1 ? n.toFixed(3) : n.toFixed(2)} ${ticker}` : null);
 const TIME = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 
-/** One coin's day: totals like a trading app's token card, and its trades
- * behind a toggle (owner 2026-09-28: match KOLScan's buys and sells). */
-function CoinRow({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
+type SortKey = "trader" | "coin" | "bought" | "sold" | "result" | "when";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
+
+function sortValue(c: WatchCoinDay, key: SortKey): number | string {
+  switch (key) {
+    case "trader":
+      return c.influencerName.toLowerCase();
+    case "coin":
+      return c.ticker.toLowerCase();
+    case "bought":
+      return c.boughtUsd ?? 0;
+    case "sold":
+      return c.soldUsd ?? 0;
+    case "result":
+      return c.realizedUsd ?? -Infinity;
+    case "when":
+      return Date.parse(c.lastAt);
+  }
+}
+
+/** "Buy 0.18 SOL → 814K WATCH" — a trade in words. */
+function tradeText(t: CoinTrade, ticker: string): string {
+  const cash = pay(t.payQty, t.payTicker);
+  if (t.side === "buy" && cash) return `${cash} → ${compactQty(t.qty)} ${ticker}`;
+  if (t.side === "sell" && cash) return `${compactQty(t.qty)} ${ticker} → ${cash}`;
+  return `${compactQty(t.qty)} ${ticker}`;
+}
+const SIDE: Record<CoinTrade["side"], string> = { buy: "Buy", sell: "Sell", received: "Received", sent: "Sent" };
+const sideTone = (t: CoinTrade) => (t.side === "buy" || t.side === "received" ? "text-positive" : "text-negative");
+
+/** Bought or sold: the cash side and its dollar value. */
+function Amount({ payQty, usd, ticker, qty, tone }: { payQty: number | null; usd: number | null; ticker: string | null; qty: number; tone: string }) {
+  if (qty <= 0) return <span className="text-fg-muted">—</span>;
+  return (
+    <span className={tone}>
+      {pay(payQty, ticker) ?? compactQty(qty)}
+      {usd !== null && <span className="text-xs text-fg-muted"> ({formatUsd(usd)})</span>}
+    </span>
+  );
+}
+
+/** One coin's row, and its trades underneath when opened. */
+function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
   const closed = c.holdingQty <= 0 && c.sells > 0;
-  const result = c.realizedUsd;
   const holdingUsd = c.nowUsd !== null ? c.holdingQty * c.nowUsd : null;
+  const sinceEntry = c.avgEntryUsd && c.nowUsd !== null && !closed ? ((c.nowUsd - c.avgEntryUsd) / c.avgEntryUsd) * 100 : null;
+  const cols = showNames ? 8 : 7;
   return (
-    <li className="py-2 text-sm">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span className="min-w-0">
-          {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-          {showNames && (
+    <>
+      <tr className={trClass}>
+        {showNames && (
+          <td className={tdClass}>
+            {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
             <Link href={`/wallet-watch/${c.influencerId}`} className="font-medium text-fg hover:underline">
               {c.influencerName}
             </Link>
-          )}{" "}
+          </td>
+        )}
+        <td className={tdClass}>
+          {!showNames && isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
           <span className="font-semibold text-fg">{c.ticker}</span>
           {c.contract && (
             <span className="ml-1 inline-flex align-middle">
               <CopyButton value={c.contract} label={`Copy ${c.ticker} contract`} title={`Copy ${c.ticker}'s contract${c.contractChain ? ` (${c.contractChain})` : ""}: ${c.contract}`} />
             </span>
           )}
-          <span className="text-xs text-fg-muted">
-            {" "}
-            · {c.buys} buy{c.buys === 1 ? "" : "s"}, {c.sells} sell{c.sells === 1 ? "" : "s"}
-            {c.buys > 0 && <> · bought {pay(c.boughtPay, c.payTicker) ?? (c.boughtUsd !== null ? formatUsd(c.boughtUsd) : qty(c.boughtQty))}</>}
-            {c.sells > 0 && <> · sold {pay(c.soldPay, c.payTicker) ?? (c.soldUsd !== null ? formatUsd(c.soldUsd) : qty(c.soldQty))}</>}
-            {" · "}
-            {closed ? "sold all" : `holding ${qty(c.holdingQty)}${holdingUsd !== null ? ` (${formatUsd(holdingUsd)})` : ""}`}
-            {c.soldFromEarlier && " · incl. earlier holdings"}
-            {c.trades.length > 1 && <> · over {heldFor(c.firstAt, c.lastAt)}</>}
-          </span>
-        </span>
-        <span className="flex items-baseline gap-3 tabular-nums">
-          {result !== null ? (
-            <span className={result >= 0 ? "text-positive" : "text-negative"} title="Result of the part sold that was bought today">
-              {formatUsdSigned(result)} {c.realizedPct !== null && <span className="text-xs">({formatPercent(c.realizedPct)})</span>}
-            </span>
+          <p className="text-xs text-fg-muted">
+            {c.buys} buy{c.buys === 1 ? "" : "s"} · {c.sells} sell{c.sells === 1 ? "" : "s"}
+          </p>
+          {/* The latest trade on its own line: a new one replaces it, and it rolls into the totals. */}
+          <p className="text-xs">
+            <span className="text-fg-muted">Last: </span>
+            <span className={sideTone(c.trades[0])}>{SIDE[c.trades[0].side]}</span> <span className="text-fg">{tradeText(c.trades[0], c.ticker)}</span>
+            {c.trades[0].usd !== null && <span className="text-fg-muted"> ({formatUsd(c.trades[0].usd)})</span>}
+            <span className="text-fg-muted"> · {TIME.format(new Date(c.trades[0].at))}</span>
+          </p>
+        </td>
+        <td className={`${tdClass} tabular-nums`}>
+          <Amount payQty={c.boughtPay} usd={c.boughtUsd} ticker={c.payTicker} qty={c.boughtQty} tone="text-positive" />
+          {c.avgEntryUsd !== null && <p className="text-xs text-fg-muted">avg entry {formatPrice(c.avgEntryUsd)}</p>}
+        </td>
+        <td className={`${tdClass} tabular-nums`}>
+          <Amount payQty={c.soldPay} usd={c.soldUsd} ticker={c.payTicker} qty={c.soldQty} tone="text-negative" />
+          {c.avgExitUsd !== null && <p className="text-xs text-fg-muted">avg exit {formatPrice(c.avgExitUsd)}</p>}
+        </td>
+        <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+          {closed ? (
+            <span className="text-fg-muted">sold all</span>
           ) : (
-            <span className="text-xs text-fg-muted">{c.sells === 0 ? "open" : "—"}</span>
+            <>
+              {compactQty(c.holdingQty)}
+              {holdingUsd !== null && <p className="text-xs text-fg-muted">{formatUsd(holdingUsd)}</p>}
+            </>
           )}
-          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="text-xs text-fg-muted hover:text-fg">
+        </td>
+        <td className={`${tdClass} tabular-nums`}>
+          {c.realizedUsd !== null ? (
+            <span className={c.realizedUsd >= 0 ? "text-positive" : "text-negative"} title="Result of what was bought and sold today">
+              {formatUsdSigned(c.realizedUsd)}
+              {c.realizedPct !== null && <span className="block text-xs">{formatPercent(c.realizedPct)}</span>}
+            </span>
+          ) : c.soldShareOfPosition !== null ? (
+            <span className="text-negative">sold {Math.round(c.soldShareOfPosition * 100)}% of position</span>
+          ) : (
+            <span className="text-fg-muted">
+              open
+              {sinceEntry !== null && (
+                <span className={`block text-xs ${sinceEntry >= 0 ? "text-positive" : "text-negative"}`} title={`Now ${c.nowUsd !== null ? formatPrice(c.nowUsd) : "—"} vs average entry`}>
+                  {formatPercent(sinceEntry)} since entry
+                </span>
+              )}
+            </span>
+          )}
+        </td>
+        <td className={`${tdClass} text-right`}>
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="whitespace-nowrap text-xs text-fg-muted hover:text-fg" title="Show its trades">
             <AgeText at={c.lastAt} serverNowSec={serverNowSec} /> {open ? "▴" : "▾"}
           </button>
-        </span>
-      </div>
+        </td>
+      </tr>
       {open && (
-        <ul className="mt-1.5 space-y-0.5 border-l border-border/60 pl-3 text-xs">
-          {c.trades.map((t) => (
-            <li key={`${t.txId}|${t.side}`} className="flex flex-wrap justify-between gap-x-3">
-              <span>
-                <span className={t.side === "buy" || t.side === "received" ? "text-positive" : "text-negative"}>{t.side === "buy" ? "Buy" : t.side === "sell" ? "Sell" : t.side === "received" ? "Received" : "Sent"}</span>{" "}
-                {t.side === "buy" && pay(t.payQty, t.payTicker) ? `${pay(t.payQty, t.payTicker)} → ${qty(t.qty)} ${c.ticker}` : t.side === "sell" && pay(t.payQty, t.payTicker) ? `${qty(t.qty)} ${c.ticker} → ${pay(t.payQty, t.payTicker)}` : `${qty(t.qty)} ${c.ticker}`}
-                {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)})</span>}
-              </span>
-              <span className="text-fg-muted">
-                {TIME.format(new Date(t.at))}
-                {t.source === "webhook" && " · live"}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <tr className="border-b border-border/60">
+          <td colSpan={cols} className="px-3 pb-3">
+            <ul className="space-y-0.5 border-l border-border/60 pl-3 text-xs">
+              {c.trades.map((t) => (
+                <li key={`${t.txId}|${t.side}`} className="flex flex-wrap justify-between gap-x-3">
+                  <span>
+                    <span className={sideTone(t)}>{SIDE[t.side]}</span> {tradeText(t, c.ticker)}
+                    {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)}{t.qty > 0 ? ` · ${formatPrice(t.usd / t.qty)} each` : ""})</span>}
+                  </span>
+                  <span className="text-fg-muted">
+                    {TIME.format(new Date(t.at))}
+                    {t.source === "webhook" && " · live"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </td>
+        </tr>
       )}
-    </li>
+    </>
+  );
+}
+
+/** The coins as a sortable table (site convention: SortableHeader +
+ * usePersistedState), newest activity first by default. */
+function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number }) {
+  const [sort, setSort] = usePersistedState<Sort>("cryptoport:watchActivitySort", { key: "when", dir: "desc" });
+  const { key: sortKey, dir: sortDir } = sort;
+  const toggleSort = (key: SortKey) => setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  const sorted = [...coins].sort((a, b) => {
+    const av = sortValue(a, sortKey);
+    const bv = sortValue(b, sortKey);
+    const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+    return sortDir === "desc" ? -cmp : cmp;
+  });
+  const head = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
+  return (
+    <div className="mt-1 overflow-x-auto">
+      <table className={tableClass}>
+        <thead>
+          <tr className={theadRowClass}>
+            {showNames && head("Trader", "trader")}
+            {head("Coin", "coin")}
+            {head("Bought", "bought")}
+            {head("Sold", "sold")}
+            <th className={`${thClass} ${hideOnMobileClass}`}>Holding</th>
+            {head("Result", "result")}
+            {head("When", "when", "text-right")}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((c) => (
+            <CoinRows key={`${c.influencerId}|${c.assetKey}`} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -253,18 +365,14 @@ export function DayActivity({
       {coins.length === 0 ? (
         <p className="mt-2 text-sm text-fg-muted">{checkedAt || live ? "No trades since this morning's read." : "Refresh activity to see what they've done since this morning's read."}</p>
       ) : (
-        <ul className="mt-1 divide-y divide-border/60">
-          {coins.map((c) => (
-            <CoinRow key={`${c.influencerId}|${c.assetKey}`} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />
-          ))}
-        </ul>
+        <CoinTable coins={coins} latest={latest} showNames={showNames} serverNowSec={serverNowSec} />
       )}
       {issues.length > 0 && (
         <p className="mt-1 text-xs text-fg-muted" title={issues.map((i) => `${i.address.slice(0, 8)}…: ${i.status}`).join("\n")}>
           {issues.length} address{issues.length === 1 ? "" : "es"} not fully checked (hover for why) — this morning&apos;s read covers them.
         </p>
       )}
-      <p className="mt-1 text-[11px] text-fg-muted/80">Per coin since this morning&apos;s read — click a row&apos;s time for its trades. Results count only what was bought and sold today.</p>
+      <p className="mt-1 text-[11px] text-fg-muted/80">Per coin since this morning&apos;s read — click a row&apos;s time for its trades. Results count what was bought and sold today; a trim of an earlier position shows its share.</p>
     </div>
   );
 }
