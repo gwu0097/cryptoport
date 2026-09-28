@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { WatchMovementView } from "@/lib/watchQuery";
-import { formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
+import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
 
 const VERB: Record<WatchMovementView["kind"], { token: string; perp: string; prediction: string }> = {
@@ -15,6 +15,22 @@ function what(m: WatchMovementView): string {
   if (m.positionType === "prediction") return m.label ?? m.ticker;
   const qty = Math.abs(m.qtyAfter - m.qtyBefore);
   return m.kind === "exited" ? `${formatQty(m.qtyBefore)} ${m.ticker}` : `${formatQty(qty)} ${m.ticker}`;
+}
+
+/** The coin's price now and how far it has moved since the trade's price —
+ * whether a buy has already run. Its age is in the tooltip. */
+function NowPrice({ nowUsd, nowAt, movePrice, serverNowSec }: { nowUsd: number; nowAt: string; movePrice: number; serverNowSec: number }) {
+  const change = ((nowUsd - movePrice) / movePrice) * 100;
+  return (
+    <span className="text-xs text-fg-muted">
+      {" · now "}
+      {formatPrice(nowUsd)}{" "}
+      <span className={change > 0 ? "text-positive" : change < 0 ? "text-negative" : ""}>({formatPercent(change)})</span>{" "}
+      <span className="text-fg-muted/70">
+        · priced <AgeText at={nowAt} serverNowSec={serverNowSec} />
+      </span>
+    </span>
+  );
 }
 
 /**
@@ -40,7 +56,10 @@ export function ActivityFeed({ movements, serverNowSec, showNames = true }: { mo
               )}{" "}
               <span className={buying ? "text-positive" : "text-negative"}>{VERB[m.kind][m.positionType]}</span>{" "}
               <span className="text-fg">{what(m)}</span>
-              {m.priceUsd !== null && m.positionType === "token" && <span className="text-xs text-fg-muted"> at {formatUsd(m.priceUsd)}</span>}
+              {m.priceUsd !== null && m.positionType === "token" && <span className="text-xs text-fg-muted"> at {formatPrice(m.priceUsd)}</span>}
+              {m.nowUsd !== null && m.nowAt !== null && m.priceUsd !== null && m.priceUsd > 0 && (
+                <NowPrice nowUsd={m.nowUsd} nowAt={m.nowAt} movePrice={m.priceUsd} serverNowSec={serverNowSec} />
+              )}
             </span>
             <span className="flex items-baseline gap-3 tabular-nums">
               {m.usdDelta !== null && <span className={buying ? "text-positive" : "text-negative"}>{formatUsdSigned(m.usdDelta)}</span>}

@@ -287,6 +287,11 @@ export interface WatchMovementView {
   usdDelta: number | null;
   /** usdDelta as a share of the wallet after the read (conviction). */
   walletShare: number | null;
+  /** The coin's stored price now (asset_prices) and when it was priced —
+   * only when priced after this move, so it can say how far the price has
+   * run since. Tokens only. */
+  nowUsd: number | null;
+  nowAt: string | null;
 }
 
 const FEED_LIMIT = 100;
@@ -335,12 +340,15 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
     .order("snapshot_at", { ascending: false })
     .limit(limit);
   if (error) throw new Error(`Failed to load movements: ${error.message}`);
+  const stats = await getAssetStatsMap();
   const num = (v: unknown) => parseNumeric(v as number | string | null);
   return (data as Record<string, unknown>[]).flatMap((r) => {
     const inf = byAddress.get(`${r.chain}|${r.address}`);
     if (!inf) return [];
     const usd = num(r.usd_delta);
     const total = num(r.wallet_total_usd_after);
+    const now = r.position_type === "token" && r.price_key ? stats.get(r.price_key as string) : undefined;
+    const priceIsNewer = !!now && now.usd !== null && !!now.updatedAt && Date.parse(now.updatedAt) > Date.parse(r.snapshot_at as string);
     return [
       {
         id: r.id as number,
@@ -360,6 +368,8 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
         priceUsd: num(r.price_usd),
         usdDelta: usd,
         walletShare: usd !== null && total !== null && total > 0 ? Math.abs(usd) / total : null,
+        nowUsd: priceIsNewer ? now!.usd : null,
+        nowAt: priceIsNewer ? now!.updatedAt : null,
       },
     ];
   });

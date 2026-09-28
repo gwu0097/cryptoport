@@ -69,6 +69,10 @@ owner's.
   The Dashboard shows the same feed at its bottom (`DashboardWatchActivity`,
   filtered by group in the browser), loaded with `getWatchFeedTargets` —
   no snapshots, so a Dashboard view doesn't pull them.
+  Each token line shows the coin's price now (`asset_prices`, only when
+  priced after the move) and its change since the trade's price; Refresh
+  prices includes every coin traded in the last 7 days
+  (`assetPrices.ts` `allHeldKeys`), in the same batched calls.
   **Sharing:** an influencer's owner can share it
   (`watch_influencers.share_token`, a random UUID; null = not shared) at
   `/wallet-watch/shared/<token>` — any signed-in user sees it read-only

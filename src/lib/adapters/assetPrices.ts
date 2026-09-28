@@ -11,7 +11,8 @@ import { mapWithConcurrency } from "./http";
 import { planPriceWrites, sourceOf, type FetchedPrice } from "../assetPriceWrites";
 
 // One pricing pass for the whole app (docs/pricing/PLAN.md): every distinct
-// price_key held anywhere, plus every watchlist coin, priced once from its
+// price_key held anywhere, plus every watchlist coin and every coin a
+// Wallet Watch influencer traded in the last week, priced once from its
 // one source, written to asset_prices (never overwriting a price with null)
 // and logged to pricing_runs. The only price table every page reads.
 
@@ -35,6 +36,13 @@ async function allHeldKeys(): Promise<string[]> {
   const { data: watch, error: watchError } = await db.from("watchlist_items").select("coingecko_id");
   if (watchError) throw new Error(`Failed to read watchlist ids: ${watchError.message}`);
   for (const r of watch as { coingecko_id: string }[]) keys.add(r.coingecko_id);
+  // Coins Wallet Watch influencers traded in the last week, so the activity
+  // feed can show how far each has run since the trade. They ride in the
+  // same batched calls (250 CoinGecko ids per call).
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: moved, error: movedError } = await db.from("watched_movements").select("price_key").eq("position_type", "token").not("price_key", "is", null).gte("snapshot_at", since).limit(5000);
+  if (movedError) throw new Error(`Failed to read Wallet Watch coins: ${movedError.message}`);
+  for (const r of moved as { price_key: string }[]) keys.add(r.price_key);
   return [...keys];
 }
 
@@ -42,7 +50,8 @@ async function allHeldKeys(): Promise<string[]> {
 export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter" | "aster";
 export type OnLane = (lane: PricingLane, status: "running" | "done" | "error") => void;
 
-/** Prices the given keys (default: every held key + watchlist). Each source
+/** Prices the given keys (default: every held key + watchlist + Wallet
+ * Watch's recent coins). Each source
  * is its own lane and fails on its own; `laneErrors` names the ones that
  * failed outright. */
 export async function refreshAssetPrices(
