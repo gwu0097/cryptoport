@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import type { CoinTrade } from "@/lib/watchActivity";
+import { foldSoldOut, soldOut } from "@/lib/activityFold";
 import { ACTIVITY_CHANNEL, ACTIVITY_EVENT, LIVE_REFETCH_MS } from "@/lib/liveChannel";
 import { browserSupabase } from "@/lib/supabaseBrowser";
 import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
@@ -311,19 +312,9 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
   );
 }
 
-const BUSY_COINS = 3;
-
-/** Nothing left worth having: none held, or a leftover under $1 (the daily
- * read's rule — Risk's OPG crumb read "holding 0 ($0.00)" but "open"). */
-function soldOut(c: WatchCoinDay): boolean {
-  if (c.sells === 0) return false;
-  if (c.holdingQty <= 0) return true;
-  return c.nowUsd !== null && c.holdingQty * c.nowUsd < 1;
-}
-
-/** A busy trader's sold-out coins on one row: how many, totals, net result
+/** A trader's sold-out coins on one row: how many, totals, net result
  * and the tickers colored by result — their coin rows behind a toggle. */
-function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; latest: number; serverNowSec: number }) {
+function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
   const first = coins[0];
   const sum = (f: (c: WatchCoinDay) => number | null) => coins.reduce((s, c) => s + (f(c) ?? 0), 0);
@@ -334,13 +325,16 @@ function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; l
   return (
     <>
       <tr className={`${trClass} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+        {showNames && (
+          <td className={tdClass}>
+            {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
+            <Link href={`/wallet-watch/${first.influencerId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-fg hover:underline">
+              {first.influencerName}
+            </Link>
+          </td>
+        )}
         <td className={tdClass}>
-          {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-          <Link href={`/wallet-watch/${first.influencerId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-fg hover:underline">
-            {first.influencerName}
-          </Link>
-        </td>
-        <td className={tdClass}>
+          {!showNames && isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
           <span className="font-semibold text-fg">{coins.length} coins sold out today</span>
           <p className="text-xs text-fg-muted">
             {sum((c) => c.buys)} buys · {sum((c) => c.sells)} sells
@@ -368,7 +362,7 @@ function TraderGroup({ coins, latest, serverNowSec }: { coins: WatchCoinDay[]; l
           </span>
         </td>
       </tr>
-      {open && coins.map((c) => <CoinRows key={c.assetKey} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames serverNowSec={serverNowSec} />)}
+      {open && coins.map((c) => <CoinRows key={c.assetKey} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />)}
     </>
   );
 }
@@ -386,29 +380,8 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
     return sortDir === "desc" ? -cmp : cmp;
   });
   const head = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
-  // A trader with more than BUSY_COINS coins today folds the ones they've
-  // completely sold out of into one summary row (owner: Risk's rows drowned
-  // everyone else's). Open positions and their most recent coin keep their
-  // own rows — those aren't finished (owner 2026-09-28).
-  const byTrader = new Map<string, WatchCoinDay[]>();
-  for (const c of sorted) byTrader.set(c.influencerId, [...(byTrader.get(c.influencerId) ?? []), c]);
-  const folded = new Map<string, WatchCoinDay[]>();
-  for (const [id, mine] of byTrader) {
-    if (!showNames || mine.length <= BUSY_COINS) continue;
-    const newest = mine.reduce((a, c) => (c.lastAt > a.lastAt ? c : a));
-    const done = mine.filter((c) => c !== newest && soldOut(c));
-    if (done.length >= 2) folded.set(id, done);
-  }
-  const placed = new Set<string>();
-  const items: ({ kind: "coin"; c: WatchCoinDay } | { kind: "group"; coins: WatchCoinDay[] })[] = [];
-  for (const c of sorted) {
-    const done = folded.get(c.influencerId);
-    if (!done || !done.includes(c)) items.push({ kind: "coin", c });
-    else if (!placed.has(c.influencerId)) {
-      placed.add(c.influencerId);
-      items.push({ kind: "group", coins: done });
-    }
-  }
+  // Every trader alike: sold-out coins fold into one row (activityFold.ts).
+  const items = foldSoldOut(sorted);
   return (
     <div className="mt-1 max-h-[34rem] overflow-auto overscroll-contain">
       <table className={tableClass}>
@@ -428,7 +401,7 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
             it.kind === "coin" ? (
               <CoinRows key={`${it.c.influencerId}|${it.c.assetKey}`} c={it.c} isNew={Date.parse(it.c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />
             ) : (
-              <TraderGroup key={it.coins[0].influencerId} coins={it.coins} latest={latest} serverNowSec={serverNowSec} />
+              <TraderGroup key={it.coins[0].influencerId} coins={it.coins} latest={latest} showNames={showNames} serverNowSec={serverNowSec} />
             ),
           )}
         </tbody>

@@ -87,7 +87,9 @@ owner's.
   (`coinDays`: buys and sells with what was paid in SOL/USDC/ETH, still
   held, the result of what was bought and sold today; each trade behind a
   toggle). Cash coins are only the payment side, never a row (owner
-  2026-09-28: match KOLScan's per-trade view). Saved on `watched_addresses`
+  2026-09-28: match KOLScan's per-trade view). For every trader alike, the
+  coins they've sold out of (a leftover under $1 counts) fold into one row;
+  open positions and their most recent coin keep their own (`activityFold.ts`). Saved on `watched_addresses`
   (`tx_activity` appended, `tx_cursor` per source) until the next read,
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
   drops older legs (`trimToBoundary`). An address checked in the last
