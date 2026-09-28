@@ -20,10 +20,12 @@ import { CopyButton } from "@/components/CopyButton";
 /**
  * Live updates (phase 5): when any shown influencer is live, listen for the
  * server's "new activity" broadcast and fetch just these lines — at most once
- * a minute, and only while the tab is visible (a hidden tab catches up once
- * when shown). Nothing polls; without live influencers nothing listens.
+ * a minute while visible, every two minutes in a background tab (catching up
+ * at once when shown). Nothing polls; without live influencers nothing listens.
  */
 const CATCH_UP_AFTER_HIDDEN_MS = 30_000;
+/** A background tab fetches at most this often (a visible one: LIVE_REFETCH_MS). */
+const HIDDEN_REFETCH_MS = 2 * LIVE_REFETCH_MS;
 
 function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
   const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
@@ -37,13 +39,11 @@ function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly
     if (!live || !key) return;
     let last = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let pending = false;
+    // Updates arrive in a background tab too (owner: "updates even if I
+    // switch the tab"), just half as often; switching back fetches at once
+    // if a broadcast is still waiting.
+    const gap = () => (document.visibilityState === "visible" ? LIVE_REFETCH_MS : HIDDEN_REFETCH_MS);
     const fetchNow = async () => {
-      if (document.visibilityState !== "visible") {
-        pending = true;
-        return;
-      }
-      pending = false;
       last = Date.now();
       const res = await fetch(`/api/wallet-watch/day?ids=${key}`, { cache: "no-store" }).catch(() => null);
       if (res?.ok) setFresh((await res.json()) as WatchDayActivity);
@@ -53,11 +53,11 @@ function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly
       timer = setTimeout(() => {
         timer = null;
         void fetchNow();
-      }, Math.max(0, last + LIVE_REFETCH_MS - Date.now()));
+      }, Math.max(0, last + gap() - Date.now()));
     };
-    // A background tab can lose its connection without a word (Chrome
-    // throttles hidden tabs): coming back after a while, or reconnecting,
-    // catches up once instead of trusting that nothing was missed.
+    // Back in view: a fetch still waiting on the slower background pace goes
+    // now; after a long time away (the connection may have dropped
+    // silently), catch up once.
     let hiddenAt: number | null = null;
     const onVisible = () => {
       if (document.visibilityState === "hidden") {
@@ -66,7 +66,12 @@ function useLiveDay(ids: readonly string[], live: boolean, serverCoins: readonly
       }
       const away = hiddenAt !== null && Date.now() - hiddenAt > CATCH_UP_AFTER_HIDDEN_MS;
       hiddenAt = null;
-      if (pending || away) schedule();
+      if (timer || away) {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        last = 0;
+        schedule();
+      }
     };
     const unsubscribe = onLiveActivity(schedule); // the tab's one shared channel
     document.addEventListener("visibilitychange", onVisible);

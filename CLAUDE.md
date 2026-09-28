@@ -115,9 +115,11 @@ owner's.
   listens (`DayActivity` `useLiveDay` → `liveListener.ts`, one shared
   channel per tab kept open for its life — a channel per panel, removed and
   re-joined on navigation, silently stopped receiving; the only browser
-  Supabase client is `supabaseBrowser.ts`; a hidden tab, including a macOS
-  window fully covered by others, fetches once when shown) and fetches just its lines from `api/wallet-watch/day`
-  (~4 requests) — at most once a minute, only while the tab is visible.
+  Supabase client is `supabaseBrowser.ts`; a background tab updates too, at
+  most every 2 minutes, and fetches at once when shown). The endpoint reads
+  `asset_prices` with the service role like every page — the user's client
+  is denied it (that 500 kept every live update from showing, 2026-09-28). and fetches just its lines from `api/wallet-watch/day`
+  (~4 requests) — at most once a minute (every 2 in a background tab).
   No polling; panels without live influencers don't listen.
   **Trading record** (an influencer's page, Solana addresses only): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in

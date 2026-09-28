@@ -450,7 +450,9 @@ export async function getWatchDayActivity(
   if (!fullStats) {
     const keys = [...new Set(rowList.flatMap((r) => (r.tx_activity?.legs ?? []).map((l) => l.priceKey)).filter((k): k is string => !!k))];
     if (keys.length > 0) {
-      const { data: priced, error: priceError } = await db.from("asset_prices").select("price_key, usd, updated_at").in("price_key", keys);
+      // asset_prices is shared data read with the service role, as every page
+      // does (queries.ts getAssetPriceRows) — the user's client is denied it.
+      const { data: priced, error: priceError } = await serviceDb().from("asset_prices").select("price_key, usd, updated_at").in("price_key", keys);
       if (priceError) throw new Error(`Failed to load prices: ${priceError.message}`);
       stats = new Map((priced as { price_key: string; usd: number | string | null; updated_at: string | null }[]).map((p) => [p.price_key, { usd: parseNumeric(p.usd), updatedAt: p.updated_at }]));
     }
