@@ -24,6 +24,8 @@ import { refreshPricesAction } from "../wallets/actions";
 import { OpenPositionsPanel } from "@/components/dashboard/OpenPositionsPanel";
 import { getEffectiveTimeZone } from "@/lib/preferences";
 import { formatDateTime } from "@/lib/format";
+import { getWatchFeedTargets, getWatchMovements } from "@/lib/watchQuery";
+import { DashboardWatchActivity } from "@/components/dashboard/DashboardWatchActivity";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
@@ -80,9 +82,10 @@ export default async function DashboardPage({
   // back to "All", not 404 or silently show nothing) — undefined means
   // "All watchlists," getAllWatchlistItems()'s existing cross-list summary.
   const selectedWatchlist = list ? watchlists.find((w) => w.id === list) : undefined;
-  const watchlistItems = selectedWatchlist
-    ? await getWatchlistItems(selectedWatchlist.id)
-    : await getAllWatchlistItems();
+  const [watchlistItems, watch] = await Promise.all([
+    selectedWatchlist ? getWatchlistItems(selectedWatchlist.id) : getAllWatchlistItems(),
+    user ? loadWatchActivity() : null,
+  ]);
 
   // Dust filter only makes sense for Holdings (a $0.001 spam token's 300%
   // swing shouldn't dominate the movers list) — a Watchlist coin has no
@@ -263,6 +266,30 @@ export default async function DashboardPage({
           </>
         )}
       </div>
+
+      {/* Wallet Watch's feed, at the bottom: someone else's trades come
+          after your own portfolio. Only for users watching someone. */}
+      {watch && watch.hasInfluencers && (
+        <DashboardWatchActivity
+          movements={watch.movements}
+          groups={watch.groups}
+          groupsOf={watch.groupsOf}
+          serverNowSec={requestNowSec()}
+        />
+      )}
     </>
   );
+}
+
+/** The latest movements across everyone the user watches (the Dashboard's
+ * group filter works on these in the browser, so it's instant). */
+async function loadWatchActivity() {
+  const { groups, influencers } = await getWatchFeedTargets();
+  const movements = await getWatchMovements(influencers, 100);
+  return {
+    hasInfluencers: influencers.length > 0,
+    groups,
+    groupsOf: Object.fromEntries(influencers.map((i) => [i.id, i.groupIds])),
+    movements,
+  };
 }

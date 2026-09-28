@@ -66,6 +66,9 @@ owner's.
   and cash-like share over the window and a track record counting only
   positions opened since watching (never held-at-start ones). Observations,
   not signals.
+  The Dashboard shows the same feed at its bottom (`DashboardWatchActivity`,
+  filtered by group in the browser), loaded with `getWatchFeedTargets` —
+  no snapshots, so a Dashboard view doesn't pull them.
   **Sharing:** an influencer's owner can share it
   (`watch_influencers.share_token`, a random UUID; null = not shared) at
   `/wallet-watch/shared/<token>` — any signed-in user sees it read-only

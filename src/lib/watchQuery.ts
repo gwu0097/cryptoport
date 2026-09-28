@@ -289,10 +289,40 @@ export interface WatchMovementView {
 
 const FEED_LIMIT = 100;
 
+/** What the activity feed needs of an influencer. */
+export type WatchFeedInfluencer = Pick<WatchedInfluencer, "id" | "name" | "groupIds"> & {
+  addresses: readonly { chain: string; address: string }[];
+};
+
+/** The user's groups and influencers without any snapshot — for a feed
+ * shown outside Wallet Watch (the Dashboard), which has no use for the
+ * snapshots getWatchOverview reads. Four small requests. */
+export async function getWatchFeedTargets(): Promise<{ groups: WatchGroup[]; influencers: WatchFeedInfluencer[] }> {
+  const db = await userDb();
+  const [influencers, addresses, groups, links] = await Promise.all([
+    db.from("watch_influencers").select("id, name").order("created_at"),
+    db.from("watch_influencer_addresses").select("influencer_id, chain, address"),
+    db.from("watch_groups").select("id, name").order("created_at"),
+    db.from("watch_group_influencers").select("group_id, influencer_id"),
+  ]);
+  for (const r of [influencers, addresses, groups, links]) if (r.error) throw new Error(`Failed to load Wallet Watch: ${r.error.message}`);
+  const addrs = addresses.data as { influencer_id: string; chain: string; address: string }[];
+  const lnks = links.data as { group_id: string; influencer_id: string }[];
+  return {
+    groups: groups.data as WatchGroup[],
+    influencers: (influencers.data as { id: string; name: string }[]).map((i) => ({
+      id: i.id,
+      name: i.name,
+      groupIds: lnks.filter((l) => l.influencer_id === i.id).map((l) => l.group_id),
+      addresses: addrs.filter((a) => a.influencer_id === i.id),
+    })),
+  };
+}
+
 /** The latest movements of these influencers' addresses, newest first
  * (watched_movements, phase 2). One request. */
-export async function getWatchMovements(influencers: readonly WatchedInfluencer[], limit = FEED_LIMIT, client?: Awaited<ReturnType<typeof userDb>>): Promise<WatchMovementView[]> {
-  const byAddress = new Map<string, WatchedInfluencer>();
+export async function getWatchMovements(influencers: readonly WatchFeedInfluencer[], limit = FEED_LIMIT, client?: Awaited<ReturnType<typeof userDb>>): Promise<WatchMovementView[]> {
+  const byAddress = new Map<string, WatchFeedInfluencer>();
   for (const i of influencers) for (const a of i.addresses) byAddress.set(`${a.chain}|${a.address}`, i);
   if (byAddress.size === 0) return [];
   const db = client ?? (await userDb());
