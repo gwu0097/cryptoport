@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { coingeckoFetch, COINGECKO_HAS_KEY } from "./coingeckoFetch";
+import { coingeckoError, coingeckoFetch, COINGECKO_HAS_KEY } from "./coingeckoFetch";
 import { createTtlCache, type Fetched } from "../ttlCache";
 import { EVM_CHAINS } from "./evmChains";
 import { serviceDb } from "../supabase";
@@ -248,7 +248,7 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
     // (2026-09-25).
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&price_change_percentage=1h,24h,7d,30d&sparkline=false`;
     const res = await coingeckoFetch(url);
-    if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status} (${await coingeckoError(res)})`);
     const body: {
       id: string;
       symbol?: string;
@@ -311,7 +311,7 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
   for (const batch of chunk(missing, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&sparkline=false`; // per_page: see fetchMarketStatsByIds
     const res = await coingeckoFetch(url);
-    if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status} (${await coingeckoError(res)})`);
     const body: { id: string; image?: string }[] = await res.json();
     for (const coin of body) {
       if (!coin.image) continue;

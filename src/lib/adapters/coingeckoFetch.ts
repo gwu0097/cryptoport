@@ -42,6 +42,14 @@ async function isQuotaExhausted(res: Response): Promise<boolean> {
   }
 }
 
+/** The key itself was refused: the monthly cap (429 + 10006), or a 401/403.
+ * 2026-09-29: every call came back 403 while the backup key had 6,312
+ * credits left — the capped primary was answered with 403, not the 429 this
+ * used to wait for, so nothing switched and every CoinGecko price failed. */
+async function isKeyRefused(res: Response): Promise<boolean> {
+  return res.status === 401 || res.status === 403 || (await isQuotaExhausted(res));
+}
+
 // App-wide pacing (per server instance): at most CALLS_PER_MINUTE requests
 // in any rolling minute, the rest wait their turn — under the Demo plan's
 // ~30/min, leaving room for retries. A Refresh prices fires its CoinGecko
@@ -69,11 +77,25 @@ export async function coingeckoFetch(
   for (;;) {
     const key = KEYS[active];
     const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...DEFAULT_RETRY, ...opts, stopOn: isQuotaExhausted });
-    if (res.status === 429 && active < KEYS.length - 1 && (await isQuotaExhausted(res.clone()))) {
-      console.warn(`[coingecko] key #${active + 1} hit the monthly call cap — switching to key #${active + 2}`);
+    if (active < KEYS.length - 1 && (await isKeyRefused(res.clone()))) {
+      console.warn(`[coingecko] key #${active + 1} refused (HTTP ${res.status}: ${await coingeckoError(res.clone())}) — switching to key #${active + 2}`);
       active++;
       continue;
     }
     return res;
   }
+}
+
+/** CoinGecko's own reason for a failed call ("error_code 10006: You've
+ * reached…"), for error messages — "HTTP 403" alone didn't say why. */
+export async function coingeckoError(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  try {
+    const body = JSON.parse(text) as { status?: { error_code?: number; error_message?: string }; error?: string };
+    if (body.status?.error_code || body.status?.error_message) return `error_code ${body.status.error_code ?? "?"}: ${body.status.error_message ?? ""}`.trim();
+    if (body.error) return body.error;
+  } catch {
+    // not JSON (a proxy's HTML page)
+  }
+  return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "no reason given";
 }
