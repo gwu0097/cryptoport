@@ -183,9 +183,11 @@ async function tokenInfoCached(held: { mint: string; amount: number }[]): Promis
   const db = serviceDb();
   const cached = new Map<string, CachedTokenInfo>();
   try {
-    for (let i = 0; i < held.length; i += 5_000) {
-      // An RPC with an array body: thousands of mints don't fit in a URL.
-      const { data, error } = await db.rpc("solana_token_info_get", { p_mints: held.slice(i, i + 5_000).map((h) => h.mint) });
+    // An RPC with an array body (thousands of mints don't fit in a URL), a
+    // thousand at a time: Supabase returns at most 1,000 rows per request —
+    // 5,000 asked came back as 1,000, silently (2026-09-29).
+    for (let i = 0; i < held.length; i += 1_000) {
+      const { data, error } = await db.rpc("solana_token_info_get", { p_mints: held.slice(i, i + 1_000).map((h) => h.mint) });
       if (error) throw new Error(error.message);
       type Row = { mint: string; symbol: string | null; icon: string | null; usd_price: number | string | null; liquidity: number | string | null; checked_at: string; unsellable: boolean | null; shield_checked_at: string | null };
       for (const r of data as Row[]) {
@@ -225,6 +227,8 @@ async function tokenInfoCached(held: { mint: string; amount: number }[]): Promis
   // answer means no info now, as saved.
   for (const mint of lookUp) out.delete(mint);
   for (const [mint, t] of fresh) out.set(mint, t);
+  // What's now stored, for the Shield verdicts saved next (full rows).
+  for (const r of rows) cached.set(r.mint, { ...(cached.get(r.mint) ?? {}), mint: r.mint, symbol: r.symbol, icon: r.icon, usdPrice: r.usd_price, liquidity: r.liquidity, checkedAt: r.checked_at });
   return { info: out, cached };
 }
 
@@ -241,9 +245,12 @@ async function unsellableCached(candidates: { mint: string; priced: boolean }[],
   const asked = new Set(ask);
   for (const c of candidates) if (!asked.has(c.mint) && cached.get(c.mint)?.unsellable) unsellable.add(c.mint);
   const at = new Date().toISOString();
-  // Same columns in every row: the upsert sets only these (the token info
-  // saved a moment ago stays).
-  const rows = ask.map((mint) => ({ mint, unsellable: fresh.has(mint), shield_checked_at: at }));
+  // Whole rows: an upsert must satisfy the table's not-null columns even
+  // where it only updates (verdict-only rows failed on checked_at).
+  const rows = ask.flatMap((mint) => {
+    const c = cached.get(mint);
+    return c ? [{ mint, symbol: c.symbol, icon: c.icon, usd_price: c.usdPrice, liquidity: c.liquidity, checked_at: c.checkedAt, unsellable: fresh.has(mint), shield_checked_at: at }] : [];
+  });
   for (let i = 0; i < rows.length; i += 500) {
     const { error } = await serviceDb().from("solana_token_info").upsert(rows.slice(i, i + 500), { onConflict: "mint" });
     if (error) console.error(`Solana Shield verdicts not saved: ${error.message}`);
