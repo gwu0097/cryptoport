@@ -1,6 +1,9 @@
 "use client";
 
-import type { AssetGroup } from "@/lib/queries";
+import type { AssetGroup as FullAssetGroup } from "@/lib/queries";
+
+/** What the chart reads of an asset row (not its holdings). */
+type AssetGroup = Pick<FullAssetGroup, "tickerKey" | "ticker" | "iconUrl" | "total">;
 import { formatShare, formatUsd } from "@/lib/format";
 import { TokenIcon } from "./TokenIcon";
 import { Panel } from "./ui/Panel";

@@ -6,6 +6,7 @@ import { formatUsd, formatTicker } from "@/lib/format";
 import { groupBySection } from "@/lib/holdingSections";
 import { Panel } from "./ui/Panel";
 import { HoldingsTable } from "./HoldingsTable";
+import { toHoldingRows } from "@/lib/holdingRows";
 import { TokenIcon } from "./TokenIcon";
 import { CheckboxLink } from "./ui/CheckboxLink";
 import { StopPropagationLink } from "./StopPropagationLink";
@@ -489,7 +490,7 @@ export async function ChainGroupedHoldings({
                       {protocolGroups.length > 0 && (
                         <p className="px-5 pt-3 text-xs font-medium text-fg-muted">Wallet</p>
                       )}
-                      <HoldingsTable holdings={plain} walletId={walletId} />
+                      <HoldingsTable holdings={toHoldingRows(plain)} walletId={walletId} />
                     </div>
                   )}
                   <HiddenByFiltersNotice
@@ -528,7 +529,7 @@ export async function ChainGroupedHoldings({
                             {section && (
                               <p className="px-5 pt-3 text-xs font-medium text-fg-muted">{section}</p>
                             )}
-                            <HoldingsTable holdings={holdings} walletId={walletId} hideProtocolTag />
+                            <HoldingsTable holdings={toHoldingRows(holdings)} walletId={walletId} hideProtocolTag />
                           </div>
                         ))}
                       </div>

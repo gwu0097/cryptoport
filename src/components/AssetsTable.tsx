@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp, BookOpen } from "lucide-react";
-import type { AssetGroup } from "@/lib/queries";
+import type { AssetRowGroup as AssetGroup } from "@/lib/holdingRows";
 import { formatUsd, formatCompactUsd, formatQty, formatPercent, formatShare, formatStaleness } from "@/lib/format";
 import { isStalePrice } from "@/lib/pricesAsOf";
 import { TokenIcon } from "./TokenIcon";

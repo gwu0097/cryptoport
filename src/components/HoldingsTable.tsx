@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
-import type { HoldingWithValuation } from "@/lib/queries";
+import type { HoldingRow } from "@/lib/holdingRows";
 import { isSyncOwned } from "@/lib/types";
 import { formatUsd, formatUsdSigned, formatPercent, formatQty, formatTicker } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
@@ -24,7 +24,7 @@ function numeric(value: unknown): number {
   return Number.isFinite(n) ? n : -Infinity;
 }
 
-function sortValue(holding: HoldingWithValuation, key: SortKey): number | string {
+function sortValue(holding: HoldingRow, key: SortKey): number | string {
   switch (key) {
     case "ticker":
       return holding.ticker;
@@ -80,7 +80,7 @@ function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }
 // matches DeBank/Hyperliquid's own UI), not signed, so PnL is shown here
 // instead as its own colored stat — "how much capital is deployed" and "how
 // much have I made or lost" are different questions, both worth seeing.
-function PositionTag({ holding }: { holding: HoldingWithValuation }) {
+function PositionTag({ holding }: { holding: HoldingRow }) {
   // Not gated on position_side alone — a Polymarket prediction has its own
   // PnL with no leverage/side concept at all (see hyperliquid.ts and
   // polymarket.ts's own doc comments on position_pnl_usd).
@@ -152,7 +152,7 @@ function Header({
 // manual-wallet table's own edit form. Auto-sourced holdings stay
 // read-only: their values come from the last sync, not something to
 // hand-edit.
-function ManualHoldingActions({ holding, walletId }: { holding: HoldingWithValuation; walletId: string }) {
+function ManualHoldingActions({ holding, walletId }: { holding: HoldingRow; walletId: string }) {
   const update = updateHolding.bind(null, holding.id, walletId);
   return (
     <div className="flex items-center gap-2">
@@ -205,7 +205,7 @@ export function HoldingsTable({
   walletId,
   hideProtocolTag = false,
 }: {
-  holdings: HoldingWithValuation[];
+  holdings: HoldingRow[];
   walletId?: string;
   /** True when the caller (ChainGroupedHoldings) is already showing this
    * holding's protocol as a section header above the whole table — the

@@ -9,6 +9,7 @@ import { Panel } from "@/components/ui/Panel";
 import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { HoldingsTable } from "@/components/HoldingsTable";
+import { toHoldingRows } from "@/lib/holdingRows";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 
 export const dynamic = "force-dynamic";
@@ -136,7 +137,7 @@ export default async function AdminWalletDetailPage({
         </Panel>
       ) : (
         <Panel padding={false} className="mb-6 overflow-hidden">
-          <HoldingsTable holdings={holdings} />
+          <HoldingsTable holdings={toHoldingRows(holdings)} />
         </Panel>
       )}
     </>

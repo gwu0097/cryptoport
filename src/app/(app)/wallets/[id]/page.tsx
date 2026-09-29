@@ -12,6 +12,7 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { HoldingsTable } from "@/components/HoldingsTable";
+import { toHoldingRows } from "@/lib/holdingRows";
 import { WalletTags } from "@/components/WalletTags";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
@@ -298,7 +299,7 @@ export default async function WalletDetailPage(
           </Panel>
         ) : (
           <Panel padding={false} className="mb-6 overflow-hidden">
-            <HoldingsTable holdings={holdings} walletId={wallet.id} />
+            <HoldingsTable holdings={toHoldingRows(holdings)} walletId={wallet.id} />
           </Panel>
         )}
         </>

@@ -1,4 +1,5 @@
 import { getAssetsGroupedByTicker, getChainIconMap, getPriceRefreshState } from "@/lib/queries";
+import { toAssetRowGroups } from "@/lib/holdingRows";
 import { scopePricesToUser } from "@/lib/queries";
 import { chainAllocations } from "@/lib/chainAllocation";
 import { consolidateLiquidStaking, resolveBases } from "@/lib/liquidStaking";
@@ -142,7 +143,7 @@ export default async function AssetsPage({
           {user && (
             <div className="mb-4 grid gap-4 lg:grid-cols-2">
               <ChainAllocationPanel chains={chains} total={grand.total} icons={chainIcons} />
-              <CoinAllocationChart groups={groups} total={grand.total} className="" />
+              <CoinAllocationChart groups={groups.map(({ tickerKey, ticker, iconUrl, total }) => ({ tickerKey, ticker, iconUrl, total }))} total={grand.total} className="" />
             </div>
           )}
 
@@ -169,7 +170,7 @@ export default async function AssetsPage({
               <p className="text-sm text-fg-muted">Nothing to show here.</p>
             </Panel>
           ) : (
-            <AssetsTable groups={visibleGroups} total={grand.total} initialSort={initialSort} />
+            <AssetsTable groups={toAssetRowGroups(visibleGroups)} total={grand.total} initialSort={initialSort} />
           )}
         </>
       )}
