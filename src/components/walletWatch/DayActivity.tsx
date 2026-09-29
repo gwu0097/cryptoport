@@ -336,6 +336,8 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
               {holdingUsd !== null && (
                 <p className={`text-xs ${stale ? "text-warning" : "text-fg-muted"}`} title={priceNote}>
                   {formatUsd(holdingUsd)}
+                  {/* The coin's market cap now, next to what the position is worth. */}
+                  {price !== null && supply ? ` (MC ${formatCompactUsd(price.usd * supply)})` : ""}
                   {stale && " ⚠"}
                 </p>
               )}
