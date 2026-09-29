@@ -148,7 +148,13 @@ owner's.
   coloured by kind, the title linked to the coin on Fomo (Solana) or
   DexScreener (EVM), CryptoPort linked on an open only; a position reaching
   $500, a new burst and a full exit ping `DISCORD_WATCH_ROLE_ID` — a sell-out
-  within the hour of opening is a flip, posted unpinged, nobody else is ever pinged). One request
+  within the hour of opening is a flip, posted unpinged, nobody else is ever pinged).
+  Every card shows the market cap at its price (owner 2026-09-29) — the
+  coin's circulating supply × the trade price: Jupiter's `circSupply` for a
+  Solana mint (one call per post, only when something posts), else
+  `asset_prices` market cap ÷ price; no supply, no market cap shown. A sale
+  says what it was sold into, for how much and at what price ("received
+  4.12 SOL ($490.10) at $0.0000142 · MC $14.2K"), then the result. One request
   for the trader's name, only when there's something to post; a failure is
   logged, never fails the delivery; a retried delivery adds no legs, so it
   can't post twice. Refresh activity doesn't post.

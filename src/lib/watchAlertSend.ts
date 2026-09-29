@@ -1,8 +1,10 @@
 import "server-only";
 import { serviceDb } from "./supabase";
 import { postDiscord, DISCORD_MAX_EMBEDS } from "./adapters/discordWebhook";
-import { coinDays, type TxActivity } from "./watchActivity";
+import { coinDays, type CoinDay, type TxActivity } from "./watchActivity";
 import { alertEmbed, watchAlerts } from "./watchAlerts";
+import { fetchTokenInfo } from "./adapters/jupiter";
+import { getMarketFor } from "./queries";
 
 // Posts a live delivery's alerts to the owner's Discord channel
 // (DISCORD_WATCH_WEBHOOK_URL) as cards; the ones watchAlerts marks ping
@@ -18,8 +20,18 @@ export async function sendWatchAlerts(chain: string, address: string, before: Tx
   try {
     const own = new Set([address]);
     const empty: TxActivity = { boundary: after.boundary, legs: [], base: after.base };
-    const alerts = watchAlerts(coinDays([before ?? empty], own), coinDays([after], own), newTxIds);
-    if (alerts.length === 0) return;
+    const beforeDays = coinDays([before ?? empty], own);
+    const afterDays = coinDays([after], own);
+    const first = watchAlerts(beforeDays, afterDays, newTxIds);
+    if (first.length === 0) return;
+    // With something to post: the coins' supply, for the market cap at each
+    // card's price (one Jupiter call for Solana coins, one read for others).
+    const posting = afterDays.filter((c) => first.some((a) => a.ticker === c.ticker && a.contract === c.contract));
+    const supply = await supplies(posting).catch((e: Error) => {
+      console.error(`Wallet Watch alert supply not read: ${e.message}`);
+      return new Map<string, number>();
+    });
+    const alerts = watchAlerts(beforeDays, afterDays, newTxIds, (c) => supply.get(c.assetKey) ?? null);
 
     const { data, error } = await serviceDb().from("watch_influencer_addresses").select("influencer_id, watch_influencers(name)").eq("chain", chain).eq("address", address);
     if (error) throw new Error(error.message);
@@ -40,4 +52,29 @@ export async function sendWatchAlerts(chain: string, address: string, before: Tx
   } catch (e) {
     console.error(`Wallet Watch alert for ${chain}:${address} not sent: ${(e as Error).message}`);
   }
+}
+
+/** Each coin's circulating supply, by asset key: Jupiter's for a Solana
+ * mint (new pump.fun coins included), else market cap ÷ price from
+ * asset_prices (CoinGecko coins). A coin with neither has none — its card
+ * shows no market cap rather than a guessed one. */
+async function supplies(coins: readonly CoinDay[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const mints = coins.filter((c) => c.contractChain === "solana" && c.contract);
+  if (mints.length > 0) {
+    const info = await fetchTokenInfo(mints.map((c) => c.contract!));
+    for (const c of mints) {
+      const s = info.get(c.contract!)?.circSupply;
+      if (typeof s === "number" && s > 0) out.set(c.assetKey, s);
+    }
+  }
+  const rest = coins.filter((c) => !out.has(c.assetKey) && c.priceKey);
+  if (rest.length > 0) {
+    const { stats } = await getMarketFor(rest.map((c) => c.priceKey));
+    for (const c of rest) {
+      const st = stats.get(c.priceKey!);
+      if (st?.marketCap && st.usd) out.set(c.assetKey, st.marketCap / st.usd);
+    }
+  }
+  return out;
 }

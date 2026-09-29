@@ -70,6 +70,8 @@ export interface JupiterTokenInfo {
    * prices `jup:<mint>` keys), the rest isn't captured here since nothing
    * in this app uses it. */
   stats24h?: { priceChange?: number };
+  /** Circulating supply — Wallet Watch alerts' market cap at a trade's price. */
+  circSupply?: number;
 }
 
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY;

@@ -19,12 +19,12 @@ function swap(qty: number, usd: number, afterMs = 1000): ActivityLeg[] {
   ];
 }
 /** The alerts for `next` arriving on top of `prev` (a delivery). */
-function deliver(prev: TxActivity | null, next: ActivityLeg[], heldAtRead = 0): { alerts: ReturnType<typeof watchAlerts>; after: TxActivity } {
+function deliver(prev: TxActivity | null, next: ActivityLeg[], heldAtRead = 0, supply: number | null = null): { alerts: ReturnType<typeof watchAlerts>; after: TxActivity } {
   const base = { [GEM]: { qty: heldAtRead, kept: false } };
   const before = prev ?? { boundary: BOUNDARY, legs: [], base };
   const after = appendLegs(before, BOUNDARY, next, base);
   const own = new Set<string>();
-  return { alerts: watchAlerts(coinDays([before], own), coinDays([after], own), new Set(next.map((l) => l.txId))), after };
+  return { alerts: watchAlerts(coinDays([before], own), coinDays([after], own), new Set(next.map((l) => l.txId)), () => supply), after };
 }
 
 test("Risk-style DCA: opened at $100, one ping at $500, then only the $1K and $5K steps", () => {
@@ -63,7 +63,8 @@ test("a trim posts at a quarter; selling out within the hour is a flip — poste
   const trim = deliver(open.after, swap(-30_000, 0.012)); // 30% at +20%
   assert.deepEqual(trim.alerts.map((a) => a.kind), ["trimmed"]);
   assert.equal(trim.alerts[0].headline, "trimmed GEM by 30%");
-  assert.match(trim.alerts[0].detail, /^\+\$60\.00 \(\+20\.0%\)/);
+  // What the sale brought in and at what price, then the result.
+  assert.equal(trim.alerts[0].detail, "received 3.60 SOL ($360.00) at $0.012\n+$60.00 (+20.0%) on what was sold");
   const out = deliver(trim.after, swap(-70_000, 0.009));
   assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", false]]);
   assert.match(out.alerts[0].headline, /flipped in 1m/);
@@ -80,7 +81,7 @@ test("Bacon-style: the first add today to a coin held at the read pings; its ste
   const r = deliver(null, swap(150_000, 0.01), 1_000_000); // $1,500 more of a $10K position
   assert.deepEqual(r.alerts.map((a) => [a.kind, a.ping]), [["resumed", true]]);
   assert.equal(r.alerts[0].headline, "added to GEM");
-  assert.match(r.alerts[0].detail, /\(\$1,500\.00\) · now holds \$11,500/);
+  assert.match(r.alerts[0].detail, /\(\$1,500\.00\) at \$0\.01 · now holds \$11,500/);
   const more = deliver(r.after, swap(500_000, 0.01)); // seconds later: $6,500 today → the $5K step, no ping
   assert.deepEqual(more.alerts.map((a) => [a.kind, a.ping]), [["added", false]]);
 });
@@ -114,4 +115,17 @@ test("coin links: Fomo on Solana, DexScreener on known EVM chains, none elsewher
   assert.equal(tokenLink("eth", "0xabc"), "https://dexscreener.com/ethereum/0xabc");
   assert.equal(tokenLink("rbh", "0xabc"), null);
   assert.equal(tokenLink("solana", null), null);
+});
+
+test("with the supply known, buys and sells show the market cap at their price", () => {
+  const open = deliver(null, swap(100_000, 0.01), 0, 1_000_000_000); // 1B supply at $0.01 → $10M
+  assert.equal(open.alerts[0].detail, "10.00 SOL ($1,000.00) at $0.01 · MC $10M");
+  const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000), 0, 1_000_000_000);
+  assert.equal(out.alerts[0].kind, "soldOut");
+  assert.equal(out.alerts[0].detail, "received 20.00 SOL ($2,000.00) at $0.02 · MC $20M\n+$1,000.00 (+100.0%)");
+});
+
+test("without a supply, no market cap is shown (never a guessed one)", () => {
+  const open = deliver(null, swap(100_000, 0.01));
+  assert.doesNotMatch(open.alerts[0].detail, /MC/);
 });
