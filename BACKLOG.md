@@ -121,6 +121,21 @@ Also asked the same day, not started: an EVM trading record from Zerion's
 `/wallets/{a}/pnl` (checked live: all-time totals across chains; `since`/
 `till` for monthly bars, ~13 of 300 daily calls per load; no per-coin list).
 
+### Wallet Watch: shared copies follow the original's addresses — backlog (owner 2026-09-28)
+
+Today a copy made from a share link (`/wallet-watch/shared/<token>` →
+"copy into my list") is an independent influencer: it keeps the address
+list as it was and never updates. Found when DJ's VirtualBacon (copied
+2026-09-28 13:56 UTC) didn't get the second wallet (`0x6914…dbd2`, Robinhood
+Chain) the owner added later. The share link itself is live and does show it.
+Plan: a copy remembers its source (new column, e.g.
+`watch_influencers.copied_from` → DDL, §8); adding or removing an address on
+the original applies to its copies; the copier's groups and note stay theirs.
+To decide: whether an address the copier removed comes back when the
+original changes (suggest: no — remember removals per copy), what happens
+when the original is deleted or unshared (suggest: the copy keeps its list
+and stops following), and whether the copier sees "following <owner>'s list".
+
 ### Pricing phase 3d: drop the old price tables — due ~2026-09-28/29 (irreversible)
 - **What**: 3a–3c shipped 2026-09-25 (`9e94c78`, `eb99d08`, `948f282`). Nothing reads or writes the legacy stores anymore. To drop: the `prices` table, `coin_market_data`, `exchange_asset_registry`, `token_registry`'s price/stat columns (`price_usd`, `price_at`, `change_24h_pct`, `change_1h_pct`, `change_7d_pct`, `change_30d_pct`, `market_cap`), `coin_cache.usd`, and `holdings.coingecko_id`. **`holdings.coingecko_id` stays**: it's the key input for `auto_cosmos` and `manual_qty` rows in `resolvePriceKey`, the Cosmos carry-forward columns, and (since discovery phase 3, 2026-09-25) EVM receipt rows valued as their underlying coin ("hUSDB (as USDB)").
 - **Gate before handing over the drop SQL**: (1) `scripts/diag/portfolio-totals.ts compare` against a fresh baseline shows only price-movement changes; (2) `/admin/pricing` shows no new cause categories; (3) the Sunday exchange-mapping refresh ran, including Coinbase (`gdax`, unverified id); (4) `asset_price_daily` has a close for each day since 09-25; (5) grep `src` for each table/column name returns nothing. Run each piece of SQL through `check-sql-schema` first.
