@@ -103,6 +103,24 @@ To release: (1) owner runs the two `create table` blocks at the end of `db/schem
 - **Open checks from phase 2/3**: the first 08:00 UTC cron run's result, and its first real movements checked against Etherscan/Solscan for 3 wallets; "Add to my Wallet Watch" from a second account.
 - Possible: a daily per-asset quantity snapshot for the user's own portfolio would give Analytics exact attribution (trades vs deposits) — separate plan.
 
+### Wallet Watch: webhooks as the default, Refresh as the check — backlog (owner 2026-09-28)
+
+Webhooks cost less than Refresh activity on every measure (Helius: 1 credit
+per transaction vs 100 per page of a check; Alchemy: ~40 CU per event vs
+120 per call × 2 directions × chains). Plan:
+1. Live on for every Solana and EVM address; add **Base** as the 4th Alchemy
+   webhook (free plan: 5) — ChickenGenius holds 91% there. An Owner's
+   console "Live on for all" instead of each influencer's page.
+2. Keep Refresh activity, relabeled as the check for chains without
+   webhooks (BNB, Polygon, BTC, venues…) and for missed deliveries
+   ("webhook missed N").
+3. Gate: Supabase log volume after a day with everyone live — ~5 requests
+   per real trade; ten busy meme traders (~100 trades/day each) would be
+   the whole 5,000/day budget. Swing traders cost ~nothing.
+Also asked the same day, not started: an EVM trading record from Zerion's
+`/wallets/{a}/pnl` (checked live: all-time totals across chains; `since`/
+`till` for monthly bars, ~13 of 300 daily calls per load; no per-coin list).
+
 ### Pricing phase 3d: drop the old price tables — due ~2026-09-28/29 (irreversible)
 - **What**: 3a–3c shipped 2026-09-25 (`9e94c78`, `eb99d08`, `948f282`). Nothing reads or writes the legacy stores anymore. To drop: the `prices` table, `coin_market_data`, `exchange_asset_registry`, `token_registry`'s price/stat columns (`price_usd`, `price_at`, `change_24h_pct`, `change_1h_pct`, `change_7d_pct`, `change_30d_pct`, `market_cap`), `coin_cache.usd`, and `holdings.coingecko_id`. **`holdings.coingecko_id` stays**: it's the key input for `auto_cosmos` and `manual_qty` rows in `resolvePriceKey`, the Cosmos carry-forward columns, and (since discovery phase 3, 2026-09-25) EVM receipt rows valued as their underlying coin ("hUSDB (as USDB)").
 - **Gate before handing over the drop SQL**: (1) `scripts/diag/portfolio-totals.ts compare` against a fresh baseline shows only price-movement changes; (2) `/admin/pricing` shows no new cause categories; (3) the Sunday exchange-mapping refresh ran, including Coinbase (`gdax`, unverified id); (4) `asset_price_daily` has a close for each day since 09-25; (5) grep `src` for each table/column name returns nothing. Run each piece of SQL through `check-sql-schema` first.
