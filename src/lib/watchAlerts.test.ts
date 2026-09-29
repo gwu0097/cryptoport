@@ -27,15 +27,20 @@ function deliver(prev: TxActivity | null, next: ActivityLeg[], heldAtRead = 0): 
   return { alerts: watchAlerts(coinDays([before], own), coinDays([after], own), new Set(next.map((l) => l.txId))), after };
 }
 
-test("Risk-style DCA: opened once at $100, then only at $1K and $5K — not per buy", () => {
+test("Risk-style DCA: opened at $100, one ping at $500, then only the $1K and $5K steps", () => {
   let act: TxActivity | null = null;
-  const kinds: string[] = [];
+  const got: string[] = [];
   for (let i = 0; i < 51; i++) {
-    const r = deliver(act, swap(10_000, 0.01)); // $100 a buy... first one is exactly the minimum
+    const r = deliver(act, swap(10_000, 0.01)); // $100 a buy, seconds apart
     act = r.after;
-    kinds.push(...r.alerts.map((a) => `${a.kind}:${a.text.includes("$5,000") ? "5k" : a.text.includes("$1,000") ? "1k" : ""}`));
+    got.push(...r.alerts.map((a) => `${a.kind}${a.ping ? "!" : ""}`));
   }
-  assert.deepEqual(kinds, ["opened:", "added:1k", "added:5k"]);
+  assert.deepEqual(got, ["opened", "building!", "added", "added"]);
+});
+
+test("an open of $500 or more pings at once, with no separate 'building'", () => {
+  const r = deliver(null, swap(60_000, 0.01)); // $600
+  assert.deepEqual(r.alerts.map((a) => `${a.kind}${a.ping ? "!" : ""}`), ["opened!"]);
 });
 
 test("a small first buy doesn't post; the buy that reaches $100 opens it", () => {
@@ -53,14 +58,21 @@ test("the same delivery twice posts once", () => {
   assert.deepEqual(deliver(first.after, legs).alerts, []);
 });
 
-test("selling everything posts 'sold out' with the result; a quarter posts a trim", () => {
+test("a trim posts at a quarter; selling out within the hour is a flip — posted, not pinged", () => {
   const open = deliver(null, swap(100_000, 0.01)); // $1,000 in
   const trim = deliver(open.after, swap(-30_000, 0.012)); // 30% at +20%
   assert.deepEqual(trim.alerts.map((a) => a.kind), ["trimmed"]);
   assert.match(trim.alerts[0].text, /by 30%: \+\$60\.00 \(\+20\.0%\)/);
   const out = deliver(trim.after, swap(-70_000, 0.009));
-  assert.deepEqual(out.alerts.map((a) => a.kind), ["soldOut"]);
-  assert.equal(out.alerts[0].ping, true);
+  assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", false]]);
+  assert.match(out.alerts[0].text, /flipped in 1m/);
+});
+
+test("selling out a position held over an hour pings", () => {
+  const open = deliver(null, swap(100_000, 0.01));
+  const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000));
+  assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", true]]);
+  assert.doesNotMatch(out.alerts[0].text, /flipped/);
 });
 
 test("Bacon-style: the first add today to a coin held at the read pings; its steps don't repeat it", () => {
@@ -72,9 +84,9 @@ test("Bacon-style: the first add today to a coin held at the read pings; its ste
 });
 
 test("buys within an hour are one burst; an hour's pause starts a new one, which pings", () => {
-  const open = deliver(null, swap(20_000, 0.01)); // $200: opened
-  assert.deepEqual(open.alerts.map((a) => a.kind), ["opened"]);
-  const soon = deliver(open.after, swap(20_000, 0.01, 30 * 60_000)); // 30 min later
+  const open = deliver(null, swap(15_000, 0.01)); // $150: opened, quietly
+  assert.deepEqual(open.alerts.map((a) => [a.kind, a.ping]), [["opened", false]]);
+  const soon = deliver(open.after, swap(10_000, 0.01, 30 * 60_000)); // 30 min later (still under $500)
   assert.deepEqual(soon.alerts, []);
   const small = deliver(soon.after, swap(5_000, 0.01, 2 * 3_600_000)); // 2 h later, $50: not yet
   assert.deepEqual(small.alerts, []);

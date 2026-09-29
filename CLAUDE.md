@@ -123,14 +123,16 @@ owner's.
   **Discord alerts** (owner 2026-09-28): every live delivery that adds legs
   is compared before/after with `coinDays` (`watchAlerts.ts`, pure) and
   posts only a change, never per transaction — opened (not held at the
-  read, today's buys reach `ALERT_MIN_USD` $100), a new burst of buying
+  read, today's buys reach `ALERT_MIN_USD` $100; pings once its buys reach
+  `PING_POSITION_USD` $500, at once or as "is building"), a new burst of buying
   (buys under `BURST_GAP_MS`, an hour, apart are one burst; a later burst,
   or the first buys today of a coin held at the read, posts at $100 and
   pings), added (today's buys cross
   `ADD_STEPS_USD` $1K/5K/10K…), sold out (worth under $1 now), trimmed
   (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
-  (`watchAlertSend.ts` → `adapters/discordWebhook.ts`; opens, new bursts and
-  full exits ping `DISCORD_WATCH_ROLE_ID`, nobody else is ever pinged). One request
+  (`watchAlertSend.ts` → `adapters/discordWebhook.ts`; a position reaching
+  $500, a new burst and a full exit ping `DISCORD_WATCH_ROLE_ID` — a sell-out
+  within the hour of opening is a flip, posted unpinged, nobody else is ever pinged). One request
   for the trader's name, only when there's something to post; a failure is
   logged, never fails the delivery; a retried delivery adds no legs, so it
   can't post twice. Refresh activity doesn't post.

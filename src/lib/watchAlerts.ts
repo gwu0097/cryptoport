@@ -3,7 +3,9 @@
 // are "opened", then "added $1K", "added $5K". Buys of a coin less than an
 // hour apart are one burst (spam-like DCA); a buy an hour or more after the
 // coin's previous one starts a new burst, which posts — and pings — once it
-// reaches $100 (Bacon adding to AURORA). Judged by comparing the
+// reaches $100 (Bacon adding to AURORA). A coin opened today pings once,
+// when what's been bought into it reaches $500 — in one buy or thirty — and
+// a sell-out within the hour of opening is a flip: posted, not pinged. Judged by comparing the
 // coin's day (coinDays, the activity table's own numbers) before and after
 // the delivery's new legs, so a repeat of the same delivery posts nothing.
 // Pure.
@@ -17,12 +19,15 @@ export const ALERT_MIN_USD = 100;
 export const ADD_STEPS_USD = [1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000];
 /** A trim posts at each of these shares of the position sold. */
 export const TRIM_STEPS = [0.25, 0.5, 0.75];
-/** Buys of one coin closer than this are one burst. */
+/** A position opened today pings once its buys reach this. */
+export const PING_POSITION_USD = 500;
+/** Buys of one coin closer than this are one burst; a position sold out
+ * within this of its first buy is a flip. */
 export const BURST_GAP_MS = 60 * 60_000;
 /** Worth less than this is "nothing held" (a leftover isn't a position). */
 const DUST_USD = 1;
 
-export type WatchAlertKind = "opened" | "resumed" | "added" | "soldOut" | "trimmed";
+export type WatchAlertKind = "opened" | "building" | "resumed" | "added" | "soldOut" | "trimmed";
 
 export interface WatchAlert {
   kind: WatchAlertKind;
@@ -30,7 +35,8 @@ export interface WatchAlert {
   contract: string | null;
   /** The message without the trader's name. */
   text: string;
-  /** Opens, new bursts of buying and full exits ping the owner's Discord role. */
+  /** Pings the owner's Discord role: a position reaching $500, a new burst
+   * of buying, a full exit that wasn't a flip. */
   ping: boolean;
 }
 
@@ -62,18 +68,26 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const b = prev.get(c.assetKey);
     const price = priceOf(c);
     const worth = (qty: number) => (price === null ? null : qty * price);
-    const alert = (kind: WatchAlertKind, text: string) => out.push({ kind, ticker: c.ticker, contract: c.contract, text, ping: kind !== "added" && kind !== "trimmed" });
+    const alert = (kind: WatchAlertKind, text: string, ping: boolean) => out.push({ kind, ticker: c.ticker, contract: c.contract, text, ping });
     const bought = c.boughtUsd ?? 0;
     const boughtBefore = b?.boughtUsd ?? 0;
     const sold = c.soldUsd ?? 0;
 
-    // Opened: not held at the morning read, and today's buys reach the minimum.
+    // Opened: not held at the morning read, and today's buys reach the
+    // minimum; it pings if they already reach PING_POSITION_USD.
     const heldAtRead = worth(c.heldBefore);
-    if (heldAtRead !== null && heldAtRead < DUST_USD && bought >= ALERT_MIN_USD && boughtBefore < ALERT_MIN_USD) {
-      const buys = c.buys === 1 ? "" : `${c.buys} buys, `;
-      const entry = c.avgEntryUsd !== null ? ` at ${formatPrice(c.avgEntryUsd)}` : "";
-      alert("opened", `🟢 opened **${c.ticker}**: ${buys}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${c.buys === 1 ? entry : entry.replace(" at", " avg entry")}`);
-    } else {
+    const openedToday = heldAtRead !== null && heldAtRead < DUST_USD;
+    const entryText = (prefix: string) => (c.avgEntryUsd !== null ? `${prefix}${formatPrice(c.avgEntryUsd)}` : "");
+    const buysText = c.buys === 1 ? "" : `${c.buys} buys, `;
+    let posted = false; // a buy alert this delivery: the size steps don't repeat it
+    if (openedToday && bought >= ALERT_MIN_USD && boughtBefore < ALERT_MIN_USD) {
+      alert("opened", `🟢 opened **${c.ticker}**: ${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(c.buys === 1 ? " at " : " avg entry ")}`, bought >= PING_POSITION_USD);
+      posted = true;
+    } else if (openedToday && bought >= PING_POSITION_USD && boughtBefore < PING_POSITION_USD) {
+      // A small open built up: one ping when it reaches $500.
+      alert("building", `🟢 is building **${c.ticker}**: ${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(", avg entry ")}`, true);
+      posted = true;
+    } else if (!openedToday || boughtBefore >= ALERT_MIN_USD) {
       // A new burst: the latest buys, back to a gap of an hour or more (or to
       // the first buy today of a coin held at the read — never the opening
       // burst, which "opened" covered). Posts once it reaches the minimum.
@@ -85,21 +99,20 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
       const burstUsd = (ts: typeof burst) => ts.reduce((s, t) => s + (t.usd ?? 0), 0);
       const burstNow = burstUsd(burst);
       const burstBefore = burstUsd(burst.filter((t) => !newTxIds.has(t.txId)));
-      const resumed = isNewBurst && burst.some((t) => newTxIds.has(t.txId)) && burstBefore < ALERT_MIN_USD && burstNow >= ALERT_MIN_USD;
-      if (resumed) {
+      if (isNewBurst && burst.some((t) => newTxIds.has(t.txId)) && burstBefore < ALERT_MIN_USD && burstNow >= ALERT_MIN_USD) {
         const pauseMs = start > 0 ? Date.parse(buys[start].at) - Date.parse(buys[start - 1].at) : null;
         const pause = pauseMs !== null ? ` after ${pauseMs >= 86_400_000 ? `${Math.floor(pauseMs / 86_400_000)}d` : `${Math.floor(pauseMs / 3_600_000)}h`} without buying` : "";
         const paid = burst.every((t) => t.payTicker === burst[0].payTicker && t.payQty !== null) ? pay(burst.reduce((s, t) => s + t.payQty!, 0), burst[0].payTicker) : "";
         const n = burst.length === 1 ? "" : `${burst.length} buys, `;
         const held = worth(c.holdingQty);
-        alert("resumed", `🔵 added to **${c.ticker}**${pause}: ${n}${paid}(${formatUsd(burstNow)})${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`);
+        alert("resumed", `🔵 added to **${c.ticker}**${pause}: ${n}${paid}(${formatUsd(burstNow)})${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`, true);
+        posted = true;
       }
-      // The day's size steps — unless this delivery already posted the burst.
-      const step = crossed(ADD_STEPS_USD, boughtBefore, bought);
-      if (step !== null && !resumed) {
-        const entry = c.avgEntryUsd !== null ? `, avg entry ${formatPrice(c.avgEntryUsd)}` : "";
-        alert("added", `➕ has added **${formatUsd(step)}** of **${c.ticker}** today (${c.buys} buy${c.buys === 1 ? "" : "s"}${entry})`);
-      }
+    }
+    // The day's size steps, unpinged — unless this delivery already posted.
+    const step = crossed(ADD_STEPS_USD, boughtBefore, bought);
+    if (step !== null && !posted) {
+      alert("added", `➕ has added **${formatUsd(step)}** of **${c.ticker}** today (${c.buys} buy${c.buys === 1 ? "" : "s"}${entryText(", avg entry ")})`, false);
     }
 
     // Sold out: something was held before this delivery, nothing is now.
@@ -107,7 +120,13 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const nowWorth = worth(c.holdingQty);
     const beforeWorth = worth(holdingBefore);
     if (nowWorth !== null && beforeWorth !== null && nowWorth < DUST_USD && beforeWorth >= DUST_USD && sold >= ALERT_MIN_USD) {
-      alert("soldOut", `🔴 sold out of **${c.ticker}**: ${result(c)}`);
+      // A flip — opened today and gone within the hour — posts without a ping.
+      const firstBuy = c.trades.filter((t) => t.side === "buy").map((t) => t.at).sort()[0];
+      const lastSell = c.trades.filter((t) => t.side === "sell").map((t) => t.at).sort().at(-1);
+      const heldMs = openedToday && firstBuy && lastSell ? Date.parse(lastSell) - Date.parse(firstBuy) : null;
+      const flip = heldMs !== null && heldMs < BURST_GAP_MS;
+      const flipText = flip ? ` (flipped in ${Math.max(1, Math.round(heldMs / 60_000))}m)` : "";
+      alert("soldOut", `🔴 sold out of **${c.ticker}**${flipText}: ${result(c)}`, !flip);
       continue;
     }
     // Trimmed: a quarter, a half, three quarters of the position sold.
@@ -116,7 +135,7 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const shareBefore = b && position(b) > 0 ? b.soldQty / position(b) : 0;
     const trim = crossed(TRIM_STEPS, shareBefore, share);
     if (trim !== null && sold >= ALERT_MIN_USD) {
-      alert("trimmed", `🟠 trimmed **${c.ticker}** by ${Math.round(share * 100)}%: ${result(c)}${c.realizedUsd !== null ? " on what was sold" : ""}`);
+      alert("trimmed", `🟠 trimmed **${c.ticker}** by ${Math.round(share * 100)}%: ${result(c)}${c.realizedUsd !== null ? " on what was sold" : ""}`, false);
     }
   }
   return out;
