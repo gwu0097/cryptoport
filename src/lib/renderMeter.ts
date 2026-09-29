@@ -53,6 +53,12 @@ async function scheduleLog(m: Meter): Promise<void> {
       const prices = m.prices ? ` prices=${m.prices}` : "";
       const miss = m.misses.size > 0 ? ` scope-miss=${m.misses.size}(${[...m.misses].slice(0, 5).join(",")})` : "";
       console.log(`[render] ${path}${cold} req=${m.reqs.length} hops=${hops} db=${Math.round(dbSpanMs(m.reqs))}ms${slow}${prices}${miss}${over}`);
+      // Every request, when diagnosing a page locally (RENDER_METER_VERBOSE=1):
+      // start offset + duration, to see which ones wait on which.
+      if (process.env.RENDER_METER_VERBOSE === "1") {
+        const t0 = Math.min(...m.reqs.map((r) => r.start));
+        for (const r of [...m.reqs].sort((a, b) => a.start - b.start)) console.log(`  ${Math.round(r.start - t0)}+${Math.round(r.end - r.start)} ${r.path}`);
+      }
     });
   } catch {
     // no request scope: nothing to log against

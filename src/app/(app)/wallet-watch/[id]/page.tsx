@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { scopePricesToUser } from "@/lib/queries";
+import { getChainIconMap, scopePricesToUser } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getInfluencerDailyValue, getInfluencerDetail, getLiveStatus, getTradingRecord, getWatchDayActivity, getWatchedInfluencer, getWatchMovements, isInDirectory, watchJobStatus } from "@/lib/watchQuery";
+import { getInfluencerDailyValue, getInfluencerDetail, getLiveStatus, getTradingRecord, getWatchDayActivity, getInfluencerFeed, getWatchMovements, isInDirectory, watchJobStatus } from "@/lib/watchQuery";
 import { isAdminEmail } from "@/lib/adminAuth";
 import { LiveToggle } from "@/components/walletWatch/LiveToggle";
 import { requestNowSec } from "@/lib/requestClock";
@@ -32,21 +32,22 @@ export default async function InfluencerPage({ params, searchParams }: { params:
   const isOwner = isAdminEmail(user.email, process.env.ADMIN_EMAIL);
   const { id } = await params;
   const filters = await searchParams;
-  // The influencer's own rows first (small), then everything else at once —
-  // holdings are valued while the activity, history and records load.
-  const watched = await getWatchedInfluencer(id);
-  if (!watched) notFound();
+  // The influencer's addresses first (one round trip, with the chain icons
+  // the holdings table needs), then everything else at once — its snapshots
+  // are read and valued while the activity, history and records load.
+  const [feed] = await Promise.all([getInfluencerFeed(id), getChainIconMap()]);
+  if (!feed) notFound();
   const nowSec = requestNowSec();
   const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
   const [detail, movements, daily, record, day, live, inDirectory] = await Promise.all([
     getInfluencerDetail(id, filters.merge === "1"),
     // One influencer's page: room for a 30-day backfill of a busy wallet.
-    getWatchMovements([watched.influencer], 400),
-    getInfluencerDailyValue(watched.influencer),
-    getTradingRecord(watched.influencer, today),
-    getWatchDayActivity([watched.influencer]),
-    isOwner ? getLiveStatus(watched.influencer) : null,
-    isOwner && !watched.influencer.copiedFrom ? isInDirectory(watched.influencer.id) : null,
+    getWatchMovements([feed], 400),
+    getInfluencerDailyValue(feed),
+    getTradingRecord(feed, today),
+    getWatchDayActivity([feed]),
+    isOwner ? getLiveStatus(feed) : null,
+    isOwner && !feed.copiedFrom ? isInDirectory(feed.id) : null,
   ]);
   if (!detail) notFound();
   const { influencer, groups, holdings, notListed } = detail;

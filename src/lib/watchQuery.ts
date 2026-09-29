@@ -103,33 +103,61 @@ type WatchData = {
 
 const WATCHED_COLUMNS = "chain, address, snapshot, last_refresh_at, last_refresh_status, refresh_status, refresh_started_at";
 
-/** Everything the user watches — or, with `onlyId`, one influencer's rows
- * and only its addresses' snapshots (an influencer page reads its own one
- * or two snapshots, not all of them: 121 KB for 19 addresses, 2026-09-28). */
-async function readWatch(onlyId?: string): Promise<WatchData> {
+/** The user's influencers, their addresses, groups and group links — or,
+ * with `onlyId`, one influencer's — in one round trip. Without `onlyId` the
+ * snapshots come in the same round trip (row-level security already limits
+ * watched_addresses to the user's); an influencer page reads only its own
+ * addresses' snapshots (121 KB for 19 addresses, 2026-09-28), so those wait
+ * for its address list — readWatch. Read once per request (React cache). */
+const readWatchBase = cache(async (onlyId?: string) => {
   const db = await userDb();
   const influencersQ = db.from("watch_influencers").select("id, name, link, note, share_token, copied_from, created_at").order("created_at");
   const addressesQ = db.from("watch_influencer_addresses").select("id, influencer_id, chain, address").order("created_at");
   const linksQ = db.from("watch_group_influencers").select("group_id, influencer_id");
-  const [influencers, addresses, groups, links] = await Promise.all([
+  const [influencers, addresses, groups, links, allWatched] = await Promise.all([
     onlyId ? influencersQ.eq("id", onlyId) : influencersQ,
     onlyId ? addressesQ.eq("influencer_id", onlyId) : addressesQ,
     db.from("watch_groups").select("id, name").order("created_at"),
     onlyId ? linksQ.eq("influencer_id", onlyId) : linksQ,
+    onlyId ? null : db.from("watched_addresses").select(WATCHED_COLUMNS),
   ]);
-  const addressRows = (addresses.data ?? []) as { address: string }[];
-  const watched = onlyId
-    ? addressRows.length === 0
-      ? { data: [], error: null }
-      : await db.from("watched_addresses").select(WATCHED_COLUMNS).in("address", addressRows.map((a) => a.address))
-    : await db.from("watched_addresses").select(WATCHED_COLUMNS);
-  for (const r of [influencers, addresses, groups, links, watched]) if (r.error) throw new Error(`Failed to load Wallet Watch: ${r.error.message}`);
+  for (const r of [influencers, addresses, groups, links, allWatched]) if (r?.error) throw new Error(`Failed to load Wallet Watch: ${r.error.message}`);
   return {
     influencers: influencers.data as InfluencerRow[],
     addresses: addresses.data as { id: string; influencer_id: string; chain: string; address: string }[],
     groups: groups.data as WatchGroup[],
     links: links.data as { group_id: string; influencer_id: string }[],
-    watched: new Map((watched.data as WatchedRow[]).map((w) => [`${w.chain}|${w.address}`, w])),
+    allWatched: allWatched ? (allWatched.data as WatchedRow[]) : null,
+  };
+});
+
+/** Everything the user watches, or one influencer's rows, with snapshots. */
+async function readWatch(onlyId?: string): Promise<WatchData> {
+  const base = await readWatchBase(onlyId);
+  let watchedRows = base.allWatched;
+  if (!watchedRows) {
+    const db = await userDb();
+    const res = base.addresses.length === 0 ? { data: [], error: null } : await db.from("watched_addresses").select(WATCHED_COLUMNS).in("address", base.addresses.map((a) => a.address));
+    if (res.error) throw new Error(`Failed to load Wallet Watch: ${res.error.message}`);
+    watchedRows = res.data as WatchedRow[];
+  }
+  return { ...base, watched: new Map(watchedRows.map((w) => [`${w.chain}|${w.address}`, w])) };
+}
+
+/** One influencer's name, addresses and groups — no snapshots, no prices:
+ * what an influencer page's other reads need, one round trip in (they start
+ * while its holdings are read and valued). Null if it isn't the user's. */
+export async function getInfluencerFeed(id: string): Promise<(WatchFeedInfluencer & { copiedFrom: string | null }) | null> {
+  if (!(await getUser())) return null;
+  const base = await readWatchBase(id);
+  const inf = base.influencers[0];
+  if (!inf) return null;
+  return {
+    id: inf.id,
+    name: inf.name,
+    groupIds: base.links.map((l) => l.group_id),
+    copiedFrom: inf.copied_from ?? null,
+    addresses: base.addresses.map((a) => ({ chain: a.chain, address: a.address })),
   };
 }
 
@@ -286,15 +314,6 @@ async function detailHoldings(influencer: WatchedInfluencer, watched: Map<string
   }
   const read = influencer.addresses.some((a) => watched.get(`${a.chain}|${a.address}`)?.snapshot);
   return { holdings: read ? valuateHoldings(merge ? mergeSameCoin(rows) : rows, "ethereum", prices, stats) : null, notListed };
-}
-
-/** One influencer and the user's groups, without its holdings — lets an
- * influencer page start its other reads while the holdings are valued.
- * Shares getInfluencerDetail's read (React cache). */
-export async function getWatchedInfluencer(id: string): Promise<{ influencer: WatchedInfluencer; groups: WatchGroup[] } | null> {
-  const overview = await loadOverview(id);
-  const influencer = overview.influencers.find((i) => i.id === id);
-  return influencer ? { influencer, groups: overview.groups } : null;
 }
 
 /** `merge`: one row per coin per chain across addresses (mergeHoldings.ts). */
@@ -582,7 +601,7 @@ export async function getLiveStatus(influencer: WatchFeedInfluencer): Promise<{ 
 
 /** An influencer's value per day: the sum of its addresses' daily rows, only
  * on days every address has one (a partial day would look like a drop). */
-export async function getInfluencerDailyValue(influencer: WatchedInfluencer, client?: Awaited<ReturnType<typeof userDb>>): Promise<{ date: string; total: number }[]> {
+export async function getInfluencerDailyValue(influencer: WatchFeedInfluencer, client?: Awaited<ReturnType<typeof userDb>>): Promise<{ date: string; total: number }[]> {
   if (influencer.addresses.length === 0) return [];
   const db = client ?? (await userDb());
   const { data, error } = await db
