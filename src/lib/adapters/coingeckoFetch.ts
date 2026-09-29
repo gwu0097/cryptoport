@@ -72,7 +72,7 @@ async function takeSlot(): Promise<void> {
 
 export async function coingeckoFetch(
   url: string,
-  opts?: { attempts?: number; baseDelayMs?: number; feature?: string },
+  opts?: { attempts?: number; baseDelayMs?: number; feature?: string; timeoutMs?: number },
 ): Promise<Response> {
   await takeSlot();
   const { feature, ...retry } = opts ?? {};

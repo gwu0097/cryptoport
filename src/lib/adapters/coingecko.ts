@@ -47,7 +47,8 @@ interface AssetPlatform {
  */
 export async function refreshTokenRegistry(): Promise<{ chainId: string; count: number }[]> {
   const [coinsRes, platformsRes] = await Promise.all([
-    coingeckoFetch(`${API_BASE}/coins/list?include_platform=true`, { feature: "token registry" }),
+    // Every coin with its contracts: a large download, so a longer limit.
+    coingeckoFetch(`${API_BASE}/coins/list?include_platform=true`, { feature: "token registry", timeoutMs: 60_000 }),
     coingeckoFetch(`${API_BASE}/asset_platforms`, { feature: "token registry" }),
   ]);
   if (!coinsRes.ok) throw new Error(`CoinGecko coins/list failed: HTTP ${coinsRes.status}`);

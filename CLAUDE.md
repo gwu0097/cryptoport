@@ -624,6 +624,13 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   reproduce against the real endpoint (under realistic load) before calling it a
   structural limitation. (DECISIONS: before 2026-09-22 "The API doesn't have
   this data")
+- **Every request has a time limit:** `fetchWithRetry` gives up on an
+  attempt after `REQUEST_TIMEOUT_MS` (20 s) and doesn't retry a timeout; EVM
+  RPC calls (`evmTransport.ts`) time out at 10 s with one retry. A source
+  that times out fails like any other (its rows carry forward, §4.3). A
+  call that's legitimately long passes `timeoutMs` (CoinGecko's full coin
+  list: 60 s). 2026-09-29: with no limits, one stalled node held a Wallet
+  Watch read for minutes.
 - **A list packed into one URL is split by length, not only by count**
   (`urlBatch.ts` `chunkByLength`): CoinGecko's CloudFront refuses a query
   over ~2,000 characters with a bare 403 "Request blocked" — 250 coin ids

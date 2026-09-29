@@ -5,6 +5,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 const MAX_RETRY_AFTER_MS = 30_000;
+/** A request that hasn't answered by then is abandoned and not retried: a
+ * stalled node usually stays stalled, and one of them held a Wallet Watch
+ * read for minutes (2026-09-29: 87–177 s per address, no timeouts anywhere).
+ * The caller treats it as that source failing (its rows carry forward). */
+export const REQUEST_TIMEOUT_MS = 20_000;
 
 /** How long to wait before retry number `attempt` (1-based): exponential
  * backoff (base, x2, x4, ...) with ±20% jitter so concurrent callers don't
@@ -35,6 +40,7 @@ export async function fetchWithRetry(
     attempts = 3,
     baseDelayMs = 1000,
     stopOn,
+    timeoutMs = REQUEST_TIMEOUT_MS,
   }: {
     attempts?: number;
     baseDelayMs?: number;
@@ -43,6 +49,8 @@ export async function fetchWithRetry(
      * being exhausted, see coingeckoFetch.ts). Gets a clone; the returned
      * response's body is still unread. */
     stopOn?: (res: Response) => Promise<boolean>;
+    /** Per attempt; REQUEST_TIMEOUT_MS unless given. */
+    timeoutMs?: number;
   } = {},
 ): Promise<Response> {
   let lastError: Error | null = null;
@@ -54,7 +62,8 @@ export async function fetchWithRetry(
       retryAfter = null;
     }
     try {
-      const res = await fetch(url, { ...init, cache: "no-store" });
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const res = await fetch(url, { ...init, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
       if (res.status === 429 || res.status === 503) {
         if (stopOn && (await stopOn(res.clone()))) return res;
         retryAfter = res.headers.get("retry-after");
@@ -63,6 +72,9 @@ export async function fetchWithRetry(
       }
       return res;
     } catch (e) {
+      // Timed out: give up now rather than wait the same again (the host, not
+      // the URL, in the message — URLs can carry API keys).
+      if ((e as Error).name === "TimeoutError") throw new Error(`No answer from ${new URL(url).host} within ${Math.round(timeoutMs / 1000)} s`);
       lastError = e as Error;
     }
   }
