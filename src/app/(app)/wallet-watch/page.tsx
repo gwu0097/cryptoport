@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { scopePricesToUser } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { getWatchDayActivity, getWatchMovements, getWatchOverview, watchJobStatus } from "@/lib/watchQuery";
 import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
@@ -20,6 +21,7 @@ export const maxDuration = 300;
 const SUBTITLE = "Follow other people's wallets — influencers, funds, smart money — and group them by why you follow them";
 
 export default async function WalletWatchPage({ searchParams }: { searchParams: Promise<{ group?: string }> }) {
+  scopePricesToUser(true); // the user's own coins and the Wallet Watch coins they see (docs/perf/PRICES_READ.md)
   const user = await getUser();
   if (!user) {
     return (

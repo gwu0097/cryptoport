@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { scopePricesToUser } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getUser } from "@/lib/auth";
@@ -25,6 +26,7 @@ export const metadata = { title: "Wallet Watch · CryptoPort" };
 export const maxDuration = 300;
 
 export default async function InfluencerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string; merge?: string }> }) {
+  scopePricesToUser(true); // the user's own coins and the Wallet Watch coins they see (docs/perf/PRICES_READ.md)
   const user = await getUser();
   if (!user) return <SignInPrompt message="Log in to see the wallets you watch." />;
   const isOwner = isAdminEmail(user.email, process.env.ADMIN_EMAIL);

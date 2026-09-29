@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { scopePricesToUser } from "@/lib/queries";
 import Link from "next/link";
 import { getUser } from "@/lib/auth";
 import { getWatchInsights, type InsightWindow, type InfluencerCard, type WatchInsights } from "@/lib/watchInsightsQuery";
@@ -19,6 +20,7 @@ const pct = (x: number | null, digits = 0) => (x === null ? "—" : `${x > 0 ? "
 const share = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 export default async function WatchInsightsPage({ searchParams }: { searchParams: Promise<{ group?: string; window?: string }> }) {
+  scopePricesToUser(true); // the user's own coins and the Wallet Watch coins they see (docs/perf/PRICES_READ.md)
   if (!(await getUser())) {
     return (
       <>

@@ -1,4 +1,5 @@
 import {
+  scopePricesToUser,
   getAssetsGroupedByTicker,
   getAllWatchlistItems,
   getWatchlists,
@@ -64,6 +65,7 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ list?: string }>;
 }) {
+  scopePricesToUser(true); // the user's own coins and the Wallet Watch coins they see (docs/perf/PRICES_READ.md)
   const { list } = await searchParams;
   // getUser is local (the token's signature, auth.ts), so knowing it first
   // costs no round trip — and every read below starts at once: nothing here
