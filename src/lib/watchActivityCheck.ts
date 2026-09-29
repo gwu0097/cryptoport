@@ -188,6 +188,9 @@ export async function identifyLegs(
   checkedAt: string,
   source: "webhook" | "check",
   noNativeLegs: ReadonlySet<string> = NO_NATIVE_LEGS,
+  /** The cash coin's close on a trade's day, for trades older than today
+   * (Recent trades); otherwise the stored price. */
+  closeOn?: (priceKey: string, day: string) => number | null,
 ): Promise<ActivityLeg[]> {
   if (changes.length === 0) return [];
   const byContract = contractKeys(snapshot);
@@ -220,7 +223,7 @@ export async function identifyLegs(
   const candidateKeys = [...new Set([...CASH_KEYS, ...byContract.values(), ...[...nativeOf.values()].map((n) => n.key), ...[...keyOf.values()].filter((k): k is string => !!k)])];
   const priced = await lookup(candidateKeys);
   const priceOf = (k: string | null) => (k ? (priced.get(k) ?? null) : null);
-  const valueOf = (k: string | null) => (k && VALUE_KEYS.has(k) ? priceOf(k) : null);
+  const valueOf = (k: string | null, at: string) => (k && VALUE_KEYS.has(k) ? (closeOn?.(k, at.slice(0, 10)) ?? priceOf(k)) : null);
   const inSnapshot = new Set(assetStates(snapshot).keys());
   const legs = toLegs(changes, identify, valueOf, noNativeLegs, checkedAt).filter((l) => l.kind !== "transfer" || inSnapshot.has(l.assetKey) || priceOf(l.priceKey) !== null);
 

@@ -153,6 +153,18 @@ owner's.
   `asset_prices` with the service role like every page — the user's client
   is denied it (that 500 kept every live update from showing, 2026-09-28).
   No polling; panels without live influencers don't listen.
+  **Recent trades** (an influencer's page, EVM addresses; owner 2026-09-28):
+  "Last 7/30 days" reads each EVM address × chain (its snapshot's chains ∪
+  the live networks ∪ Base) back that far with `readEvmChain`, three at a
+  time (`watchHistoryLoad.ts`, `api/wallet-watch/history`), through the
+  same `identifyLegs` → `coinDays` as the day's activity, shown in its
+  `CoinTable` worded by period. What each coin held at the window's start
+  is the snapshot minus the moves since (`watchHistory.ts` `windowBase`);
+  swaps are sized at the paying coin's close that day (`asset_price_daily`,
+  `identifyLegs` `closeOn`), and the count sized at today's price instead is
+  shown. Reused 15 minutes in-process (`ttlCache`), not stored; a chain that
+  hits the page cap or fails is named. Unpriced coins traded in the window
+  get one batched `ensureAssetPrices`, as in Refresh activity.
   **Trading record** (an influencer's page, Solana addresses only): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in
   USD — 2 requests (all-time summary + the past 365 days by day,

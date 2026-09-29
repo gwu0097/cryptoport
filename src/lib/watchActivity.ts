@@ -81,6 +81,7 @@ export interface TxActivity {
 export const CASH_KEYS: ReadonlySet<string> = new Set([
   "solana", "wrapped-solana", "ethereum", "weth", "binancecoin", "wbnb", "matic-network", "polygon-ecosystem-token",
   "avalanche-2", "bitcoin", "usd-coin", "tether", "dai", "usds", "ethena-usde", "first-digital-usd", "paypal-usd", "usd1-wlfi",
+  "global-dollar", // USDG — Robinhood Chain's dollar (VirtualBacon pays in it)
 ]);
 
 /** Native SOL moves under this per transaction (rent, fees, tips) without
@@ -106,7 +107,7 @@ export interface LegIdentity {
 export function toLegs(
   changes: readonly RawChange[],
   identify: (c: RawChange) => LegIdentity | null,
-  valueOf: (priceKey: string | null) => number | null,
+  valueOf: (priceKey: string | null, at: string) => number | null,
   noNativeLegs: ReadonlySet<string>,
   checkedAt: string,
 ): ActivityLeg[] {
@@ -130,17 +131,17 @@ export function toLegs(
     const swap = moved.some((c) => c.qty > 0) && moved.some((c) => c.qty < 0);
     const identified = moved.map((c) => ({ c, id: identify(c) }));
     // The swap's dollar side: SOL, ETH or a stablecoin leg.
-    const valueLegs = identified.filter(({ c, id }) => swap && id && valueOf(id.priceKey) !== null && c.qty !== 0);
+    const valueLegs = identified.filter(({ c, id }) => swap && id && valueOf(id.priceKey, c.at) !== null && c.qty !== 0);
     for (const { c, id } of identified) {
       if (!id) continue;
-      let priceUsd: number | null = valueOf(id.priceKey);
+      let priceUsd: number | null = valueOf(id.priceKey, c.at);
       if (swap && priceUsd === null) {
         // Priced by the other side, when exactly one coin sits on each side.
         const sameSide = moved.filter((m) => Math.sign(m.qty) === Math.sign(c.qty));
         const other = valueLegs.filter(({ c: v }) => Math.sign(v.qty) !== Math.sign(c.qty));
         if (sameSide.length === 1 && other.length === 1) {
           const v = other[0];
-          priceUsd = (Math.abs(v.c.qty) * valueOf(v.id!.priceKey)!) / Math.abs(c.qty);
+          priceUsd = (Math.abs(v.c.qty) * valueOf(v.id!.priceKey, v.c.at)!) / Math.abs(c.qty);
         }
       }
       const kind: LegKind = swap ? "swap" : c.qty < 0 && c.contract && noNativeLegs.has(c.chain) ? "unclear" : "transfer";

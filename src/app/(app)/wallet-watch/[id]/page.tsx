@@ -14,6 +14,7 @@ import { RefreshWatchButton } from "@/components/walletWatch/RefreshWatchButton"
 import { ShareInfluencerButton } from "@/components/walletWatch/ShareInfluencerButton";
 import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/InfluencerSections";
 import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
+import { RecentTradesPanel } from "@/components/walletWatch/RecentTradesPanel";
 import { DayActivity } from "@/components/walletWatch/DayActivity";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 
@@ -87,7 +88,14 @@ export default async function InfluencerPage({ params, searchParams }: { params:
             showNames={false}
           />
         }
-        afterValue={<TradingRecordPanel influencerId={influencer.id} {...record} today={today} serverNowSec={nowSec} />}
+        afterValue={
+          <>
+            <TradingRecordPanel influencerId={influencer.id} {...record} today={today} serverNowSec={nowSec} />
+            {influencer.addresses.some((a) => a.chain === "ETH") && (
+              <RecentTradesPanel influencerId={influencer.id} evmAddresses={influencer.addresses.filter((a) => a.chain === "ETH").length} serverNowSec={nowSec} />
+            )}
+          </>
+        }
         addressExtra={(a) => <RemoveAddressButton addressId={a.id} influencerId={influencer.id} address={a.address} />}
         addressesFooter={
           influencer.addresses.length < 5 ? <WatchAddressForm options={{ influencers: [], groups: [] }} influencerId={influencer.id} label="Add another address" /> : undefined

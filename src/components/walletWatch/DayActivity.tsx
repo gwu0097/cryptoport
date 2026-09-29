@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, RefreshCw } from "lucide-react";
@@ -143,6 +143,11 @@ export function ActivityCheckButton({ influencerIds }: { influencerIds: string[]
 const compactQty = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : formatQty(n));
 const pay = (n: number | null, ticker: string | null) => (n !== null && ticker ? `${n < 1 ? n.toFixed(3) : n.toFixed(2)} ${ticker}` : null);
 const TIME = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+const DATE_TIME = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** The window the table covers, in words: "today" (the day's activity) or
+ * "in 7 days" (Recent trades) — its results and dates follow it. */
+const PeriodContext = createContext("today");
 
 type SortKey = "trader" | "coin" | "bought" | "sold" | "result" | "when";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
@@ -177,6 +182,7 @@ const sideTone = (t: CoinTrade) => (t.side === "buy" || t.side === "received" ? 
 /** "Buy 1.00 SOL ($118) at $0.0002516 · 3:28 PM" — the latest trade: what
  * was paid and the price, not the token count (owner 2026-09-28). */
 function LastTrade({ t, ticker }: { t: CoinTrade; ticker: string }) {
+  const when = useContext(PeriodContext) === "today" ? TIME : DATE_TIME;
   const cash = pay(t.payQty, t.payTicker);
   const price = t.usd !== null && t.qty > 0 ? t.usd / t.qty : null;
   return (
@@ -185,7 +191,7 @@ function LastTrade({ t, ticker }: { t: CoinTrade; ticker: string }) {
       <span className="text-fg">{cash ?? `${compactQty(t.qty)} ${ticker}`}</span>
       {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)})</span>}
       {price !== null && <span className="text-fg"> at {formatPrice(price)}</span>}
-      <span className="text-fg-muted"> · {TIME.format(new Date(t.at))}</span>
+      <span className="text-fg-muted"> · {when.format(new Date(t.at))}</span>
     </>
   );
 }
@@ -219,6 +225,7 @@ function freshestPrice(c: WatchCoinDay): { usd: number; at: string; from: "store
 /** One coin's row, and its trades underneath when opened. */
 function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
+  const period = useContext(PeriodContext);
   const closed = soldOut(c);
   const price = freshestPrice(c);
   const stale = price !== null && serverNowSec * 1000 - Date.parse(price.at) > STALE_PRICE_MS;
@@ -280,7 +287,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
         </td>
         <td className={`${tdClass} tabular-nums`}>
           {c.realizedUsd !== null ? (
-            <span className={c.realizedUsd >= 0 ? "text-positive" : "text-negative"} title="Result of the part bought and sold today">
+            <span className={c.realizedUsd >= 0 ? "text-positive" : "text-negative"} title={`Result of the part bought and sold ${period}`}>
               {formatUsdSigned(c.realizedUsd)}
               {c.realizedPct !== null && <span className="block text-xs">{formatPercent(c.realizedPct)} on what was sold</span>}
               {/* Still holding the rest: how that part is doing (what KOLScan's ROI also counts). */}
@@ -320,7 +327,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
                     {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)}{t.qty > 0 ? ` · ${formatPrice(t.usd / t.qty)} each` : ""})</span>}
                   </span>
                   <span className="text-fg-muted">
-                    {TIME.format(new Date(t.at))}
+                    {(period === "today" ? TIME : DATE_TIME).format(new Date(t.at))}
                     {t.source === "webhook" && " · live"}
                   </span>
                 </li>
@@ -337,6 +344,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
  * and the tickers colored by result — their coin rows behind a toggle. */
 function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
+  const period = useContext(PeriodContext);
   const first = coins[0];
   const sum = (f: (c: WatchCoinDay) => number | null) => coins.reduce((s, c) => s + (f(c) ?? 0), 0);
   const realized = sum((c) => c.realizedUsd);
@@ -356,7 +364,7 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
         )}
         <td className={tdClass}>
           {!showNames && isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-          <span className="font-semibold text-fg">{coins.length} coins sold out today</span>
+          <span className="font-semibold text-fg">{coins.length} coins sold out {period}</span>
           <p className="text-xs text-fg-muted">
             {sum((c) => c.buys)} buys · {sum((c) => c.sells)} sells
           </p>
@@ -372,10 +380,10 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
         <td className={`${tdClass} tabular-nums text-negative`}>{formatUsd(sum((c) => c.soldUsd))}</td>
         <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>sold all</td>
         <td className={`${tdClass} tabular-nums`}>
-          <span className={realized >= 0 ? "text-positive" : "text-negative"} title="Net result of what was bought and sold today">
+          <span className={realized >= 0 ? "text-positive" : "text-negative"} title={`Net result of what was bought and sold ${period}`}>
             {formatUsdSigned(realized)}
           </span>
-          <span className="block text-xs text-fg-muted">net, sold today</span>
+          <span className="block text-xs text-fg-muted">net, sold {period}</span>
         </td>
         <td className={`${tdClass} text-right`}>
           <span className="whitespace-nowrap text-xs text-fg-muted">
@@ -389,8 +397,9 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
 }
 
 /** The coins as a sortable table (site convention: SortableHeader +
- * usePersistedState), newest activity first by default. */
-function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number }) {
+ * usePersistedState), newest activity first by default. `period` words the
+ * window ("today"; Recent trades: "in 7 days"). */
+export function CoinTable({ coins, latest, showNames, serverNowSec, period = "today" }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number; period?: string }) {
   const [sort, setSort] = usePersistedState<Sort>("cryptoport:watchActivitySort", { key: "when", dir: "desc" });
   const { key: sortKey, dir: sortDir } = sort;
   const toggleSort = (key: SortKey) => setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -404,6 +413,7 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
   // Every trader alike: sold-out coins fold into one row (activityFold.ts).
   const items = foldSoldOut(sorted);
   return (
+    <PeriodContext.Provider value={period}>
     <div className="mt-1 max-h-[34rem] overflow-auto overscroll-contain">
       <table className={tableClass}>
         <thead className="sticky top-0 z-10 bg-surface">
@@ -428,6 +438,7 @@ function CoinTable({ coins, latest, showNames, serverNowSec }: { coins: WatchCoi
         </tbody>
       </table>
     </div>
+    </PeriodContext.Provider>
   );
 }
 
