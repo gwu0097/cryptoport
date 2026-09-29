@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getActiveWalletsWithHoldings, getValueHistory, getPriceMap, type WalletWithHoldings } from "@/lib/queries";
+import { getActiveWalletsWithHoldings, getValueHistory, getPriceMap, getWalletValueHistories, type WalletWithHoldings } from "@/lib/queries";
 import { getPriceHistoryMap } from "@/lib/priceHistory";
 import { estimateSeries, estimateCoverage, stitchSeries, type PriceHistoryMap } from "@/lib/performance";
 import { valueHolding, type PriceMap } from "@/lib/valuation";
@@ -90,10 +90,11 @@ export default async function PerformancePage({
     );
   }
 
-  const [wallets, prices, globalReal]: [WalletWithHoldings[], PriceMap, { date: string; total: number }[]] =
-    await Promise.all([getActiveWalletsWithHoldings(), getPriceMap(), getValueHistory()]);
+  // Two round trips: these together, then the price history of what's held.
+  const [wallets, prices, globalReal, walletHistories]: [WalletWithHoldings[], PriceMap, { date: string; total: number }[], Map<string, { date: string; total: number }[]>] =
+    await Promise.all([getActiveWalletsWithHoldings(), getPriceMap(), getValueHistory(), getWalletValueHistories()]);
 
-  const perWalletReal = await Promise.all(wallets.map((w) => getValueHistory(w.id)));
+  const perWalletReal = wallets.map((w) => walletHistories.get(w.id) ?? []);
 
   const allHoldings = wallets.flatMap((w) => w.holdings);
   const { history: priceHistory, fetched } = await getPriceHistoryMap(allHoldings);

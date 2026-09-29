@@ -2080,6 +2080,59 @@ grant select on cryptoport.asset_price_daily to authenticated;
 create policy "asset_price_daily: readable by all signed-in users"
   on cryptoport.asset_price_daily for select to authenticated using (true);
 
+-- Price history for a set of coins in one request (Performance, Analytics,
+-- Watch Insights): backfilled series by history key, and each coin's daily
+-- closes as [day, usd] pairs — was one request per 1,000 closes, in a row.
+create or replace function cryptoport.price_history_bundle(p_history_keys text[], p_close_keys text[])
+returns json
+language sql
+stable
+security invoker
+set search_path = cryptoport
+as $$
+  select json_build_object(
+    'series', coalesce((
+      select json_object_agg(h.coingecko_key, h.series)
+      from cryptoport.price_history h
+      where h.coingecko_key = any(p_history_keys)
+    ), '{}'::json),
+    'closes', coalesce((
+      select json_object_agg(c.price_key, c.points)
+      from (
+        select d.price_key, json_agg(json_build_array(d.day, d.usd) order by d.day) as points
+        from cryptoport.asset_price_daily d
+        where d.price_key = any(p_close_keys)
+        group by d.price_key
+      ) c
+    ), '{}'::json)
+  );
+$$;
+
+revoke all on function cryptoport.price_history_bundle(text[], text[]) from public, anon;
+grant execute on function cryptoport.price_history_bundle(text[], text[]) to authenticated, service_role;
+
+-- Every wallet's daily value, for the signed-in user (row-level security:
+-- only their own wallets), in one request — Performance read it one
+-- request per wallet.
+create or replace function cryptoport.wallet_value_history()
+returns json
+language sql
+stable
+security invoker
+set search_path = cryptoport
+as $$
+  select coalesce(json_object_agg(w.wallet_id, w.points), '{}'::json)
+  from (
+    select s.wallet_id, json_agg(json_build_array(s.snapshot_date, s.total_usd) order by s.snapshot_date) as points
+    from cryptoport.wallet_snapshots s
+    group by s.wallet_id
+  ) w;
+$$;
+
+revoke all on function cryptoport.wallet_value_history() from public, anon;
+grant execute on function cryptoport.wallet_value_history() to authenticated;
+
+
 -- Liquid staking / vault receipts counted once (2026-09-25, receiptDedupe.ts):
 -- the 24h trading volume decides whether a receipt token is tradable, and a
 -- DeFi row's pool contract links it to the wallet's copy of that token.

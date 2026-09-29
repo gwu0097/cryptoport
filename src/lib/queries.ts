@@ -897,6 +897,22 @@ export async function getValueHistory(walletId?: string, opts?: { userId: string
   }));
 }
 
+/** Every one of the user's wallets' daily values (wallet_snapshots, own
+ * wallets only by RLS), keyed by wallet id, in one request — the same
+ * points getValueHistory(walletId) gives one wallet (Performance read them
+ * one request per wallet). */
+export const getWalletValueHistories = cache(async (): Promise<Map<string, PortfolioHistoryPoint[]>> => {
+  if (!(await getUser())) return new Map();
+  const { data, error } = await (await userDb()).rpc("wallet_value_history");
+  if (error) throw new Error(`Failed to load value history: ${error.message}`);
+  return new Map(
+    Object.entries((data ?? {}) as Record<string, [string, number | string | null][]>).map(([id, points]) => [
+      id,
+      points.map(([date, total]) => ({ date, total: parseNumeric(total) ?? 0 })),
+    ]),
+  );
+});
+
 export interface TransactionRow extends Omit<Transaction, "amount" | "fee"> {
   walletName: string;
   amount: number | null;

@@ -33,18 +33,23 @@ export interface AnalyticsView {
 }
 
 export async function getAnalytics(): Promise<AnalyticsView> {
-  const [{ groups, grand }, stats, snapshots, wallets] = await Promise.all([
+  const today = new Date(requestNowSec() * 1000).toISOString().slice(0, 10);
+  const windows = Object.keys(WINDOW_DAYS) as AttributionWindow[];
+  const baseDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
+  // Two round trips: these together (the wallet snapshots at each window's
+  // start need only the dates), then the price history of what's held.
+  const [{ groups, grand }, stats, snapshots, wallets, snaps] = await Promise.all([
     getAssetsGroupedByTicker(),
     getAssetStatsMap(),
     getValueHistory(),
     getActiveWalletsWithHoldings(),
+    userDb().then((db) => db.from("wallet_snapshots").select("wallet_id, snapshot_date, total_usd, assets, positions_usd").in("snapshot_date", baseDates)),
   ]);
   const benchmark = { ticker: "BTC", source: "auto", contract: null, chain: null, coingecko_id: BENCHMARK_KEY, price_key: BENCHMARK_KEY } as Pick<
     Holding,
     "ticker" | "source" | "contract" | "chain" | "coingecko_id" | "price_key"
   >;
   const { history } = await getPriceHistoryMap([...wallets.flatMap((w) => w.holdings), benchmark]);
-  const today = new Date(requestNowSec() * 1000).toISOString().slice(0, 10);
 
   // An asset (a price_key with a price) has a price series; everything else
   // with a value — protocol positions, perp margin, rows priced by their
@@ -82,12 +87,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     }
     return { id: w.id, name: w.name, createdAt: (w as { created_at?: string }).created_at ?? null, liveUsd: live, assets: [...assets.values()], positions };
   });
-  const windows = Object.keys(WINDOW_DAYS) as AttributionWindow[];
-  const baseDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
-  const { data: walletSnaps, error: snapError } = await (await userDb())
-    .from("wallet_snapshots")
-    .select("wallet_id, snapshot_date, total_usd, assets, positions_usd")
-    .in("snapshot_date", baseDates);
+  const { data: walletSnaps, error: snapError } = snaps;
   if (snapError) throw new Error(`Failed to load wallet snapshots: ${snapError.message}`);
   const byWallet = Object.fromEntries(
     windows.map((win, i) => {

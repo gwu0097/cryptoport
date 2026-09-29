@@ -119,30 +119,14 @@ export async function getPriceHistoryMap(holdings: HistoryHolding[]): Promise<{ 
 
   const db = await userDb();
   const historyKeys = [...new Set([...keys, ...[...legacyOf.values()].flatMap((s) => [...s])])];
-  const series = new Map<string, Record<string, number>>();
-  for (let i = 0; i < historyKeys.length; i += 200) {
-    const { data, error } = await db.from("price_history").select("coingecko_key, series").in("coingecko_key", historyKeys.slice(i, i + 200));
-    if (error) throw new Error(`Failed to load price history: ${error.message}`);
-    for (const row of data as { coingecko_key: string; series: Record<string, number> }[]) series.set(row.coingecko_key, row.series);
-  }
-  const closes = new Map<string, [string, number][]>();
-  for (let i = 0; i < keys.length; i += 200) {
-    const batch = keys.slice(i, i + 200);
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await db
-        .from("asset_price_daily")
-        .select("price_key, day, usd")
-        .in("price_key", batch)
-        .order("price_key")
-        .order("day")
-        .range(from, from + 999);
-      if (error) throw new Error(`Failed to load daily closes: ${error.message}`);
-      for (const r of data as { price_key: string; day: string; usd: number | string }[]) {
-        closes.set(r.price_key, [...(closes.get(r.price_key) ?? []), [r.day, Number(r.usd)]]);
-      }
-      if (data.length < 1000) break;
-    }
-  }
+  // One request (price_history_bundle): paging the daily closes 1,000 rows
+  // at a time cost a serial round trip per page (DECISIONS: 2026-09-29 Page
+  // latency).
+  const { data, error } = await db.rpc("price_history_bundle", { p_history_keys: historyKeys, p_close_keys: keys });
+  if (error) throw new Error(`Failed to load price history: ${error.message}`);
+  const bundle = data as { series: Record<string, Record<string, number>>; closes: Record<string, [string, number | string][]> };
+  const series = new Map(Object.entries(bundle.series));
+  const closes = new Map(Object.entries(bundle.closes).map(([k, points]) => [k, points.map(([day, usd]) => [day, Number(usd)] as [string, number])]));
 
   // Keys with a backfill row (under either name) — analytics.ts's
   // estimateCoverage: daily closes alone don't make a coin "fetched".

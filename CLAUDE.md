@@ -464,7 +464,9 @@ mappings" shows each user how their exchange tickers were matched.
 **History.** Performance keys price history by `price_key` (`priceHistory.ts`
 `getPriceHistoryMap`): old `price_history` rows under the pre-price_key key,
 rows under the key itself, and `asset_price_daily` (the daily snapshot's close,
-`recordDailyCloses`). Backfill fetches CoinGecko coins only.
+`recordDailyCloses`), all three in one request (`price_history_bundle`); each
+wallet's value history likewise (`wallet_value_history`,
+`getWalletValueHistories`). Backfill fetches CoinGecko coins only.
 
 **Open item:** phase 3d drops the legacy stores (`prices`, `coin_market_data`,
 `exchange_asset_registry`, `token_registry` price/stat columns) behind the gate
