@@ -9,6 +9,40 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-29 — Page latency: one round-trip budget, measured on every render
+
+**What happened.** Speed kept coming back one page at a time: Refresh prices
+polling (9.9 s), the Dashboard re-render (~4 s on production), Wallet Watch
+reads. Each fix removed one cause; nothing measured pages as a whole, so the
+next slow page was found by the owner. Measured this day:
+- The site's functions ran in Vercel's default region, iad1 (Washington, DC);
+  the database is in West US (Oregon). The owner moved functions to pdx1.
+- Every page waits through 5–11 serial Supabase round trips (locally, ~100 ms
+  each): Dashboard 18 requests / 7 hops / 1.4–1.7 s of database time; Assets
+  11/5; Portfolio 11/6; Wallets 11/5; a wallet 12/6; Performance 62/9 (2.3 s);
+  Analytics 15/11 (2.2 s); Watchlist 10/6; Wallet Watch 13/5; an influencer
+  18/6; DeFi 7/5.
+- The main cause (Fable's review): every page reads two whole shared tables —
+  `asset_prices` (2,050 rows) then `assets` (1,485) — 1,000 rows per request,
+  each page waiting for the one before (5 hops); sections that don't need the
+  holdings wait for them; the wallets read runs twice (two `cache()` keys).
+
+**Considered and not done.** Next's Cache Components ("use cache"): stable in
+16.3.4, but its in-memory entries don't survive between serverless instances,
+the remote variant costs a lookup about as long as the one database call it
+would replace, and adopting it touches all 41 force-dynamic pages. Streaming
+alone: `router.refresh()` is a transition and shows no fallback, so it can't
+shorten a refresh — only fewer round trips can.
+
+**The rule** (CLAUDE.md §6, "Every page render has a round-trip budget"):
+at most 2 serial round trips; independent reads start together; a shared
+table over 1,000 rows is read in one round trip (an RPC), never paged in a
+render. Every render logs `[render] <path> <load|nav|action> req= hops= db=`
+(`renderMeter.ts`), and `renderBudget.test.ts` fails on a new paging loop.
+And (CLAUDE.md §5): every diagnosis and proposal states the time it saves and
+its effect on each limit — owner, 2026-09-29: "whatever the fix is needs to be
+fast and future proof".
+
 ## 2026-09-29 — Extend before adding
 
 **What happened.** The owner asked to see a KOL's trades over the last few

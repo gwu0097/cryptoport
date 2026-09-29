@@ -38,6 +38,11 @@ function isPath(pathname: string, list: string[]): boolean {
  * visitor; every other route falls through untouched.
  */
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  // The page's path and request kind, for its render's [render] log line
+  // (renderMeter.ts): a full page load, or the router's fetch (a
+  // navigation or refresh — Next removes its rsc header before this runs).
+  const kind = request.headers.get("next-action") ? "action" : request.headers.get("sec-fetch-dest") === "document" ? "load" : "nav";
+  request.headers.set("x-cp-path", `${request.nextUrl.pathname} ${kind}`);
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

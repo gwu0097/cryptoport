@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { meteredFetch } from "./renderMeter";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -13,8 +14,10 @@ if (!supabaseUrl || !serviceRoleKey || !anonKey) {
   );
 }
 
+// Both clients' requests are timed per page render (renderMeter.ts).
 const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
+  global: { fetch: meteredFetch },
 });
 
 /**
@@ -48,6 +51,7 @@ export function serviceDb() {
 export async function userDb() {
   const cookieStore = await cookies();
   const client = createServerClient(supabaseUrl!, anonKey!, {
+    global: { fetch: meteredFetch },
     cookies: {
       getAll() {
         return cookieStore.getAll();

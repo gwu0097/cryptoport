@@ -630,6 +630,14 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `countApiCall`, from `coingeckoFetch`'s `feature` option or its endpoint;
   one RPC per request, after the response) and shown on the API list — name
   the feature when adding a call.
+- **Every diagnosis and proposal states its cost and what it saves**
+  (owner, 2026-09-29): the time saved (measured, or labeled an estimate),
+  and its effect on each limit — Supabase requests a day (§5 budget),
+  Vercel (function invocations, active CPU and duration on Hobby — see the
+  API list), external API calls and credits, and model tokens where an
+  agent or LLM call is involved. Prefer the documented industry-standard
+  approach that also lowers usage; say so when one can't. (DECISIONS:
+  2026-09-29 Page latency)
 - **Batch and dedupe by design:** one pricing pass per event, deduped across
   wallets and users (`ensureAssetPrices` reuses fresh prices); batched endpoints
   (`/coins/markets` by id, `per_page` = batch size); slow-changing data cached in
@@ -722,6 +730,21 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   rate-limited API form a lane (`syncLanes.ts`), lanes run in parallel, each lane
   runs up to `LANE_CONCURRENCY` at once; each wallet is its own request (its own
   time budget); per-wallet status is live and failures are summarized.
+- **Every page render has a round-trip budget: at most `TARGET_HOPS` (2)
+  serial Supabase round trips.** Every independent read starts in the
+  page's one `Promise.all` (a read that waits on another says why); a shared
+  table over 1,000 rows is read in one round trip (an RPC returning json),
+  never paged with `.range()` in a render — `renderBudget.test.ts` fails on
+  a new paging loop and its allowlist only shrinks. Each render logs one
+  line (`renderMeter.ts`, via `meteredFetch` in both Supabase clients; the
+  path and kind come from `proxy.ts`'s `x-cp-path`):
+  `[render] /dashboard load req=18 hops=7 db=1582ms (target ≤ 2 hops)` —
+  check it on Vercel before and after any change to a page or its queries.
+  Streaming doesn't shorten a `router.refresh()` (a transition shows no
+  fallback); fewer round trips do. Functions run in **pdx1** (Vercel →
+  Settings → Functions), next to the database in Oregon. As of 2026-09-29
+  every page is over budget (5–11 hops); the fix is phased. (DECISIONS:
+  2026-09-29 Page latency)
 - **Every click is fast or says why it isn't.** Mutating forms use `SubmitButton`
   with a specific `pendingLabel` ("Refreshing prices…", not "Saving…"); slow work
   gets a caption saying why ("this pulls a live price for every holding").
