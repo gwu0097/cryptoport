@@ -62,3 +62,20 @@ export async function startReadWorker(lane: ReadLane): Promise<void> {
   });
   if (!res.ok) throw new Error(`Read worker (${lane}) not started: HTTP ${res.status}`);
 }
+
+/** Lanes with an address still due and no claim in the last JOB_STALE_MS —
+ * a lane whose chain of links died (a failed start, a killed invocation).
+ * Two requests. */
+export async function stalledLanes(): Promise<ReadLane[]> {
+  const db = serviceDb();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - JOB_STALE_MS).toISOString();
+  const [{ data: due, error }, { data: busy, error: busyError }] = await Promise.all([
+    db.from("watched_addresses").select("chain").lte("next_refresh_at", now.toISOString()).limit(1000),
+    db.from("watched_addresses").select("chain").in("refresh_status", ["syncing", SCHEDULED_STATUS]).gte("refresh_started_at", staleBefore),
+  ]);
+  if (error || busyError) throw new Error((error ?? busyError)!.message);
+  const dueLanes = new Set((due as { chain: string }[]).map((r) => laneOf(r.chain)));
+  const busyLanes = new Set((busy as { chain: string }[]).map((r) => laneOf(r.chain)));
+  return [...dueLanes].filter((l) => !busyLanes.has(l));
+}

@@ -67,7 +67,9 @@ owner's.
   the next link, so every address gets its own 300 s (2026-09-29: one
   invocation read 4 of 24). A second cron delivery within the hour is
   skipped (`app_settings` `wallet_watch_run`); a claim a dead link left is
-  re-claimed once stale (`JOB_STALE_MS`). Each read logs a `[watch-read]`
+  re-claimed once stale (`JOB_STALE_MS`). A safety net at 09:00, 10:00 and
+  11:00 UTC (`api/cron/wallet-watch-tick`, `stalledLanes`) restarts a lane
+  that still has addresses due but hasn't claimed one in `JOB_STALE_MS`. Each read logs a `[watch-read]`
   line with its step times and slowest chains.
   **Watch Insights** (Tools → `/watch-insights`, `watchInsightsQuery.ts` →
   pure `watchInsights.ts`) compares a group: coins at least two of them
@@ -273,7 +275,7 @@ never leave a destructive script anywhere.
   user read-only at `/admin/users/<id>`), API list, Pricing coverage.
   `wallets/actions.ts` holds the sync and price-refresh actions. Also
   `src/app/(auth)/` (sign-in) and `src/app/lookup/` (public address lookup).
-- `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry}` (schedules
+- `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry,wallet-watch,wallet-watch-tick}` (schedules
   in `vercel.json`, gated by `Authorization: Bearer $CRON_SECRET`),
   `job-status` (what `JobPoller` polls), `tv-symbol` (a route handler rather
   than a Server Action so it doesn't wait in the action queue, §6).
