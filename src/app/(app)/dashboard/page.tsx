@@ -170,13 +170,13 @@ export default async function DashboardPage({
     <div data-page-width="full" className="grid grid-flow-row-dense grid-cols-1 gap-4 xl:grid-cols-12">
       <div className="order-1 xl:order-none xl:col-span-12">
         {user ? (
-          <DashboardStats total={grand.total} change={change} positions={summary} watch={watchStats} refresh={<PriceRefreshButton priceState={priceState} />} />
+          <DashboardStats total={grand.total} change={change} positions={summary} watch={watchStats} refresh={<PriceRefreshButton priceState={priceState} compact />} />
         ) : (
           <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
         )}
       </div>
 
-      <div className="order-2 xl:order-none xl:col-span-7 2xl:col-span-8 3xl:col-span-5">
+      <div className="order-2 xl:order-none xl:col-span-5 3xl:col-span-4">
         {user ? (
           <ValueHistoryChart points={withLiveToday(history, new Date(requestNowSec() * 1000).toISOString().slice(0, 10), grand.total)} />
         ) : (
@@ -184,7 +184,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="order-4 xl:order-none xl:col-span-5 2xl:col-span-4 3xl:col-span-3">
+      <div className="order-4 xl:order-none xl:col-span-7 3xl:col-span-5">
         {user ? (
           <MoversCard
             holdings={{ gainers: holdingsGainers, losers: holdingsLosers }}
@@ -214,7 +214,7 @@ export default async function DashboardPage({
       )}
 
       {/* Public market data (not the user's): for everyone, last on a phone. */}
-      <div className="order-6 xl:order-none xl:col-span-12 3xl:col-span-4">
+      <div className="order-6 xl:order-none xl:col-span-12 3xl:col-span-3">
         <CryptoHeatmapPanel />
       </div>
 

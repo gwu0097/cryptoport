@@ -58,7 +58,7 @@ function PhaseRow({ name, phase }: { name: string; phase: PriceRefreshPhases[str
  * refresh's now-irrelevant timing, even though price_refresh_state.phases
  * itself is still sitting there server-side.
  */
-export function PriceRefreshButton({ priceState, walletId }: { priceState: PriceRefreshState; walletId?: string }) {
+export function PriceRefreshButton({ priceState, walletId, compact = false }: { priceState: PriceRefreshState; walletId?: string; compact?: boolean }) {
   const router = useRouter();
   const status = useJobStatus({ status: priceState.status, started_at: priceState.startedAt });
   // The click runs the refresh and waits for it (api/prices/refresh, ~3 s),
@@ -117,8 +117,23 @@ export function PriceRefreshButton({ priceState, walletId }: { priceState: Price
     }
   }, [busy]);
 
+  // Compact (the Dashboard's stat tile): the per-source times and the
+  // click's timing go in the caption's tooltip instead of lines under it.
+  const phaseText = priceState.phases
+    ? PHASE_ORDER.filter((name) => priceState.phases![name])
+        .map((name) => {
+          const p = priceState.phases![name];
+          return `${PHASE_LABELS[name] ?? name}: ${p.status === "running" ? "running…" : p.status === "error" ? "—" : formatMs(p.ms ?? 0)}`;
+        })
+        .join(" · ")
+    : "";
+  const timingText = timing
+    ? `Done in ${formatMs(timing.totalMs)}${timing.requestMs !== null ? ` · request ${formatMs(timing.requestMs)}` : ""}${pricesMs !== null ? ` · prices ${formatMs(pricesMs)}` : ""}${timing.pageMs !== null ? ` · page ${formatMs(timing.pageMs)}` : ""}`
+    : "";
+  const detailsTitle = [phaseText, timingText].filter(Boolean).join("\n");
+
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-end gap-1" title={compact && detailsTitle ? detailsTitle : undefined}>
       <JobButton
         busy={busy}
         submit={submit}
@@ -142,14 +157,14 @@ export function PriceRefreshButton({ priceState, walletId }: { priceState: Price
           (which lane is running, how long each took) the button label
           can't show. */}
       {!busy && <PricedCaption priceState={priceState} />}
-      {showPhases && priceState.phases && (
+      {!compact && showPhases && priceState.phases && (
         <p className="flex flex-wrap justify-end gap-x-2 text-[11px] text-fg-muted/70">
           {PHASE_ORDER.filter((name) => priceState.phases![name]).map((name) => (
             <PhaseRow key={name} name={name} phase={priceState.phases![name]} />
           ))}
         </p>
       )}
-      {timing && !busy && (
+      {!compact && timing && !busy && (
         <p className="text-right text-[11px] text-fg-muted/70" title="From your click to the button unlocking: the price fetch itself, then each time the page reloaded its data.">
           Done in {formatMs(timing.totalMs)}
           {timing.requestMs !== null && ` · request ${formatMs(timing.requestMs)}${timing.serverMs !== null ? ` (server ${formatMs(timing.serverMs)})` : ""}`}

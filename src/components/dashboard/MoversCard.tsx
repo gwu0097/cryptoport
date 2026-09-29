@@ -12,9 +12,9 @@ type Source = "holdings" | "watchlist";
 type Side = "gainers" | "losers";
 
 /**
- * The 24h movers in one card: holdings or watchlist, gainers or losers
- * (tabs for alternatives of the same kind — four stacked lists took a
- * screen of their own). The choice is remembered per browser.
+ * The 24h movers in one card: gainers and losers side by side (owner
+ * 2026-09-29: switching between them was a pain), for holdings or the
+ * watchlist (a tab — the choice is remembered per browser).
  */
 export function MoversCard({
   holdings,
@@ -31,19 +31,13 @@ export function MoversCard({
   watchlistHref: Record<Side, string>;
 }) {
   const [source, setSource] = usePersistedState<Source>("cryptoport:dashboardMoversSource", "holdings");
-  const [side, setSide] = usePersistedState<Side>("cryptoport:dashboardMoversSide", "gainers");
-  const items = (source === "holdings" ? holdings : watchlist)[side];
-  const href = (source === "holdings" ? holdingsHref : watchlistHref)[side];
+  const lists = source === "holdings" ? holdings : watchlist;
+  const hrefs = source === "holdings" ? holdingsHref : watchlistHref;
   return (
     <Panel
       density="compact"
       className="h-full"
       title="Top movers (24h)"
-      actions={
-        <Link href={href} aria-label="View all" className="text-fg-muted transition hover:text-accent">
-          <ChevronRight className="size-4" aria-hidden="true" />
-        </Link>
-      }
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ToggleGroup
@@ -54,17 +48,19 @@ export function MoversCard({
           value={source}
           onChange={setSource}
         />
-        <ToggleGroup
-          options={[
-            { key: "gainers", label: "Gainers" },
-            { key: "losers", label: "Losers" },
-          ]}
-          value={side}
-          onChange={setSide}
-        />
         {source === "watchlist" && watchlistFilter}
       </div>
-      <MoverRows items={items} />
+      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        {(["gainers", "losers"] as const).map((side) => (
+          <div key={side} className="min-w-0">
+            <Link href={hrefs[side]} className="mb-2 flex items-center justify-between text-xs font-medium text-fg-muted hover:text-accent">
+              {side === "gainers" ? "Gainers" : "Losers"}
+              <ChevronRight className="size-3.5" aria-hidden="true" />
+            </Link>
+            <MoverRows items={lists[side]} />
+          </div>
+        ))}
+      </div>
     </Panel>
   );
 }

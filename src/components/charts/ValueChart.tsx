@@ -63,10 +63,13 @@ export function ValueChart({
   points,
   rangeStorageKey,
   emptyRangeMessage = "Not enough data in this range yet — try a wider one.",
+  heightClass = "h-52",
 }: {
   points: ValueChartPoint[];
   rangeStorageKey: string;
   emptyRangeMessage?: string;
+  /** The plot's height (a Tailwind class) — the Dashboard's card is shorter. */
+  heightClass?: string;
 }) {
   const [range, setRange] = usePersistedState<ChartRangeKey>(rangeStorageKey, "90d");
   const rangeDays = CHART_RANGES.find((r) => r.key === range)?.days ?? 90;
@@ -84,13 +87,13 @@ export function ValueChart({
       {sliced.length < 2 ? (
         <p className="mt-4 text-sm text-fg-muted">{emptyRangeMessage}</p>
       ) : (
-        <Chart points={sliced} />
+        <Chart points={sliced} heightClass={heightClass} />
       )}
     </div>
   );
 }
 
-function Chart({ points }: { points: ValueChartPoint[] }) {
+function Chart({ points, heightClass }: { points: ValueChartPoint[]; heightClass: string }) {
   const { hidden } = useHideBalance();
 
   const coords = scalePoints(
@@ -166,7 +169,7 @@ function Chart({ points }: { points: ValueChartPoint[] }) {
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           preserveAspectRatio="none"
-          className="block h-52 w-full"
+          className={`block ${heightClass} w-full`}
           role="img"
           aria-label="Portfolio value over time"
         >
