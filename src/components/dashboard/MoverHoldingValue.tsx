@@ -35,5 +35,5 @@ function tierClass(usd: number): string {
 export function MoverHoldingValue({ usd }: { usd: number | undefined }) {
   const { hidden } = useHideBalance();
   if (usd === undefined || hidden) return null;
-  return <span className={`shrink-0 text-xs ${tierClass(usd)}`}>({formatCompactUsd(usd)})</span>;
+  return <span className={`min-w-0 truncate text-xs ${tierClass(usd)}`}>({formatCompactUsd(usd)})</span>;
 }

@@ -115,15 +115,18 @@ export function MoverRows({ items }: { items: MoverItem[] }) {
       {items.length === 0 ? (
         <p className="text-sm text-fg-muted">Not enough 24h data yet.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-2.5">
           {items.map((item) => (
-            <li key={item.key} className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
+            // Compact: the numbers follow the name in fixed columns; the
+            // links show on hover from sm (they'd take a third of the row),
+            // always on a phone.
+            <li key={item.key} className="group relative flex items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <TokenIcon ticker={item.ticker} url={item.iconUrl} />
-                <span className="truncate text-sm font-medium text-fg">{item.ticker}</span>
+                <span className="max-w-[7rem] shrink-0 truncate text-sm font-medium text-fg">{item.ticker}</span>
                 <MoverHoldingValue usd={item.holdingValueUsd} />
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2">
                 {/* Per-unit price, not the user's own position value — a
                     "Top gainers/losers" ticker list means the market
                     price, matching AssetsTable's own price column; showing
@@ -131,10 +134,13 @@ export function MoverRows({ items }: { items: MoverItem[] }) {
                     (e.g. a $54 ETH "price" that was really a small position's
                     USD value). Watchlist items have no position at all, so
                     this is the only sensible number to show either way. */}
-                <span className="text-sm tabular-nums text-fg-muted">
+                <span className="w-16 text-right text-sm tabular-nums text-fg-muted">
                   {item.price !== null ? formatUsd(item.price) : "—"}
                 </span>
-                <ChangeText value={item.change24h} />
+                <span className="w-16 text-right">
+                  <ChangeText value={item.change24h} />
+                </span>
+                <span className="flex items-center gap-2.5 sm:absolute sm:inset-y-0 sm:right-0 sm:bg-surface sm:pl-2 sm:opacity-0 sm:transition sm:group-hover:opacity-100 sm:focus-within:opacity-100">
                 <Link
                   href={
                     item.coingeckoId
@@ -182,6 +188,7 @@ export function MoverRows({ items }: { items: MoverItem[] }) {
                 ) : (
                   <span className="size-3.5 shrink-0" aria-hidden="true" />
                 )}
+                </span>
               </div>
             </li>
           ))}

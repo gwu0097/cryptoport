@@ -53,11 +53,11 @@ function topMovers(items: MoverItem[]): { gainers: MoverItem[]; losers: MoverIte
   const gainers = eligible
     .filter((i) => (i.change24h as number) > 0)
     .sort((a, b) => (b.change24h as number) - (a.change24h as number))
-    .slice(0, 5);
+    .slice(0, 8);
   const losers = eligible
     .filter((i) => (i.change24h as number) < 0)
     .sort((a, b) => (a.change24h as number) - (b.change24h as number))
-    .slice(0, 5);
+    .slice(0, 8);
   return { gainers, losers };
 }
 
@@ -176,7 +176,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="order-2 xl:order-none xl:col-span-5 3xl:col-span-4">
+      <div className="order-2 xl:order-none xl:col-span-5 2xl:col-span-6 3xl:col-span-4">
         {user ? (
           <ValueHistoryChart points={withLiveToday(history, new Date(requestNowSec() * 1000).toISOString().slice(0, 10), grand.total)} />
         ) : (
@@ -184,7 +184,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="order-4 xl:order-none xl:col-span-7 3xl:col-span-5">
+      <div className="order-4 xl:order-none xl:col-span-7 2xl:col-span-6 3xl:col-span-5">
         {user ? (
           <MoversCard
             holdings={{ gainers: holdingsGainers, losers: holdingsLosers }}

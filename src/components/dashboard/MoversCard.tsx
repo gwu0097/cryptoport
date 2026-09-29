@@ -50,7 +50,10 @@ export function MoversCard({
         />
         {source === "watchlist" && watchlistFilter}
       </div>
-      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+      {/* Two columns only when the card is wide enough for both (a container
+          query, not the screen width: the card's width depends on the grid). */}
+      <div className="@container">
+      <div className="grid gap-x-6 gap-y-4 @[34rem]:grid-cols-2">
         {(["gainers", "losers"] as const).map((side) => (
           <div key={side} className="min-w-0">
             <Link href={hrefs[side]} className="mb-2 flex items-center justify-between text-xs font-medium text-fg-muted hover:text-accent">
@@ -60,6 +63,7 @@ export function MoversCard({
             <MoverRows items={lists[side]} />
           </div>
         ))}
+      </div>
       </div>
     </Panel>
   );

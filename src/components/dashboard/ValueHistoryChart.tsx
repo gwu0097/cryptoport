@@ -45,7 +45,7 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
       <ValueChart
         points={points.map((p) => ({ ...p, kind: "real" as const }))}
         rangeStorageKey={RANGE_STORAGE_KEY}
-        heightClass="h-36"
+        heightClass="h-44"
       />
       {/* Reported directly as a "discrepancy" between this chart's headline
           and the live Total value panel above it — see snapshots.ts's
