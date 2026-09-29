@@ -8,6 +8,7 @@ import { type JobStartResult } from "@/lib/jobStatus";
 import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { JobButton } from "./jobs/JobButton";
+import { usePageRefreshes } from "./jobs/JobPoller";
 
 // One lane per price source in the pricing pass (refreshAssetPrices).
 const PHASE_LABELS: Record<string, string> = {
@@ -64,7 +65,28 @@ export function PriceRefreshButton({
   refresh: () => Promise<JobStartResult>;
 }) {
   const status = useJobStatus({ status: priceState.status, started_at: priceState.startedAt });
-  const { busy, submit, error } = useJob({ status, start: refresh });
+  const { busy, submit: start, error } = useJob({ status, start: refresh });
+  // Where a click's time went: from the click to the button unlocking, the
+  // prices themselves (the slowest lane) and each page refresh after them.
+  const refreshes = usePageRefreshes();
+  const clickedAt = useRef<number | null>(null);
+  const [timing, setTiming] = useState<{ totalMs: number; refreshes: number[] } | null>(null);
+  const submit = () => {
+    clickedAt.current = Date.now();
+    setTiming(null);
+    start();
+  };
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (busy) wasBusy.current = true;
+    else if (wasBusy.current && clickedAt.current !== null) {
+      const since = clickedAt.current;
+      setTiming({ totalMs: Date.now() - since, refreshes: refreshes.filter((r) => r.at >= since).map((r) => r.ms) });
+      wasBusy.current = false;
+      clickedAt.current = null;
+    }
+  }, [busy, refreshes]);
+  const pricesMs = priceState.phases ? Math.max(0, ...Object.values(priceState.phases).map((p) => p.ms ?? 0)) : null;
 
   const hasObservedRefresh = useRef(false);
   const [showPhases, setShowPhases] = useState(false);
@@ -108,6 +130,13 @@ export function PriceRefreshButton({
           {PHASE_ORDER.filter((name) => priceState.phases![name]).map((name) => (
             <PhaseRow key={name} name={name} phase={priceState.phases![name]} />
           ))}
+        </p>
+      )}
+      {timing && !busy && (
+        <p className="text-right text-[11px] text-fg-muted/70" title="From your click to the button unlocking: the price fetch itself, then each time the page reloaded its data.">
+          Done in {formatMs(timing.totalMs)}
+          {pricesMs !== null && ` · prices ${formatMs(pricesMs)}`}
+          {timing.refreshes.length > 0 && ` · page refreshed ${timing.refreshes.length}× (${timing.refreshes.map(formatMs).join(", ")})`}
         </p>
       )}
       {error && <p className="max-w-xs text-right text-xs text-negative">{error}</p>}

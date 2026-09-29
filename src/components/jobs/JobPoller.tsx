@@ -10,6 +10,16 @@ interface JobPollerContextValue {
   register: (id: string, busy: boolean, pollMs: number) => void;
   unregister: (id: string) => void;
   tick: number;
+  /** Each page refresh this poller made (notifyJobsComplete): when it
+   * started and how long it took — shown by the Refresh prices button, so
+   * a slow click says where its time went (2026-09-29: 30 s felt, 5.5 s
+   * of it the refresh itself). */
+  refreshes: PageRefresh[];
+}
+
+export interface PageRefresh {
+  at: number;
+  ms: number;
 }
 
 const JobPollerContext = createContext<JobPollerContextValue | null>(null);
@@ -130,9 +140,11 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
   // unrecognized tokens, ~4 s, 2026-09-25) the queue grew faster than it
   // drained and the button sat on "Syncing…" long after the sync finished.
   const notifyingRef = useRef(false);
+  const [refreshes, setRefreshes] = useState<PageRefresh[]>([]);
   const notify = useCallback(async () => {
     if (notifyingRef.current) return;
     notifyingRef.current = true;
+    const at = Date.now();
     try {
       await notifyJobsComplete();
     } catch {
@@ -141,6 +153,7 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
       router.refresh();
     } finally {
       notifyingRef.current = false;
+      setRefreshes((r) => [...r.slice(-19), { at, ms: Date.now() - at }]);
     }
   }, [router]);
 
@@ -244,7 +257,7 @@ export function JobPollerProvider({ children }: { children: ReactNode }) {
     };
   }, [minPollMs, notify]);
 
-  return <JobPollerContext.Provider value={{ register, unregister, tick }}>{children}</JobPollerContext.Provider>;
+  return <JobPollerContext.Provider value={{ register, unregister, tick, refreshes }}>{children}</JobPollerContext.Provider>;
 }
 
 let nextId = 0;
@@ -275,4 +288,9 @@ export function useJobPolling(busy: boolean, pollMs: number): void {
  * changing. Returns 0 (never advances) if no provider is mounted. */
 export function useJobPollerTick(): number {
   return useContext(JobPollerContext)?.tick ?? 0;
+}
+
+/** The page refreshes this poller made, oldest first (see PageRefresh). */
+export function usePageRefreshes(): PageRefresh[] {
+  return useContext(JobPollerContext)?.refreshes ?? [];
 }
