@@ -5,7 +5,7 @@ import { readAssetPrices } from "./adapters/assetPrices";
 import { evmCheckable, readEvmChain, readSolana, type SourceRead } from "./adapters/watchActivitySources";
 import { identifyLegs } from "./watchActivityCheck";
 import { WEBHOOK_NETWORKS } from "./alchemyWebhookTx";
-import { CASH_KEYS, type TxActivity } from "./watchActivity";
+import { CASH_KEYS, DOLLAR_KEYS, type TxActivity } from "./watchActivity";
 import { assetStates } from "./watchDiff";
 import { extendCoverage, HISTORY_KEEP_DAYS, mergeHistoryLegs, planHistoryReads, type HistoryDays, type TradeHistory } from "./watchHistory";
 import { backfillMovements, readTimes } from "./watchBackfill";
@@ -44,8 +44,6 @@ const inFlight = createTtlCache<BackfillResult>(10_000, 100);
 /** Chains always read on an EVM address: the live networks and Base, besides the snapshot's. */
 const ALWAYS = [...Object.keys(WEBHOOK_NETWORKS), "base"];
 const DAY_MS = 86_400_000;
-/** Cash coins that are dollars (watchActivity.ts CASH_KEYS' stablecoins). */
-const STABLE_KEYS: ReadonlySet<string> = new Set(["usd-coin", "tether", "dai", "usds", "ethena-usde", "first-digital-usd", "paypal-usd", "usd1-wlfi", "global-dollar"]);
 /** Pages of 100 per direction per chain: a split-order trader (VirtualBacon,
  * 461 transactions in a week on Robinhood Chain) overflows the day check's 5. */
 const HISTORY_PAGES = 20;
@@ -119,7 +117,7 @@ async function run(addresses: { chain: string; address: string }[], days: Histor
   if (closeRows.error) throw new Error(closeRows.error.message);
   const close = new Map((closeRows.data as { price_key: string; day: string; usd: number | string }[]).map((c) => [`${c.price_key}|${c.day}`, parseNumeric(c.usd)]));
   // A stablecoin is $1 on a day with no stored close (USDG: none stored).
-  const closeOn = (key: string, day: string) => close.get(`${key}|${day}`) ?? (STABLE_KEYS.has(key) ? 1 : null);
+  const closeOn = (key: string, day: string) => close.get(`${key}|${day}`) ?? (DOLLAR_KEYS.has(key) ? 1 : null);
   const cashCloseOn = (key: string, day: string) => (CASH_KEYS.has(key) ? closeOn(key, day) : null);
 
   for (const r of toFill) {

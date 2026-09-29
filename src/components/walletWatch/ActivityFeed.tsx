@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { WatchMovementView } from "@/lib/watchQuery";
 import { formatPercent, formatPrice, formatQty, formatUsdSigned } from "@/lib/format";
 import { AgeText } from "@/components/AgeText";
-import { CASH_KEYS } from "@/lib/watchActivity";
+import { DOLLAR_KEYS } from "@/lib/watchActivity";
 import { CopyButton } from "@/components/CopyButton";
 
 const VERB: Record<WatchMovementView["kind"], { token: string; perp: string; prediction: string }> = {
@@ -12,9 +12,11 @@ const VERB: Record<WatchMovementView["kind"], { token: string; perp: string; pre
   exited: { token: "sold all", perp: "closed", prediction: "exited" },
 };
 
-/** SOL, USDC and the like: the coins trades are paid in. Their balance
- * moving is cash from sales or spent on buys, not an investment decision. */
-const isCash = (m: WatchMovementView) => m.positionType === "token" && !!m.priceKey && CASH_KEYS.has(m.priceKey);
+/** Dollars (USDC, USDT, …): moving into them is cash up, out of them cash
+ * down. SOL, ETH and every other coin are added / trimmed / sold like any
+ * token (owner 2026-09-29: a swap from SOL to a meme is "sold SOL, added
+ * MEME", not cash). */
+const isCash = (m: WatchMovementView) => m.positionType === "token" && !!m.priceKey && DOLLAR_KEYS.has(m.priceKey);
 
 function what(m: WatchMovementView): string {
   if (m.positionType === "perp") return `${m.side ?? ""} ${m.ticker}`.trim();

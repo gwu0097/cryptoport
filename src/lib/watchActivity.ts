@@ -87,6 +87,12 @@ export const CASH_KEYS: ReadonlySet<string> = new Set([
   "global-dollar", // USDG — Robinhood Chain's dollar (VirtualBacon pays in it)
 ]);
 
+/** The dollar coins among them (and a venue's USD balance): moving into or
+ * out of these is cash up / cash down — a bearish or bullish call — while
+ * SOL or ETH are coins like any other (owner 2026-09-29: "sold SOL, cashed
+ * up USDC"). */
+export const DOLLAR_KEYS: ReadonlySet<string> = new Set(["usd-coin", "tether", "dai", "usds", "ethena-usde", "first-digital-usd", "paypal-usd", "usd1-wlfi", "global-dollar", "fiat:USD"]);
+
 /** Native SOL moves under this per transaction (rent, fees, tips) without
  * any other coin are not activity. */
 export const SOL_DUST = 0.005;
