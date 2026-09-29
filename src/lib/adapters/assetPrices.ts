@@ -269,14 +269,21 @@ export async function refreshAssetPrices(
 export async function ensureAssetPrices(keys: (string | null | undefined)[], trigger: string, maxAgeMs = 15 * 60 * 1000): Promise<void> {
   const distinct = [...new Set(keys.filter((k): k is string => !!k))];
   if (distinct.length === 0) return;
+  // Priced recently, or *tried* recently: a coin no source prices used to
+  // count as stale forever, so every read and sync holding one ran a whole
+  // pricing pass again (2026-09-29, Fable's review) — and an EVM read priced
+  // its coins twice. A key tried within maxAgeMs waits for the next pass.
   const fresh = new Set<string>();
+  const since = new Date(Date.now() - maxAgeMs).toISOString();
   for (let i = 0; i < distinct.length; i += 500) {
     const { data } = await serviceDb()
       .from("asset_prices")
-      .select("price_key, usd, updated_at")
+      .select("price_key, usd, updated_at, last_attempt_at")
       .in("price_key", distinct.slice(i, i + 500))
-      .gte("updated_at", new Date(Date.now() - maxAgeMs).toISOString());
-    for (const r of (data ?? []) as { price_key: string; usd: unknown }[]) if (r.usd !== null) fresh.add(r.price_key);
+      .or(`updated_at.gte.${since},last_attempt_at.gte.${since}`);
+    for (const r of (data ?? []) as { price_key: string; usd: unknown; updated_at: string | null; last_attempt_at: string | null }[]) {
+      if ((r.last_attempt_at && r.last_attempt_at >= since) || (r.usd !== null && r.updated_at && r.updated_at >= since)) fresh.add(r.price_key);
+    }
   }
   const stale = distinct.filter((k) => !fresh.has(k));
   if (stale.length > 0) await refreshAssetPrices(trigger, stale);
