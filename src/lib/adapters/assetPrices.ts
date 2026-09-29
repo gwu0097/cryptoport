@@ -2,6 +2,7 @@ import "server-only";
 import { serviceDb } from "../supabase";
 import { fetchMarketStatsByIds } from "./coingecko";
 import { fetchLlamaPrices } from "./llamaPrices";
+import { chunkByLength, MAX_LIST_CHARS } from "../urlBatch";
 import { fetchTokenInfo } from "./jupiter";
 import { fetchHyperliquidSpotPrices, fetchHyperliquidPerpMarks } from "./hyperliquid";
 import { fetchLighterPerpMarks } from "./lighter";
@@ -92,7 +93,7 @@ export async function refreshAssetPrices(
   if (cg.length) {
     lanes.push(
       lane("coingecko", cg, async () => {
-        calls.coingecko = Math.ceil(cg.length / 250);
+        calls.coingecko = chunkByLength(cg, MAX_LIST_CHARS, 250).length;
         let stats: Awaited<ReturnType<typeof fetchMarketStatsByIds>>;
         try {
           stats = await fetchMarketStatsByIds(cg);

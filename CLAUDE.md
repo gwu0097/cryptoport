@@ -344,7 +344,7 @@ CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<TICKER>` /
 `market_cap` columns, filled by `refreshAssetPrices` (`adapters/assetPrices.ts`)
 in one lane per source — coingecko, jupiter, hyperliquid, coinbase — with
 `fiat:USD` fixed at $1. When CoinGecko fails (2026-09-29: its CloudFront
-blocked every call from Vercel), the same ids are priced from DefiLlama
+refused the long 250-id queries), the same ids are priced from DefiLlama
 (`adapters/llamaPrices.ts`: price and 24h change, serial calls 1.5 s apart;
 market cap and volume keep their stored values — rows are saved in groups
 of the same columns, since an upsert nulls a column a row lacks). A price is **never overwritten with null**
@@ -621,6 +621,10 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   reproduce against the real endpoint (under realistic load) before calling it a
   structural limitation. (DECISIONS: before 2026-09-22 "The API doesn't have
   this data")
+- **A list packed into one URL is split by length, not only by count**
+  (`urlBatch.ts` `chunkByLength`): CoinGecko's CloudFront refuses a query
+  over ~2,000 characters with a bare 403 "Request blocked" — 250 coin ids
+  (~3,400) failed every price refresh on 2026-09-29, from everywhere.
 - Every external `fetch()` passes `cache: "no-store"`. Live financial data is
   never cached without a staleness caption next to it.
 

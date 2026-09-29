@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { coingeckoError, coingeckoFetch, COINGECKO_HAS_KEY } from "./coingeckoFetch";
+import { chunkByLength, MAX_LIST_CHARS } from "../urlBatch";
 import { createTtlCache, type Fetched } from "../ttlCache";
 import { EVM_CHAINS } from "./evmChains";
 import { serviceDb } from "../supabase";
@@ -152,12 +153,6 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
   return results;
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
-  return chunks;
-}
-
 export interface CoingeckoPrice {
   usd: number;
   /** 24h % change, e.g. 1.81 for +1.81% — free in the same response via
@@ -178,7 +173,7 @@ export async function fetchTokenPrices(
   const prices = new Map<string, CoingeckoPrice>();
   if (contracts.length === 0) return prices;
 
-  for (const batch of chunk(contracts, PRICE_BATCH_SIZE)) {
+  for (const batch of chunkByLength(contracts, MAX_LIST_CHARS, PRICE_BATCH_SIZE)) {
     const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     // Longer backoff (5 tries, 6s base): two EVM wallets syncing at once
     // outran the per-minute limit with the default 3 tries (2026-09-25).
@@ -233,7 +228,7 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
   const stats = new Map<string, CoingeckoMarketStats>();
   if (coingeckoIds.length === 0) return stats;
 
-  for (const batch of chunk(coingeckoIds, MARKETS_BATCH_SIZE)) {
+  for (const batch of chunkByLength(coingeckoIds, MAX_LIST_CHARS, MARKETS_BATCH_SIZE)) {
     // "24h" has to be listed explicitly here too — live-verified that
     // price_change_percentage_24h_in_currency is only present in the
     // response when its own window is named in this param; omitting it
@@ -308,7 +303,7 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
   const missing = distinct.filter((id) => !images.has(id));
 
   const fetched: { coingecko_id: string; image_url: string; updated_at: string }[] = [];
-  for (const batch of chunk(missing, MARKETS_BATCH_SIZE)) {
+  for (const batch of chunkByLength(missing, MAX_LIST_CHARS, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&sparkline=false`; // per_page: see fetchMarketStatsByIds
     const res = await coingeckoFetch(url, { feature: "logos" });
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status} (${await coingeckoError(res)})`);
@@ -345,7 +340,7 @@ async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, 
   const distinct = [...new Set(symbols.map((s) => s.toLowerCase()))];
   if (distinct.length === 0) return images;
 
-  for (const batch of chunk(distinct, MARKETS_BATCH_SIZE)) {
+  for (const batch of chunkByLength(distinct, MAX_LIST_CHARS, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&symbols=${batch.join(",")}`;
     const res = await coingeckoFetch(url, { feature: "logos by symbol" });
     if (!res.ok) throw new Error(`CoinGecko coins/markets(symbols) failed: HTTP ${res.status}`);
@@ -588,7 +583,7 @@ export async function fetchMarketsByIds(ids: string[]): Promise<MarketDataRow[]>
 // React cache() compares args by identity, so dedupe on a canonical string, not the array.
 const fetchMarketsByIdsKey = cache(async (idsCsv: string): Promise<MarketDataRow[]> => {
   const results: MarketDataRow[] = [];
-  for (const batch of chunk(idsCsv.split(","), MARKETS_BATCH_SIZE)) {
+  for (const batch of chunkByLength(idsCsv.split(","), MAX_LIST_CHARS, MARKETS_BATCH_SIZE)) {
     results.push(...(await fetchMarketsPage(`ids=${batch.join(",")}`, 1, batch.length)));
   }
   return results;
