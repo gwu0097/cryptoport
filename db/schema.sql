@@ -2645,6 +2645,15 @@ create policy "watched_positions: watchers only" on cryptoport.watched_positions
 -- RLS policy opens anyone's rows to others.
 alter table cryptoport.watch_influencers add column if not exists share_token text unique;
 
+-- Wallet Watch (2026-09-28): a copy made from a share link records its source
+-- and follows its address changes while it's shared (watchCopySync.ts);
+-- null for an influencer the user created. The original deleted: the copy
+-- keeps its addresses and stops following.
+alter table cryptoport.watch_influencers
+  add column if not exists copied_from uuid references cryptoport.watch_influencers(id) on delete set null;
+create index if not exists watch_influencers_copied_from_idx
+  on cryptoport.watch_influencers (copied_from) where copied_from is not null;
+
 -- Exact attribution (Analytics "What moved your portfolio"): each daily wallet
 -- snapshot also records what it was made of — per coin (price_key) the
 -- quantity and the price used, and the value held outside a priced coin

@@ -185,7 +185,13 @@ owner's.
   `/wallet-watch/shared/<token>` — any signed-in user sees it read-only
   (`watchQuery.ts` `getSharedInfluencer` reads with the service role only
   after the token matches; the owner's note and groups are never included)
-  and can copy it into their own list. The address lookup (`/lookup`) is
+  and can copy it into their own list. A copy records its source
+  (`watch_influencers.copied_from`) and follows it: an address the sharer
+  adds or removes is added to or removed from every copy while the source
+  is shared (`watchCopySync.ts`, from `watchAddress`/`removeWatchedAddress`;
+  only the change, so a copier's own additions and removals stay; copies of
+  copies too). "Stop following" on the copy ends it; an influencer the user
+  created follows nothing. The address lookup (`/lookup`) is
   public; lookup links need no account.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.

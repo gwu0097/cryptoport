@@ -47,6 +47,9 @@ export interface WatchedInfluencer {
   note: string | null;
   /** Set while the owner shares it (/wallet-watch/shared/<token>). */
   shareToken: string | null;
+  /** The shared influencer this one was copied from: its addresses follow
+   * that one's (watchCopySync.ts). Null for one the user created. */
+  copiedFrom: string | null;
   groupIds: string[];
   addresses: WatchedAddressView[];
   /** Sum over addresses read at least once; null if none has been. */
@@ -89,7 +92,7 @@ function valueSnapshot(snapshot: WatchSnapshot, prices: PriceMap) {
   return { total, unpriced, assets: [...byAsset.values()] };
 }
 
-type InfluencerRow = { id: string; name: string; link: string | null; note: string | null; share_token: string | null };
+type InfluencerRow = { id: string; name: string; link: string | null; note: string | null; share_token: string | null; copied_from?: string | null };
 type WatchData = {
   influencers: InfluencerRow[];
   addresses: { id: string; influencer_id: string; chain: string; address: string }[];
@@ -105,7 +108,7 @@ const WATCHED_COLUMNS = "chain, address, snapshot, last_refresh_at, last_refresh
  * or two snapshots, not all of them: 121 KB for 19 addresses, 2026-09-28). */
 async function readWatch(onlyId?: string): Promise<WatchData> {
   const db = await userDb();
-  const influencersQ = db.from("watch_influencers").select("id, name, link, note, share_token, created_at").order("created_at");
+  const influencersQ = db.from("watch_influencers").select("id, name, link, note, share_token, copied_from, created_at").order("created_at");
   const addressesQ = db.from("watch_influencer_addresses").select("id, influencer_id, chain, address").order("created_at");
   const linksQ = db.from("watch_group_influencers").select("group_id, influencer_id");
   const [influencers, addresses, groups, links] = await Promise.all([
@@ -195,6 +198,7 @@ function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[
       link: inf.link,
       note: inf.note,
       shareToken: inf.share_token,
+      copiedFrom: inf.copied_from ?? null,
       groupIds: data.links.filter((l) => l.influencer_id === inf.id).map((l) => l.group_id),
       addresses,
       valueUsd: value,

@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/adminAuth";
 import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
+import { syncCopies } from "@/lib/watchCopySync";
 import { detectChain } from "@/lib/lookup";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { claimWatchedAddresses, ensureWatchedAddress, refreshWatchedAddresses, type WatchedKey } from "@/lib/watchRefresh";
@@ -103,6 +104,8 @@ export async function watchAddress(input: {
   }
   const { error } = await db.from("watch_influencer_addresses").insert({ influencer_id: influencerId, ...parsed });
   if (error) return fail(friendly(error.message));
+  // Copies of this influencer made from its share link get it too.
+  if (!created) await syncCopies(influencerId, { kind: "add", chain: parsed.chain, address: parsed.address }).catch((e) => console.error(`Copies not updated: ${(e as Error).message}`));
 
   if (input.groupIds?.length) {
     const { error: groupError } = await db
@@ -144,7 +147,21 @@ export async function removeInfluencer(id: string): Promise<WatchActionResult> {
 export async function removeWatchedAddress(addressId: string, influencerId: string): Promise<WatchActionResult> {
   await requireUser();
   const db = await userDb();
-  const { error } = await db.from("watch_influencer_addresses").delete().eq("id", addressId);
+  const { data, error } = await db.from("watch_influencer_addresses").delete().eq("id", addressId).select("chain, address");
+  if (error) return { ok: false, error: error.message };
+  const removed = (data as { chain: string; address: string }[] | null)?.[0];
+  // Copies of this influencer made from its share link lose it too.
+  if (removed) await syncCopies(influencerId, { kind: "remove", ...removed }).catch((e) => console.error(`Copies not updated: ${(e as Error).message}`));
+  revalidate(influencerId);
+  return { ok: true };
+}
+
+/** A copy stops following the shared list it came from: its addresses are
+ * then its own. */
+export async function stopFollowing(influencerId: string): Promise<WatchActionResult> {
+  await requireUser();
+  const db = await userDb();
+  const { error } = await db.from("watch_influencers").update({ copied_from: null }).eq("id", influencerId);
   if (error) return { ok: false, error: error.message };
   revalidate(influencerId);
   return { ok: true };
@@ -234,14 +251,16 @@ export async function unshareInfluencer(id: string): Promise<WatchActionResult> 
 }
 
 /** Adds a shared influencer to the viewer's own Wallet Watch: the same name,
- * link and addresses (not the sharer's note or groups). The addresses are
- * already read (one shared row each), so nothing is re-read. */
+ * link and addresses (not the sharer's note or groups), following the
+ * sharer's later address changes. The addresses are already read (one
+ * shared row each), so nothing is re-read. */
 export async function addSharedInfluencer(token: string): Promise<WatchActionResult> {
   await requireUser();
   const shared = await getSharedInfluencer(token);
   if (!shared) return { ok: false, error: "This share link no longer works." };
   const db = await userDb();
-  const { data, error } = await db.from("watch_influencers").insert({ name: shared.influencer.name, link: shared.influencer.link }).select("id").single();
+  // Remembers its source: the sharer's later address changes follow (watchCopySync.ts).
+  const { data, error } = await db.from("watch_influencers").insert({ name: shared.influencer.name, link: shared.influencer.link, copied_from: shared.influencer.id }).select("id").single();
   if (error) return { ok: false, error: friendly(error.message) };
   const influencerId = data.id as string;
   const { error: addrError } = await db

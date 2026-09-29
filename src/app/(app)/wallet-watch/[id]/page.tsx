@@ -15,6 +15,7 @@ import { ShareInfluencerButton } from "@/components/walletWatch/ShareInfluencerB
 import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/InfluencerSections";
 import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
 import { RecentTradesPanel } from "@/components/walletWatch/RecentTradesPanel";
+import { FollowingNote } from "@/components/walletWatch/FollowingNote";
 import { DayActivity } from "@/components/walletWatch/DayActivity";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 
@@ -74,6 +75,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         valueExtra={
           <>
             <InfluencerEditor influencer={influencer} groups={groups} />
+            {influencer.copiedFrom && <FollowingNote influencerId={influencer.id} />}
             {live && live.addresses > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
           </>
         }
