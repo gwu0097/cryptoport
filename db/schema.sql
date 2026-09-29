@@ -2752,3 +2752,41 @@ alter table cryptoport.watched_addresses add column if not exists trade_history 
 -- written by a read.
 alter table cryptoport.watched_movements
   add column if not exists source text not null default 'snapshot' check (source in ('snapshot', 'transactions'));
+
+-- (2026-09-29) Supabase pg_cron + pg_net (enabled in the dashboard); the
+-- site URL and CRON_SECRET are Vault secrets cryptoport_site_url /
+-- cryptoport_cron_secret, added in the dashboard (never in SQL).
+-- Wallet Watch daily read: every minute 08:00–09:59 UTC, only while an
+-- address someone watches is due, call the app's tick (it fills each read
+-- lane's free slots). URL and secret come from Supabase Vault.
+select cron.schedule(
+  'cryptoport-wallet-watch-tick',
+  '* 8-9 * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'cryptoport_site_url') || '/api/wallet-watch/tick',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cryptoport_cron_secret'),
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 10000
+  )
+  where exists (
+    select 1
+    from cryptoport.watched_addresses w
+    join cryptoport.watch_influencer_addresses i on i.chain = w.chain and i.address = w.address
+    where w.next_refresh_at <= now()
+  );
+  $$
+);
+
+-- Keep pg_cron's run log to a week (Sundays 03:00 UTC).
+select cron.schedule(
+  'cryptoport-cron-log-cleanup',
+  '0 3 * * 0',
+  $$ delete from cron.job_run_details where end_time < now() - interval '7 days' $$
+);
+
+-- Check: both jobs listed.
+select jobname, schedule, active from cron.job where jobname like 'cryptoport-%';

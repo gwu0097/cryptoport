@@ -59,18 +59,20 @@ owner's.
   ≥ $100 and either ≥ 1% of the position or ≥ $5,000 is a movement; coins summed across chains; venue cash,
   kept rows, unpriced and illiquid coins never move), each position's life
   (`watchPositions.ts`, `watched_positions`) and the day's value
-  (`watched_address_daily`). `/api/cron/wallet-watch` (08:00 UTC) runs
-  one batched pricing pass and starts the read lanes (`watchReadQueue.ts`:
-  EVM ×2, Solana ×1, other ×1 — per API family, since the pacers are per
-  process): each `api/wallet-watch/read` invocation answers at once, then
-  in `after()` claims the next due address of its lane, reads it and starts
-  the next link, so every address gets its own 300 s (2026-09-29: one
-  invocation read 4 of 24). A second cron delivery within the hour is
-  skipped (`app_settings` `wallet_watch_run`); a claim a dead link left is
-  re-claimed once stale (`JOB_STALE_MS`). A safety net at 09:00, 10:00 and
-  11:00 UTC (`api/cron/wallet-watch-tick`, `stalledLanes`) restarts a lane
-  that still has addresses due but hasn't claimed one in `JOB_STALE_MS`. Each read logs a `[watch-read]`
-  line with its step times and slowest chains.
+  (`watched_address_daily`). The daily read (2026-09-29, two Fable reviews):
+  Supabase **pg_cron** calls `api/wallet-watch/tick` every minute 08:00–09:59
+  UTC, only while an address someone watches is due (checked inside
+  Postgres — a finished run costs nothing; URL and `CRON_SECRET` in Supabase
+  Vault as `cryptoport_site_url` / `cryptoport_cron_secret`). The first tick
+  of the day runs one batched pricing pass and the retention trim
+  (`app_settings` `wallet_watch_run`); every tick fills each lane's free
+  slots (`watchReadQueue.ts` `freeSlots`: EVM ×2, Solana ×1, other ×1) with
+  one `api/wallet-watch/read` call each, which claims one due address
+  (`claimNextInLane`), reads it and **stops**. Never chain calls to our own
+  site: Vercel answers HTTP 508 (loop detected) after ~4 hops (seen live).
+  An address whose claim died in the last 2 h killed its read (> 300 s): it's
+  marked failed and waits for tomorrow. Each read logs a `[watch-read]` line
+  with its step times and slowest chains; ticks and reads log their hop depth.
   **Watch Insights** (Tools → `/watch-insights`, `watchInsightsQuery.ts` →
   pure `watchInsights.ts`) compares a group: coins at least two of them
   bought in the window, coins at least two hold now (≥ 0.5% of each wallet),
@@ -275,7 +277,7 @@ never leave a destructive script anywhere.
   user read-only at `/admin/users/<id>`), API list, Pricing coverage.
   `wallets/actions.ts` holds the sync and price-refresh actions. Also
   `src/app/(auth)/` (sign-in) and `src/app/lookup/` (public address lookup).
-- `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry,wallet-watch,wallet-watch-tick}` (schedules
+- `src/app/api/` — `cron/{snapshot,screener-snapshot,token-registry}`, `wallet-watch/{tick,read}` (pg_cron, Supabase) (schedules
   in `vercel.json`, gated by `Authorization: Bearer $CRON_SECRET`),
   `job-status` (what `JobPoller` polls), `tv-symbol` (a route handler rather
   than a Server Action so it doesn't wait in the action queue, §6).

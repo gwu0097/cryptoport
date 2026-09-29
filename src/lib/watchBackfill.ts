@@ -11,7 +11,7 @@ import { moveKind, type MoveKind } from "./watchDiff.ts";
 import type { ActivityLeg } from "./watchActivity.ts";
 
 const DAY_MS = 86_400_000;
-/** The cron's read time (api/cron/wallet-watch, 08:00 UTC). */
+/** The daily read's start (pg_cron → api/wallet-watch/tick, 08:00 UTC). */
 export const READ_HOUR_UTC = 8;
 
 export interface BackfillMovement {
