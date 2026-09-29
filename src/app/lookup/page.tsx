@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { getChainIconMap } from "@/lib/queries";
 import { ExternalLink, Eye } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getWatchOverview } from "@/lib/watchQuery";
+import { getWatchFeedTargets } from "@/lib/watchQuery";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
@@ -82,8 +83,10 @@ async function LookupResults({
   }
 
   const externalViewer = externalPortfolioViewer(result.chain, result.address);
-  // Wallet Watch: offer to watch this address, or say who it's watched as.
-  const watch = (await getUser()) ? await getWatchOverview() : null;
+  // Wallet Watch: offer to watch this address, or say who it's watched as —
+  // names and addresses only (no snapshots or prices: those read every price).
+  // The holdings table's chain icons load alongside (cached per request).
+  const [watch] = await Promise.all([(await getUser()) ? getWatchFeedTargets() : null, getChainIconMap()]);
   const normalized = normalizeWatchAddress(result.address);
   const watchedAs = watch?.influencers.find((i) => i.addresses.some((a) => a.address === normalized));
 

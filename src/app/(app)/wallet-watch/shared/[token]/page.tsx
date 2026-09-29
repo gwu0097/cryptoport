@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Eye } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getSharedInfluencer, getWatchOverview } from "@/lib/watchQuery";
+import { getSharedInfluencer, getWatchFeedTargets } from "@/lib/watchQuery";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { SignInPrompt } from "@/components/SignInPrompt";
@@ -25,7 +25,7 @@ export default async function SharedInfluencerPage({ params, searchParams }: { p
   if (!shared) notFound();
   const { influencer, holdings, notListed, movements, daily } = shared;
   // Already watching every one of these addresses? Say where, instead of offering a copy.
-  const mine = (await getWatchOverview()).influencers.find((i) => influencer.addresses.every((a) => i.addresses.some((b) => b.address === a.address)));
+  const mine = (await getWatchFeedTargets()).influencers.find((i) => influencer.addresses.every((a) => i.addresses.some((b) => b.address === a.address)));
 
   return (
     <>
