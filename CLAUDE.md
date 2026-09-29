@@ -120,6 +120,17 @@ owner's.
   delivered on all three) so no leg is "unclear". On an EVM row "webhook
   missed" counts only those three networks.
   Turning it on only works from the deployed site (the providers need a public URL).
+  **Discord alerts** (owner 2026-09-28): every live delivery that adds legs
+  is compared before/after with `coinDays` (`watchAlerts.ts`, pure) and
+  posts only a change, never per transaction — opened (not held at the
+  read, today's buys reach `ALERT_MIN_USD` $100), added (today's buys cross
+  `ADD_STEPS_USD` $1K/5K/10K…), sold out (worth under $1 now), trimmed
+  (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
+  (`watchAlertSend.ts` → `adapters/discordWebhook.ts`; opens and full exits
+  ping `DISCORD_WATCH_ROLE_ID`, nobody else is ever pinged). One request
+  for the trader's name, only when there's something to post; a failure is
+  logged, never fails the delivery; a retried delivery adds no legs, so it
+  can't post twice. Refresh activity doesn't post.
   Open pages update by themselves: after a delivery adds a new line, the
   receiver sends one empty Supabase Realtime broadcast (`liveBroadcast.ts`,
   channel in `liveChannel.ts`); an activity panel showing a live influencer
@@ -233,7 +244,7 @@ Env var names (values only in `.env.local` / Vercel): `NEXT_PUBLIC_SUPABASE_URL`
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
 `NEXT_PUBLIC_SITE_URL`, `COINGECKO_API_KEY`, `COINGECKO_API_KEY_BACKUP`,
 `ETHERSCAN_API_KEY`, `HELIUS_API_KEY`, `ALCHEMY_API_KEY`, `ZERION_API_KEY`,
-`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `HELIUS_WEBHOOK_SECRET`, `ALCHEMY_NOTIFY_TOKEN`, `SECRETS_ENCRYPTION_KEY`,
+`JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `HELIUS_WEBHOOK_SECRET`, `ALCHEMY_NOTIFY_TOKEN`, `DISCORD_WATCH_WEBHOOK_URL`, `DISCORD_WATCH_ROLE_ID`, `SECRETS_ENCRYPTION_KEY`,
 `ADMIN_EMAIL`, `CRON_SECRET` (Vercel only); scripts only:
 `SCREENER_ARCHIVE_DIR`, `SIGNALS_ARCHIVE_DIR`.
 

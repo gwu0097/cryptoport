@@ -231,6 +231,10 @@ export const UNLISTED_HOSTS: { reason: string; hosts: string[] }[] = [
     hosts: ["api.coinbase.com", "api.exchange.coinbase.com", "api.kraken.com", "api.gemini.com", "api.mexc.com"],
   },
   {
+    reason: "The owner's own Discord channel webhook (free; ~30 messages a minute, far above the alerts' pace)",
+    hosts: ["discord.com", "discordapp.com"],
+  },
+  {
     reason: "A free embed shown in the browser",
     hosts: ["s3.tradingview.com", "coin360.com"],
   },

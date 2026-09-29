@@ -142,8 +142,9 @@ export async function checkAddress(row: CheckRow, stats: ReadonlyMap<string, Ass
     // (On EVM only the networks the webhook covers: a Base trade isn't a miss.)
     const covered = (l: ActivityLeg) => row.chain !== "ETH" || l.sourceChain in WEBHOOK_NETWORKS;
     const missed = liveSince === null ? 0 : new Set(legs.filter((l) => l.kind === "swap" && covered(l) && Date.parse(l.at) >= liveSince && !known.has(`${l.txId}|${l.assetKey}`)).map((l) => l.txId)).size;
-    const added = await appendActivity(row.chain, row.address, row.last_refresh_at!, boundary, legs, base, { tx_cursor: cursor });
-    if (added === null) return outcome(true, "a full read finished meanwhile — check again");
+    const appended = await appendActivity(row.chain, row.address, row.last_refresh_at!, boundary, legs, base, { tx_cursor: cursor });
+    if (appended === null) return outcome(true, "a full read finished meanwhile — check again");
+    const added = appended.added;
     const notes = [
       added > 0 ? `${added} new coin move${added === 1 ? "" : "s"}` : "nothing new",
       liveSince !== null ? `webhook missed ${missed}` : "",

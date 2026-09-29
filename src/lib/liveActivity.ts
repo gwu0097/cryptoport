@@ -5,6 +5,7 @@ import { identifyLegs } from "./watchActivityCheck";
 import { broadcastActivity } from "./liveBroadcast";
 import { type ActivityBase, type RawChange, type TxActivity } from "./watchActivity";
 import { appendActivity } from "./txActivityStore";
+import { sendWatchAlerts } from "./watchAlertSend";
 import { accountKeys, rawTxChanges, worthSaving, type RawWebhookTx } from "./webhookTx";
 import { alchemyChanges, type AlchemyDelivery } from "./alchemyWebhookTx";
 import { loadAlchemyWebhooks, type AlchemyWebhooks } from "./alchemyWebhookSync";
@@ -73,7 +74,10 @@ async function saveChanges(chain: "SOL" | "ETH", perOwner: Map<string, RawChange
     for (const l of legs) base[l.assetKey] = { qty: states.get(l.assetKey)?.qty ?? 0, kept: states.get(l.assetKey)?.kept ?? false };
     // Compare-and-set (txActivityStore.ts): two deliveries in the same second
     // no longer overwrite each other. Only new legs count (a duplicate adds none).
-    saved += (await appendActivity(chain, row.address, row.last_refresh_at, boundary, legs, base, { live_last_event_at: now })) ?? 0;
+    const appended = await appendActivity(chain, row.address, row.last_refresh_at, boundary, legs, base, { live_last_event_at: now });
+    if (!appended || appended.added === 0) continue;
+    saved += appended.added;
+    await sendWatchAlerts(chain, row.address, appended.before, appended.after, new Set(legs.map((l) => l.txId)));
   }
   if (saved > 0) await broadcastActivity(); // new lines: open pages fetch theirs (one request)
   return saved;

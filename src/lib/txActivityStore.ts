@@ -10,9 +10,17 @@ import { appendLegs, type ActivityBase, type ActivityLeg, type TxActivity } from
 
 const MAX_TRIES = 6;
 
+/** What an append changed: how many legs were new, and the activity just
+ * before and after it (what the Discord alerts compare, watchAlerts.ts). */
+export interface AppendResult {
+  added: number;
+  before: TxActivity | null;
+  after: TxActivity;
+}
+
 /** Appends legs (deduped by transaction) and sets `extra` fields, onto the
- * same full read only (`lastRefreshAt`). Returns how many legs were new, or
- * null when a full read finished meanwhile (the day moved). */
+ * same full read only (`lastRefreshAt`). Null when a full read finished
+ * meanwhile (the day moved). */
 export async function appendActivity(
   chain: string,
   address: string,
@@ -21,7 +29,7 @@ export async function appendActivity(
   legs: readonly ActivityLeg[],
   base: Record<string, ActivityBase>,
   extra: Record<string, unknown> = {},
-): Promise<number | null> {
+): Promise<AppendResult | null> {
   const db = serviceDb();
   for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
     const { data: row, error } = await db.from("watched_addresses").select("tx_activity, tx_version, last_refresh_at").eq("chain", chain).eq("address", address).single();
@@ -38,7 +46,7 @@ export async function appendActivity(
       .eq("tx_version", row.tx_version)
       .select("chain");
     if (saveError) throw new Error(saveError.message);
-    if (saved && saved.length > 0) return added;
+    if (saved && saved.length > 0) return { added, before: prev, after: activity };
     await new Promise((r) => setTimeout(r, 50 + Math.random() * 150)); // someone else wrote: read again
   }
   throw new Error("Couldn't save the activity: too many writers at once");
