@@ -42,6 +42,8 @@ const inFlight = createTtlCache<RecentTrades>(10_000, 100);
 /** Chains always read: the live networks and Base, besides the snapshot's. */
 const ALWAYS = [...Object.keys(WEBHOOK_NETWORKS), "base"];
 const DAY_MS = 86_400_000;
+/** Cash coins that are dollars (watchActivity.ts CASH_KEYS' stablecoins). */
+const STABLE_KEYS: ReadonlySet<string> = new Set(["usd-coin", "tether", "dai", "usds", "ethena-usde", "first-digital-usd", "paypal-usd", "usd1-wlfi", "global-dollar"]);
 /** Pages of 100 per direction per chain: a split-order trader (VirtualBacon,
  * 461 transactions in a week on Robinhood Chain) overflows the day check's 5. */
 const HISTORY_PAGES = 20;
@@ -68,9 +70,9 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
   if (evm.length === 0) return empty;
 
   const svc = serviceDb();
-  const { data, error } = await svc.from("watched_addresses").select("address, snapshot, last_refresh_at, trade_history").eq("chain", "ETH").in("address", evm);
+  const { data, error } = await svc.from("watched_addresses").select("address, snapshot, last_refresh_at, trade_history, tx_activity").eq("chain", "ETH").in("address", evm);
   if (error) throw new Error(error.message);
-  const rows = (data as { address: string; snapshot: WatchSnapshot | null; last_refresh_at: string | null; trade_history: TradeHistory | null }[]).filter((r) => r.snapshot && r.last_refresh_at);
+  const rows = (data as { address: string; snapshot: WatchSnapshot | null; last_refresh_at: string | null; trade_history: TradeHistory | null; tx_activity: TxActivity | null }[]).filter((r) => r.snapshot && r.last_refresh_at);
   const keepFromMs = now - HISTORY_KEEP_DAYS * DAY_MS;
 
   // Only what isn't stored yet (watchHistory.ts planHistoryReads): per
@@ -102,7 +104,8 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
   if (closeError) throw new Error(closeError.message);
   const close = new Map((closes as { price_key: string; day: string; usd: number | string }[]).map((c) => [`${c.price_key}|${c.day}`, parseNumeric(c.usd)]));
   const today = new Date(now).toISOString().slice(0, 10);
-  const closeOn = (key: string, day: string) => close.get(`${key}|${day}`) ?? null;
+  // A stablecoin is $1 on a day with no stored close (USDG: none stored).
+  const closeOn = (key: string, day: string) => close.get(`${key}|${day}`) ?? (STABLE_KEYS.has(key) ? 1 : null);
 
   const checkedAt = new Date(now).toISOString();
   const activities: TxActivity[] = [];
@@ -119,7 +122,9 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
       const { error: saveError } = await svc.from("watched_addresses").update({ trade_history: history }).eq("chain", "ETH").eq("address", r.address);
       if (saveError) throw new Error(`Recent trades not saved: ${saveError.message}`);
     }
-    const legs = history.legs.filter((l) => Date.parse(l.at) >= startMs);
+    // Today's trades (webhooks and Refresh activity) join the window: the
+    // history only gets them at the next morning read.
+    const legs = mergeHistoryLegs(history.legs, r.tx_activity?.legs ?? [], startMs);
     activities.push({ boundary: from, legs, base: windowBase(assetStates(r.snapshot!), legs, Date.parse(r.last_refresh_at!), startMs) });
   }
   // Trades before today sized at today's price: a cash coin with no stored

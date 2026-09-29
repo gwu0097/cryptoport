@@ -8,6 +8,8 @@ import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import type { CoinTrade } from "@/lib/watchActivity";
 import { foldSoldOut, soldOut } from "@/lib/activityFold";
 import { fetchDelay, minutesLeft } from "@/lib/liveWatching";
+import { HISTORY_DAYS, type HistoryDays } from "@/lib/watchHistory";
+import type { RecentTrades } from "@/lib/watchHistoryLoad";
 import { useWatching } from "./useWatching";
 import { onLiveActivity } from "@/lib/liveListener";
 import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
@@ -227,6 +229,9 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
   const [open, setOpen] = useState(false);
   const period = useContext(PeriodContext);
   const closed = soldOut(c);
+  // Nothing sold, but all of it sent to another wallet (AGI: 71 buys, then
+  // 2.30M out): not "open" at $0.
+  const sentOut = !closed && c.sells === 0 && c.holdingQty <= 0 && c.trades.some((t) => t.side === "sent");
   const price = freshestPrice(c);
   const stale = price !== null && serverNowSec * 1000 - Date.parse(price.at) > STALE_PRICE_MS;
   const priceNote = price ? `Price ${formatPrice(price.usd)} as of ${TIME.format(new Date(price.at))} (${price.from === "last trade" ? "their last trade" : "last price refresh"})${stale ? " — stale" : ""}` : "";
@@ -273,6 +278,8 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
           {closed ? (
             // "sold all" only when nothing's left; a crumb under $1 says so.
             <span className="text-fg-muted">{c.holdingQty <= 0 ? "sold all" : "dust left"}</span>
+          ) : sentOut ? (
+            <span className="text-fg-muted">sent out</span>
           ) : (
             <>
               {compactQty(c.holdingQty)}
@@ -296,6 +303,10 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
                   rest {formatPercent(sinceEntry)} since entry
                 </span>
               )}
+            </span>
+          ) : sentOut ? (
+            <span className="text-fg-muted" title="Sent to another wallet — its result isn't known here">
+              moved to another wallet
             </span>
           ) : c.soldShareOfPosition !== null ? (
             <span className="text-negative">sold {Math.round(c.soldShareOfPosition * 100)}% of position</span>
@@ -456,6 +467,7 @@ export function DayActivity({
   serverNowSec,
   showNames = true,
   showButton = true,
+  historyFor,
 }: {
   coins: WatchCoinDay[];
   /** The latest check of these influencers' addresses. */
@@ -468,7 +480,11 @@ export function DayActivity({
   showNames?: boolean;
   /** False where the panel's header already has the button (Dashboard). */
   showButton?: boolean;
+  /** An influencer page with EVM addresses: Today / 7 days / 30 days tabs,
+   * the longer ones from its stored trade history (watchHistoryLoad.ts). */
+  historyFor?: string;
 }) {
+  const [period, setPeriod] = useState<"today" | HistoryDays>("today");
   const live = liveIds.some((id) => influencerIds.includes(id));
   const watch = useWatching();
   const fresh = useLiveDay(influencerIds, live, watch.watching, serverCoins);
@@ -483,7 +499,22 @@ export function DayActivity({
     <div className="mb-4 rounded-lg border border-border/60 bg-surface-raised/40 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
-          <span className="font-semibold text-fg">Since this morning&apos;s read</span>
+          {historyFor && (
+            <span className="mr-2 inline-flex rounded-md border border-border p-0.5 align-middle text-xs">
+              {(["today", ...HISTORY_DAYS] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPeriod(p)}
+                  aria-pressed={period === p}
+                  className={`rounded px-2 py-0.5 ${period === p ? "bg-accent/20 font-medium text-fg" : "text-fg-muted hover:text-fg"}`}
+                >
+                  {p === "today" ? "Today" : `${p} days`}
+                </button>
+              ))}
+            </span>
+          )}
+          <span className="font-semibold text-fg">{period === "today" ? "Since this morning's read" : `Last ${period} days`}</span>
           {live && (
             <>
               <span className="ml-1.5 rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades arrive by webhook as they happen (Helius for Solana, Alchemy for Ethereum, Arbitrum and Robinhood Chain); this panel shows them within a second while Watching, else within 30 minutes.">
@@ -499,7 +530,9 @@ export function DayActivity({
         </p>
         {showButton && <ActivityCheckButton influencerIds={influencerIds} />}
       </div>
-      {coins.length === 0 ? (
+      {period !== "today" && historyFor ? (
+        <HistoryView key={period} influencerId={historyFor} days={period} serverNowSec={serverNowSec} />
+      ) : coins.length === 0 ? (
         <p className="mt-2 text-sm text-fg-muted">{checkedAt || live ? "No trades since this morning's read." : "Refresh activity to see what they've done since this morning's read."}</p>
       ) : (
         <CoinTable coins={coins} latest={latest} showNames={showNames} serverNowSec={serverNowSec} />
@@ -509,7 +542,45 @@ export function DayActivity({
           {issues.length} address{issues.length === 1 ? "" : "es"} not fully checked (hover for why) — this morning&apos;s read covers them.
         </p>
       )}
-      <p className="mt-1 text-[11px] text-fg-muted/80">Per coin since this morning&apos;s read — click a row&apos;s time for its trades. Results count what was bought and sold today; a trim of an earlier position shows its share.</p>
+      {period === "today" && (
+        <p className="mt-1 text-[11px] text-fg-muted/80">Per coin since this morning&apos;s read — click a row&apos;s time for its trades. Results count what was bought and sold today; a trim of an earlier position shows its share.</p>
+      )}
     </div>
+  );
+}
+
+/** The same table over 7 or 30 days: the influencer's stored trade history
+ * plus today's trades (api/wallet-watch/history — the first time, it reads
+ * the days not stored yet; after that only what's new). */
+function HistoryView({ influencerId, days, serverNowSec }: { influencerId: string; days: HistoryDays; serverNowSec: number }) {
+  const [result, setResult] = useState<{ trades: RecentTrades; fetchedAtMs: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/wallet-watch/history", { method: "POST", body: JSON.stringify({ influencerId, days }) })
+      .then(async (res) => {
+        const body = (await res.json()) as { trades: RecentTrades; fetchedAtMs: number } | { error: string };
+        if (!res.ok || "error" in body) throw new Error("error" in body ? body.error : `HTTP ${res.status}`);
+        if (!cancelled) setResult(body);
+      })
+      .catch((e: Error) => !cancelled && setError(e.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [influencerId, days]);
+  if (error) return <p className="mt-2 text-sm text-warning">{error}</p>;
+  if (!result) return <p className="mt-2 text-sm text-fg-muted">Loading {days} days — the first time reads the days not stored yet (up to half a minute)…</p>;
+  const t = result.trades;
+  return (
+    <>
+      <p className="mt-1 text-xs text-fg-muted">
+        {t.chains === 0 ? "From stored history — nothing new to read" : `Read ${t.chains} chain range${t.chains === 1 ? "" : "s"} not stored yet, now kept`}
+        {t.sizedToday > 0 && <span className="text-warning"> · {t.sizedToday} trade{t.sizedToday === 1 ? " is" : "s are"} sized at today&apos;s price (a coin-for-coin swap, or no stored price that day)</span>}
+      </p>
+      {t.coins.length === 0 ? <p className="mt-2 text-sm text-fg-muted">No trades in the last {t.days} days.</p> : <CoinTable coins={t.coins} latest={Infinity} showNames={false} serverNowSec={serverNowSec} period={`in ${t.days} days`} />}
+      {t.partial.length > 0 && <p className="mt-1 text-xs text-warning">Partial — only the newest transfers were read on: {t.partial.join(", ")}.</p>}
+      {t.failed.length > 0 && <p className="mt-1 text-xs text-warning">Not read: {t.failed.join("; ")}</p>}
+      <p className="mt-1 text-[11px] text-fg-muted/80">Per coin over {t.days} days, today&apos;s trades included. Swaps are sized at the paying coin&apos;s price that day; a coin-for-coin swap at the coins&apos; current prices. Holdings start from what each coin held {t.days} days ago, worked back from the last read.</p>
+    </>
   );
 }

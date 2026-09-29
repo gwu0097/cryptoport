@@ -153,8 +153,11 @@ owner's.
   `asset_prices` with the service role like every page — the user's client
   is denied it (that 500 kept every live update from showing, 2026-09-28).
   No polling; panels without live influencers don't listen.
-  **Recent trades** (an influencer's page, EVM addresses; owner 2026-09-28):
-  "Last 7/30 days" reads each EVM address × chain (its snapshot's chains ∪
+  **Activity over 7 / 30 days** (an influencer's page, EVM addresses; owner
+  2026-09-29: backfill the activity, not a separate panel): the activity
+  table's Today / 7 days / 30 days tabs (`DayActivity` `historyFor`,
+  `HistoryView`; today's `tx_activity` legs join the window). The longer
+  windows read each EVM address × chain (its snapshot's chains ∪
   the live networks ∪ Base) back that far with `readEvmChain`, three at a
   time (`watchHistoryLoad.ts`, `api/wallet-watch/history`), through the
   same `identifyLegs` → `coinDays` as the day's activity, shown in its
