@@ -24,5 +24,6 @@ export async function POST(request: Request): Promise<Response> {
   await runPriceRefresh(requestedAt, user.id, extraPaths);
   revalidateAllPriceConsumers();
   for (const path of extraPaths) revalidatePath(path);
-  return Response.json({ started: true, done: true });
+  // The server's own share of the click's time (the button shows it).
+  return Response.json({ started: true, done: true, serverMs: Date.now() - requestedAt });
 }

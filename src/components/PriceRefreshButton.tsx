@@ -64,10 +64,13 @@ export function PriceRefreshButton({ priceState, walletId }: { priceState: Price
   // The click runs the refresh and waits for it (api/prices/refresh, ~3 s),
   // then refreshes the page once — no polling while it runs. A refresh
   // another tab started is still waited for by useJob's polling.
+  const split = useRef<{ requestMs: number; serverMs: number | null; pageFrom: number } | null>(null);
   const refresh = async (): Promise<JobStartResult> => {
+    const t0 = Date.now();
     const res = await fetch("/api/prices/refresh", { method: "POST", body: JSON.stringify({ walletId }) });
-    const body = (await res.json().catch(() => ({}))) as { started?: boolean; reason?: string; error?: string };
+    const body = (await res.json().catch(() => ({}))) as { started?: boolean; reason?: string; error?: string; serverMs?: number };
     if (!res.ok) throw new Error(body.error ?? `Refresh failed (HTTP ${res.status})`);
+    split.current = { requestMs: Date.now() - t0, serverMs: body.serverMs ?? null, pageFrom: Date.now() };
     if (body.started) router.refresh();
     return body.started ? { started: true } : { started: false, reason: body.reason ?? "A price refresh is already running." };
   };
@@ -76,7 +79,7 @@ export function PriceRefreshButton({ priceState, walletId }: { priceState: Price
   // prices themselves (the slowest lane) and each page refresh after them.
   const refreshes = usePageRefreshes();
   const clickedAt = useRef<number | null>(null);
-  const [timing, setTiming] = useState<{ totalMs: number; refreshes: number[] } | null>(null);
+  const [timing, setTiming] = useState<{ totalMs: number; refreshes: number[]; requestMs: number | null; serverMs: number | null; pageMs: number | null } | null>(null);
   const submit = () => {
     clickedAt.current = Date.now();
     setTiming(null);
@@ -87,7 +90,15 @@ export function PriceRefreshButton({ priceState, walletId }: { priceState: Price
     if (busy) wasBusy.current = true;
     else if (wasBusy.current && clickedAt.current !== null) {
       const since = clickedAt.current;
-      setTiming({ totalMs: Date.now() - since, refreshes: refreshes.filter((r) => r.at >= since).map((r) => r.ms) });
+      const sp = split.current;
+      setTiming({
+        totalMs: Date.now() - since,
+        refreshes: refreshes.filter((r) => r.at >= since).map((r) => r.ms),
+        requestMs: sp?.requestMs ?? null,
+        serverMs: sp?.serverMs ?? null,
+        pageMs: sp ? Date.now() - sp.pageFrom : null,
+      });
+      split.current = null;
       wasBusy.current = false;
       clickedAt.current = null;
     }
@@ -141,7 +152,9 @@ export function PriceRefreshButton({ priceState, walletId }: { priceState: Price
       {timing && !busy && (
         <p className="text-right text-[11px] text-fg-muted/70" title="From your click to the button unlocking: the price fetch itself, then each time the page reloaded its data.">
           Done in {formatMs(timing.totalMs)}
+          {timing.requestMs !== null && ` · request ${formatMs(timing.requestMs)}${timing.serverMs !== null ? ` (server ${formatMs(timing.serverMs)})` : ""}`}
           {pricesMs !== null && ` · prices ${formatMs(pricesMs)}`}
+          {timing.pageMs !== null && ` · page ${formatMs(timing.pageMs)}`}
           {timing.refreshes.length > 0 && ` · page refreshed ${timing.refreshes.length}× (${timing.refreshes.map(formatMs).join(", ")})`}
         </p>
       )}
