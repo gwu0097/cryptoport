@@ -364,7 +364,8 @@ source).
 
 **Refresh triggers** (owner decision: on demand, no periodic refresh): the
 Refresh prices button; after a sync, only the keys it touched
-(`ensureAssetPrices`, which skips keys fresher than its `maxAgeMs` default);
+(`ensureAssetPrices`, which skips keys priced *or tried* within its `maxAgeMs`
+default — 453 keys no source prices used to trigger a pass on every read);
 before a Sync all when the newest price is older than `primeSyncPricesAction`'s
 threshold; before the daily snapshot when older than the threshold in
 `api/cron/snapshot/route.ts` (`refreshAssetPricesIfOlderThan`).
