@@ -755,7 +755,16 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   anyone's coins, admin and crons stay unscoped (docs/perf/PRICES_READ.md).
   What a page sends the browser is a cost too:
   a long series goes packed — dates once, values as lists
-  (`seriesPacking.ts`; Performance 1.24 MB → 173 KB).
+  (`seriesPacking.ts`; Performance 1.24 MB → 173 KB), and a client table
+  gets a row type with only the fields it shows, never whole holdings
+  (`holdingRows.ts`: `HoldingRow`, `AssetRowGroup`; Assets 972 → 253 KB) —
+  a field a table starts to read without adding it there is a type error.
+  Anything independent of the page's first reads starts with them (chain
+  icons: `getChainIconMap()` in the first `Promise.all`); a page that only
+  needs the user's influencer names and addresses uses
+  `getWatchFeedTargets`, never the overview (every snapshot and price).
+  Diagnose a page locally with `RENDER_METER_VERBOSE=1` (each request's
+  start and duration under its `[render]` line).
   Streaming doesn't shorten a `router.refresh()` (a transition shows no
   fallback); fewer round trips do. Functions run in **pdx1** (Vercel →
   Settings → Functions), next to the database in Oregon. As of 2026-09-29

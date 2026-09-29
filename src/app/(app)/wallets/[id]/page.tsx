@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { scopePricesToUser } from "@/lib/queries";
+import { getChainIconMap, scopePricesToUser } from "@/lib/queries";
 import { notFound, redirect } from "next/navigation";
 import { Trash, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
@@ -68,6 +68,9 @@ export default async function WalletDetailPage(
     getTags(),
     getPriceRefreshState(),
     getWalletUnrecognizedTokens(id),
+    // The holdings table's chain icons (cached per request), so they don't
+    // wait behind the linked-wallet check below.
+    getChainIconMap(),
   ]);
   // A signed-in user hitting a wallet RLS hides (someone else's) still 404s
   // — doesn't leak whether the id exists, unchanged from before this page
