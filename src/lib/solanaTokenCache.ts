@@ -32,6 +32,15 @@ export const MARKET_LIQUIDITY = 10_000;
 export const DAILY_MS = 24 * 60 * 60_000;
 export const WEEKLY_MS = 7 * DAILY_MS;
 
+/** A mint's weekly re-check age: a week plus 0–7 days fixed by the mint, so
+ * thousands of coins first saved in one read don't all expire in the same
+ * one (8,400 mints at once: ~290 s, past the read's 300 s limit). */
+export function weeklyAgeFor(mint: string): number {
+  let h = 0;
+  for (let i = 0; i < mint.length; i++) h = (h * 31 + mint.charCodeAt(i)) >>> 0;
+  return WEEKLY_MS + (h % 168) * 60 * 60_000;
+}
+
 /** The mints to look up now: never seen; worth showing last time; dust
  * worth ≥ $0.50 not checked for a day; anything else not checked for a week. */
 export function mintsToLookUp(held: readonly { mint: string; amount: number }[], cached: ReadonlyMap<string, CachedTokenInfo>, nowMs: number): string[] {
@@ -44,7 +53,7 @@ export function mintsToLookUp(held: readonly { mint: string; amount: number }[],
       const liquidity = c.liquidity ?? 0;
       if (worth !== null && worth > SHOWN_FLOOR_USD && liquidity >= SHOW_LIQUIDITY) return true;
       if (worth !== null && worth >= DUST_WATCH_USD && liquidity >= MARKET_LIQUIDITY) return age >= DAILY_MS;
-      return age >= WEEKLY_MS;
+      return age >= weeklyAgeFor(mint);
     })
     .map((h) => h.mint);
 }
@@ -58,7 +67,7 @@ export function mintsToShieldCheck(candidates: readonly { mint: string; priced: 
     .filter(({ mint, priced }) => {
       if (priced) return true;
       const at = cached.get(mint)?.shieldCheckedAt;
-      return !at || nowMs - Date.parse(at) >= WEEKLY_MS;
+      return !at || nowMs - Date.parse(at) >= weeklyAgeFor(mint);
     })
     .map((c) => c.mint);
 }

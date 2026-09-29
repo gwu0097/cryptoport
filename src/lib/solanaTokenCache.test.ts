@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mintsToLookUp, mintsToShieldCheck, type CachedTokenInfo } from "./solanaTokenCache.ts";
+import { mintsToLookUp, mintsToShieldCheck, weeklyAgeFor, WEEKLY_MS, type CachedTokenInfo } from "./solanaTokenCache.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -12,7 +12,7 @@ test("a new mint is looked up; a shown one every read; valuable dust daily; dead
     ["dust-hot", row("dust-hot", 0.01, hoursAgo(25))], // 100 × $0.01 = $1, checked 25 h ago
     ["dust-hot-fresh", row("dust-hot-fresh", 0.01, hoursAgo(2))],
     ["dead", row("dead", null, hoursAgo(24 * 3))],
-    ["dead-old", row("dead-old", 0.000001, hoursAgo(24 * 8))],
+    ["dead-old", row("dead-old", 0.000001, hoursAgo(24 * 15))],
   ]);
   const held = ["new", "shown", "dust-hot", "dust-hot-fresh", "dead", "dead-old"].map((mint) => ({ mint, amount: 100 }));
   assert.deepEqual(mintsToLookUp(held, cached, NOW), ["new", "shown", "dust-hot", "dead-old"]);
@@ -21,8 +21,8 @@ test("a new mint is looked up; a shown one every read; valuable dust daily; dead
 test("the 8,417-mint wallet: after its first read, a day later only the shown and expired ones", () => {
   const cached = new Map<string, CachedTokenInfo>();
   const held = Array.from({ length: 8_417 }, (_, i) => ({ mint: `m${i}`, amount: 1_000 }));
-  // 88 shown; the rest dead, checked on a rolling week (1/7 of them > 7 days ago).
-  held.forEach(({ mint }, i) => cached.set(mint, row(mint, i < 88 ? 1 : null, hoursAgo(i % 7 === 0 && i >= 88 ? 24 * 7 + 1 : 20))));
+  // 88 shown; the rest dead, 1/7 of them past any weekly age.
+  held.forEach(({ mint }, i) => cached.set(mint, row(mint, i < 88 ? 1 : null, hoursAgo(i % 7 === 0 && i >= 88 ? 24 * 14 + 1 : 20))));
   const n = mintsToLookUp(held, cached, NOW).length;
   assert.ok(n < 1_400, `looked up ${n}`); // ~14 calls of 100, not ~85
 });
@@ -35,7 +35,7 @@ test("a dead coin with a nominal price on a tiny pool waits a week, however larg
 test("Shield: a priced candidate every read; a named unpriced one weekly", () => {
   const cached = new Map<string, CachedTokenInfo>([
     ["dead-checked", { ...row("dead-checked", null, hoursAgo(1)), unsellable: true, shieldCheckedAt: hoursAgo(24) }],
-    ["dead-old", { ...row("dead-old", null, hoursAgo(1)), unsellable: true, shieldCheckedAt: hoursAgo(24 * 8) }],
+    ["dead-old", { ...row("dead-old", null, hoursAgo(1)), unsellable: true, shieldCheckedAt: hoursAgo(24 * 15) }],
   ]);
   const got = mintsToShieldCheck(
     [
@@ -48,4 +48,13 @@ test("Shield: a priced candidate every read; a named unpriced one weekly", () =>
     NOW,
   );
   assert.deepEqual(got, ["real", "dead-old", "dead-new"]);
+});
+
+test("coins saved in one read expire spread over a second week, not all in one read", () => {
+  const ages = Array.from({ length: 8_417 }, (_, i) => weeklyAgeFor(`mint${i}`));
+  assert.ok(ages.every((a) => a >= WEEKLY_MS && a < 2 * WEEKLY_MS));
+  const perDay = new Map<number, number>();
+  for (const a of ages) perDay.set(Math.floor((a - WEEKLY_MS) / 86_400_000), (perDay.get(Math.floor((a - WEEKLY_MS) / 86_400_000)) ?? 0) + 1);
+  assert.equal(perDay.size, 7);
+  assert.ok(Math.max(...perDay.values()) < 8_417 / 4, JSON.stringify([...perDay]));
 });
