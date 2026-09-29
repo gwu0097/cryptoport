@@ -33,7 +33,7 @@ export interface PriceRefreshState {
   refreshedAt: string | null;
   status: string | null;
   /** Compare-and-set claim timestamp for the current or most recent
-   * refresh — see refreshPricesAction's own doc comment. Feeds
+   * refresh — see priceRefreshJob.ts. Feeds
    * deriveJobStatus (lib/jobStatus.ts) the same way wallets.sync_started_at
    * does for a wallet sync. */
   startedAt: string | null;

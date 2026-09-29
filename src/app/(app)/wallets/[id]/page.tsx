@@ -26,7 +26,6 @@ import {
   addHolding,
   deleteWallet,
   disconnectExchange,
-  refreshPricesForWalletAction,
   syncWalletHoldings,
   syncExchangeHoldings,
   updateWallet,
@@ -221,7 +220,7 @@ export default async function WalletDetailPage(
                   // pages that keep this button).
                   <PriceRefreshButton
                     priceState={priceState}
-                    refresh={refreshPricesForWalletAction.bind(null, wallet.id)}
+                    walletId={wallet.id}
                   />
                 )}
               </>

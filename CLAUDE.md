@@ -654,8 +654,11 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
 - **A Server Action doing more than a couple of seconds of work returns at once
   and does the work inside `after()`** (`next/server`). Next runs actions and
   navigations through one sequential queue per client, so an awaited slow
-  action freezes every click app-wide. Pattern: `syncWalletHoldings`,
-  `tryStartPriceRefresh` (`wallets/actions.ts`). `after()` shares the route's
+  action freezes every click app-wide. Pattern: `syncWalletHoldings`
+  (`wallets/actions.ts`). A job of a few seconds can instead be a route
+  handler the button awaits, then one `router.refresh()` — no polling
+  (Refresh prices, `api/prices/refresh` → `priceRefreshJob.ts`: 9.9 s → the
+  job's own ~3 s, 2026-09-29). `after()` shares the route's
   `maxDuration`, so pages whose actions start jobs export `maxDuration = 300`.
   A read the client calls often can be a route handler instead of a Server
   Action to stay out of that queue (`api/tv-symbol`). (DECISIONS: before

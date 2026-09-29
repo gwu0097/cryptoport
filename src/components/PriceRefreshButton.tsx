@@ -2,6 +2,7 @@
 
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { formatStaleness } from "@/lib/format";
 import type { PriceRefreshPhases, PriceRefreshState } from "@/lib/queries";
 import { type JobStartResult } from "@/lib/jobStatus";
@@ -47,7 +48,7 @@ function PhaseRow({ name, phase }: { name: string; phase: PriceRefreshPhases[str
  * "two is the threshold" extraction as SyncWalletButtons. Replaces the old
  * separate SubmitButton form + PriceRefreshCaption pair: this app's price
  * refresh is a job exactly like a wallet sync now (see
- * refreshPricesAction's own compare-and-set claim), so it gets the same
+ * priceRefreshJob.ts claimPriceRefresh's compare-and-set), so it gets the same
  * useJob/JobButton lock-for-the-real-duration treatment.
  *
  * The phase breakdown keeps its original reasoning for only showing once
@@ -57,14 +58,19 @@ function PhaseRow({ name, phase }: { name: string; phase: PriceRefreshPhases[str
  * refresh's now-irrelevant timing, even though price_refresh_state.phases
  * itself is still sitting there server-side.
  */
-export function PriceRefreshButton({
-  priceState,
-  refresh,
-}: {
-  priceState: PriceRefreshState;
-  refresh: () => Promise<JobStartResult>;
-}) {
+export function PriceRefreshButton({ priceState, walletId }: { priceState: PriceRefreshState; walletId?: string }) {
+  const router = useRouter();
   const status = useJobStatus({ status: priceState.status, started_at: priceState.startedAt });
+  // The click runs the refresh and waits for it (api/prices/refresh, ~3 s),
+  // then refreshes the page once — no polling while it runs. A refresh
+  // another tab started is still waited for by useJob's polling.
+  const refresh = async (): Promise<JobStartResult> => {
+    const res = await fetch("/api/prices/refresh", { method: "POST", body: JSON.stringify({ walletId }) });
+    const body = (await res.json().catch(() => ({}))) as { started?: boolean; reason?: string; error?: string };
+    if (!res.ok) throw new Error(body.error ?? `Refresh failed (HTTP ${res.status})`);
+    if (body.started) router.refresh();
+    return body.started ? { started: true } : { started: false, reason: body.reason ?? "A price refresh is already running." };
+  };
   const { busy, submit: start, error } = useJob({ status, start: refresh });
   // Where a click's time went: from the click to the button unlocking, the
   // prices themselves (the slowest lane) and each page refresh after them.

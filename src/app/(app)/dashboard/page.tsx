@@ -20,7 +20,6 @@ import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
 import { CryptoHeatmapPanel } from "@/components/dashboard/CryptoHeatmap";
 import { DashboardWatchlistFilter } from "@/components/dashboard/DashboardWatchlistFilter";
 import { DashboardWatchlistRedirect } from "@/components/dashboard/DashboardWatchlistRedirect";
-import { refreshPricesAction } from "../wallets/actions";
 import { OpenPositionsPanel } from "@/components/dashboard/OpenPositionsPanel";
 import { getEffectiveTimeZone } from "@/lib/preferences";
 import { formatDateTime } from "@/lib/format";
@@ -30,7 +29,7 @@ import { DashboardWatchActivity } from "@/components/dashboard/DashboardWatchAct
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
 
-// refreshPricesAction runs one pricing pass (refreshAssetPrices, four
+// Refresh prices (api/prices/refresh) runs one pricing pass (refreshAssetPrices, four
 // source lanes) in after() — same reasoning as assets/page.tsx's
 // maxDuration for the same action.
 export const maxDuration = 300;
@@ -159,7 +158,7 @@ export default async function DashboardPage({
       {user ? (
         <TotalValuePanel
           total={grand.total}
-          actions={<PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />}
+          actions={<PriceRefreshButton priceState={priceState} />}
         >
           {change && <BlendedChangeCaption change={change} />}
         </TotalValuePanel>

@@ -8,7 +8,6 @@ import { WatchlistTabs } from "@/components/watchlist/WatchlistTabs";
 import { WatchlistTable, type Sort } from "@/components/watchlist/WatchlistTable";
 import { AddCoinPanel } from "@/components/watchlist/AddCoinPanel";
 import { createWatchlist } from "./actions";
-import { refreshPricesAction } from "../wallets/actions";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { inputClass } from "@/components/ui/Field";
 import { WATCHLIST_SORT_KEYS } from "@/lib/sortKeys";
@@ -58,7 +57,7 @@ export default async function WatchlistPage({
       <PageHeader
         title="Watchlist"
         subtitle="Track tokens you don't hold yet"
-        actions={user && <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />}
+        actions={user && <PriceRefreshButton priceState={priceState} />}
       />
 
       {!user && <GuestBanner message="Sign up to create a watchlist and track tokens here." />}

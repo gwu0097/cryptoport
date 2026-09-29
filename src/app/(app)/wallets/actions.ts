@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
-import { captureUserSnapshot } from "@/lib/snapshots";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchZerionDefiPositions } from "@/lib/adapters/zerionDefi";
 import { EXCHANGE_ADAPTERS } from "@/lib/exchangeAdapters";
@@ -21,10 +20,9 @@ import type { CosmosHolding } from "@/lib/cosmosMulti";
 import { carryForward, keptNote, protocolScope, type KeepScope } from "@/lib/carryForward";
 import { markVenueActivity } from "@/lib/venueActivity";
 import { withPriceKeys } from "@/lib/adapters/assetKeys";
-import { refreshAssetPrices, ensureAssetPrices, refreshAssetPricesIfOlderThan, readAssetVolumes, type OnLane } from "@/lib/adapters/assetPrices";
+import { ensureAssetPrices, refreshAssetPricesIfOlderThan, readAssetVolumes } from "@/lib/adapters/assetPrices";
 import { dedupeReceipts, dropUntradableReceiptTokens, linkReceiptPositions, receiptKey, type ReceiptClaim } from "@/lib/receiptDedupe";
 import { readReceiptClaims } from "@/lib/adapters/receiptTokens";
-import type { PriceRefreshPhases } from "@/lib/queries";
 import { NON_EVM_CHAINS, findNonEvmChain } from "@/lib/adapters/nonEvmChains";
 import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY, TOKEN_LIST_WEEKLY } from "@/lib/tokenRegistryRefresh";
@@ -33,180 +31,9 @@ import { isEvmChainId } from "@/lib/adapters/evmChains";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
+import { scheduleUserSnapshot } from "@/lib/priceRefreshJob";
 
 
-// Prices are global (one shared asset_prices row per price_key — never
-// just one wallet), so every page that
-// shows a price needs revalidating, not just /wallets.
-function revalidateAllPriceConsumers() {
-  revalidatePath("/wallets");
-  revalidatePath("/assets");
-  revalidatePath("/portfolio");
-  revalidatePath("/defi");
-  revalidatePath("/dashboard");
-  // Now that a price refresh also writes today's snapshot (see
-  // captureUserSnapshot), Performance' own value-history chart needs
-  // revalidating too — it wasn't a price consumer before this.
-  revalidatePath("/performance");
-  // Watchlist coins are priced in the same pass (see runPriceRefresh).
-  revalidatePath("/watchlist");
-}
-
-/** The actual work — resolved either by refreshPricesAction or
- * refreshPricesForWalletAction, each inside its own after() so the extra
- * path either one also needs to revalidate (a specific wallet page, for
- * the latter) fires only once the real result exists, not on the
- * near-instant initial response. One pricing pass (refreshAssetPrices):
- * every held coin and every watchlist coin, each from its one source. Its
- * lanes' progress goes to price_refresh_state.phases as they run (the
- * button shows it live). Never throws — a failure is recorded as this
- * singleton row's own status instead, same as every other sync action. */
-async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: string[] = []): Promise<void> {
-  const db = serviceDb();
-  const phases: PriceRefreshPhases = {};
-  // Writes queued in order, so a slow early write can't land after a later
-  // one and roll the progress back. Best-effort: purely cosmetic status.
-  let writes: Promise<unknown> = Promise.resolve();
-  const onLane: OnLane = (lane, status) => {
-    phases[lane] = { status, ms: status === "running" ? null : Date.now() - requestedAt };
-    const snapshot = { ...phases };
-    writes = writes.then(() => db.from("price_refresh_state").update({ phases: snapshot }).eq("id", 1)).catch(() => {});
-  };
-
-  try {
-    const { requested, laneErrors } = await refreshAssetPrices("refresh-prices", undefined, onLane);
-    await writes;
-    const status = laneErrors.length > 0 ? `partial — ${laneErrors.join("; ")}` : requested === 0 ? "no priced holdings" : "ok";
-    const { error } = await db
-      .from("price_refresh_state")
-      // A failed lane means some prices weren't refreshed, so "Last priced"
-      // doesn't move forward — only the status says what happened.
-      .update(laneErrors.length > 0 ? { status } : { refreshed_at: new Date().toISOString(), status })
-      .eq("id", 1);
-    if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
-  } catch (e) {
-    await writes;
-    await db
-      .from("price_refresh_state")
-      .update({ status: `error: ${(e as Error).message}` })
-      .eq("id", 1);
-  }
-
-  // Nested after(), registered only now that prices are actually
-  // refreshed — see scheduleUserSnapshot's doc comment.
-  scheduleUserSnapshot(userId, extraPaths);
-}
-
-/**
- * Registers its own, separate after() call — from inside runPriceRefresh
- * (once the price update lands) and inside syncWalletHoldings' own
- * after() (once the synced holdings are saved), never awaited inline at
- * either call site. A real regression, reported directly ("had to wait
- * for processes to complete" just to navigate to Dashboard): an earlier
- * version awaited this snapshot capture directly inside the SAME after()
- * callback as the real refresh/sync work, so revalidateAllPriceConsumers()
- * (or the sync's own revalidatePath calls) — the signal that tells
- * useJob's polling "this job is done, stop refreshing" — didn't fire
- * until the snapshot capture ALSO finished, even though the actual
- * price/holdings update had already landed in the DB earlier. That
- * extended how long JobPoller kept calling router.refresh() for no
- * reason, which is exactly what collides with a real navigation click.
- * Next's own after() docs confirm nested/multiple after() registrations
- * each get their own independent waitUntil() — one running longer never
- * gates another's own revalidatePath calls, which is what makes calling
- * this via after() (not a plain await) the actual fix, not just moving
- * the call around. Still has to be called only once its own prerequisite
- * data (fresh prices, or freshly-saved holdings) is actually ready,
- * though — calling it concurrently with that work risks reading stale
- * data via its own getPriceMap()/holdings query, which is why this isn't
- * simply registered as a third, fully-independent after() at each outer
- * call site instead. Best-effort: a snapshot failure is a real but minor
- * degradation (the chart just stays one refresh further behind), never
- * something that should affect the actual refresh/sync's own reported
- * outcome.
- */
-function scheduleUserSnapshot(userId: string, extraPaths: string[] = []) {
-  after(async () => {
-    try {
-      await captureUserSnapshot(userId);
-      revalidatePath("/dashboard");
-      revalidatePath("/performance");
-      for (const path of extraPaths) revalidatePath(path);
-    } catch {
-      // swallowed — see comment above
-    }
-  });
-}
-
-/**
- * Same after() pattern as syncWalletHoldings, for the same reason: a real
- * refresh (517 distinct pricing operations on this app's own largest
- * portfolio, measured at ~30s before this app's pricing pipeline was
- * redesigned around CoinGecko, ~9s later — see assetPrices.ts's
- * refreshAssetPrices for today's one-pass version) used to be awaited
- * directly here, which froze every other click app-wide until it finished
- * (Server Actions and client-side navigations share one sequential
- * dispatch queue per client — see CLAUDE.md's Loading feedback section).
- *
- * Same compare-and-set claim as syncWalletHoldings, on price_refresh_state's
- * own started_at — this is a *global* singleton row (prices aren't
- * per-wallet), so the claim is what lets a second click, a second tab, or
- * a second user's own click all agree on whether a refresh is genuinely
- * already running, and recovers a refresh stuck showing "refreshing"
- * forever if an earlier run's after() got killed by the platform's own
- * time limit before its own catch block ran. Returns JobStartResult
- * (lib/jobStatus.ts) instead of throwing on "already refreshing".
- */
-/**
- * The compare-and-set claim + after()-backgrounded kickoff, shared by
- * every caller that wants to trigger a price refresh — extracted once a
- * third caller (addHolding, below) needed the identical logic
- * refreshPricesAction/refreshPricesForWalletAction already had copy-pasted
- * between them, past this codebase's own "two is the threshold" rule for
- * duplicated logic. `extraPaths` are revalidated both immediately (so a
- * caller on e.g. a wallet detail page sees "refreshing" right away) and
- * again once the real refresh lands.
- */
-async function tryStartPriceRefresh(userId: string, extraPaths: string[] = []): Promise<JobStartResult> {
-  const requestedAt = Date.now();
-  const staleBefore = new Date(requestedAt - JOB_STALE_MS).toISOString();
-  const { data: claimed, error: markError } = await serviceDb()
-    .from("price_refresh_state")
-    .update({ status: "refreshing", started_at: new Date(requestedAt).toISOString() })
-    .eq("id", 1)
-    .or(`status.neq.refreshing,status.is.null,started_at.lt.${staleBefore}`)
-    .select("id");
-  if (markError) throw new Error(`Failed to start price refresh: ${markError.message}`);
-  if (!claimed || claimed.length === 0) {
-    return { started: false, reason: "A price refresh is already running." };
-  }
-
-  after(async () => {
-    await runPriceRefresh(requestedAt, userId, extraPaths);
-    revalidateAllPriceConsumers();
-    for (const path of extraPaths) revalidatePath(path);
-  });
-
-  // No kickoff-time revalidation — see JobPoller.tsx's own doc comment.
-  return { started: true };
-}
-
-export async function refreshPricesAction(): Promise<JobStartResult> {
-  const user = await requireUser();
-  return tryStartPriceRefresh(user.id);
-}
-
-// Same global refresh (prices are keyed by ticker, not wallet — there's no
-// such thing as "refresh prices for just this wallet") — just also
-// revalidates this one wallet's own page, so clicking "Refresh prices" from
-// the wallet detail page (came up directly: a freshly-synced ADA holding
-// showed unpriced with no obvious way to fix it short of navigating back
-// to the wallets list) reflects the update immediately instead of needing
-// a manual reload.
-export async function refreshPricesForWalletAction(walletId: string): Promise<JobStartResult> {
-  const user = await requireUser();
-  return tryStartPriceRefresh(user.id, [`/wallets/${walletId}`]);
-}
 
 // A wallet's `chain` field itself isn't restricted to a fixed set (see
 // Wallet.chain in types.ts) — auto mode is, checked both here

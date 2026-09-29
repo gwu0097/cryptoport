@@ -13,7 +13,6 @@ import { AssetsTable, type Sort } from "@/components/AssetsTable";
 import { CoinAllocationChart } from "@/components/CoinAllocationChart";
 import { GuestBanner } from "@/components/GuestBanner";
 import { ASSET_SORT_KEYS } from "@/lib/sortKeys";
-import { refreshPricesAction } from "../wallets/actions";
 
 // A Dashboard movers panel ("Top gainers (24h) · Holdings", see
 // MoverList) links here with `?sort=change24h&dir=desc` (or `dir=asc` for
@@ -36,7 +35,7 @@ function parseInitialSort(sort?: string, dir?: string): Sort | undefined {
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Assets · CryptoPort" };
 
-// refreshPricesAction runs one pricing pass (refreshAssetPrices, four
+// Refresh prices (api/prices/refresh) runs one pricing pass (refreshAssetPrices, four
 // source lanes) in after() — same reasoning as wallets/page.tsx's
 // maxDuration for the same action.
 export const maxDuration = 300;
@@ -108,7 +107,7 @@ export default async function AssetsPage({
       <PageHeader
         title="Assets"
         subtitle="Every token you hold, aggregated across all your wallets"
-        actions={user && <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />}
+        actions={user && <PriceRefreshButton priceState={priceState} />}
       />
 
       {user ? (

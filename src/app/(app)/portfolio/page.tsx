@@ -7,7 +7,6 @@ import { TotalValuePanel } from "@/components/TotalValuePanel";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { GuestBanner } from "@/components/GuestBanner";
 import { SyncAllWalletsButton } from "@/components/SyncAllWalletsButton";
-import { refreshPricesAction } from "../wallets/actions";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
 
 /** The same view with "merge same coin" flipped, other filters kept. */
@@ -22,7 +21,7 @@ function mergeToggleHref(filters: Record<string, string | undefined>): string {
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Portfolio · CryptoPort" };
 
-// refreshPricesAction runs one pricing pass (refreshAssetPrices, four
+// Refresh prices (api/prices/refresh) runs one pricing pass (refreshAssetPrices, four
 // source lanes) in after() — same reasoning as wallets/page.tsx's
 // maxDuration for the same action.
 export const maxDuration = 300;
@@ -51,7 +50,7 @@ export default async function PortfolioPage({
           actions={
             <div className="flex items-center gap-3">
               <SyncAllWalletsButton wallets={wallets} />
-              <PriceRefreshButton priceState={priceState} refresh={refreshPricesAction} />
+              <PriceRefreshButton priceState={priceState} />
             </div>
           }
         >
