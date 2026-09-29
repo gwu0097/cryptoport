@@ -9,7 +9,6 @@ import { join, relative } from "node:path";
 // here, and a fixed one must be taken off (the count only goes down).
 // A background job may page (it isn't a page render) — list it with why.
 const PAGING_ALLOWED: Record<string, { count: number; why: string }> = {
-  "src/lib/queries.ts": { count: 2, why: "render: asset_prices + assets whole-table reads — phase 3 replaces them" },
   "src/lib/unrecognizedTokensQuery.ts": { count: 2, why: "render: wallet page's discovered tokens — phase 4" },
   "src/lib/priceHistory.ts": { count: 1, why: "render: Performance/Analytics daily closes — phase 4" },
   "src/lib/pricingCoverageQuery.ts": { count: 1, why: "render: Owner's console only" },

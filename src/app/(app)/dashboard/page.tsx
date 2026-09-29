@@ -38,6 +38,8 @@ export const maxDuration = 300;
 // a $0.001 spam token's 300% swing shouldn't dominate the movers list.
 const LOW_VALUE_USD = 10;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Split out of the ticker-grouped/watchlist row shapes below — same
 // gainers/losers logic (not just "biggest movers either direction": in a
 // portfolio (or watchlist) where everything's red, "Top gainers" should
@@ -63,14 +65,20 @@ export default async function DashboardPage({
   searchParams: Promise<{ list?: string }>;
 }) {
   const { list } = await searchParams;
-  const [{ groups, grand }, watchlists, history, priceState, user, positions, zone] = await Promise.all([
+  // getUser is local (the token's signature, auth.ts), so knowing it first
+  // costs no round trip — and every read below starts at once: nothing here
+  // waits on another read (CLAUDE.md §6 round-trip budget).
+  const user = await getUser();
+  const [{ groups, grand }, watchlists, history, priceState, positions, zone, listedItems, watch] = await Promise.all([
     getAssetsGroupedByTicker(),
     getWatchlists(),
     getValueHistory(),
     getPriceRefreshState(),
-    getUser(),
     getOpenPositions(),
     getEffectiveTimeZone(),
+    // Only a well-formed id is read (a malformed one would be a query error).
+    list && UUID.test(list) ? getWatchlistItems(list) : getAllWatchlistItems(),
+    user ? loadWatchActivity() : null,
   ]);
   // The newest moment any position's PnL is from (a price refresh's mark, or
   // a wallet sync) — shown once for the section.
@@ -81,10 +89,9 @@ export default async function DashboardPage({
   // back to "All", not 404 or silently show nothing) — undefined means
   // "All watchlists," getAllWatchlistItems()'s existing cross-list summary.
   const selectedWatchlist = list ? watchlists.find((w) => w.id === list) : undefined;
-  const [watchlistItems, watch] = await Promise.all([
-    selectedWatchlist ? getWatchlistItems(selectedWatchlist.id) : getAllWatchlistItems(),
-    user ? loadWatchActivity() : null,
-  ]);
+  // The list's items were read before knowing it exists: a stale id (only)
+  // costs one more read, of all watchlists.
+  const watchlistItems = list && UUID.test(list) && !selectedWatchlist ? await getAllWatchlistItems() : listedItems;
 
   // Dust filter only makes sense for Holdings (a $0.001 spam token's 300%
   // swing shouldn't dominate the movers list) — a Watchlist coin has no

@@ -1763,6 +1763,41 @@ create table if not exists cryptoport.assets (
   base_key   text,
   updated_at timestamptz not null default now()
 );
+
+-- Every price with its coin's name and icon, in one request (page renders
+-- read these; paging them 1,000 rows at a time cost 5 serial round trips).
+-- json, not a set of rows: a single value isn't cut at 1,000 rows.
+-- p_keys limits it to those price keys (null = all).
+create or replace function cryptoport.asset_market_rows(p_keys text[] default null)
+returns json
+language sql
+stable
+security invoker
+set search_path = cryptoport
+as $$
+  select coalesce(json_agg(json_build_object(
+    'price_key', p.price_key,
+    'usd', p.usd,
+    'change_1h', p.change_1h,
+    'change_24h', p.change_24h,
+    'change_7d', p.change_7d,
+    'change_30d', p.change_30d,
+    'market_cap', p.market_cap,
+    'volume_24h', p.volume_24h,
+    'updated_at', p.updated_at,
+    'source', p.source,
+    'symbol', a.symbol,
+    'name', a.name,
+    'image_url', a.image_url
+  ) order by p.price_key), '[]'::json)
+  from cryptoport.asset_prices p
+  left join cryptoport.assets a on a.price_key = p.price_key
+  where p_keys is null or p.price_key = any(p_keys);
+$$;
+
+revoke all on function cryptoport.asset_market_rows(text[]) from public, anon, authenticated;
+grant execute on function cryptoport.asset_market_rows(text[]) to service_role;
+
 alter table cryptoport.assets enable row level security;
 grant all on cryptoport.assets to service_role;
 

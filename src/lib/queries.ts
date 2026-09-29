@@ -200,24 +200,20 @@ type AssetPriceRow = {
   volume_24h: number | string | null;
   updated_at: string | null;
   source: string | null;
+  symbol: string | null;
+  name: string | null;
+  image_url: string | null;
 };
 
-/** Every asset_prices row, read once per request and shared by the price
- * map, the asset stats and the perp marks — they used to page through the
- * same table separately, a few requests each per page view (DECISIONS:
- * 2026-09-26 Supabase log ingestion). */
+/** Every asset_prices row with its coin's name and icon (assets), read once
+ * per request and shared by the price map, the asset stats and the perp
+ * marks. One request: the asset_market_rows RPC returns them as one json
+ * value — paging each table 1,000 rows at a time cost 5 serial round trips
+ * on every page (DECISIONS: 2026-09-29 Page latency). */
 const getAssetPriceRows = cache(async (): Promise<AssetPriceRow[]> => {
-  const rows: AssetPriceRow[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await serviceDb()
-      .from("asset_prices")
-      .select("price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, volume_24h, updated_at, source")
-      .order("price_key")
-      .range(from, from + 999);
-    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
-    rows.push(...(data as AssetPriceRow[]));
-    if (data.length < 1000) return rows;
-  }
+  const { data, error } = await serviceDb().rpc("asset_market_rows");
+  if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
+  return (data ?? []) as AssetPriceRow[];
 });
 
 /** Open perp positions' venue mark prices ("hlperp:<COIN>" / "lighterperp:<SYM>" rows of
@@ -279,19 +275,10 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
       volume24h: num(r.volume_24h),
       updatedAt: r.updated_at ?? null,
       source: r.source ?? null,
-      symbol: null,
-      name: null,
-      imageUrl: null,
+      symbol: r.symbol ?? null,
+      name: r.name ?? null,
+      imageUrl: r.image_url ?? null,
     });
-  }
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await serviceDb().from("assets").select("price_key, symbol, name, image_url").order("price_key").range(from, from + 999);
-    if (error) throw new Error(`Failed to load assets: ${error.message}`);
-    for (const r of data as { price_key: string; symbol: string | null; name: string | null; image_url: string | null }[]) {
-      const s = out.get(r.price_key);
-      if (s) Object.assign(s, { symbol: r.symbol, name: r.name, imageUrl: r.image_url });
-    }
-    if (data.length < 1000) break;
   }
   return out;
 });
@@ -685,7 +672,9 @@ export interface AssetsByTickerResult {
  * comment for the pattern this follows. */
 export async function getAssetsGroupedByTicker(opts?: { userId: string }): Promise<AssetsByTickerResult> {
   if (!opts && !(await getUser())) return { groups: [], grand: aggregate([], {}) };
-  const [rows, prices, assetStats] = await Promise.all([getActiveWalletsWithHoldings(opts), getPriceMap(), getAssetStatsMap()]);
+  // No argument when there's no opts: cache() keys on the arguments, and
+  // (undefined) is a different entry from () — the wallets were read twice.
+  const [rows, prices, assetStats] = await Promise.all([opts ? getActiveWalletsWithHoldings(opts) : getActiveWalletsWithHoldings(), getPriceMap(), getAssetStatsMap()]);
 
   const byTicker = new Map<string, AssetGroup>();
   // Per row: the value of the holding the row's price came from.

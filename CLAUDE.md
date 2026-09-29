@@ -733,7 +733,8 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
 - **Every page render has a round-trip budget: at most `TARGET_HOPS` (2)
   serial Supabase round trips.** Every independent read starts in the
   page's one `Promise.all` (a read that waits on another says why); a shared
-  table over 1,000 rows is read in one round trip (an RPC returning json),
+  table over 1,000 rows is read in one round trip (an RPC returning json —
+  prices and coin names: `asset_market_rows`, `queries.ts` `getAssetPriceRows`),
   never paged with `.range()` in a render — `renderBudget.test.ts` fails on
   a new paging loop and its allowlist only shrinks. Each render logs one
   line (`renderMeter.ts`, via `meteredFetch` in both Supabase clients; the
