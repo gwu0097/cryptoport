@@ -30,7 +30,11 @@ export async function loadTradingRecords(addresses: readonly string[], nowMs: nu
       continue;
     }
     try {
-      const record = await fetchTradingRecord(row.address, row.trading_record, nowMs);
+      const t0 = Date.now();
+      const { record, coinPages, firstCoinLoad, newCoins } = await fetchTradingRecord(row.address, row.trading_record, nowMs);
+      // A first coin load reads a year (up to 25 pages); after it, only coins
+      // traded since its cursor — this line shows which it was and how long.
+      console.log(`[trading-record] ${row.address} ${firstCoinLoad ? "first coin load" : "since last load"} pages=${coinPages + 2} coins=+${newCoins} ms=${Date.now() - t0}`);
       const { error: saveError } = await db
         .from("watched_addresses")
         .update({ trading_record: record, trading_record_at: new Date(nowMs).toISOString(), trading_record_status: "ok" })

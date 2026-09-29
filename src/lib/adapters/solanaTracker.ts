@@ -91,13 +91,18 @@ async function fetchCoinsSince(address: string, sinceMs: number | null, nowMs: n
 
 /** A wallet's trading record: all-time totals, the past year's days, and
  * its coins (only those traded since `prev` was loaded). */
-export async function fetchTradingRecord(address: string, prev: StoredTradingRecord | null, nowMs: number): Promise<StoredTradingRecord> {
+export async function fetchTradingRecord(
+  address: string,
+  prev: StoredTradingRecord | null,
+  nowMs: number,
+): Promise<{ record: StoredTradingRecord; coinPages: number; firstCoinLoad: boolean; newCoins: number }> {
   const summary = await get<Summary>(`${address}?currency=usd`);
   const perf = await get<Performance>(`${address}/performance?days=365&currency=usd`);
+  const firstCoinLoad = !prev?.coins?.cursor;
   const fetched = await fetchCoinsSince(address, prev?.coins?.cursor ?? null, nowMs);
   const s = summary.summary ?? {};
   const t = summary.analysis?.tokens ?? {};
-  return {
+  const record: StoredTradingRecord = {
     realizedUsd: s.pnl?.realized ?? 0,
     unrealizedUsd: s.pnl?.unrealized ?? 0,
     investedUsd: s.invested ?? 0,
@@ -114,4 +119,5 @@ export async function fetchTradingRecord(address: string, prev: StoredTradingRec
     drawdownPct: perf.drawdown?.percent ?? null,
     coins: mergeCoins(prev?.coins, fetched.coins, nowMs),
   };
+  return { record, coinPages: fetched.pages, firstCoinLoad, newCoins: fetched.coins.length };
 }

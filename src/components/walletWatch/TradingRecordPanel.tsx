@@ -160,10 +160,19 @@ export function TradingRecordPanel({
       title={
         <span className="flex flex-wrap items-center justify-between gap-2">
           Trading record
-          <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={load} title="Two Solana Tracker requests per Solana address (2,500 a month free); a record under an hour old is reused.">
-            <LineChart className={`size-3.5 ${busy ? "animate-pulse" : ""}`} aria-hidden="true" />
-            {busy ? "Loading…" : summary ? "Refresh record" : "Load trading record"}
-          </Button>
+          <span className="flex flex-col items-end gap-1">
+            <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={load} title="Two Solana Tracker requests per Solana address (2,500 a month free); a record under an hour old is reused.">
+              <LineChart className={`size-3.5 ${busy ? "animate-pulse" : ""}`} aria-hidden="true" />
+              {busy ? "Loading…" : summary ? "Refresh record" : "Load trading record"}
+            </Button>
+            {/* A trader with no coins stored reads a year of them once (up to
+                25 pages); after that only what they traded since. */}
+            {busy && (
+              <span className="max-w-56 text-right text-xs font-normal text-fg-muted">
+                {summary && Object.keys(summary.monthCoins).length > 0 ? "Reading trades since the last load…" : "First load: reading a year of coins, up to ~30 s."}
+              </span>
+            )}
+          </span>
         </span>
       }
       description={
