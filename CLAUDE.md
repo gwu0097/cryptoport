@@ -726,6 +726,14 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   gap visible (`/admin/pricing`). A hand-added data row is a labeled stopgap
   ("Set by hand (stopgap)" in Settings), never the fix. (DECISIONS: 2026-09-25
   category)
+- **Extend a feature before adding one.** Before building a new page, panel
+  or table, check whether an existing one already shows that kind of data
+  and could take the new part as a window, filter, tab or column (the
+  activity table, a holdings table, a chart). A new surface needs a reason
+  the existing one can't serve. When proposing a feature, say where it
+  appears ("a 7/30-day tab on the Activity table", not "a Recent trades
+  view") and which existing feature it extends. (DECISIONS: 2026-09-29
+  Extend before adding)
 - **Reuse UI primitives** before building one-offs: `Panel`, `PageHeader`,
   `GuestBanner`, `SignInPrompt`, `AuthButtons`, `ui/table.ts` classes,
   `buttonClass`, `SubmitButton`. Small presentational duplication beats a shared

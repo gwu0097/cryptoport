@@ -9,6 +9,34 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-09-29 — Extend before adding
+
+**What happened.** The owner asked to see a KOL's trades over the last few
+days (VirtualBacon's STATICS and BUCKET buys on Robinhood Chain were two days
+old, so the day's activity didn't show them). Claude proposed a "Recent
+trades" view on the influencer page and built it as its own panel: a second
+per-coin table, placed next to the Activity table it copied, with its own
+buttons, captions and caching. The owner's intent was to backfill the
+activity itself — "we already have an activity table; the whole purpose of
+recent trades is to backfill the activity". It was rebuilt as Today / 7 days
+/ 30 days tabs on the Activity table (`4ea41e9`), keeping the stored trade
+history underneath.
+
+**Why it happened.** CLAUDE.md had rules for reusing code (UI primitives, the
+duplication threshold, the Dashboard as a lens) but none for reusing a
+feature: nothing asked whether an existing view could take the new data
+before a new one was built. And the proposal named the new thing ("a Recent
+trades view") rather than where it would appear, so the owner couldn't see
+it would be a second table until it existed.
+
+**The rule** (CLAUDE.md §7, "Extend a feature before adding one"): check
+whether an existing page, panel or table already shows that kind of data and
+could take the new part as a window, filter, tab or column; a new surface
+needs a reason the existing one can't serve; a proposal says where the
+feature appears and which existing feature it extends.
+
+---
+
 ## 2026-09-26 — Supabase log ingestion: verify sign-ins locally, read shared tables less
 
 The organization passed its Free Plan log quota (1.16 / 1 GB; this project
