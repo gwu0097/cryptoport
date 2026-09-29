@@ -1,5 +1,7 @@
 import "server-only";
 import { jupiterFetch } from "./jupiterFetch";
+import { serviceDb } from "../supabase";
+import { mintsToLookUp, type CachedTokenInfo } from "../solanaTokenCache";
 import type { AdapterHolding } from "./types";
 
 // lite-api.jup.ag (this file's original host for all three endpoints below)
@@ -170,12 +172,57 @@ export interface HeldNotShown {
  * the $100,000 floor, 2026-09-27). A saved wallet's sync uses only the
  * holdings.
  */
+/**
+ * Token info for a wallet's mints, through solana_token_info
+ * (solanaTokenCache.ts): only never-seen, worth-showing and expired mints
+ * are looked up on Jupiter; what comes back (or doesn't — a dead mint is
+ * remembered as unpriced) is saved for the next read, by any wallet. The
+ * cache failing never fails the read: everything is looked up instead.
+ */
+async function tokenInfoCached(held: { mint: string; amount: number }[]): Promise<Map<string, JupiterTokenInfo>> {
+  const db = serviceDb();
+  const cached = new Map<string, CachedTokenInfo>();
+  try {
+    for (let i = 0; i < held.length; i += 5_000) {
+      // An RPC with an array body: thousands of mints don't fit in a URL.
+      const { data, error } = await db.rpc("solana_token_info_get", { p_mints: held.slice(i, i + 5_000).map((h) => h.mint) });
+      if (error) throw new Error(error.message);
+      for (const r of data as { mint: string; symbol: string | null; icon: string | null; usd_price: number | string | null; liquidity: number | string | null; checked_at: string }[]) {
+        cached.set(r.mint, { mint: r.mint, symbol: r.symbol, icon: r.icon, usdPrice: r.usd_price === null ? null : Number(r.usd_price), liquidity: r.liquidity === null ? null : Number(r.liquidity), checkedAt: r.checked_at });
+      }
+    }
+  } catch (e) {
+    console.error(`Solana token cache not read: ${(e as Error).message}`);
+    return fetchTokenInfo(held.map((h) => h.mint));
+  }
+  const lookUp = mintsToLookUp(held, cached, Date.now());
+  const fresh = await fetchTokenInfo(lookUp);
+  const checkedAt = new Date().toISOString();
+  const rows = lookUp.map((mint) => {
+    const t = fresh.get(mint);
+    return { mint, symbol: t?.symbol ?? null, icon: t?.icon ?? null, usd_price: t?.usdPrice ?? null, liquidity: t?.liquidity ?? null, checked_at: checkedAt };
+  });
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await db.from("solana_token_info").upsert(rows.slice(i, i + 500), { onConflict: "mint" });
+    if (error) console.error(`Solana token cache not saved: ${error.message}`);
+  }
+  // Fresh answers, else what was cached.
+  const out = new Map<string, JupiterTokenInfo>();
+  for (const [mint, c] of cached) {
+    out.set(mint, { id: mint, symbol: c.symbol ?? undefined, icon: c.icon ?? undefined, usdPrice: c.usdPrice ?? undefined, liquidity: c.liquidity ?? undefined });
+  }
+  // Looked up again: Jupiter's answer replaces what was cached — and no
+  // answer means no info now, as saved.
+  for (const mint of lookUp) out.delete(mint);
+  for (const [mint, t] of fresh) out.set(mint, t);
+  return out;
+}
+
 export async function readJupiterWallet(address: string): Promise<{ holdings: AdapterHolding[]; heldNotShown: HeldNotShown[] }> {
   const balances = await fetchBalances(address);
 
   const entries = Object.entries(balances).filter(([, b]) => b.uiAmount > 0);
-  const mints = entries.map(([key]) => (key === "SOL" ? WRAPPED_SOL_MINT : key));
-  const tokenInfo = await fetchTokenInfo(mints);
+  const tokenInfo = await tokenInfoCached(entries.map(([key, b]) => ({ mint: key === "SOL" ? WRAPPED_SOL_MINT : key, amount: b.uiAmount })));
 
   // What would be shown by price, liquidity and name alone; Shield is then
   // asked only about those (a row is shown only if it passes both, so the

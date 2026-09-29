@@ -2790,3 +2790,28 @@ select cron.schedule(
 
 -- Check: both jobs listed.
 select jobname, schedule, active from cron.job where jobname like 'cryptoport-%';
+
+-- (2026-09-29) -- Solana token info cache (solanaTokenCache.ts): what Jupiter said about a
+-- mint (name, icon, price, liquidity) and when — only to decide what a
+-- wallet read shows, never a price for valuation (asset_prices is). Shared
+-- by every wallet and Wallet Watch read; written with the service role.
+create table if not exists cryptoport.solana_token_info (
+  mint       text primary key,
+  symbol     text,
+  icon       text,
+  usd_price  numeric,
+  liquidity  numeric,
+  checked_at timestamptz not null
+);
+alter table cryptoport.solana_token_info enable row level security;
+grant all on cryptoport.solana_token_info to service_role;
+
+-- Many mints at once (a memecoin wallet holds thousands: too many for a URL).
+create or replace function cryptoport.solana_token_info_get(p_mints text[])
+returns setof cryptoport.solana_token_info
+language sql
+stable
+set search_path = cryptoport
+as $$ select * from cryptoport.solana_token_info where mint = any(p_mints) $$;
+revoke all on function cryptoport.solana_token_info_get(text[]) from public;
+grant execute on function cryptoport.solana_token_info_get(text[]) to service_role;

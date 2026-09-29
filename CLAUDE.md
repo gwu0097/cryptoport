@@ -509,6 +509,14 @@ An isolated-margin perps position is valued at what closing it returns
 (collateral + PnL after fees), not its margin — see `jupiterPerps.ts`.
 (DECISIONS: 2026-09-25 Jupiter Perps)
 
+A Solana wallet's token names, prices and liquidity (what decides which
+tokens are shown) come through `solana_token_info` (`solanaTokenCache.ts`
+`mintsToLookUp`, `jupiter.ts` `tokenInfoCached`): only never-seen mints,
+last time's shown ones, dust worth ≥ $0.50 a day old and anything a week old
+are looked up on Jupiter (a memecoin wallet held 8,417 mints: ~85 paced
+calls, ~95 s, every read). Never a valuation price (§4.2); the liquidity
+floor and Shield check are unchanged; the cache failing means a full lookup.
+
 Every on-chain Solana adapter lists accounts through `adapters/solanaRpc.ts`
 `getProgramAccounts`: Helius's paged `getProgramAccountsV2`, falling back to
 the one-shot method. Never call the RPC for it directly.
