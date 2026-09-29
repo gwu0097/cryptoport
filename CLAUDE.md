@@ -130,7 +130,9 @@ owner's.
   pings), added (today's buys cross
   `ADD_STEPS_USD` $1K/5K/10K…), sold out (worth under $1 now), trimmed
   (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
-  (`watchAlertSend.ts` → `adapters/discordWebhook.ts`; a position reaching
+  (`watchAlertSend.ts` → `adapters/discordWebhook.ts`, as cards — `alertEmbed`:
+  coloured by kind, the title linked to the coin on Fomo (Solana) or
+  DexScreener (EVM), CryptoPort linked on an open only; a position reaching
   $500, a new burst and a full exit ping `DISCORD_WATCH_ROLE_ID` — a sell-out
   within the hour of opening is a flip, posted unpinged, nobody else is ever pinged). One request
   for the trader's name, only when there's something to post; a failure is

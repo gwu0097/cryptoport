@@ -33,8 +33,12 @@ export interface WatchAlert {
   kind: WatchAlertKind;
   ticker: string;
   contract: string | null;
-  /** The message without the trader's name. */
-  text: string;
+  /** The contract's chain (holdings vocabulary: "solana", "eth", …). */
+  chain: string | null;
+  /** After the trader's name: "opened SBC", "sold out of H&G (flipped in 3m)". */
+  headline: string;
+  /** The numbers: "3.23 SOL ($384.02) at $0.00002616". */
+  detail: string;
   /** Pings the owner's Discord role: a position reaching $500, a new burst
    * of buying, a full exit that wasn't a flip. */
   ping: boolean;
@@ -68,7 +72,8 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const b = prev.get(c.assetKey);
     const price = priceOf(c);
     const worth = (qty: number) => (price === null ? null : qty * price);
-    const alert = (kind: WatchAlertKind, text: string, ping: boolean) => out.push({ kind, ticker: c.ticker, contract: c.contract, text, ping });
+    const alert = (kind: WatchAlertKind, headline: string, detail: string, ping: boolean) =>
+      out.push({ kind, ticker: c.ticker, contract: c.contract, chain: c.contractChain, headline, detail, ping });
     const bought = c.boughtUsd ?? 0;
     const boughtBefore = b?.boughtUsd ?? 0;
     const sold = c.soldUsd ?? 0;
@@ -78,14 +83,14 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const heldAtRead = worth(c.heldBefore);
     const openedToday = heldAtRead !== null && heldAtRead < DUST_USD;
     const entryText = (prefix: string) => (c.avgEntryUsd !== null ? `${prefix}${formatPrice(c.avgEntryUsd)}` : "");
-    const buysText = c.buys === 1 ? "" : `${c.buys} buys, `;
+    const buysText = c.buys === 1 ? "" : `${c.buys} buys · `;
     let posted = false; // a buy alert this delivery: the size steps don't repeat it
     if (openedToday && bought >= ALERT_MIN_USD && boughtBefore < ALERT_MIN_USD) {
-      alert("opened", `🟢 opened **${c.ticker}**: ${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(c.buys === 1 ? " at " : " avg entry ")}`, bought >= PING_POSITION_USD);
+      alert("opened", `opened ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(c.buys === 1 ? " at " : " · avg entry ")}`, bought >= PING_POSITION_USD);
       posted = true;
     } else if (openedToday && bought >= PING_POSITION_USD && boughtBefore < PING_POSITION_USD) {
       // A small open built up: one ping when it reaches $500.
-      alert("building", `🟢 is building **${c.ticker}**: ${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(", avg entry ")}`, true);
+      alert("building", `is building ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(" · avg entry ")}`, true);
       posted = true;
     } else if (!openedToday || boughtBefore >= ALERT_MIN_USD) {
       // A new burst: the latest buys, back to a gap of an hour or more (or to
@@ -103,16 +108,16 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
         const pauseMs = start > 0 ? Date.parse(buys[start].at) - Date.parse(buys[start - 1].at) : null;
         const pause = pauseMs !== null ? ` after ${pauseMs >= 86_400_000 ? `${Math.floor(pauseMs / 86_400_000)}d` : `${Math.floor(pauseMs / 3_600_000)}h`} without buying` : "";
         const paid = burst.every((t) => t.payTicker === burst[0].payTicker && t.payQty !== null) ? pay(burst.reduce((s, t) => s + t.payQty!, 0), burst[0].payTicker) : "";
-        const n = burst.length === 1 ? "" : `${burst.length} buys, `;
+        const n = burst.length === 1 ? "" : `${burst.length} buys · `;
         const held = worth(c.holdingQty);
-        alert("resumed", `🔵 added to **${c.ticker}**${pause}: ${n}${paid}(${formatUsd(burstNow)})${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`, true);
+        alert("resumed", `added to ${c.ticker}${pause}`, `${n}${paid}(${formatUsd(burstNow)})${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`, true);
         posted = true;
       }
     }
     // The day's size steps, unpinged — unless this delivery already posted.
     const step = crossed(ADD_STEPS_USD, boughtBefore, bought);
     if (step !== null && !posted) {
-      alert("added", `➕ has added **${formatUsd(step)}** of **${c.ticker}** today (${c.buys} buy${c.buys === 1 ? "" : "s"}${entryText(", avg entry ")})`, false);
+      alert("added", `has added ${formatUsd(step)} of ${c.ticker} today`, `${c.buys} buy${c.buys === 1 ? "" : "s"} · ${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(" · avg entry ")}`, false);
     }
 
     // Sold out: something was held before this delivery, nothing is now.
@@ -126,7 +131,7 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
       const heldMs = openedToday && firstBuy && lastSell ? Date.parse(lastSell) - Date.parse(firstBuy) : null;
       const flip = heldMs !== null && heldMs < BURST_GAP_MS;
       const flipText = flip ? ` (flipped in ${Math.max(1, Math.round(heldMs / 60_000))}m)` : "";
-      alert("soldOut", `🔴 sold out of **${c.ticker}**${flipText}: ${result(c)}`, !flip);
+      alert("soldOut", `sold out of ${c.ticker}${flipText}`, result(c), !flip);
       continue;
     }
     // Trimmed: a quarter, a half, three quarters of the position sold.
@@ -135,17 +140,46 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const shareBefore = b && position(b) > 0 ? b.soldQty / position(b) : 0;
     const trim = crossed(TRIM_STEPS, shareBefore, share);
     if (trim !== null && sold >= ALERT_MIN_USD) {
-      alert("trimmed", `🟠 trimmed **${c.ticker}** by ${Math.round(share * 100)}%: ${result(c)}${c.realizedUsd !== null ? " on what was sold" : ""}`, false);
+      alert("trimmed", `trimmed ${c.ticker} by ${Math.round(share * 100)}%`, `${result(c)}${c.realizedUsd !== null ? " on what was sold" : ""}`, false);
     }
   }
   return out;
 }
 
-/** One Discord message: the role ping (opens and full exits, when a role is
- * set), who, what, and the contract to copy. */
-export function alertMessage(trader: string, a: WatchAlert, link: string | null, roleId: string | null): string {
-  const lines = [`${a.ping && roleId ? `<@&${roleId}> ` : ""}**${trader}** ${a.text}`];
+const STYLE: Record<WatchAlertKind, { emoji: string; color: number }> = {
+  opened: { emoji: "🟢", color: 0x22c55e },
+  building: { emoji: "🟢", color: 0x22c55e },
+  resumed: { emoji: "🔵", color: 0x3b82f6 },
+  added: { emoji: "➕", color: 0x64748b },
+  trimmed: { emoji: "🟠", color: 0xf59e0b },
+  soldOut: { emoji: "🔴", color: 0xef4444 },
+};
+
+/** Where the coin trades: Fomo for Solana (its token page, checked
+ * 2026-09-28); DexScreener for EVM chains whose slug it's known by. */
+const DEXSCREENER: Record<string, string> = { eth: "ethereum", arb: "arbitrum", base: "base", bsc: "bsc", matic: "polygon", op: "optimism", avax: "avalanche" };
+export function tokenLink(chain: string | null, contract: string | null): string | null {
+  if (!contract) return null;
+  if (chain === "solana") return `https://fomo.family/tokens/solana/${contract}`;
+  const slug = chain ? DEXSCREENER[chain] : undefined;
+  return slug ? `https://dexscreener.com/${slug}/${contract}` : null;
+}
+
+export interface DiscordEmbed {
+  title: string;
+  url?: string;
+  description: string;
+  color: number;
+}
+
+/** One alert as a Discord card: the coloured bar says what happened, the
+ * title (linked to the coin's trading page) who and what, then the numbers
+ * and the contract to copy. The trader's CryptoPort page is linked on an
+ * open only. */
+export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | null): DiscordEmbed {
+  const url = tokenLink(a.chain, a.contract);
+  const lines = [a.detail];
   if (a.contract) lines.push(`\`${a.contract}\``);
-  if (link) lines.push(`<${link}>`);
-  return lines.join("\n");
+  if (traderLink && a.kind === "opened") lines.push(`[${trader} on CryptoPort](${traderLink})`);
+  return { title: `${STYLE[a.kind].emoji} ${trader} ${a.headline}`.slice(0, 256), ...(url ? { url } : {}), description: lines.join("\n"), color: STYLE[a.kind].color };
 }

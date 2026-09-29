@@ -241,7 +241,7 @@ export const UNLISTED_HOSTS: { reason: string; hosts: string[] }[] = [
   {
     reason: "A link shown to the user (explorers, apps, docs, news) — never called",
     hosts: [
-      "www.coingecko.com", "www.mintscan.io", "jup.ag", "x.com", "governance.aave.com", "dashboard.sei.io", "crypto.news", "coinalertnews.com", "cryptoticker.io",
+      "www.coingecko.com", "fomo.family", "dexscreener.com", "www.mintscan.io", "jup.ag", "x.com", "governance.aave.com", "dashboard.sei.io", "crypto.news", "coinalertnews.com", "cryptoticker.io",
       "ethdaily.io", "www.mexc.com", "www.kraken.com", "www.jito.network", "www.asterdex.com", "w.wormhole.com", "uniscan.xyz", "unisat.io", "taikoscan.io",
       "suiscan.xyz", "staking.superverse.co", "stake.solanamobile.com", "stake.axieinfinity.com", "sonicscan.org", "solscan.io", "snowscan.xyz", "slush.app",
       "seiscan.io", "portal.cdp.coinbase.com", "polymarket.com", "polygonscan.com", "optimistic.etherscan.io", "opbnb.bscscan.com", "mantlescan.xyz",
