@@ -97,7 +97,12 @@ owner's.
   on eth, base, matic) and shown per coin like a trading app's token card
   (`coinDays`: buys and sells with what was paid in SOL/USDC/ETH, still
   held, the result of what was bought and sold today; each trade behind a
-  toggle). Cash coins are only the payment side, never a row (owner
+  toggle; prices shown as the market cap at that price — circulating
+  supply = the stored market cap ÷ price, which the Jupiter lane now stores
+  too — else the price; a coin row's refresh icon gets just that coin's
+  price, `api/wallet-watch/coin-price`, one call to its source, skipped
+  within a minute, and a sold-out row then shows "MC now", owner
+  2026-09-29). Cash coins are only the payment side, never a row (owner
   2026-09-28: match KOLScan's per-trade view). For every trader alike, the
   coins they've sold out of (a leftover under $1 counts) fold into one row;
   open positions and their most recent coin keep their own (`activityFold.ts`). Saved on `watched_addresses`

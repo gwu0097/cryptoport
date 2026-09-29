@@ -10,7 +10,7 @@ import { foldSoldOut, soldOut } from "@/lib/activityFold";
 import { fetchDelay, minutesLeft } from "@/lib/liveWatching";
 import { useWatching } from "./useWatching";
 import { onLiveActivity } from "@/lib/liveListener";
-import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
+import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { usePersistedState } from "@/components/usePersistedState";
@@ -181,7 +181,7 @@ const sideTone = (t: CoinTrade) => (t.side === "buy" || t.side === "received" ? 
 
 /** "Buy 1.00 SOL ($118) at $0.0002516 · 3:28 PM" — the latest trade: what
  * was paid and the price, not the token count (owner 2026-09-28). */
-function LastTrade({ t, ticker }: { t: CoinTrade; ticker: string }) {
+function LastTrade({ t, ticker, at }: { t: CoinTrade; ticker: string; at: (price: number) => string }) {
   const when = useContext(PeriodContext) === "today" ? TIME : DATE_TIME;
   const cash = pay(t.payQty, t.payTicker);
   const price = t.usd !== null && t.qty > 0 ? t.usd / t.qty : null;
@@ -190,7 +190,7 @@ function LastTrade({ t, ticker }: { t: CoinTrade; ticker: string }) {
       <span className={sideTone(t)}>{SIDE[t.side]}</span>{" "}
       <span className="text-fg">{cash ?? `${compactQty(t.qty)} ${ticker}`}</span>
       {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)})</span>}
-      {price !== null && <span className="text-fg"> at {formatPrice(price)}</span>}
+      {price !== null && <span className="text-fg"> at {at(price)}</span>}
       <span className="text-fg-muted"> · {when.format(new Date(t.at))}</span>
     </>
   );
@@ -213,24 +213,65 @@ const STALE_PRICE_MS = 15 * 60 * 1000;
 
 /** The freshest price we have for a coin: the stored one, or its latest
  * trade's own price when that's newer — with when and where it's from. */
-function freshestPrice(c: WatchCoinDay): { usd: number; at: string; from: "stored" | "last trade" } | null {
+function freshestPrice(c: WatchCoinDay, refreshed: Refreshed | null): { usd: number; at: string; from: "stored" | "last trade" } | null {
   const t = c.trades.find((x) => x.usd !== null && x.qty > 0);
   const trade = t ? { usd: t.usd! / t.qty, at: t.at, from: "last trade" as const } : null;
-  const stored = c.nowUsd !== null && c.nowAt ? { usd: c.nowUsd, at: c.nowAt, from: "stored" as const } : null;
+  const stored = refreshed ? { usd: refreshed.usd, at: refreshed.at, from: "stored" as const } : c.nowUsd !== null && c.nowAt ? { usd: c.nowUsd, at: c.nowAt, from: "stored" as const } : null;
   if (!trade) return stored;
   if (!stored) return trade;
   return Date.parse(trade.at) > Date.parse(stored.at) ? trade : stored;
 }
 
+/** A coin's price and market cap fetched by the row's refresh button. */
+type Refreshed = { usd: number; at: string; marketCap: number | null };
+
+/** The row's refresh button: just this coin's latest price (one call to its
+ * source, api/wallet-watch/coin-price), then the row values with it. */
+function CoinPriceButton({ priceKey, ticker, onPrice }: { priceKey: string; ticker: string; onPrice: (p: Refreshed) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/wallet-watch/coin-price", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priceKey }) });
+      const body = (await res.json()) as { usd?: number | null; marketCap?: number | null; at?: string | null; error?: string };
+      if (!res.ok || body.usd == null || !body.at) throw new Error(body.error ?? "no price");
+      onPrice({ usd: body.usd, at: body.at, marketCap: body.marketCap ?? null });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={refresh}
+      disabled={busy}
+      className={`ml-1 inline-flex align-middle ${error ? "text-warning" : "text-fg-muted"} hover:text-fg disabled:opacity-50`}
+      title={error ? `Couldn't get ${ticker}'s price: ${error}` : `Get ${ticker}'s latest price`}
+      aria-label={`Refresh ${ticker}'s price`}
+    >
+      <RefreshCw className={`size-3 ${busy ? "animate-spin" : ""}`} aria-hidden="true" />
+    </button>
+  );
+}
+
 /** One coin's row, and its trades underneath when opened. */
 function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
   const [open, setOpen] = useState(false);
+  const [refreshed, setRefreshed] = useState<Refreshed | null>(null);
   const period = useContext(PeriodContext);
   const closed = soldOut(c);
+  // The market cap at a price (circulating supply × price) — how the table
+  // shows prices (owner 2026-09-29); the price itself when the supply isn't known.
+  const supply = refreshed?.marketCap && refreshed.usd ? refreshed.marketCap / refreshed.usd : c.supply;
+  const at = (p: number) => (supply ? `MC ${formatCompactUsd(p * supply)}` : formatPrice(p));
   // Nothing sold, but all of it sent to another wallet (AGI: 71 buys, then
   // 2.30M out): not "open" at $0.
   const sentOut = !closed && c.sells === 0 && c.holdingQty <= 0 && c.trades.some((t) => t.side === "sent");
-  const price = freshestPrice(c);
+  const price = freshestPrice(c, refreshed);
   const stale = price !== null && serverNowSec * 1000 - Date.parse(price.at) > STALE_PRICE_MS;
   const priceNote = price ? `Price ${formatPrice(price.usd)} as of ${TIME.format(new Date(price.at))} (${price.from === "last trade" ? "their last trade" : "last price refresh"})${stale ? " — stale" : ""}` : "";
   const holdingUsd = price !== null ? c.holdingQty * price.usd : null;
@@ -261,26 +302,37 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
           {/* The latest trade on its own line: a new one replaces it, and it rolls into the totals. */}
           <p className="text-xs">
             <span className="text-fg-muted">Last: </span>
-            <LastTrade t={c.trades[0]} ticker={c.ticker} />
+            <LastTrade t={c.trades[0]} ticker={c.ticker} at={at} />
           </p>
         </td>
         <td className={`${tdClass} tabular-nums`}>
           <Amount payQty={c.boughtPay} usd={c.boughtUsd} ticker={c.payTicker} qty={c.boughtQty} tone="text-positive" />
-          {c.avgEntryUsd !== null && <p className="text-xs text-fg-muted">avg entry {formatPrice(c.avgEntryUsd)}</p>}
+          {c.avgEntryUsd !== null && <p className="text-xs text-fg-muted">avg entry {at(c.avgEntryUsd)}</p>}
         </td>
         <td className={`${tdClass} tabular-nums`}>
           <Amount payQty={c.soldPay} usd={c.soldUsd} ticker={c.payTicker} qty={c.soldQty} tone="text-negative" />
-          {c.avgExitUsd !== null && <p className="text-xs text-fg-muted">avg exit {formatPrice(c.avgExitUsd)}</p>}
+          {c.avgExitUsd !== null && <p className="text-xs text-fg-muted">avg exit {at(c.avgExitUsd)}</p>}
         </td>
         <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
           {closed ? (
             // "sold all" only when nothing's left; a crumb under $1 says so.
-            <span className="text-fg-muted">{c.holdingQty <= 0 ? "sold all" : "dust left"}</span>
+            <>
+              <span className="text-fg-muted">{c.holdingQty <= 0 ? "sold all" : "dust left"}</span>
+              {c.priceKey && <CoinPriceButton priceKey={c.priceKey} ticker={c.ticker} onPrice={setRefreshed} />}
+              {/* Sold out: the coin's market cap now, in place of a value. */}
+              {price !== null && supply && (
+                <p className={`text-xs ${stale ? "text-warning" : "text-fg-muted"}`} title={priceNote}>
+                  MC now {formatCompactUsd(price.usd * supply)}
+                  {stale && " ⚠"}
+                </p>
+              )}
+            </>
           ) : sentOut ? (
             <span className="text-fg-muted">sent out</span>
           ) : (
             <>
               {compactQty(c.holdingQty)}
+              {c.priceKey && <CoinPriceButton priceKey={c.priceKey} ticker={c.ticker} onPrice={setRefreshed} />}
               {holdingUsd !== null && (
                 <p className={`text-xs ${stale ? "text-warning" : "text-fg-muted"}`} title={priceNote}>
                   {formatUsd(holdingUsd)}
@@ -333,7 +385,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
                 <li key={`${t.txId}|${t.side}`} className="flex flex-wrap justify-between gap-x-3">
                   <span>
                     <span className={sideTone(t)}>{SIDE[t.side]}</span> {tradeText(t, c.ticker)}
-                    {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)}{t.qty > 0 ? ` · ${formatPrice(t.usd / t.qty)} each` : ""})</span>}
+                    {t.usd !== null && <span className="text-fg-muted"> ({formatUsd(t.usd)}{t.qty > 0 ? ` · ${supply ? at(t.usd / t.qty) : `${formatPrice(t.usd / t.qty)} each`}` : ""})</span>}
                   </span>
                   <span className="text-fg-muted">
                     {(period === "today" ? TIME : DATE_TIME).format(new Date(t.at))}

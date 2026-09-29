@@ -497,6 +497,9 @@ export interface WatchCoinDay extends CoinDay {
   influencerName: string;
   nowUsd: number | null;
   nowAt: string | null;
+  /** Circulating supply (stored market cap ÷ price): the table shows a
+   * trade's price as the market cap then. Null when unknown. */
+  supply: number | null;
 }
 
 export interface WatchDayActivity {
@@ -526,18 +529,27 @@ export async function getWatchDayActivity(
   if (error) throw new Error(`Failed to load today's activity: ${error.message}`);
   const rowList = data as { chain: string; address: string; tx_activity: TxActivity | null; tx_checked_at: string | null; tx_check_status: string | null; live: boolean | null }[];
   const rows = new Map(rowList.map((r) => [`${r.chain}|${r.address}`, r]));
-  let stats: ReadonlyMap<string, { usd: number | null; updatedAt: string | null }> = fullStats ?? new Map();
+  let stats: ReadonlyMap<string, { usd: number | null; updatedAt: string | null; marketCap: number | null }> = fullStats ?? new Map();
   if (!fullStats) {
     const keys = [...new Set(rowList.flatMap((r) => (r.tx_activity?.legs ?? []).map((l) => l.priceKey)).filter((k): k is string => !!k))];
     if (keys.length > 0) {
       // asset_prices is shared data read with the service role, as every page
       // does for an unscoped read (queries.ts getAssetPriceRows).
-      const { data: priced, error: priceError } = await serviceDb().from("asset_prices").select("price_key, usd, updated_at").in("price_key", keys);
+      const { data: priced, error: priceError } = await serviceDb().from("asset_prices").select("price_key, usd, updated_at, market_cap").in("price_key", keys);
       if (priceError) throw new Error(`Failed to load prices: ${priceError.message}`);
-      stats = new Map((priced as { price_key: string; usd: number | string | null; updated_at: string | null }[]).map((p) => [p.price_key, { usd: parseNumeric(p.usd), updatedAt: p.updated_at }]));
+      stats = new Map(
+        (priced as { price_key: string; usd: number | string | null; updated_at: string | null; market_cap: number | string | null }[]).map((p) => [
+          p.price_key,
+          { usd: parseNumeric(p.usd), updatedAt: p.updated_at, marketCap: parseNumeric(p.market_cap) },
+        ]),
+      );
     }
   }
   const priceNow = (k: string | null) => (k ? parseNumeric(stats.get(k)?.usd ?? null) : null);
+  const supplyOf = (k: string | null) => {
+    const s = k ? stats.get(k) : undefined;
+    return s && s.usd && s.marketCap ? s.marketCap / s.usd : null;
+  };
   const liveIds = influencers.filter((i) => i.addresses.some((a) => rows.get(`${a.chain}|${a.address}`)?.live)).map((i) => i.id);
   const coins: WatchCoinDay[] = [];
   const checkedAt: Record<string, string> = {};
@@ -551,7 +563,7 @@ export async function getWatchDayActivity(
     // reach the address (rebaseToDay).
     const dayStart = todaysReadTime(Date.now());
     const activities = mine.map((r) => r.tx_activity).filter((a): a is TxActivity => !!a).map((a) => rebaseToDay(a, dayStart));
-    for (const c of coinDays(activities, new Set(i.addresses.map((a) => a.address)))) coins.push({ ...c, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(c.priceKey), nowAt: (c.priceKey && stats.get(c.priceKey)?.updatedAt) || null });
+    for (const c of coinDays(activities, new Set(i.addresses.map((a) => a.address)))) coins.push({ ...c, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(c.priceKey), nowAt: (c.priceKey && stats.get(c.priceKey)?.updatedAt) || null, supply: supplyOf(c.priceKey) });
   }
   return { coins: coins.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues, liveIds };
 }

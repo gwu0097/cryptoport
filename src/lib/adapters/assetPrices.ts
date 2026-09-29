@@ -125,7 +125,9 @@ export async function refreshAssetPrices(
         for (const k of jup) {
           const t = info.get(k.slice(4));
           if (typeof t?.usdPrice !== "number") continue;
-          fetched.set(k, { usd: t.usdPrice, change_24h: t.stats24h?.priceChange ?? null, source: "jupiter" });
+          // Its market cap too (same response): Wallet Watch shows coins by
+          // market cap. No volume is stored, so the illiquid rule can't apply.
+          fetched.set(k, { usd: t.usdPrice, change_24h: t.stats24h?.priceChange ?? null, market_cap: typeof t.mcap === "number" && t.mcap > 0 ? t.mcap : null, source: "jupiter" });
           assets.push({ price_key: k, symbol: t.symbol ?? null, name: null, image_url: t.icon ?? null, updated_at: nowIso() });
         }
       }),

@@ -72,6 +72,8 @@ export interface JupiterTokenInfo {
   stats24h?: { priceChange?: number };
   /** Circulating supply — Wallet Watch alerts' market cap at a trade's price. */
   circSupply?: number;
+  /** Market cap (price × circulating supply), stored with the price. */
+  mcap?: number;
 }
 
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
