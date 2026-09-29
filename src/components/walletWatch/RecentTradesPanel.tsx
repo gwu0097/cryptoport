@@ -55,7 +55,7 @@ export function RecentTradesPanel({ influencerId, evmAddresses, serverNowSec }: 
         <div className="mt-3">
           <p className="text-xs text-fg-muted">
             Last {t.days} days · {t.chains} chain reads · read <AgeText at={new Date(result!.fetchedAtMs).toISOString()} serverNowSec={serverNowSec} />
-            {t.sizedToday > 0 && <span className="text-warning"> · {t.sizedToday} trade{t.sizedToday === 1 ? "" : "s"} sized at today&apos;s price (no stored close for that day)</span>}
+            {t.sizedToday > 0 && <span className="text-warning"> · {t.sizedToday} trade{t.sizedToday === 1 ? "" : "s"} sized at today&apos;s price (no stored price for that day, or a coin-for-coin swap)</span>}
           </p>
           {t.coins.length === 0 ? (
             <p className="mt-2 text-sm text-fg-muted">No trades in the last {t.days} days.</p>
@@ -64,7 +64,7 @@ export function RecentTradesPanel({ influencerId, evmAddresses, serverNowSec }: 
           )}
           {t.partial.length > 0 && <p className="mt-1 text-xs text-warning">Partial — only the newest transfers were read on: {t.partial.join(", ")}.</p>}
           {t.failed.length > 0 && <p className="mt-1 text-xs text-warning">Not read: {t.failed.join("; ")}</p>}
-          <p className="mt-1 text-[11px] text-fg-muted/80">Swaps are sized at the paying coin&apos;s close that day. Holding and results start from what each coin held {t.days} days ago, worked back from the last read.</p>
+          <p className="mt-1 text-[11px] text-fg-muted/80">Swaps are sized at the paying coin&apos;s close that day; a coin-for-coin swap at the coins&apos; current prices. Holding and results start from what each coin held {t.days} days ago, worked back from the last read.</p>
         </div>
       )}
     </Panel>

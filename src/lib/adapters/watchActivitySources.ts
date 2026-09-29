@@ -139,7 +139,7 @@ export function evmCheckable(chain: string): boolean {
 
 /** One EVM chain of an address via Alchemy's transfers, newest first, both
  * directions; the cursor is the newest block seen. */
-export async function readEvmChain(address: string, chain: string, cursor: string | null, boundaryMs: number): Promise<SourceRead> {
+export async function readEvmChain(address: string, chain: string, cursor: string | null, boundaryMs: number, maxPages = MAX_PAGES): Promise<SourceRead> {
   const host = ALCHEMY_HOSTS[chain];
   if (!host || !ALCHEMY_API_KEY) throw new Error(`Alchemy: ${chain} not served`);
   const lower = address.toLowerCase();
@@ -149,7 +149,7 @@ export async function readEvmChain(address: string, chain: string, cursor: strin
   const byId = new Map<string, AlchemyTransfer>();
   for (const direction of ["fromAddress", "toAddress"] as const) {
     let pageKey: string | null = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < maxPages; page++) {
       const r = await alchemyPage(host, {
         [direction]: address,
         category,
@@ -165,7 +165,7 @@ export async function readEvmChain(address: string, chain: string, cursor: strin
       if (!pageKey) break;
       const last = r.transfers.at(-1)?.metadata?.blockTimestamp;
       if (!cursor && last && Date.parse(last) < boundaryMs) break;
-      if (page === MAX_PAGES - 1) partial = true;
+      if (page === maxPages - 1) partial = true;
     }
   }
   const transfers = [...byId.values()];

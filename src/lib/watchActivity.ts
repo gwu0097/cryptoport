@@ -56,6 +56,9 @@ export interface ActivityLeg {
   at: string;
   /** When the check that found it ran. */
   checkedAt: string;
+  /** Sized at a coin's stored (current) price — a swap with no cash side —
+   * rather than at a cash coin's price at the time. */
+  sizedBy?: "stored";
   /** Who found it: the live webhook or a Refresh activity check (phase 5 —
    * a check on a live wallet counts what the webhook missed). */
   source?: "webhook" | "check";
@@ -102,7 +105,10 @@ export interface LegIdentity {
  * deciding whether the transaction was a swap, never saved). `valueOf` is a
  * coin's per-unit USD when it can price the other side of a swap (SOL, ETH,
  * a stablecoin); `noNativeLegs` names chains whose source can't see the
- * native coin a router pays out.
+ * native coin a router pays out. `storedValueOf`: a coin's stored price, for
+ * a swap with no cash side (BUCKET → STATICS): each coin at its own stored
+ * price, or at the other side's when only that one has one — marked
+ * `sizedBy: "stored"`.
  */
 export function toLegs(
   changes: readonly RawChange[],
@@ -110,6 +116,7 @@ export function toLegs(
   valueOf: (priceKey: string | null, at: string) => number | null,
   noNativeLegs: ReadonlySet<string>,
   checkedAt: string,
+  storedValueOf?: (priceKey: string | null) => number | null,
 ): ActivityLeg[] {
   const byTx = new Map<string, RawChange[]>();
   for (const c of changes) byTx.set(c.txId, [...(byTx.get(c.txId) ?? []), c]);
@@ -130,18 +137,22 @@ export function toLegs(
     if (moved.length === 0) continue;
     const swap = moved.some((c) => c.qty > 0) && moved.some((c) => c.qty < 0);
     const identified = moved.map((c) => ({ c, id: identify(c) }));
-    // The swap's dollar side: SOL, ETH or a stablecoin leg.
-    const valueLegs = identified.filter(({ c, id }) => swap && id && valueOf(id.priceKey, c.at) !== null && c.qty !== 0);
+    // The swap's dollar side: SOL, ETH or a stablecoin leg — or, with no cash
+    // side, the coins' stored prices.
+    const cashLegs = identified.filter(({ c, id }) => swap && id && valueOf(id.priceKey, c.at) !== null && c.qty !== 0);
+    const byStored = swap && cashLegs.length === 0 && !!storedValueOf;
+    const price = (k: string | null, at: string) => (byStored ? storedValueOf!(k) : valueOf(k, at));
+    const valueLegs = byStored ? identified.filter(({ c, id }) => id && price(id.priceKey, c.at) !== null && c.qty !== 0) : cashLegs;
     for (const { c, id } of identified) {
       if (!id) continue;
-      let priceUsd: number | null = valueOf(id.priceKey, c.at);
+      let priceUsd: number | null = price(id.priceKey, c.at);
       if (swap && priceUsd === null) {
         // Priced by the other side, when exactly one coin sits on each side.
         const sameSide = moved.filter((m) => Math.sign(m.qty) === Math.sign(c.qty));
         const other = valueLegs.filter(({ c: v }) => Math.sign(v.qty) !== Math.sign(c.qty));
         if (sameSide.length === 1 && other.length === 1) {
           const v = other[0];
-          priceUsd = (Math.abs(v.c.qty) * valueOf(v.id!.priceKey, v.c.at)!) / Math.abs(c.qty);
+          priceUsd = (Math.abs(v.c.qty) * price(v.id!.priceKey, v.c.at)!) / Math.abs(c.qty);
         }
       }
       const kind: LegKind = swap ? "swap" : c.qty < 0 && c.contract && noNativeLegs.has(c.chain) ? "unclear" : "transfer";
@@ -156,6 +167,7 @@ export function toLegs(
         kind,
         counterparty: swap ? null : c.counterparty,
         priceUsd,
+        ...(byStored && priceUsd !== null ? { sizedBy: "stored" as const } : {}),
         at: c.at,
         checkedAt,
       });

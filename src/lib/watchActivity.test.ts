@@ -8,6 +8,8 @@ const known: Record<string, { assetKey: string; priceKey: string; ticker: string
   "solana|gem": { assetKey: "jup:gem", priceKey: "jup:gem", ticker: "GEM" },
   "eth|native": { assetKey: "ethereum", priceKey: "ethereum", ticker: "ETH" },
   "arb|0xtok": { assetKey: "tok", priceKey: "tok", ticker: "TOK" },
+  "rbh|bucket": { assetKey: "bucket-shop", priceKey: "bucket-shop", ticker: "BUCKET" },
+  "rbh|statics": { assetKey: "statics-protocol", priceKey: "statics-protocol", ticker: "STATICS" },
 };
 const identify = (c: RawChange) => known[`${c.chain}|${c.contract ?? "native"}`] ?? null;
 const valueOf = (k: string | null) => (k === "solana" ? SOL : k === "ethereum" ? 4000 : null);
@@ -177,4 +179,21 @@ test("average entry across many buys; a tiny trim of a big position stays out; a
   const trim = [leg({ assetKey: "uniswap", priceKey: "uniswap", ticker: "UNI", txId: "s", qtyDelta: -3_896, priceUsd: 8.7 })];
   const t = coinDays([day(trim, { uniswap: { qty: 32_467, kept: false } })], new Set())[0];
   assert.ok(Math.abs(t.soldShareOfPosition! - 0.12) < 0.001);
+});
+
+test("a coin-for-coin swap (BUCKET → STATICS) is sized at a stored price and marked so", () => {
+  const stored = (k: string | null) => (k === "bucket-shop" ? 0.005 : null); // STATICS has no stored price
+  const legs = toLegs([chg("b1", "rbh", "bucket", -35_231), chg("b1", "rbh", "statics", 6_612)], identify, valueOf, NO_NATIVE, "x", stored);
+  const statics = legs.find((l) => l.ticker === "STATICS")!;
+  assert.equal(statics.kind, "swap");
+  assert.ok(Math.abs(statics.priceUsd! - (35_231 * 0.005) / 6_612) < 1e-12);
+  assert.equal(statics.sizedBy, "stored");
+  // Without stored prices it stays unsized, as before.
+  assert.equal(toLegs([chg("b2", "rbh", "bucket", -1), chg("b2", "rbh", "statics", 1)], identify, valueOf, NO_NATIVE, "x")[1].priceUsd, null);
+});
+
+test("a swap with a cash side never uses stored prices", () => {
+  const legs = toLegs([chg("t9", "solana", null, -1), chg("t9", "solana", "gem", 100)], identify, valueOf, NO_NATIVE, "x", () => 999);
+  assert.equal(legs.find((l) => l.ticker === "GEM")!.priceUsd, SOL / 100);
+  assert.equal(legs.some((l) => l.sizedBy), false);
 });

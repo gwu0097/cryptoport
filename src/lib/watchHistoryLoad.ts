@@ -2,10 +2,10 @@ import "server-only";
 import { serviceDb, userDb } from "./supabase";
 import { mapWithConcurrency } from "./adapters/http";
 import { readAssetPrices } from "./adapters/assetPrices";
-import { evmCheckable, MAX_PAGES, readEvmChain } from "./adapters/watchActivitySources";
+import { evmCheckable, readEvmChain } from "./adapters/watchActivitySources";
 import { identifyLegs } from "./watchActivityCheck";
 import { WEBHOOK_NETWORKS } from "./alchemyWebhookTx";
-import { CASH_KEYS, coinDays, type RawChange, type TxActivity } from "./watchActivity";
+import { CASH_KEYS, coinDays, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity";
 import { assetStates } from "./watchDiff";
 import { windowBase, type HistoryDays } from "./watchHistory";
 import { createTtlCache } from "./ttlCache";
@@ -18,7 +18,7 @@ import type { WatchCoinDay } from "./watchQuery";
 // per-coin view as Refresh activity, over a longer window. Swaps are sized
 // at the cash coin's close on the trade's day (asset_price_daily), else
 // today's price, and the result says how many. Each read is up to
-// MAX_PAGES × 100 transfers per direction per chain (120 CU a call);
+// HISTORY_PAGES × 100 transfers per direction per chain (120 CU a call);
 // reused for 15 minutes per influencer and window. Solana addresses are the
 // trading record's (Solana Tracker), not read here.
 
@@ -39,6 +39,9 @@ const cache = createTtlCache<RecentTrades>(15 * 60_000, 100);
 /** Chains always read: the live networks and Base, besides the snapshot's. */
 const ALWAYS = [...Object.keys(WEBHOOK_NETWORKS), "base"];
 const DAY_MS = 86_400_000;
+/** Pages of 100 per direction per chain: a split-order trader (VirtualBacon,
+ * 461 transactions in a week on Robinhood Chain) overflows the day check's 5. */
+const HISTORY_PAGES = 20;
 
 export async function loadRecentTrades(influencerId: string, days: HistoryDays): Promise<{ trades: RecentTrades; fetchedAtMs: number }> {
   // The user's client proves they watch this influencer (RLS).
@@ -74,7 +77,7 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
   const partial: string[] = [];
   const reads = await mapWithConcurrency(tasks, 3, async (t) => {
     try {
-      const res = await readEvmChain(t.address, t.chain, null, startMs);
+      const res = await readEvmChain(t.address, t.chain, null, startMs, HISTORY_PAGES);
       if (res.partial) partial.push(`${t.chain} (${t.address.slice(0, 6)}…)`);
       return res.changes;
     } catch (e) {
@@ -99,10 +102,11 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
     const legs = await identifyLegs(changes, r.snapshot!, readAssetPrices, checkedAt, "check", undefined, closeOn);
     activities.push({ boundary: from, legs, base: windowBase(assetStates(r.snapshot!), legs, Date.parse(r.last_refresh_at!), startMs) });
   }
-  // Trades before today whose cash coin had no stored close: sized at today's price.
-  const sizedToday = new Set(
-    activities.flatMap((a) => a.legs.filter((l) => l.kind === "swap" && l.priceKey && CASH_KEYS.has(l.priceKey) && l.at.slice(0, 10) !== today && closeOn(l.priceKey, l.at.slice(0, 10)) === null).map((l) => l.txId)),
-  ).size;
+  // Trades before today sized at today's price: a cash coin with no stored
+  // close that day, or a coin-for-coin swap sized at stored prices.
+  const atToday = (l: ActivityLeg) =>
+    l.kind === "swap" && l.at.slice(0, 10) !== today && (l.sizedBy === "stored" || (!!l.priceKey && CASH_KEYS.has(l.priceKey) && closeOn(l.priceKey, l.at.slice(0, 10)) === null));
+  const sizedToday = new Set(activities.flatMap((a) => a.legs.filter(atToday).map((l) => l.txId))).size;
   const coins = coinDays(activities, new Set(evm));
   const keys = [...new Set(coins.map((c) => c.priceKey).filter((k): k is string => !!k))];
   const { data: priced } = keys.length > 0 ? await svc.from("asset_prices").select("price_key, usd, updated_at").in("price_key", keys) : { data: [] };
@@ -114,7 +118,7 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
       .sort((x, y) => y.lastAt.localeCompare(x.lastAt)),
     chains: tasks.length,
     failed,
-    partial: partial.length > 0 ? [...partial, `over ${MAX_PAGES * 100} transfers each way`] : [],
+    partial: partial.length > 0 ? [...partial, `over ${HISTORY_PAGES * 100} transfers each way`] : [],
     sizedToday,
   };
 }

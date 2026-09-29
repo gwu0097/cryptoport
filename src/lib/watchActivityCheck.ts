@@ -225,7 +225,7 @@ export async function identifyLegs(
   const priceOf = (k: string | null) => (k ? (priced.get(k) ?? null) : null);
   const valueOf = (k: string | null, at: string) => (k && VALUE_KEYS.has(k) ? (closeOn?.(k, at.slice(0, 10)) ?? priceOf(k)) : null);
   const inSnapshot = new Set(assetStates(snapshot).keys());
-  const legs = toLegs(changes, identify, valueOf, noNativeLegs, checkedAt).filter((l) => l.kind !== "transfer" || inSnapshot.has(l.assetKey) || priceOf(l.priceKey) !== null);
+  const legs = toLegs(changes, identify, valueOf, noNativeLegs, checkedAt, priceOf).filter((l) => l.kind !== "transfer" || inSnapshot.has(l.assetKey) || priceOf(l.priceKey) !== null);
 
   // New coins from swaps: priced now, and named from the price source.
   for (const l of legs) l.source = source;
