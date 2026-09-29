@@ -5,7 +5,7 @@ import { withPriceKeys } from "./adapters/assetKeys";
 import { ensureAssetPrices } from "./adapters/assetPrices";
 import { mapWithConcurrency } from "./adapters/http";
 import { carryForward, keptNote } from "./carryForward";
-import { getAssetStatsMap, getPriceMap, type AssetStats } from "./queries";
+import { getMarketFor, type AssetStats } from "./queries";
 import { aggregate, valueHolding } from "./valuation";
 import { JOB_STALE_MS, SCHEDULED_STATUS } from "./jobStatus";
 import { buildSnapshot, previousContracts, snapshotRowToAdapter, type SnapshotRow, type WatchSnapshot } from "./watchSnapshot";
@@ -99,7 +99,7 @@ function priceFor(asset: AssetState, rows: readonly SnapshotRow[], prices: Price
  * read, its positions and the day's value. Never throws: a failure is
  * recorded in its status and the previous snapshot stays (so nothing moves).
  * `stats` (read once per batch) decides which coins are cash-like. */
-export async function refreshWatchedAddress({ chain, address }: WatchedKey, stats: ReadonlyMap<string, AssetStats> = new Map()): Promise<void> {
+export async function refreshWatchedAddress({ chain, address }: WatchedKey): Promise<void> {
   const db = serviceDb();
   const done = (fields: Record<string, unknown>) => db.from("watched_addresses").update(fields).eq("chain", chain).eq("address", address);
   // Where a read's time goes, one log line per address (Vercel logs, no
@@ -127,7 +127,8 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
 
     // Price what was read first: the snapshot keeps rows by current value.
     await ensureAssetPrices(fresh.map((r) => r.price_key), "watch").catch(() => {});
-    const prices = await getPriceMap();
+    // Only this address's coins, now and at its last read (not every price).
+    const { prices, stats } = await getMarketFor([...fresh, ...keptRows, ...previousRows].map((r) => r.price_key));
     mark("price");
     const valueOf = (r: { ticker: string; qty: number | null; usd_override: number | null; price_key?: string | null }) => {
       const v = valueHolding({ ticker: r.ticker, qty: r.qty, usd_override: r.usd_override, source: "auto", price_key: r.price_key ?? null }, prices);
@@ -284,8 +285,7 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
 }
 
 export async function refreshWatchedAddresses(keys: readonly WatchedKey[]): Promise<void> {
-  const stats = await getAssetStatsMap().catch(() => new Map<string, AssetStats>());
-  await mapWithConcurrency([...keys], CONCURRENCY, (k) => refreshWatchedAddress(k, stats));
+  await mapWithConcurrency([...keys], CONCURRENCY, (k) => refreshWatchedAddress(k));
 }
 
 /** The day's legs, once the morning read covers them, added to the stored

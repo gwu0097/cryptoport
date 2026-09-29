@@ -6,7 +6,8 @@ import { fetchCardanoHoldings, isCardanoAddress } from "./adapters/cardano";
 import { fetchCosmosHoldings, isCosmosAddress } from "./adapters/cosmos";
 import { NON_EVM_DISPATCH, detectNonEvmChain, type AdapterFetchResult } from "./adapters/nonEvmDispatch";
 import type { AdapterHolding } from "./adapters/types";
-import { getPriceMap, valuateHoldings, type ValuatedHoldings } from "./queries";
+import { getMarketFor, valuateHoldings, type ValuatedHoldings } from "./queries";
+import { markKeyFor } from "./perpPositions";
 import { withPriceKeys } from "./adapters/assetKeys";
 import { ensureAssetPrices } from "./adapters/assetPrices";
 import { defaultChainId } from "./chainNames";
@@ -131,8 +132,9 @@ export async function lookupWallet(rawAddress: string): Promise<LookupResult> {
   // then qty × the one price.
   const keyed = await withPriceKeys(adapterHoldings, "auto");
   await ensureAssetPrices(keyed.map((h) => h.price_key), "lookup").catch(() => {});
-  const prices = await getPriceMap();
-
   const holdings = keyed.map(toHolding);
+  // Only this address's coins and its positions' marks (not every price).
+  const { prices } = await getMarketFor([...holdings.map((h) => h.price_key), ...holdings.map((h) => (h.position_side ? markKeyFor(h) : null))]);
+
   return { chain, address, warnings, ...valuateHoldings(holdings, defaultChainId(chain), prices) };
 }

@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceDb } from "./supabase";
 import { aggregate } from "./valuation";
-import { getPriceMap } from "./queries";
+import { getMarketFor, getPriceMap } from "./queries";
 import type { Holding } from "./types";
 import { walletComposition } from "./analytics/exactAttribution";
 
@@ -108,14 +108,14 @@ export async function capturePortfolioSnapshots(): Promise<{ users: number; wall
  * that triggered it either way.
  */
 export async function captureUserSnapshot(userId: string): Promise<void> {
-  const [{ data: wallets, error }, prices] = await Promise.all([
-    serviceDb().from("wallets").select("id, holdings(*)").eq("active", true).eq("user_id", userId),
-    getPriceMap(),
-  ]);
+  const { data: wallets, error } = await serviceDb().from("wallets").select("id, holdings(*)").eq("active", true).eq("user_id", userId);
   if (error) throw new Error(`Failed to load wallets for snapshot: ${error.message}`);
 
   type WalletRow = { id: string; holdings: Holding[] };
   const rows = wallets as WalletRow[];
+  // Only this user's coins (not every price): one more request after the
+  // wallets, in the background (it runs in after()).
+  const { prices } = await getMarketFor(rows.flatMap((w) => w.holdings.map((h) => h.price_key)));
   const snapshotDate = new Date().toISOString().slice(0, 10);
 
   const allHoldings = rows.flatMap((w) => w.holdings);

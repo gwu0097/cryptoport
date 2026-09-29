@@ -148,3 +148,21 @@ transfer, external API calls (none), tokens (this review).
 - **Phases:** 0 SQL (grants, function, index; EXPLAIN ANALYZE < ~30 ms) ·
   1 portfolio pages · 2 Wallet Watch pages · 3 server paths on `p_keys` ·
   4 hover prefetch (if chosen).
+
+## Shipped (2026-09-29)
+
+- Phase 0: grants, `holdings_wallet_idx`, `my_market_rows` — 9 ms (304
+  coins) / 13 ms (609 with Wallet Watch) as the owner, against 43 ms for
+  the full read (the first, cold run took 182 ms).
+- Phase 1: Assets, Portfolio, Wallets, a wallet, DeFi, Performance,
+  Analytics, Watchlist on `scopePricesToUser()` — pages byte-identical,
+  no scope misses in production.
+- Phase 2: Dashboard, Wallet Watch, influencer pages, Watch Insights on
+  `scopePricesToUser(true)` — 22 pages identical, no misses.
+- Phase 3: `getMarketFor(keys)` (`asset_market_rows(p_keys)`, one request
+  for prices and stats) in the morning Wallet Watch read (was two full
+  reads per address), the address lookup (identical to the old code on a
+  live address) and a user's snapshot after Refresh prices. A lookup
+  outside the keys logs `scope-miss outside a render`. Left on the full
+  read: the shared influencer link (rare; its coins come from parallel
+  reads), admin pages, the daily snapshot cron, the directory.

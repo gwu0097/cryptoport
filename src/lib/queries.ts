@@ -262,16 +262,22 @@ export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
  * counted (liquidity.ts, docs/pricing/ILLIQUID.md). */
 export const getPriceMap = cache(async (): Promise<PriceMap> => {
   const { rows, scoped } = await getAssetPriceRows();
+  return priceMapFrom(rows, scoped ? isMarkKey : null);
+});
+
+/** The price map of these rows. `exempt` set: a guarded map (scopedPrices.ts)
+ * that logs a lookup of any coin outside it that `exempt` doesn't cover.
+ * The guard wraps the map before its liquidity is attached: that's keyed by
+ * the map object valueHolding receives. */
+function priceMapFrom(rows: readonly AssetPriceRow[], exempt: ((key: string) => boolean) | null): PriceMap {
   const prices: PriceMap = {};
   const liquidity = new Map<string, CoinLiquidity>();
   for (const r of rows) {
     prices[r.price_key] = r.usd;
     liquidity.set(r.price_key, { volume24h: parseNumeric(r.volume_24h), marketCap: parseNumeric(r.market_cap) });
   }
-  // The guard wraps the map before its liquidity is attached: that's keyed
-  // by the map object valueHolding receives.
-  return withLiquidity(scoped ? guardRecord(prices, noteScopeMiss, isMarkKey) : prices, liquidity);
-});
+  return withLiquidity(exempt ? guardRecord(prices, noteScopeMiss, exempt) : prices, liquidity);
+}
 
 export interface AssetStats {
   usd: number | null;
@@ -294,7 +300,11 @@ export interface AssetStats {
  * (docs/pricing/PLAN.md). Cached per request. */
 export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>> => {
   const { rows, scoped } = await getAssetPriceRows();
-  const out = scoped ? new GuardedMap<AssetStats>(noteScopeMiss, isMarkKey) : new Map<string, AssetStats>();
+  return statsMapFrom(rows, scoped ? isMarkKey : null);
+});
+
+function statsMapFrom(rows: readonly AssetPriceRow[], exempt: ((key: string) => boolean) | null): Map<string, AssetStats> {
+  const out = exempt ? new GuardedMap<AssetStats>(noteScopeMiss, exempt) : new Map<string, AssetStats>();
   const num = (v: unknown) => parseNumeric(v as number | string | null);
   for (const r of rows) {
     out.set(r.price_key, {
@@ -313,7 +323,23 @@ export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>>
     });
   }
   return out;
-});
+}
+
+/** The prices and stats of these coins only, in one request — for a server
+ * path that knows its coins before it prices them (a watched address's
+ * read, an address lookup, a user's snapshot) instead of reading all of
+ * asset_prices (docs/perf/PRICES_READ.md phase 3). A coin asked for with no
+ * price row is just unpriced; a lookup of a coin not asked for is logged as
+ * a scope miss. */
+export async function getMarketFor(keys: readonly (string | null | undefined)[]): Promise<{ prices: PriceMap; stats: Map<string, AssetStats> }> {
+  const want = new Set(keys.filter((k): k is string => !!k));
+  if (want.size === 0) return { prices: priceMapFrom([], isMarkKey), stats: statsMapFrom([], isMarkKey) };
+  const { data, error } = await serviceDb().rpc("asset_market_rows", { p_keys: [...want] });
+  if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
+  const rows = (data ?? []) as AssetPriceRow[];
+  const exempt = (k: string) => want.has(k) || isMarkKey(k);
+  return { prices: priceMapFrom(rows, exempt), stats: statsMapFrom(rows, exempt) };
+}
 
 /** Per-unit price: the asset's one price when it has one, else the stored
  * value per unit (a prediction share, or a sync-time value awaiting

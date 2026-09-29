@@ -1,5 +1,4 @@
 import { after } from "next/server";
-import { getAssetStatsMap } from "@/lib/queries";
 import { refreshWatchedAddress } from "@/lib/watchRefresh";
 import { claimNextInLane, type ReadLane } from "@/lib/watchReadQueue";
 
@@ -27,8 +26,7 @@ export async function POST(request: Request): Promise<Response> {
     });
     if (!next) return;
     console.log(`[watch-lane] ${lane}: reading ${next.chain}:${next.address} (hops ${hops})`);
-    const stats = await getAssetStatsMap().catch(() => new Map());
-    await refreshWatchedAddress(next, stats); // never throws; logs its own [watch-read] line
+    await refreshWatchedAddress(next); // never throws; logs its own [watch-read] line
   });
   return Response.json({ ok: true, lane });
 }
