@@ -7,9 +7,11 @@ const BOUNDARY = "2026-09-28T08:00:00Z";
 const GEM = "jup:gem";
 let n = 0;
 /** One swap: the coin against SOL at $100, at `usd` per coin. */
-function swap(qty: number, usd: number): ActivityLeg[] {
+let clock = Date.parse("2026-09-28T10:00:00Z");
+function swap(qty: number, usd: number, afterMs = 1000): ActivityLeg[] {
   const txId = `tx${++n}`;
-  const at = new Date(Date.parse("2026-09-28T10:00:00Z") + n * 1000).toISOString();
+  clock += afterMs;
+  const at = new Date(clock).toISOString();
   const common = { txId, sourceChain: "solana", kind: "swap" as const, counterparty: null, at, checkedAt: at, source: "webhook" as const };
   return [
     { ...common, assetKey: GEM, priceKey: GEM, ticker: "GEM", contract: "GemMint111", qtyDelta: qty, priceUsd: usd },
@@ -61,13 +63,27 @@ test("selling everything posts 'sold out' with the result; a quarter posts a tri
   assert.equal(out.alerts[0].ping, true);
 });
 
-test("a coin held at the morning read never 'opens'; adding to it posts at the steps", () => {
+test("Bacon-style: the first add today to a coin held at the read pings; its steps don't repeat it", () => {
   const r = deliver(null, swap(150_000, 0.01), 1_000_000); // $1,500 more of a $10K position
-  assert.deepEqual(r.alerts.map((a) => a.kind), ["added"]);
-  assert.equal(r.alerts[0].ping, false);
+  assert.deepEqual(r.alerts.map((a) => [a.kind, a.ping]), [["resumed", true]]);
+  assert.match(r.alerts[0].text, /added to \*\*GEM\*\*: .*\(\$1,500\.00\) · now holds \$11,500/);
+  const more = deliver(r.after, swap(500_000, 0.01)); // seconds later: $6,500 today → the $5K step, no ping
+  assert.deepEqual(more.alerts.map((a) => [a.kind, a.ping]), [["added", false]]);
 });
 
-test("the message pings the role only for opens and full exits", () => {
+test("buys within an hour are one burst; an hour's pause starts a new one, which pings", () => {
+  const open = deliver(null, swap(20_000, 0.01)); // $200: opened
+  assert.deepEqual(open.alerts.map((a) => a.kind), ["opened"]);
+  const soon = deliver(open.after, swap(20_000, 0.01, 30 * 60_000)); // 30 min later
+  assert.deepEqual(soon.alerts, []);
+  const small = deliver(soon.after, swap(5_000, 0.01, 2 * 3_600_000)); // 2 h later, $50: not yet
+  assert.deepEqual(small.alerts, []);
+  const later = deliver(small.after, swap(6_000, 0.01, 60_000)); // same burst reaches $110
+  assert.deepEqual(later.alerts.map((a) => [a.kind, a.ping]), [["resumed", true]]);
+  assert.match(later.alerts[0].text, /after 2h without buying: 2 buys/);
+});
+
+test("the message pings the role only when the alert asks for it", () => {
   const opened = { kind: "opened" as const, ticker: "GEM", contract: "GemMint111", text: "🟢 opened **GEM**", ping: true };
   assert.equal(alertMessage("Risk", opened, "https://x/wallet-watch/1", "123"), "<@&123> **Risk** 🟢 opened **GEM**\n`GemMint111`\n<https://x/wallet-watch/1>");
   assert.equal(alertMessage("Risk", { ...opened, ping: false }, null, "123"), "**Risk** 🟢 opened **GEM**\n`GemMint111`");

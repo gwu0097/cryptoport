@@ -1,6 +1,9 @@
 // Wallet Watch Discord alerts (owner 2026-09-28): a live delivery posts only
 // when it changes the picture, not per transaction — Risk's 51 BAGSPAY buys
-// are "opened", then "added $1K", "added $5K". Judged by comparing the
+// are "opened", then "added $1K", "added $5K". Buys of a coin less than an
+// hour apart are one burst (spam-like DCA); a buy an hour or more after the
+// coin's previous one starts a new burst, which posts — and pings — once it
+// reaches $100 (Bacon adding to AURORA). Judged by comparing the
 // coin's day (coinDays, the activity table's own numbers) before and after
 // the delivery's new legs, so a repeat of the same delivery posts nothing.
 // Pure.
@@ -14,10 +17,12 @@ export const ALERT_MIN_USD = 100;
 export const ADD_STEPS_USD = [1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000];
 /** A trim posts at each of these shares of the position sold. */
 export const TRIM_STEPS = [0.25, 0.5, 0.75];
+/** Buys of one coin closer than this are one burst. */
+export const BURST_GAP_MS = 60 * 60_000;
 /** Worth less than this is "nothing held" (a leftover isn't a position). */
 const DUST_USD = 1;
 
-export type WatchAlertKind = "opened" | "added" | "soldOut" | "trimmed";
+export type WatchAlertKind = "opened" | "resumed" | "added" | "soldOut" | "trimmed";
 
 export interface WatchAlert {
   kind: WatchAlertKind;
@@ -25,7 +30,7 @@ export interface WatchAlert {
   contract: string | null;
   /** The message without the trader's name. */
   text: string;
-  /** Opens and full exits ping the owner's Discord role (owner 2026-09-28). */
+  /** Opens, new bursts of buying and full exits ping the owner's Discord role. */
   ping: boolean;
 }
 
@@ -57,7 +62,7 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
     const b = prev.get(c.assetKey);
     const price = priceOf(c);
     const worth = (qty: number) => (price === null ? null : qty * price);
-    const alert = (kind: WatchAlertKind, text: string) => out.push({ kind, ticker: c.ticker, contract: c.contract, text, ping: kind === "opened" || kind === "soldOut" });
+    const alert = (kind: WatchAlertKind, text: string) => out.push({ kind, ticker: c.ticker, contract: c.contract, text, ping: kind !== "added" && kind !== "trimmed" });
     const bought = c.boughtUsd ?? 0;
     const boughtBefore = b?.boughtUsd ?? 0;
     const sold = c.soldUsd ?? 0;
@@ -69,8 +74,29 @@ export function watchAlerts(before: readonly CoinDay[], after: readonly CoinDay[
       const entry = c.avgEntryUsd !== null ? ` at ${formatPrice(c.avgEntryUsd)}` : "";
       alert("opened", `🟢 opened **${c.ticker}**: ${buys}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${c.buys === 1 ? entry : entry.replace(" at", " avg entry")}`);
     } else {
+      // A new burst: the latest buys, back to a gap of an hour or more (or to
+      // the first buy today of a coin held at the read — never the opening
+      // burst, which "opened" covered). Posts once it reaches the minimum.
+      const buys = c.trades.filter((t) => t.side === "buy").sort((x, y) => x.at.localeCompare(y.at));
+      let start = buys.length - 1;
+      while (start > 0 && Date.parse(buys[start].at) - Date.parse(buys[start - 1].at) < BURST_GAP_MS) start--;
+      const burst = buys.slice(start);
+      const isNewBurst = start > 0 || (heldAtRead !== null && heldAtRead >= DUST_USD);
+      const burstUsd = (ts: typeof burst) => ts.reduce((s, t) => s + (t.usd ?? 0), 0);
+      const burstNow = burstUsd(burst);
+      const burstBefore = burstUsd(burst.filter((t) => !newTxIds.has(t.txId)));
+      const resumed = isNewBurst && burst.some((t) => newTxIds.has(t.txId)) && burstBefore < ALERT_MIN_USD && burstNow >= ALERT_MIN_USD;
+      if (resumed) {
+        const pauseMs = start > 0 ? Date.parse(buys[start].at) - Date.parse(buys[start - 1].at) : null;
+        const pause = pauseMs !== null ? ` after ${pauseMs >= 86_400_000 ? `${Math.floor(pauseMs / 86_400_000)}d` : `${Math.floor(pauseMs / 3_600_000)}h`} without buying` : "";
+        const paid = burst.every((t) => t.payTicker === burst[0].payTicker && t.payQty !== null) ? pay(burst.reduce((s, t) => s + t.payQty!, 0), burst[0].payTicker) : "";
+        const n = burst.length === 1 ? "" : `${burst.length} buys, `;
+        const held = worth(c.holdingQty);
+        alert("resumed", `🔵 added to **${c.ticker}**${pause}: ${n}${paid}(${formatUsd(burstNow)})${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`);
+      }
+      // The day's size steps — unless this delivery already posted the burst.
       const step = crossed(ADD_STEPS_USD, boughtBefore, bought);
-      if (step !== null) {
+      if (step !== null && !resumed) {
         const entry = c.avgEntryUsd !== null ? `, avg entry ${formatPrice(c.avgEntryUsd)}` : "";
         alert("added", `➕ has added **${formatUsd(step)}** of **${c.ticker}** today (${c.buys} buy${c.buys === 1 ? "" : "s"}${entry})`);
       }
