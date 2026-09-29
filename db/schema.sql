@@ -2654,6 +2654,17 @@ alter table cryptoport.watch_influencers
 create index if not exists watch_influencers_copied_from_idx
   on cryptoport.watch_influencers (copied_from) where copied_from is not null;
 
+-- Wallet Watch KOL directory (2026-09-28, docs/wallet-watch/DIRECTORY.md): the
+-- owner's influencers listed for every user; adding one makes a following
+-- copy. Written only with the service role (the owner's action, requireAdmin)
+-- — no policy lets a user read or write it; pages read it with the service role.
+create table if not exists cryptoport.watch_directory (
+  influencer_id uuid primary key references cryptoport.watch_influencers(id) on delete cascade,
+  added_at      timestamptz not null default now()
+);
+alter table cryptoport.watch_directory enable row level security;
+grant all on cryptoport.watch_directory to service_role;
+
 -- Exact attribution (Analytics "What moved your portfolio"): each daily wallet
 -- snapshot also records what it was made of — per coin (price_key) the
 -- quantity and the price used, and the value held outside a priced coin

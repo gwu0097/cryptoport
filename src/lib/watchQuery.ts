@@ -153,6 +153,57 @@ const loadOverview = cache(async (onlyId?: string): Promise<{ groups: WatchGroup
   return { groups: data.groups, influencers: buildInfluencers(data, prices), watched: data.watched };
 });
 
+export interface DirectoryEntry {
+  influencer: WatchedInfluencer;
+  addedAt: string;
+  /** The viewer's own copy following this entry, if they added it. */
+  mineId: string | null;
+  /** The viewer is its owner (the original, not a copy). */
+  own: boolean;
+}
+
+/** The KOL directory (docs/wallet-watch/DIRECTORY.md): the owner's
+ * influencers marked for it, valued like the viewer's own list, and which
+ * the viewer already follows. ~4 requests; the owner's note is never read. */
+export async function getDirectory(): Promise<DirectoryEntry[]> {
+  const user = await getUser();
+  if (!user) return [];
+  const db = serviceDb();
+  const { data: dir, error } = await db.from("watch_directory").select("influencer_id, added_at").order("added_at");
+  if (error) throw new Error(`Failed to load the directory: ${error.message}`);
+  const ids = (dir as { influencer_id: string; added_at: string }[]).map((d) => d.influencer_id);
+  if (ids.length === 0) return [];
+  const [influencers, addresses, mine] = await Promise.all([
+    db.from("watch_influencers").select("id, name, link, share_token, user_id").in("id", ids),
+    db.from("watch_influencer_addresses").select("id, influencer_id, chain, address").in("influencer_id", ids).order("created_at"),
+    (await userDb()).from("watch_influencers").select("id, copied_from").in("copied_from", ids),
+  ]);
+  for (const r of [influencers, addresses, mine]) if (r.error) throw new Error(`Failed to load the directory: ${r.error.message}`);
+  const addressRows = addresses.data as WatchData["addresses"];
+  const watched = addressRows.length ? await db.from("watched_addresses").select(WATCHED_COLUMNS).in("address", [...new Set(addressRows.map((a) => a.address))]) : { data: [], error: null };
+  if (watched.error) throw new Error(`Failed to load the directory: ${watched.error.message}`);
+  const data: WatchData = {
+    // Shared entries only: an unshared one isn't followable (watchCopySync.ts).
+    influencers: (influencers.data as Omit<InfluencerRow, "note">[]).filter((i) => i.share_token).map((i) => ({ ...i, note: null })),
+    addresses: addressRows,
+    groups: [],
+    links: [],
+    watched: new Map((watched.data as WatchedRow[]).map((w) => [`${w.chain}|${w.address}`, w])),
+  };
+  const built = new Map(buildInfluencers(data, await getPriceMap()).map((i) => [i.id, i]));
+  const mineBy = new Map((mine.data as { id: string; copied_from: string }[]).map((m) => [m.copied_from, m.id]));
+  const ownerOf = new Map((influencers.data as { id: string; user_id: string }[]).map((i) => [i.id, i.user_id]));
+  return (dir as { influencer_id: string; added_at: string }[])
+    .filter((d) => built.has(d.influencer_id))
+    .map((d) => ({ influencer: built.get(d.influencer_id)!, addedAt: d.added_at, mineId: mineBy.get(d.influencer_id) ?? null, own: ownerOf.get(d.influencer_id) === user.id }));
+}
+
+/** Whether this influencer is in the KOL directory (owner's page). */
+export async function isInDirectory(influencerId: string): Promise<boolean> {
+  const { data } = await serviceDb().from("watch_directory").select("influencer_id").eq("influencer_id", influencerId).maybeSingle();
+  return !!data;
+}
+
 /** Each influencer with its addresses valued from their last read at
  * today's prices. */
 function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[] {

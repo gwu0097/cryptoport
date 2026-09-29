@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getUser } from "@/lib/auth";
-import { getInfluencerDailyValue, getInfluencerDetail, getLiveStatus, getTradingRecord, getWatchDayActivity, getWatchedInfluencer, getWatchMovements, watchJobStatus } from "@/lib/watchQuery";
+import { getInfluencerDailyValue, getInfluencerDetail, getLiveStatus, getTradingRecord, getWatchDayActivity, getWatchedInfluencer, getWatchMovements, isInDirectory, watchJobStatus } from "@/lib/watchQuery";
 import { isAdminEmail } from "@/lib/adminAuth";
 import { LiveToggle } from "@/components/walletWatch/LiveToggle";
 import { requestNowSec } from "@/lib/requestClock";
@@ -16,6 +16,7 @@ import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/In
 import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
 import { RecentTradesPanel } from "@/components/walletWatch/RecentTradesPanel";
 import { FollowingNote } from "@/components/walletWatch/FollowingNote";
+import { DirectoryToggle } from "@/components/walletWatch/DirectoryToggle";
 import { DayActivity } from "@/components/walletWatch/DayActivity";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 
@@ -35,13 +36,14 @@ export default async function InfluencerPage({ params, searchParams }: { params:
   if (!watched) notFound();
   const nowSec = requestNowSec();
   const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
-  const [detail, movements, daily, record, day, live] = await Promise.all([
+  const [detail, movements, daily, record, day, live, inDirectory] = await Promise.all([
     getInfluencerDetail(id, filters.merge === "1"),
     getWatchMovements([watched.influencer]),
     getInfluencerDailyValue(watched.influencer),
     getTradingRecord(watched.influencer, today),
     getWatchDayActivity([watched.influencer]),
     isOwner ? getLiveStatus(watched.influencer) : null,
+    isOwner && !watched.influencer.copiedFrom ? isInDirectory(watched.influencer.id) : null,
   ]);
   if (!detail) notFound();
   const { influencer, groups, holdings, notListed } = detail;
@@ -76,6 +78,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
           <>
             <InfluencerEditor influencer={influencer} groups={groups} />
             {influencer.copiedFrom && <FollowingNote influencerId={influencer.id} />}
+            {inDirectory !== null && <DirectoryToggle influencerId={influencer.id} inDirectory={inDirectory} />}
             {live && live.addresses > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
           </>
         }

@@ -8,6 +8,7 @@ import {
   ChartLine,
   Eye,
   Radar,
+  BookUser,
   Microscope,
   Coins,
   Layers,
@@ -74,6 +75,7 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
     items: [
       { href: "/wallet-watch", label: "Wallet Watch", icon: Eye },
       { href: "/watch-insights", label: "Watch Insights", icon: Radar },
+      { href: "/wallet-watch/directory", label: "KOL directory", icon: BookUser },
     ],
   },
 ];

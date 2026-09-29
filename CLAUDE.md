@@ -191,7 +191,14 @@ owner's.
   is shared (`watchCopySync.ts`, from `watchAddress`/`removeWatchedAddress`;
   only the change, so a copier's own additions and removals stay; copies of
   copies too). "Stop following" on the copy ends it; an influencer the user
-  created follows nothing. The address lookup (`/lookup`) is
+  created follows nothing.
+  **KOL directory** (Tools → `/wallet-watch/directory`,
+  `docs/wallet-watch/DIRECTORY.md`): the owner's influencers marked for it
+  (`watch_directory`, service role only — `setInDirectory`, `requireAdmin`;
+  an entry is always shared). Any user adds one as a following copy
+  (`addSharedInfluencer`) or keeps their own; only the owner edits entries.
+  Suggestions with an approval queue and linked-wallet suggestions are
+  phases 2–3. The address lookup (`/lookup`) is
   public; lookup links need no account.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.

@@ -240,6 +240,31 @@ export async function shareInfluencer(id: string): Promise<{ ok: true; token: st
   return { ok: true, token };
 }
 
+/** Owner only: puts one of the owner's influencers in the KOL directory
+ * (docs/wallet-watch/DIRECTORY.md), or takes it out. An entry is always
+ * shared, so copies made from it follow it; taking it out leaves the share
+ * link and existing copies as they are. The directory table is written with
+ * the service role — no user can. */
+export async function setInDirectory(influencerId: string, on: boolean): Promise<WatchActionResult> {
+  await requireAdmin();
+  const db = await userDb();
+  const { data, error } = await db.from("watch_influencers").select("id").eq("id", influencerId).maybeSingle(); // the owner's own (RLS)
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "Not one of your influencers." };
+  if (on) {
+    const shared = await shareInfluencer(influencerId);
+    if (!shared.ok) return { ok: false, error: shared.error };
+    const { error: addError } = await serviceDb().from("watch_directory").upsert({ influencer_id: influencerId }, { onConflict: "influencer_id", ignoreDuplicates: true });
+    if (addError) return { ok: false, error: addError.message };
+  } else {
+    const { error: removeError } = await serviceDb().from("watch_directory").delete().eq("influencer_id", influencerId);
+    if (removeError) return { ok: false, error: removeError.message };
+  }
+  revalidate(influencerId);
+  revalidatePath("/wallet-watch/directory");
+  return { ok: true, influencerId };
+}
+
 /** Turns the share link off; the old link stops working at once. */
 export async function unshareInfluencer(id: string): Promise<WatchActionResult> {
   await requireUser();
