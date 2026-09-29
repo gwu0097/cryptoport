@@ -72,6 +72,29 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
+### Address lookup: token discovery waits on the database one step at a time — IMPORTANT, later (owner 2026-09-29)
+
+The slowest thing left after the 2026-09-29 latency work (every page ≤ 2
+round trips, docs/perf/PRICES_READ.md). One production lookup
+(`/lookup`, `lookup.ts` `lookupWallet` → `fetchAddressHoldings`) spent
+**7.1 s of database time in 27 requests over 16 serial round trips**, mostly
+`token_registry` reads made chain by chain between the chain reads (local
+runs: 4.8–23 s). It matters most if the public lookup becomes how people
+try the app, and the same discovery code runs in every wallet sync and
+Wallet Watch read.
+- Diagnose first: `RENDER_METER_VERBOSE=1` on the dev server lists each
+  request's start and duration; find which reads wait on which (per-chain
+  registry lookups in `multicallEvm.ts` / `tokenDiscovery.ts`, the Solana
+  path's `token_registry` reads).
+- Likely shape: collect every chain's contracts first and read their
+  registry rows in one request (an RPC with an array body, as
+  `solana_token_info_get` — thousands of contracts don't fit in a URL), in
+  parallel with the chain reads rather than between them.
+- Gate: the same address's lookup before/after identical (curl the live
+  site vs local, as on 2026-09-29), database time and round trips from the
+  `[render]` line, and a wallet sync's `sync_runs` timings unchanged or
+  better.
+
 ### Trend Finder — peers weren't anchored to what the token does — FIXED 2026-09-22
 **Raised**: general use, 2026-09-22 (ZRO/LayerZero example: MORPHO/AERO/UNI named as "peers" because all were Circle Arc launch partners — "like saying a project launched on Solana must be the same as another app launched on Solana"). **Fixed** in two steps: (1) peer reasons must be relational ("Same driver as <seed> (<catalyst>): <exposure>"); (2) peers are anchored on the seed's own CoinGecko functional categories (`categoryFilter.ts` drops chain-ecosystem/investor/index/listing tags; `coin_categories` 7-day cache), which are passed into the Perplexity search and enforced in code — an AI-named token only counts as a peer if it's a member of one of those categories; the rest show as "same news, different category". Live-verified on ZRO: anchor "Cross-chain Communication", AI peers W/LINK/AXL/STG. Stored explanations are reused until refreshed, so tokens scanned earlier keep old-style reasons until Refresh — but the code-side category gate applies to them immediately.
 
