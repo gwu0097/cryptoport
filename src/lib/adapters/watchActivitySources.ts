@@ -73,17 +73,19 @@ function otherSide(list: readonly { fromUserAccount: string | null; toUserAccoun
 /** A Solana address via Helius's parsed transactions: the owner's own
  * balance changes per transaction (tokens, and SOL with the fee added back —
  * wrapped SOL counts as SOL). */
-export async function readSolana(address: string, cursor: string | null, boundaryMs: number): Promise<SourceRead> {
+export async function readSolana(address: string, cursor: string | null, boundaryMs: number, maxPages = MAX_PAGES, startBefore?: string | null): Promise<SourceRead> {
   const txs: HeliusTx[] = [];
-  let before: string | undefined;
+  // `startBefore`: read older than this signature (a backfill extending the
+  // stored history back); `cursor`: stop at this one (only what's newer).
+  let before: string | undefined = startBefore ?? undefined;
   let partial = false;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const list = await heliusPage(address, { ...(cursor ? { until: cursor } : {}), ...(before ? { before } : {}) });
     txs.push(...list);
     if (list.length < 100) break;
     if (!cursor && list.at(-1)!.timestamp * 1000 < boundaryMs) break;
     before = list.at(-1)!.signature;
-    if (page === MAX_PAGES - 1) partial = true;
+    if (page === maxPages - 1) partial = true;
   }
   const changes: RawChange[] = [];
   for (const tx of txs) {
@@ -107,7 +109,8 @@ export async function readSolana(address: string, cursor: string | null, boundar
       changes.push({ txId: tx.signature, at, chain: "solana", contract: mint, symbol: null, qty, counterparty: otherSide(moves, address) });
     }
   }
-  return { changes, cursor: txs[0]?.signature ?? cursor, partial };
+  const oldest = txs.at(-1);
+  return { changes, cursor: txs[0]?.signature ?? cursor, partial, oldestBlock: oldest?.signature ?? null, oldestAt: oldest ? new Date(oldest.timestamp * 1000).toISOString() : null };
 }
 
 interface AlchemyTransfer {

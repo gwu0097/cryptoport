@@ -44,7 +44,10 @@ export function NowPrice({ nowUsd, nowAt, movePrice, serverNowSec }: { nowUsd: n
  * Changes between two reads (daily, or a Refresh) — a buy and sell between
  * reads doesn't show, and each move is sized at that read's price.
  */
-export function ActivityFeed({ movements, serverNowSec, showNames = true }: { movements: WatchMovementView[]; serverNowSec: number; showNames?: boolean }) {
+/** `showWallet`: an influencer with several addresses — each line says
+ * which one it's from (chain and short address). Backfilled lines
+ * (watchBackfill.ts) say they came from transactions, not a read. */
+export function ActivityFeed({ movements, serverNowSec, showNames = true, showWallet = false }: { movements: WatchMovementView[]; serverNowSec: number; showNames?: boolean; showWallet?: boolean }) {
   if (movements.length === 0) {
     return <p className="text-sm text-fg-muted">No movements yet. They appear after a wallet is read a second time — daily, or when you press Refresh.</p>;
   }
@@ -70,6 +73,16 @@ export function ActivityFeed({ movements, serverNowSec, showNames = true }: { mo
               {m.priceUsd !== null && m.positionType === "token" && <span className="text-xs text-fg-muted"> at {formatPrice(m.priceUsd)}</span>}
               {m.nowUsd !== null && m.nowAt !== null && m.priceUsd !== null && m.priceUsd > 0 && (
                 <NowPrice nowUsd={m.nowUsd} nowAt={m.nowAt} movePrice={m.priceUsd} serverNowSec={serverNowSec} />
+              )}
+              {(showWallet || m.source === "transactions") && (
+                <span className="ml-1 text-[11px] text-fg-muted/80">
+                  {showWallet && (
+                    <span title={m.address}>
+                      · {m.chain === "SOL" ? "Solana" : "EVM"} {m.address.slice(0, 6)}…{m.address.slice(-4)}
+                    </span>
+                  )}
+                  {m.source === "transactions" && <span title="Rebuilt from the wallet's transactions for a day before it was first read (Backfill)."> · from transactions</span>}
+                </span>
               )}
             </span>
             <span className="flex items-baseline gap-3 tabular-nums">

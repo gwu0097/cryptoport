@@ -45,8 +45,9 @@ export const HISTORY_KEEP_DAYS = 30;
 /** A chain read this recently isn't read again for newer transfers. */
 export const HISTORY_FRESH_MS = 15 * 60_000;
 
-/** What has been read on one chain: from when to when, and the blocks at
- * each end (null: nothing was found there — re-reading it costs nothing). */
+/** What has been read on one chain: from when to when, and where each end
+ * is — an EVM block, or a Solana signature (null: nothing was found there,
+ * so re-reading it costs nothing). */
 export interface ChainCoverage {
   from: string;
   to: string;
@@ -96,9 +97,6 @@ export function mergeHistoryLegs(stored: readonly ActivityLeg[], added: readonly
   return [...byId.values()].sort((a, b) => a.at.localeCompare(b.at));
 }
 
-const minBlock = (a: string | null, b: string | null) => (a && b ? (parseInt(a, 16) <= parseInt(b, 16) ? a : b) : (a ?? b));
-const maxBlock = (a: string | null, b: string | null) => (a && b ? (parseInt(a, 16) >= parseInt(b, 16) ? a : b) : (a ?? b));
-
 /** A chain's coverage after a read. `readFrom`: how far back the read got —
  * the window's start, or its oldest transfer when it stopped at the page cap. */
 export function extendCoverage(
@@ -111,7 +109,10 @@ export function extendCoverage(
   if (!prev || read.kind === "all") {
     return { from: clamp(read.readFrom), to: read.readTo, fromBlock: read.oldestBlock, toBlock: read.newestBlock };
   }
+  // An older read reaches further back, a newer one further forward: each
+  // moves only its own end (markers aren't compared — a Solana signature
+  // has no order of its own).
   return read.kind === "older"
-    ? { ...prev, from: clamp(read.readFrom < prev.from ? read.readFrom : prev.from), fromBlock: minBlock(read.oldestBlock, prev.fromBlock) }
-    : { ...prev, to: read.readTo, toBlock: maxBlock(read.newestBlock, prev.toBlock), from: clamp(prev.from) };
+    ? { ...prev, from: clamp(read.readFrom < prev.from ? read.readFrom : prev.from), fromBlock: read.oldestBlock ?? prev.fromBlock }
+    : { ...prev, to: read.readTo, toBlock: read.newestBlock ?? prev.toBlock, from: clamp(prev.from) };
 }

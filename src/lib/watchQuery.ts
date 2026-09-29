@@ -355,6 +355,10 @@ export interface WatchMovementView {
   influencerId: string;
   influencerName: string;
   address: string;
+  /** The address's family ("ETH", "SOL") — which wallet a line is from. */
+  chain: string;
+  /** "transactions": rebuilt by a backfill (watchBackfill.ts), not a read. */
+  source: "snapshot" | "transactions";
   snapshotAt: string;
   assetKey: string;
   priceKey: string | null;
@@ -421,7 +425,7 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
   const db = client ?? (await userDb());
   const { data, error } = await db
     .from("watched_movements")
-    .select("id, chain, address, snapshot_at, asset_key, price_key, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after, contract")
+    .select("id, chain, address, snapshot_at, asset_key, price_key, kind, position_type, ticker, label, side, qty_before, qty_after, price_usd, usd_delta, wallet_total_usd_after, contract, source")
     .in("address", [...new Set(influencers.flatMap((i) => i.addresses.map((a) => a.address)))])
     .order("snapshot_at", { ascending: false })
     .limit(limit);
@@ -441,6 +445,8 @@ export async function getWatchMovements(influencers: readonly WatchFeedInfluence
         influencerId: inf.id,
         influencerName: inf.name,
         address: r.address as string,
+        chain: r.chain as string,
+        source: r.source === "transactions" ? "transactions" : "snapshot",
         snapshotAt: r.snapshot_at as string,
         assetKey: r.asset_key as string,
         priceKey: (r.price_key as string | null) ?? null,

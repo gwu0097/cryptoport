@@ -16,6 +16,7 @@ import { InfluencerSections, InfluencerTitle } from "@/components/walletWatch/In
 import { TradingRecordPanel } from "@/components/walletWatch/TradingRecordPanel";
 import { FollowingNote } from "@/components/walletWatch/FollowingNote";
 import { DirectoryToggle } from "@/components/walletWatch/DirectoryToggle";
+import { BackfillButtons } from "@/components/walletWatch/BackfillButtons";
 import { DayActivity } from "@/components/walletWatch/DayActivity";
 import { RecordRecentWallet } from "@/components/RecordRecentWallet";
 
@@ -37,7 +38,8 @@ export default async function InfluencerPage({ params, searchParams }: { params:
   const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
   const [detail, movements, daily, record, day, live, inDirectory] = await Promise.all([
     getInfluencerDetail(id, filters.merge === "1"),
-    getWatchMovements([watched.influencer]),
+    // One influencer's page: room for a 30-day backfill of a busy wallet.
+    getWatchMovements([watched.influencer], 400),
     getInfluencerDailyValue(watched.influencer),
     getTradingRecord(watched.influencer, today),
     getWatchDayActivity([watched.influencer]),
@@ -82,6 +84,8 @@ export default async function InfluencerPage({ params, searchParams }: { params:
           </>
         }
         activityTop={
+          <>
+          <BackfillButtons influencerId={influencer.id} />
           <DayActivity
             coins={day.coins}
             checkedAt={day.checkedAt[influencer.id] ?? null}
@@ -90,8 +94,8 @@ export default async function InfluencerPage({ params, searchParams }: { params:
             influencerIds={[influencer.id]}
             serverNowSec={nowSec}
             showNames={false}
-            historyFor={influencer.addresses.some((a) => a.chain === "ETH") ? influencer.id : undefined}
           />
+          </>
         }
         afterValue={
           <>

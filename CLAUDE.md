@@ -153,31 +153,31 @@ owner's.
   `asset_prices` with the service role like every page — the user's client
   is denied it (that 500 kept every live update from showing, 2026-09-28).
   No polling; panels without live influencers don't listen.
-  **Activity over 7 / 30 days** (an influencer's page, EVM addresses; owner
-  2026-09-29: backfill the activity, not a separate panel): the activity
-  table's Today / 7 days / 30 days tabs (`DayActivity` `historyFor`,
-  `HistoryView`; today's `tx_activity` legs join the window). The longer
-  windows read each EVM address × chain (its snapshot's chains ∪
-  the live networks ∪ Base) back that far with `readEvmChain`, three at a
-  time (`watchHistoryLoad.ts`, `api/wallet-watch/history`), through the
-  same `identifyLegs` → `coinDays` as the day's activity, shown in its
-  `CoinTable` worded by period. What each coin held at the window's start
-  is the snapshot minus the moves since (`watchHistory.ts` `windowBase`);
-  swaps are sized at the paying coin's close that day (`asset_price_daily`,
-  `identifyLegs` `closeOn`); a coin-for-coin swap (BUCKET → STATICS) at the
-  coins' stored prices (`toLegs` `storedValueOf`, legs marked `sizedBy`,
-  in the day's view too); the count sized at today's price is shown. Up to
-  20 pages per direction (`HISTORY_PAGES`; a split-order trader made 461
-  transactions a week on one chain). Stored on the watched address (`trade_history`, 30
-  days, `HISTORY_KEEP_DAYS`): a press reads only what isn't stored — per
-  chain, newer transfers from the last read's block, older days up to the
-  stored oldest block (`planHistoryReads`, `extendCoverage`; a chain read in
+  **Activity backfill** (an influencer's page; owner 2026-09-29: the
+  Activity list is every transaction on every address): "Backfill 7 / 30
+  days" (`BackfillButtons` → `api/wallet-watch/backfill` →
+  `watchHistoryLoad.ts` `backfillActivity`) writes the lines a morning read
+  would have written for each day before an address was first read
+  (`created_at`) — per coin per day, net change, judged by `moveKind`,
+  sized at that day's close else its trade prices (pure `watchBackfill.ts`)
+  — as `watched_movements` rows with `source = 'transactions'`, replaced on
+  each run. Days after the first read are the real reads' lines. EVM and
+  Solana alike (Solana only for the owner: Helius credits, `SOLANA_PAGES`);
+  the Solana trading record below is a year of PnL, not transactions, and
+  stays separate. Each line names its wallet when an influencer has several.
+  The trades read are kept on the watched address (`trade_history`, 30
+  days, `HISTORY_KEEP_DAYS`): a backfill reads only what isn't stored — per
+  chain, newer transfers from the last read's end, older days up to the
+  stored oldest end (`planHistoryReads`, `extendCoverage`; a chain read in
   the last 15 minutes isn't read again) — one leg per transaction and coin
   (`mergeHistoryLegs`); the morning read adds the day's legs it trims
-  (`watchRefresh.ts` `keepInHistory`). A chain that hits the page cap covers
-  only back to its oldest transfer; one that fails claims nothing; both are
-  named. Unpriced coins traded in the window
-  get one batched `ensureAssetPrices`, as in Refresh activity.
+  (`watchRefresh.ts` `keepInHistory`). Swaps are sized at the paying coin's
+  close that day (a stablecoin: $1); a coin-for-coin swap at the coins'
+  stored prices (`toLegs` `storedValueOf`, legs marked `sizedBy`). EVM reads
+  go up to 20 pages per direction (`HISTORY_PAGES`). A chain that hits the
+  page cap covers only back to its oldest transfer; one that fails claims
+  nothing; both are named. Unpriced coins traded get one batched
+  `ensureAssetPrices`, as in Refresh activity.
   **Trading record** (an influencer's page, Solana addresses only): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in
   USD — 2 requests (all-time summary + the past 365 days by day,

@@ -98,7 +98,7 @@ export function InfluencerSections({
 
       <Panel title="Activity" description="Changes between reads, sized at that read's price." className="mb-4">
         {activityTop}
-        <ActivityFeed movements={movements} serverNowSec={serverNowSec} showNames={false} />
+        <ActivityFeed movements={movements} serverNowSec={serverNowSec} showNames={false} showWallet={influencer.addresses.length > 1} />
       </Panel>
 
       <Panel

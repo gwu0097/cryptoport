@@ -2746,3 +2746,9 @@ grant execute on function cryptoport.add_api_calls(date, jsonb) to service_role;
 -- kept 30 days, and how far each chain has been read — so a later load, or
 -- another watcher, reads only what's missing. Written with the service role.
 alter table cryptoport.watched_addresses add column if not exists trade_history jsonb;
+
+-- (2026-09-29) -- Wallet Watch activity backfill (watchBackfill.ts): a movement rebuilt from
+-- the wallet's transactions for a day before it was first read, rather than
+-- written by a read.
+alter table cryptoport.watched_movements
+  add column if not exists source text not null default 'snapshot' check (source in ('snapshot', 'transactions'));
