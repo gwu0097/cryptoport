@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendLegs, coinDays, contractFromKey, dayLines, toLegs, trimToBoundary, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity.ts";
+import { appendLegs, coinDays, contractFromKey, dayLines, rebaseToDay, todaysReadTime, toLegs, trimToBoundary, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity.ts";
 
 const SOL = 120;
 const known: Record<string, { assetKey: string; priceKey: string; ticker: string }> = {
@@ -196,4 +196,24 @@ test("a swap with a cash side never uses stored prices", () => {
   const legs = toLegs([chg("t9", "solana", null, -1), chg("t9", "solana", "gem", 100)], identify, valueOf, NO_NATIVE, "x", () => 999);
   assert.equal(legs.find((l) => l.ticker === "GEM")!.priceUsd, SOL / 100);
   assert.equal(legs.some((l) => l.sizedBy), false);
+});
+
+
+test("the day's read time is today's 08:00 UTC once it has passed, else yesterday's", () => {
+  assert.equal(new Date(todaysReadTime(Date.parse("2026-09-29T14:30:00Z"))).toISOString(), "2026-09-29T08:00:00.000Z");
+  assert.equal(new Date(todaysReadTime(Date.parse("2026-09-29T07:59:00Z"))).toISOString(), "2026-09-28T08:00:00.000Z");
+});
+
+test("a day whose read didn't happen starts at the read time; the starting quantity moves forward", () => {
+  const act: TxActivity = {
+    boundary: "2026-09-28T08:11:00Z",
+    legs: [leg({ txId: "y", qtyDelta: 500, at: "2026-09-28T20:00:00Z" }), leg({ txId: "t", qtyDelta: -200, at: "2026-09-29T09:00:00Z" })],
+    base: { "jup:gem": { qty: 1_000, kept: false } },
+  };
+  const r = rebaseToDay(act, Date.parse("2026-09-29T08:00:00Z"));
+  assert.equal(r.boundary, "2026-09-29T08:00:00.000Z");
+  assert.deepEqual(r.legs.map((l) => l.txId), ["t"]);
+  assert.equal(r.base["jup:gem"].qty, 1_500);
+  // Already read today: unchanged.
+  assert.equal(rebaseToDay({ ...act, boundary: "2026-09-29T08:07:00Z" }, Date.parse("2026-09-29T08:00:00Z")).legs.length, 2);
 });

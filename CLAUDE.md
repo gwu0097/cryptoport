@@ -92,7 +92,10 @@ owner's.
   open positions and their most recent coin keep their own (`activityFold.ts`). Saved on `watched_addresses`
   (`tx_activity` appended, `tx_cursor` per source) until the next read,
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
-  drops older legs (`trimToBoundary`). An address checked in the last
+  drops older legs (`trimToBoundary`). The view never reaches back past
+  today's 08:00 UTC read time, even when the read didn't get to an address
+  (`rebaseToDay` in `getWatchDayActivity`: older legs left out, starting
+  quantities moved forward; nothing deleted). An address checked in the last
   15 minutes is reused (`CHECK_REUSE_MS`, Helius credits).
   **Live updates** (phase 5, owner-only switch per influencer, Solana): one
   app-owned Helius "raw" webhook (`webhookSync.ts`: created/updated/deleted

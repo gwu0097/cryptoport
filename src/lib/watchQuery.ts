@@ -10,7 +10,7 @@ import { formatTicker } from "./format";
 import { snapshotRowToAdapter, type WatchSnapshot } from "./watchSnapshot";
 import type { Holding } from "./types";
 import { mergeSameCoin } from "./mergeHoldings";
-import { coinDays, contractFromKey, type CoinDay, type TxActivity } from "./watchActivity";
+import { coinDays, contractFromKey, rebaseToDay, todaysReadTime, type CoinDay, type TxActivity } from "./watchActivity";
 import { summarizeTrading, type StoredTradingRecord, type TradingSummary } from "./tradingRecord";
 import { deriveJobStatus, type JobStatus } from "./jobStatus";
 
@@ -528,7 +528,10 @@ export async function getWatchDayActivity(
     const latest = mine.map((r) => r.tx_checked_at).filter((t): t is string => !!t).sort().at(-1);
     if (latest) checkedAt[i.id] = latest;
     for (const r of mine) if (r.tx_check_status && /error|not checked|partial|no source/.test(r.tx_check_status)) issues.push({ influencerId: i.id, address: r.address, status: r.tx_check_status });
-    const activities = mine.map((r) => r.tx_activity).filter((a): a is TxActivity => !!a);
+    // Never back past this morning's read time, even when the read didn't
+    // reach the address (rebaseToDay).
+    const dayStart = todaysReadTime(Date.now());
+    const activities = mine.map((r) => r.tx_activity).filter((a): a is TxActivity => !!a).map((a) => rebaseToDay(a, dayStart));
     for (const c of coinDays(activities, new Set(i.addresses.map((a) => a.address)))) coins.push({ ...c, influencerId: i.id, influencerName: i.name, nowUsd: priceNow(c.priceKey), nowAt: (c.priceKey && stats.get(c.priceKey)?.updatedAt) || null });
   }
   return { coins: coins.sort((x, y) => y.lastAt.localeCompare(x.lastAt)), checkedAt, issues, liveIds };

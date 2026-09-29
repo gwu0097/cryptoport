@@ -489,3 +489,33 @@ export function coinDays(activities: readonly TxActivity[], ownAddresses: Readon
   }
   return out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
+
+/** The most recent daily read time (08:00 UTC, the cron) at or before now. */
+export function todaysReadTime(nowMs: number, readHourUtc = 8): number {
+  const d = new Date(nowMs);
+  const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), readHourUtc);
+  return t <= nowMs ? t : t - 86_400_000;
+}
+
+/**
+ * "Since this morning's read" never reaches back past this morning (owner
+ * 2026-09-29: yesterday's trades stayed when the morning read didn't get to
+ * an address). A day whose read didn't happen starts at the read's time
+ * instead: the legs before it are left out, and each coin's starting
+ * quantity moves forward by them, so holdings stay right. Nothing is deleted
+ * — the read, when it happens, still records those trades as movements. Pure.
+ */
+export function rebaseToDay(activity: TxActivity, dayStartMs: number): TxActivity {
+  if (Date.parse(activity.boundary) >= dayStartMs) return activity;
+  const base: Record<string, ActivityBase> = { ...activity.base };
+  const kept: ActivityLeg[] = [];
+  for (const l of activity.legs) {
+    if (Date.parse(l.at) >= dayStartMs) {
+      kept.push(l);
+      continue;
+    }
+    const b = base[l.assetKey] ?? { qty: 0, kept: false };
+    base[l.assetKey] = { ...b, qty: b.qty + l.qtyDelta };
+  }
+  return { boundary: new Date(dayStartMs).toISOString(), legs: kept, base };
+}
