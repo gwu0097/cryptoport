@@ -23,7 +23,7 @@ export function ToggleGroup<T extends string>({
           type="button"
           variant={value === opt.key ? "primary" : "secondary"}
           size="sm"
-          className={value === opt.key ? "" : "border-none bg-transparent"}
+          className={`whitespace-nowrap ${value === opt.key ? "" : "border-none bg-transparent"}`}
           onClick={() => onChange(opt.key)}
         >
           {opt.label}

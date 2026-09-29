@@ -38,18 +38,20 @@ export function MoversCard({
       density="compact"
       className="h-full"
       title="Top movers (24h)"
+      toolbar={
+        <>
+          <ToggleGroup
+            options={[
+              { key: "holdings", label: "Holdings" },
+              { key: "watchlist", label: "Watchlist" },
+            ]}
+            value={source}
+            onChange={setSource}
+          />
+          {source === "watchlist" && watchlistFilter}
+        </>
+      }
     >
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <ToggleGroup
-          options={[
-            { key: "holdings", label: "Holdings" },
-            { key: "watchlist", label: "Watchlist" },
-          ]}
-          value={source}
-          onChange={setSource}
-        />
-        {source === "watchlist" && watchlistFilter}
-      </div>
       {/* Two columns only when the card is wide enough for both (a container
           query, not the screen width: the card's width depends on the grid). */}
       <div className="@container">

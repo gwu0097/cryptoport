@@ -8,7 +8,8 @@ import { Panel } from "../ui/Panel";
 import { ToggleGroup } from "../ui/ToggleGroup";
 import { usePersistedState } from "../usePersistedState";
 import { ActivityFeed } from "../walletWatch/ActivityFeed";
-import { ActivityCheckButton, DayActivity } from "../walletWatch/DayActivity";
+import { ActivityCheckButton, DAY_ACTIVITY_NOTE, DayStatus, DayTable, useDayActivity } from "../walletWatch/DayActivity";
+import { InfoTooltip } from "../ui/InfoTooltip";
 
 const SHOWN = 30;
 
@@ -41,13 +42,26 @@ export function DashboardWatchActivity({
   const href = selected ? `/wallet-watch?group=${selected.id}` : "/wallet-watch";
 
   const [tab, setTab] = usePersistedState<"today" | "movements">("cryptoport:dashboardWatchTab", "today");
+  const influencerIds = [...ids];
+  // The day's lines, listening for live updates only while that tab shows.
+  const today = useDayActivity({
+    coins: day.coins.filter((c) => ids.has(c.influencerId)),
+    checkedAt: influencerIds.map((id) => day.checkedAt[id]).filter(Boolean).sort().at(-1) ?? null,
+    issues: day.issues.filter((i) => ids.has(i.influencerId)),
+    liveIds: day.liveIds,
+    influencerIds,
+    enabled: tab === "today",
+  });
 
+  // One header row (owner 2026-09-29: no band of empty header, no row per
+  // control): the title and group, then the tabs and the day's status, then
+  // Refresh activity. It wraps on a phone.
   return (
     <Panel
       density="compact"
-      className="h-full"
+      className="flex h-full flex-col"
       title={
-        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <span className="flex items-center gap-x-1.5">
           <Link href={href} className="whitespace-nowrap hover:text-accent">
             Wallet Watch
           </Link>
@@ -55,7 +69,7 @@ export function DashboardWatchActivity({
           <select
             value={selected ? selected.id : "all"}
             onChange={(e) => setGroup(e.target.value)}
-            className={`${inputClass} w-auto max-w-[11rem] px-2 py-1 text-xs font-semibold`}
+            className={`${inputClass} w-auto min-w-0 max-w-[11rem] px-2 py-1 text-xs font-semibold`}
           >
             <option value="all">All groups</option>
             {groups.map((g) => (
@@ -66,35 +80,31 @@ export function DashboardWatchActivity({
           </select>
         </span>
       }
+      toolbar={
+        <>
+          <ToggleGroup
+            options={[
+              { key: "today", label: "Since this morning" },
+              { key: "movements", label: "Between reads" },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
+          {tab === "today" && <DayStatus live={today.live} watch={today.watch} checkedAt={today.checkedAt} issues={today.issues} serverNowSec={serverNowSec} />}
+          <InfoTooltip>{tab === "today" ? DAY_ACTIVITY_NOTE : "Each wallet's changes between its daily reads, newest first — the full history is on Wallet Watch."}</InfoTooltip>
+        </>
+      }
       actions={
         <>
-          <ActivityCheckButton influencerIds={[...ids]} />
+          <ActivityCheckButton influencerIds={influencerIds} />
           <Link href={href} aria-label="View all — Wallet Watch" className="text-fg-muted transition hover:text-accent">
             <ChevronRight className="size-4 shrink-0" aria-hidden="true" />
           </Link>
         </>
       }
     >
-      <div className="mb-3">
-        <ToggleGroup
-          options={[
-            { key: "today", label: "Since this morning" },
-            { key: "movements", label: "Between reads" },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-      </div>
       {tab === "today" ? (
-        <DayActivity
-          coins={day.coins.filter((c) => ids.has(c.influencerId))}
-          checkedAt={[...ids].map((id) => day.checkedAt[id]).filter(Boolean).sort().at(-1) ?? null}
-          issues={day.issues.filter((i) => ids.has(i.influencerId))}
-          liveIds={day.liveIds}
-          influencerIds={[...ids]}
-          serverNowSec={serverNowSec}
-          showButton={false}
-        />
+        <DayTable coins={today.coins} latest={today.latest} checkedAt={today.checkedAt} live={today.live} serverNowSec={serverNowSec} dense />
       ) : (
         // Capped on wider screens (its own scroll); a phone shows the first
         // lines and links to the rest instead of a scroll inside a scroll.

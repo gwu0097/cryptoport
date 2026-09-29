@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 
-// Compact height for the normal in-grid view — roughly matches
-// ValueHistoryChart's rendered height where this sits beside it in a
+// The least height of the in-grid view (it fills its card, which the grid
+// sizes by its row); was a fixed height matched to ValueHistoryChart in a
 // 2-column row on /dashboard.
 const COMPACT_HEIGHT = 280;
 
@@ -36,24 +36,27 @@ const WIDGET_SRC = "https://coin360.com/widget/map?utm_source=embed_map";
  * rebuild/remount needed the way TradingView's self-mounting script
  * required.
  */
-function CryptoHeatmap({ height }: { height: number }) {
+function CryptoHeatmap({ height }: { height: number | "fill" }) {
+  const iframe = (
+    <iframe
+      src={WIDGET_SRC}
+      title="Coin360.com: Cryptocurrency Market State"
+      width="100%"
+      {...(height === "fill" ? {} : { height, style: { height } })}
+      loading="lazy"
+      className={height === "fill" ? "absolute inset-0 size-full rounded-lg border-0" : "w-full rounded-lg border-0"}
+    />
+  );
   return (
-    <>
-      <iframe
-        src={WIDGET_SRC}
-        title="Coin360.com: Cryptocurrency Market State"
-        width="100%"
-        height={height}
-        style={{ height }}
-        loading="lazy"
-        className="w-full rounded-lg border-0"
-      />
+    <div className={height === "fill" ? "flex h-full flex-col" : ""}>
+      {/* In the grid it fills its card (at least COMPACT_HEIGHT); expanded, a fixed height. */}
+      {height === "fill" ? <div className="relative min-h-[280px] flex-1">{iframe}</div> : iframe}
       <p className="mt-2 text-center text-xs text-fg-muted">
         <a href="https://coin360.com/" rel="noopener nofollow" target="_blank" className="hover:text-fg">
           Market data via Coin360
         </a>
       </p>
-    </>
+    </div>
   );
 }
 
@@ -129,16 +132,12 @@ export function CryptoHeatmapPanel() {
         />
       )}
       <Panel
-        className={expanded ? "fixed inset-6 z-50 overflow-auto" : undefined}
-        title={
-          <span className="flex items-center justify-between gap-2">
-            Crypto market heatmap
-            {toggleButton}
-          </span>
-        }
-        description={expanded ? undefined : "Whole-market daily movement, via Coin360 — not your holdings."}
+        density="compact"
+        className={expanded ? "fixed inset-6 z-50 overflow-auto" : "flex h-full flex-col"}
+        title={<span title="Whole-market daily movement, via Coin360 — not your holdings.">Crypto market heatmap</span>}
+        actions={toggleButton}
       >
-        <CryptoHeatmap height={expanded ? expandedHeight : COMPACT_HEIGHT} />
+        <CryptoHeatmap height={expanded ? expandedHeight : "fill"} />
       </Panel>
     </>
   );

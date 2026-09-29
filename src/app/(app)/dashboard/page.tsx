@@ -160,10 +160,12 @@ export default async function DashboardPage({
   const guestNote = (noun: string) => <p className="text-sm text-fg-muted">Log in and add a wallet to see your {noun} here.</p>;
 
   // A 12-column grid (industry convention: headline numbers on top, main
-  // content left, secondary right). Width: the Dashboard is full-width
-  // (data-page-width, AppShell). Wallet Watch's table always gets a full
-  // row (it wraps in less); the heatmap sits last, except from 1920px (3xl), where
-  // it joins the chart and movers in the first row (dense backfills it).
+  // content left, secondary right; Fable's reviews 2026-09-29). Width: the
+  // Dashboard is full-width (data-page-width, AppShell). Row 1: chart and
+  // movers. Wallet Watch gets a full row (its table wraps in less), and the
+  // heatmap one below it — except from 1920px (3xl), where the heatmap sits
+  // beside Wallet Watch (8 | 4; full width when there's no Wallet Watch)
+  // and open positions go last. Cards fill their row's height.
   // Phone order (order-*): numbers, chart, Wallet Watch, movers, positions,
   // heatmap; from xl the document order places them (dense fills gaps).
   return (
@@ -176,7 +178,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="order-2 xl:order-none xl:col-span-5 2xl:col-span-6 3xl:col-span-4">
+      <div className="order-2 xl:order-none xl:col-span-5 2xl:col-span-6">
         {user ? (
           <ValueHistoryChart points={withLiveToday(history, new Date(requestNowSec() * 1000).toISOString().slice(0, 10), grand.total)} />
         ) : (
@@ -184,7 +186,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="order-4 xl:order-none xl:col-span-7 2xl:col-span-6 3xl:col-span-5">
+      <div className="order-4 xl:order-none xl:col-span-7 2xl:col-span-6">
         {user ? (
           <MoversCard
             holdings={{ gainers: holdingsGainers, losers: holdingsLosers }}
@@ -199,13 +201,13 @@ export default async function DashboardPage({
       </div>
 
       {watch && watch.hasInfluencers && (
-        <div className="order-3 min-w-0 xl:order-none xl:col-span-12">
+        <div className="order-3 min-w-0 xl:order-none xl:col-span-12 3xl:col-span-8">
           <DashboardWatchActivity movements={watch.movements} groups={watch.groups} influencers={watch.influencers} day={watch.day} serverNowSec={requestNowSec()} />
         </div>
       )}
 
       {user && positions.length > 0 && (
-        <div className="order-5 min-w-0 xl:order-none xl:col-span-12">
+        <div className="order-5 min-w-0 xl:order-none xl:col-span-12 3xl:order-last">
           <OpenPositionsPanel
             positions={positions}
             asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
@@ -214,7 +216,7 @@ export default async function DashboardPage({
       )}
 
       {/* Public market data (not the user's): for everyone, last on a phone. */}
-      <div className="order-6 xl:order-none xl:col-span-12 3xl:col-span-3">
+      <div className={`order-6 xl:order-none xl:col-span-12 ${watch && watch.hasInfluencers ? "3xl:col-span-4" : ""}`}>
         <CryptoHeatmapPanel />
       </div>
 

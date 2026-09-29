@@ -1,4 +1,5 @@
 import { LineChart } from "lucide-react";
+import { InfoTooltip } from "../ui/InfoTooltip";
 import type { PortfolioHistoryPoint } from "@/lib/queries";
 import { Panel } from "../ui/Panel";
 import { ValueChart } from "../charts/ValueChart";
@@ -41,22 +42,25 @@ export function ValueHistoryChart({ points }: { points: PortfolioHistoryPoint[] 
   }
 
   return (
-    <Panel title="Value history" density="compact" className="h-full">
+    <Panel
+      // The caption is a tooltip, so the chart can fill the card: a gap
+      // between the chart's headline and the live total (reported as a
+      // "discrepancy") is only today's point waiting for the next snapshot
+      // (snapshots.ts captureUserSnapshot updates it on each refresh/sync).
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          Value history
+          <InfoTooltip>One point per day from the daily snapshot; today&apos;s is the Total value above.</InfoTooltip>
+        </span>
+      }
+      density="compact"
+      className="flex h-full flex-col"
+    >
       <ValueChart
         points={points.map((p) => ({ ...p, kind: "real" as const }))}
         rangeStorageKey={RANGE_STORAGE_KEY}
-        heightClass="h-44"
+        fill
       />
-      {/* Reported directly as a "discrepancy" between this chart's headline
-          and the live Total value panel above it — see snapshots.ts's
-          captureUserSnapshot for the actual fix (a manual refresh/sync now
-          updates today's snapshot too, not just the once-daily cron).
-          This caption covers the narrower gap that's left: between two
-          refreshes, prices keep moving live while today's snapshot sits at
-          whatever the last one captured. */}
-      <p className="mt-2 text-xs text-fg-muted">
-        One point per day from the daily snapshot; today&apos;s is the Total value above.
-      </p>
     </Panel>
   );
 }

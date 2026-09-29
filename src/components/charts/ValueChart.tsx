@@ -64,19 +64,23 @@ export function ValueChart({
   rangeStorageKey,
   emptyRangeMessage = "Not enough data in this range yet — try a wider one.",
   heightClass = "h-52",
+  fill = false,
 }: {
   points: ValueChartPoint[];
   rangeStorageKey: string;
   emptyRangeMessage?: string;
   /** The plot's height (a Tailwind class) — the Dashboard's card is shorter. */
   heightClass?: string;
+  /** Grow to fill the parent's height (a dashboard card) instead of a
+   * fixed plot height; the parent must be a flex column with a height. */
+  fill?: boolean;
 }) {
   const [range, setRange] = usePersistedState<ChartRangeKey>(rangeStorageKey, "90d");
   const rangeDays = CHART_RANGES.find((r) => r.key === range)?.days ?? 90;
   const sliced = useMemo(() => sliceToRange(points, rangeDays), [points, rangeDays]);
 
   return (
-    <div>
+    <div className={fill ? "flex h-full flex-col" : ""}>
       <div className="flex justify-end">
         <ToggleGroup
           options={CHART_RANGES.map((r) => ({ key: r.key, label: r.label }))}
@@ -87,13 +91,13 @@ export function ValueChart({
       {sliced.length < 2 ? (
         <p className="mt-4 text-sm text-fg-muted">{emptyRangeMessage}</p>
       ) : (
-        <Chart points={sliced} heightClass={heightClass} />
+        <Chart points={sliced} heightClass={heightClass} fill={fill} />
       )}
     </div>
   );
 }
 
-function Chart({ points, heightClass }: { points: ValueChartPoint[]; heightClass: string }) {
+function Chart({ points, heightClass, fill }: { points: ValueChartPoint[]; heightClass: string; fill: boolean }) {
   const { hidden } = useHideBalance();
 
   const coords = scalePoints(
@@ -127,7 +131,7 @@ function Chart({ points, heightClass }: { points: ValueChartPoint[]; heightClass
   const hoveredCoord = hoverIndex !== null ? coords[hoverIndex] : null;
 
   return (
-    <div className="mt-4">
+    <div className={fill ? "mt-4 flex min-h-0 flex-1 flex-col" : "mt-4"}>
       <div className="flex items-baseline justify-between">
         {hovered ? (
           <>
@@ -159,7 +163,7 @@ function Chart({ points, heightClass }: { points: ValueChartPoint[]; heightClass
           div's box is exactly the svg's box, nothing else. */}
       <div
         ref={containerRef}
-        className={`relative mt-2 touch-none ${trendClass}`}
+        className={`relative mt-2 touch-none ${fill ? "min-h-40 flex-1" : ""} ${trendClass}`}
         onMouseMove={(e) => hoverAt(e.clientX)}
         onMouseLeave={() => setHoverIndex(null)}
         onTouchStart={(e) => hoverAt(e.touches[0].clientX)}
@@ -169,7 +173,7 @@ function Chart({ points, heightClass }: { points: ValueChartPoint[]; heightClass
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           preserveAspectRatio="none"
-          className={`block ${heightClass} w-full`}
+          className={fill ? "absolute inset-0 block h-full w-full" : `block ${heightClass} w-full`}
           role="img"
           aria-label="Portfolio value over time"
         >

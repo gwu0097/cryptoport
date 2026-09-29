@@ -462,7 +462,22 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
 /** The coins as a sortable table (site convention: SortableHeader +
  * usePersistedState), newest activity first by default. `period` words the
  * window ("today"; Recent trades: "in 7 days"). */
-export function CoinTable({ coins, latest, showNames, serverNowSec, period = "today" }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number; period?: string }) {
+export function CoinTable({
+  coins,
+  latest,
+  showNames,
+  serverNowSec,
+  period = "today",
+  dense = false,
+}: {
+  coins: WatchCoinDay[];
+  latest: number;
+  showNames: boolean;
+  serverNowSec: number;
+  period?: string;
+  /** Tighter rows (the Dashboard's card). */
+  dense?: boolean;
+}) {
   const [sort, setSort] = usePersistedState<Sort>("cryptoport:watchActivitySort", { key: "when", dir: "desc" });
   const { key: sortKey, dir: sortDir } = sort;
   const toggleSort = (key: SortKey) => setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
@@ -477,7 +492,7 @@ export function CoinTable({ coins, latest, showNames, serverNowSec, period = "to
   const items = foldSoldOut(sorted);
   return (
     <PeriodContext.Provider value={period}>
-    <div className="mt-1 max-h-[34rem] overflow-auto overscroll-contain">
+    <div className={`mt-1 max-h-[34rem] overflow-auto overscroll-contain ${dense ? "[&_td]:py-2 [&_th]:py-1.5" : ""}`}>
       <table className={tableClass}>
         <thead className="sticky top-0 z-10 bg-surface">
           <tr className={theadRowClass}>
@@ -505,20 +520,114 @@ export function CoinTable({ coins, latest, showNames, serverNowSec, period = "to
   );
 }
 
-/**
- * Wallet Watch's activity since the morning read, per coin (like a trading
- * app's token cards), from the activity check and live updates (phases 4–5).
- * Cash coins (SOL, USDC, ETH) appear only as what trades were paid with.
- */
-export function DayActivity({
+/** The day's lines for these influencers: the server's, then live updates
+ * (useLiveDay) while `enabled` — a hidden tab doesn't listen (each live
+ * update would fetch api/wallet-watch/day). */
+export function useDayActivity({
   coins: serverCoins,
   checkedAt: serverCheckedAt,
   issues: serverIssues,
   liveIds = [],
   influencerIds,
+  enabled = true,
+}: {
+  coins: WatchCoinDay[];
+  checkedAt: string | null;
+  issues: { address: string; status: string }[];
+  liveIds?: string[];
+  influencerIds: string[];
+  enabled?: boolean;
+}) {
+  const live = liveIds.some((id) => influencerIds.includes(id));
+  const watch = useWatching();
+  const fresh = useLiveDay(influencerIds, live && enabled, watch.watching, serverCoins);
+  const shown = new Set(influencerIds);
+  const coins = fresh ? fresh.coins.filter((c) => shown.has(c.influencerId)) : serverCoins;
+  const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
+  const checkedAt = fresh ? (influencerIds.map((id) => fresh.checkedAt[id]).filter(Boolean).sort().at(-1) ?? serverCheckedAt) : serverCheckedAt;
+  // Found by the latest check (the ones before it were already there).
+  const latest = checkedAt ? Date.parse(checkedAt) - 60_000 : Infinity;
+  return { coins, issues, checkedAt, latest, live, watch };
+}
+
+/** LIVE, the Watching switch, when last checked, and addresses not fully
+ * checked (a chip; hover for why). */
+export function DayStatus({
+  live,
+  watch,
+  checkedAt,
+  issues,
+  serverNowSec,
+}: {
+  live: boolean;
+  watch: ReturnType<typeof useWatching>;
+  checkedAt: string | null;
+  issues: { address: string; status: string }[];
+  serverNowSec: number;
+}) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+      {live && (
+        <>
+          <span className="rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades arrive by webhook as they happen (Helius for Solana, Alchemy for Ethereum, Arbitrum and Robinhood Chain); this panel shows them within a second while Watching, else within 30 minutes.">
+            live
+          </span>
+          <WatchingSwitch {...watch} />
+        </>
+      )}
+      <span className="text-fg-muted">{checkedAt ? <AgeText at={checkedAt} serverNowSec={serverNowSec} prefix="checked " /> : "not checked yet"}</span>
+      {issues.length > 0 && (
+        <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning" title={`${issues.map((i) => `${i.address.slice(0, 8)}…: ${i.status}`).join("\n")}\nThis morning's read covers them.`}>
+          {issues.length} not fully checked
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The table, or what to say when there's nothing in it. */
+export function DayTable({
+  coins,
+  latest,
+  checkedAt,
+  live,
+  showNames = true,
+  serverNowSec,
+  dense = false,
+}: {
+  coins: WatchCoinDay[];
+  latest: number;
+  checkedAt: string | null;
+  live: boolean;
+  showNames?: boolean;
+  serverNowSec: number;
+  dense?: boolean;
+}) {
+  if (coins.length === 0) {
+    return <p className="mt-2 text-sm text-fg-muted">{checkedAt || live ? "No trades since this morning's read." : "Refresh activity to see what they've done since this morning's read."}</p>;
+  }
+  return <CoinTable coins={coins} latest={latest} showNames={showNames} serverNowSec={serverNowSec} dense={dense} />;
+}
+
+/** What the table shows, in one sentence (a footnote, or an info tooltip). */
+export const DAY_ACTIVITY_NOTE =
+  "Per coin since this morning's read — click a row's time for its trades. Results count what was bought and sold today; a trim of an earlier position shows its share.";
+
+/**
+ * Wallet Watch's activity since the morning read, per coin (like a trading
+ * app's token cards), from the activity check and live updates (phases 4–5).
+ * Cash coins (SOL, USDC, ETH) appear only as what trades were paid with.
+ * The Dashboard composes the same parts in its card's header instead
+ * (useDayActivity, DayStatus, DayTable).
+ */
+export function DayActivity({
+  coins,
+  checkedAt,
+  issues,
+  liveIds = [],
+  influencerIds,
   serverNowSec,
   showNames = true,
-  showButton = true,
 }: {
   coins: WatchCoinDay[];
   /** The latest check of these influencers' addresses. */
@@ -529,51 +638,19 @@ export function DayActivity({
   influencerIds: string[];
   serverNowSec: number;
   showNames?: boolean;
-  /** False where the panel's header already has the button (Dashboard). */
-  showButton?: boolean;
 }) {
-  const live = liveIds.some((id) => influencerIds.includes(id));
-  const watch = useWatching();
-  const fresh = useLiveDay(influencerIds, live, watch.watching, serverCoins);
-  const shown = new Set(influencerIds);
-  const coins = fresh ? fresh.coins.filter((c) => shown.has(c.influencerId)) : serverCoins;
-  const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
-  const checkedAt = fresh ? (influencerIds.map((id) => fresh.checkedAt[id]).filter(Boolean).sort().at(-1) ?? serverCheckedAt) : serverCheckedAt;
-  // Found by the latest check (the ones before it were already there).
-  const latest = checkedAt ? Date.parse(checkedAt) - 60_000 : Infinity;
-
+  const day = useDayActivity({ coins, checkedAt, issues, liveIds, influencerIds });
   return (
     <div className="mb-4 rounded-lg border border-border/60 bg-surface-raised/40 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm">
+        <p className="flex flex-wrap items-center gap-x-1.5 text-sm">
           <span className="font-semibold text-fg">Since this morning&apos;s read</span>
-          {live && (
-            <>
-              <span className="ml-1.5 rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades arrive by webhook as they happen (Helius for Solana, Alchemy for Ethereum, Arbitrum and Robinhood Chain); this panel shows them within a second while Watching, else within 30 minutes.">
-                live
-              </span>
-              <WatchingSwitch {...watch} />
-            </>
-          )}
-          <span className="text-xs text-fg-muted">
-            {" · "}
-            {checkedAt ? <AgeText at={checkedAt} serverNowSec={serverNowSec} prefix="checked " /> : "not checked yet"}
-          </span>
+          <DayStatus live={day.live} watch={day.watch} checkedAt={day.checkedAt} issues={day.issues} serverNowSec={serverNowSec} />
         </p>
-        {showButton && <ActivityCheckButton influencerIds={influencerIds} />}
+        <ActivityCheckButton influencerIds={influencerIds} />
       </div>
-      {coins.length === 0 ? (
-        <p className="mt-2 text-sm text-fg-muted">{checkedAt || live ? "No trades since this morning's read." : "Refresh activity to see what they've done since this morning's read."}</p>
-      ) : (
-        <CoinTable coins={coins} latest={latest} showNames={showNames} serverNowSec={serverNowSec} />
-      )}
-      {issues.length > 0 && (
-        <p className="mt-1 text-xs text-fg-muted" title={issues.map((i) => `${i.address.slice(0, 8)}…: ${i.status}`).join("\n")}>
-          {issues.length} address{issues.length === 1 ? "" : "es"} not fully checked (hover for why) — this morning&apos;s read covers them.
-        </p>
-      )}
-      <p className="mt-1 text-[11px] text-fg-muted/80">Per coin since this morning&apos;s read — click a row&apos;s time for its trades. Results count what was bought and sold today; a trim of an earlier position shows its share.</p>
+      <DayTable coins={day.coins} latest={day.latest} checkedAt={day.checkedAt} live={day.live} showNames={showNames} serverNowSec={serverNowSec} />
+      <p className="mt-1 text-[11px] text-fg-muted/80">{DAY_ACTIVITY_NOTE}</p>
     </div>
   );
 }
-

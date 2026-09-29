@@ -862,9 +862,18 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   sort before `2xl` and lose); reading pages (Settings, Profile,
   Encyclopedia, new wallet) mark themselves `reading` in a route
   `layout.tsx` and keep 1152px. The Dashboard is a 12-column grid: a stat
-  strip on top (`DashboardStats`), cards on `Panel`'s `actions`/`footer`/
-  `density="compact"`, tabs for alternatives of one kind (`MoversCard`,
-  Wallet Watch's today/between reads), phone order set by `order-*`.
+  strip on top (`DashboardStats`); row 1 chart | movers (gainers and losers
+  side by side when the card fits them, a container query); Wallet Watch
+  full width, and from 3xl Wallet Watch 8 | heatmap 4 (12 without Wallet
+  Watch) with open positions last; phone order set by `order-*`. Cards fill
+  their row's height (`Panel` in a flex column; `ValueChart fill`, the
+  heatmap iframe absolute) — no stretched card with an empty bottom. One
+  header row per card: `Panel`'s `title` / `toolbar` (tabs, status) /
+  `actions`, the toolbar on its own line on a phone; notes go in an
+  `InfoTooltip`, not lines of text. Wallet Watch's day table is
+  `useDayActivity` + `DayStatus` + `DayTable` (the Dashboard puts the status
+  in its header and listens for live updates only on that tab;
+  `DayActivity` composes the same parts on the Wallet Watch pages).
 - **The sidebar and the mobile drawer share one layout:** pinned header,
   links in their own scroll area (`min-h-0 flex-1 overflow-y-auto
   overscroll-contain`), Admin/Settings pinned at the bottom; heights in `dvh`
