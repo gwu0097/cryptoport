@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
  * One coin's latest price and market cap — the refresh button on a Wallet
  * Watch activity row (owner 2026-09-29: "super light, just that one
  * token"). One call to the coin's source (Jupiter or CoinGecko), skipped
- * when it was priced or tried in the last minute, then one read. Stored
+ * only when it was priced or tried in the last 10 seconds (a double click),
+ * then one read. Stored
  * like any price, so every page shows it after.
  */
 export async function POST(request: Request): Promise<Response> {
@@ -18,7 +19,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Unknown coin" }, { status: 400 });
   }
   try {
-    await ensureAssetPrices([priceKey], "coin-refresh", 60_000);
+    await ensureAssetPrices([priceKey], "coin-refresh", 10_000);
     const { stats } = await getMarketFor([priceKey]);
     const s = stats.get(priceKey);
     return Response.json({ usd: s?.usd ?? null, marketCap: s?.marketCap ?? null, at: s?.updatedAt ?? null });

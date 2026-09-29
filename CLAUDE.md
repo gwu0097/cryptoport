@@ -101,7 +101,7 @@ owner's.
   supply = the stored market cap ÷ price, which the Jupiter lane now stores
   too — else the price; a coin row's refresh icon gets just that coin's
   price, `api/wallet-watch/coin-price`, one call to its source, skipped
-  within a minute, and a sold-out row then shows "MC now", owner
+  within 10 s (a double click), and a sold-out row then shows "MC now", owner
   2026-09-29). Cash coins are only the payment side, never a row (owner
   2026-09-28: match KOLScan's per-trade view). For every trader alike, the
   coins they've sold out of (a leftover under $1 counts) fold into one row;
