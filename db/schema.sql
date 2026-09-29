@@ -2815,3 +2815,9 @@ set search_path = cryptoport
 as $$ select * from cryptoport.solana_token_info where mint = any(p_mints) $$;
 revoke all on function cryptoport.solana_token_info_get(text[]) from public;
 grant execute on function cryptoport.solana_token_info_get(text[]) to service_role;
+
+-- (2026-09-29) -- Jupiter Shield's verdict per mint (solanaTokenCache.ts mintsToShieldCheck):
+-- a named but unpriced token is re-asked weekly instead of every read.
+alter table cryptoport.solana_token_info
+  add column if not exists unsellable        boolean,
+  add column if not exists shield_checked_at timestamptz;

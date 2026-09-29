@@ -1,7 +1,7 @@
 import "server-only";
 import { jupiterFetch } from "./jupiterFetch";
 import { serviceDb } from "../supabase";
-import { mintsToLookUp, type CachedTokenInfo } from "../solanaTokenCache";
+import { mintsToLookUp, mintsToShieldCheck, type CachedTokenInfo } from "../solanaTokenCache";
 import type { AdapterHolding } from "./types";
 
 // lite-api.jup.ag (this file's original host for all three endpoints below)
@@ -179,7 +179,7 @@ export interface HeldNotShown {
  * remembered as unpriced) is saved for the next read, by any wallet. The
  * cache failing never fails the read: everything is looked up instead.
  */
-async function tokenInfoCached(held: { mint: string; amount: number }[]): Promise<Map<string, JupiterTokenInfo>> {
+async function tokenInfoCached(held: { mint: string; amount: number }[]): Promise<{ info: Map<string, JupiterTokenInfo>; cached: Map<string, CachedTokenInfo> | null }> {
   const db = serviceDb();
   const cached = new Map<string, CachedTokenInfo>();
   try {
@@ -187,13 +187,23 @@ async function tokenInfoCached(held: { mint: string; amount: number }[]): Promis
       // An RPC with an array body: thousands of mints don't fit in a URL.
       const { data, error } = await db.rpc("solana_token_info_get", { p_mints: held.slice(i, i + 5_000).map((h) => h.mint) });
       if (error) throw new Error(error.message);
-      for (const r of data as { mint: string; symbol: string | null; icon: string | null; usd_price: number | string | null; liquidity: number | string | null; checked_at: string }[]) {
-        cached.set(r.mint, { mint: r.mint, symbol: r.symbol, icon: r.icon, usdPrice: r.usd_price === null ? null : Number(r.usd_price), liquidity: r.liquidity === null ? null : Number(r.liquidity), checkedAt: r.checked_at });
+      type Row = { mint: string; symbol: string | null; icon: string | null; usd_price: number | string | null; liquidity: number | string | null; checked_at: string; unsellable: boolean | null; shield_checked_at: string | null };
+      for (const r of data as Row[]) {
+        cached.set(r.mint, {
+          mint: r.mint,
+          symbol: r.symbol,
+          icon: r.icon,
+          usdPrice: r.usd_price === null ? null : Number(r.usd_price),
+          liquidity: r.liquidity === null ? null : Number(r.liquidity),
+          checkedAt: r.checked_at,
+          unsellable: r.unsellable,
+          shieldCheckedAt: r.shield_checked_at,
+        });
       }
     }
   } catch (e) {
     console.error(`Solana token cache not read: ${(e as Error).message}`);
-    return fetchTokenInfo(held.map((h) => h.mint));
+    return { info: await fetchTokenInfo(held.map((h) => h.mint)), cached: null };
   }
   const lookUp = mintsToLookUp(held, cached, Date.now());
   const fresh = await fetchTokenInfo(lookUp);
@@ -215,14 +225,37 @@ async function tokenInfoCached(held: { mint: string; amount: number }[]): Promis
   // answer means no info now, as saved.
   for (const mint of lookUp) out.delete(mint);
   for (const [mint, t] of fresh) out.set(mint, t);
-  return out;
+  return { info: out, cached };
+}
+
+/**
+ * Shield verdicts for the show candidates, through the same cache: a priced
+ * candidate is asked every read, a named but unpriced one weekly
+ * (mintsToShieldCheck); the answers are saved. No cache: everyone is asked.
+ */
+async function unsellableCached(candidates: { mint: string; priced: boolean }[], cached: Map<string, CachedTokenInfo> | null): Promise<Set<string>> {
+  if (!cached) return fetchUnsellableMints(candidates.map((c) => c.mint));
+  const ask = mintsToShieldCheck(candidates, cached, Date.now());
+  const fresh = await fetchUnsellableMints(ask);
+  const unsellable = new Set(fresh);
+  const asked = new Set(ask);
+  for (const c of candidates) if (!asked.has(c.mint) && cached.get(c.mint)?.unsellable) unsellable.add(c.mint);
+  const at = new Date().toISOString();
+  // Same columns in every row: the upsert sets only these (the token info
+  // saved a moment ago stays).
+  const rows = ask.map((mint) => ({ mint, unsellable: fresh.has(mint), shield_checked_at: at }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await serviceDb().from("solana_token_info").upsert(rows.slice(i, i + 500), { onConflict: "mint" });
+    if (error) console.error(`Solana Shield verdicts not saved: ${error.message}`);
+  }
+  return unsellable;
 }
 
 export async function readJupiterWallet(address: string): Promise<{ holdings: AdapterHolding[]; heldNotShown: HeldNotShown[] }> {
   const balances = await fetchBalances(address);
 
   const entries = Object.entries(balances).filter(([, b]) => b.uiAmount > 0);
-  const tokenInfo = await tokenInfoCached(entries.map(([key, b]) => ({ mint: key === "SOL" ? WRAPPED_SOL_MINT : key, amount: b.uiAmount })));
+  const { info: tokenInfo, cached } = await tokenInfoCached(entries.map(([key, b]) => ({ mint: key === "SOL" ? WRAPPED_SOL_MINT : key, amount: b.uiAmount })));
 
   // What would be shown by price, liquidity and name alone; Shield is then
   // asked only about those (a row is shown only if it passes both, so the
@@ -235,7 +268,13 @@ export async function readJupiterWallet(address: string): Promise<{ holdings: Ad
     if (usd !== null) return usd > TOKEN_USD_FLOOR && (info?.liquidity ?? 0) >= LIQUIDITY_FLOOR;
     return key === "SOL" || !!info?.symbol; // no name, no price — nothing to show, see doc comment above
   });
-  const unsellable = await fetchUnsellableMints(shown.map(([key]) => (key === "SOL" ? WRAPPED_SOL_MINT : key)));
+  const unsellable = await unsellableCached(
+    shown.map(([key]) => {
+      const mint = key === "SOL" ? WRAPPED_SOL_MINT : key;
+      return { mint, priced: tokenInfo.get(mint)?.usdPrice != null };
+    }),
+    cached,
+  );
 
   const shownKeys = new Set(shown.map(([key]) => key));
   const heldNotShown: HeldNotShown[] = entries

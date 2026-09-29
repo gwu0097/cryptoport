@@ -512,9 +512,11 @@ An isolated-margin perps position is valued at what closing it returns
 A Solana wallet's token names, prices and liquidity (what decides which
 tokens are shown) come through `solana_token_info` (`solanaTokenCache.ts`
 `mintsToLookUp`, `jupiter.ts` `tokenInfoCached`): only never-seen mints,
-last time's shown ones, dust worth ≥ $0.50 a day old and anything a week old
-are looked up on Jupiter (a memecoin wallet held 8,417 mints: ~85 paced
-calls, ~95 s, every read). Never a valuation price (§4.2); the liquidity
+last time's shown ones (over $5 with $100k liquidity), dust worth ≥ $0.50
+with a $10k market a day old and anything a week old are looked up; Shield
+verdicts too (`mintsToShieldCheck`, `unsellableCached`: a priced candidate
+every read, a named unpriced one weekly). A memecoin wallet holding 8,417
+mints made 158 Shield calls (170 s) and 65 lookups every read. Never a valuation price (§4.2); the liquidity
 floor and Shield check are unchanged; the cache failing means a full lookup.
 
 Every on-chain Solana adapter lists accounts through `adapters/solanaRpc.ts`

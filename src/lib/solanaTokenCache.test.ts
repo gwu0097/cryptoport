@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mintsToLookUp, type CachedTokenInfo } from "./solanaTokenCache.ts";
+import { mintsToLookUp, mintsToShieldCheck, type CachedTokenInfo } from "./solanaTokenCache.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
-const row = (mint: string, usdPrice: number | null, checkedAt: string): CachedTokenInfo => ({ mint, symbol: mint.toUpperCase(), icon: null, usdPrice, liquidity: 1e6, checkedAt });
+const row = (mint: string, usdPrice: number | null, checkedAt: string, liquidity = 1e6): CachedTokenInfo => ({ mint, symbol: mint.toUpperCase(), icon: null, usdPrice, liquidity, checkedAt });
 
 test("a new mint is looked up; a shown one every read; valuable dust daily; dead dust weekly", () => {
   const cached = new Map([
@@ -25,4 +25,27 @@ test("the 8,417-mint wallet: after its first read, a day later only the shown an
   held.forEach(({ mint }, i) => cached.set(mint, row(mint, i < 88 ? 1 : null, hoursAgo(i % 7 === 0 && i >= 88 ? 24 * 7 + 1 : 20))));
   const n = mintsToLookUp(held, cached, NOW).length;
   assert.ok(n < 1_400, `looked up ${n}`); // ~14 calls of 100, not ~85
+});
+
+test("a dead coin with a nominal price on a tiny pool waits a week, however large the balance", () => {
+  const cached = new Map([["zombie", row("zombie", 0.001, "2026-09-28T12:00:00Z", 800)]]); // 1M × $0.001 = $1,000, $800 pool
+  assert.deepEqual(mintsToLookUp([{ mint: "zombie", amount: 1_000_000 }], cached, NOW), []);
+});
+
+test("Shield: a priced candidate every read; a named unpriced one weekly", () => {
+  const cached = new Map<string, CachedTokenInfo>([
+    ["dead-checked", { ...row("dead-checked", null, hoursAgo(1)), unsellable: true, shieldCheckedAt: hoursAgo(24) }],
+    ["dead-old", { ...row("dead-old", null, hoursAgo(1)), unsellable: true, shieldCheckedAt: hoursAgo(24 * 8) }],
+  ]);
+  const got = mintsToShieldCheck(
+    [
+      { mint: "real", priced: true },
+      { mint: "dead-checked", priced: false },
+      { mint: "dead-old", priced: false },
+      { mint: "dead-new", priced: false },
+    ],
+    cached,
+    NOW,
+  );
+  assert.deepEqual(got, ["real", "dead-old", "dead-new"]);
 });
