@@ -2665,6 +2665,48 @@ create table if not exists cryptoport.watch_directory (
 alter table cryptoport.watch_directory enable row level security;
 grant all on cryptoport.watch_directory to service_role;
 
+-- Wallet Watch KOL directory, phase 2 (docs/wallet-watch/DIRECTORY.md):
+-- wallets users suggest for a directory KOL. A user can add and read only
+-- their own, and only as pending; the owner's review (evidence, approve,
+-- reject) writes with the service role.
+create table if not exists cryptoport.watch_suggestions (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  influencer_id uuid not null references cryptoport.watch_influencers(id) on delete cascade,
+  chain         text not null,
+  address       text not null check (address !~ '^0x' or address = lower(address)),
+  reason        text check (reason is null or length(reason) <= 500),
+  source_link   text check (source_link is null or length(source_link) <= 300),
+  status        text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  evidence      jsonb,
+  created_at    timestamptz not null default now(),
+  decided_at    timestamptz,
+  unique (user_id, influencer_id, chain, address)
+);
+alter table cryptoport.watch_suggestions enable row level security;
+grant all on cryptoport.watch_suggestions to service_role;
+grant select, insert on cryptoport.watch_suggestions to authenticated;
+-- Whether an influencer is in the directory, for the insert policy below:
+-- security definer, since users can't read watch_directory themselves.
+create or replace function cryptoport.in_watch_directory(p_influencer uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = cryptoport
+as $$ select exists (select 1 from cryptoport.watch_directory where influencer_id = p_influencer) $$;
+revoke all on function cryptoport.in_watch_directory(uuid) from public;
+grant execute on function cryptoport.in_watch_directory(uuid) to authenticated;
+
+create policy "watch_suggestions: own, read" on cryptoport.watch_suggestions
+  for select using (user_id = auth.uid());
+create policy "watch_suggestions: own, add as pending" on cryptoport.watch_suggestions
+  for insert with check (
+    user_id = auth.uid() and status = 'pending' and evidence is null and decided_at is null
+    and cryptoport.in_watch_directory(influencer_id)
+  );
+create index if not exists watch_suggestions_status_idx on cryptoport.watch_suggestions (status, created_at);
+
 -- Exact attribution (Analytics "What moved your portfolio"): each daily wallet
 -- snapshot also records what it was made of — per coin (price_key) the
 -- quantity and the price used, and the value held outside a priced coin

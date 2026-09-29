@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/** Owner's console features, one tab each. Users stays active while viewing
+/** Owner's console features, one tab each (KOL suggestions: docs/wallet-watch/DIRECTORY.md). Users stays active while viewing
  * a user (/admin/users/<id>/…). A new feature is a route under /admin plus
  * an entry here. */
 const TABS = [
   { href: "/admin/users", label: "Users" },
   { href: "/admin/apis", label: "API list" },
   { href: "/admin/pricing", label: "Pricing coverage" },
+  { href: "/admin/suggestions", label: "KOL suggestions" },
 ] as const;
 
 export function OwnerConsoleTabs() {

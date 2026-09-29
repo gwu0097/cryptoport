@@ -197,8 +197,16 @@ owner's.
   (`watch_directory`, service role only — `setInDirectory`, `requireAdmin`;
   an entry is always shared). Any user adds one as a following copy
   (`addSharedInfluencer`) or keeps their own; only the owner edits entries.
-  Suggestions with an approval queue and linked-wallet suggestions are
-  phases 2–3. The address lookup (`/lookup`) is
+  Any user can suggest a wallet for a directory KOL ("Suggest a wallet",
+  `suggestWallet`; `watch_suggestions`, users insert pending ones and read
+  their own — `in_watch_directory` checks the entry; 20 waiting at most);
+  it reaches nobody until the owner approves it in Owner's console → KOL
+  suggestions, after "Check links" (`checkSuggestion` → `adapters/
+  walletLinkReads.ts`, pure `walletLinks.ts`: transfers between it and the
+  KOL's known wallets — both ways and ≥ 3 is "linked", one-way proves
+  nothing). Approving adds it to the KOL and every copy (`decideSuggestion`).
+  Linked-wallet suggestions from the daily reads are phase 3. The address
+  lookup (`/lookup`) is
   public; lookup links need no account.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.

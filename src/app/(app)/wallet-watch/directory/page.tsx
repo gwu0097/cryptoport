@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Eye } from "lucide-react";
 import { getUser } from "@/lib/auth";
 import { getDirectory } from "@/lib/watchQuery";
+import { getMySuggestions } from "@/lib/suggestionsQuery";
+import { SuggestWalletForm } from "@/components/walletWatch/SuggestWalletForm";
 import { formatUsd } from "@/lib/format";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -22,7 +24,8 @@ const SUBTITLE = "Known traders and their wallets, kept up to date in one place 
  */
 export default async function DirectoryPage() {
   if (!(await getUser())) return <SignInPrompt message="Log in to browse the KOL directory." />;
-  const entries = await getDirectory();
+  const [entries, mySuggestions] = await Promise.all([getDirectory(), getMySuggestions()]);
+  const nameOf = new Map(entries.map((e) => [e.influencer.id, e.influencer.name]));
   return (
     <>
       <PageHeader title="KOL directory" subtitle={SUBTITLE} />
@@ -56,6 +59,11 @@ export default async function DirectoryPage() {
                     </td>
                     <td className={`${tdClass} text-fg-muted`}>
                       {i.addresses.length} · {[...new Set(i.addresses.map((a) => a.chain))].join(", ")}
+                      {!own && (
+                        <span className="block">
+                          <SuggestWalletForm influencerId={i.id} name={i.name} />
+                        </span>
+                      )}
                     </td>
                     <td className={`${tdClass} tabular-nums`}>{i.valueUsd !== null ? formatUsd(i.valueUsd) : "—"}</td>
                     <td className={`${tdClass} ${hideOnMobileClass} text-xs text-fg-muted`}>{i.topHoldings.slice(0, 3).map((h) => h.ticker).join(", ") || "—"}</td>
@@ -79,6 +87,19 @@ export default async function DirectoryPage() {
           </div>
         )}
       </Panel>
+      {mySuggestions.length > 0 && (
+        <Panel title="Your suggestions" description="Checked by CryptoPort before they're added for everyone.">
+          <ul className="space-y-1 text-xs">
+            {mySuggestions.map((s) => (
+              <li key={s.id} className="flex flex-wrap gap-x-2">
+                <span className={s.status === "approved" ? "text-positive" : s.status === "rejected" ? "text-negative" : "text-warning"}>{s.status === "pending" ? "waiting" : s.status}</span>
+                <span className="text-fg">{nameOf.get(s.influencerId) ?? "a KOL no longer listed"}</span>
+                <span className="break-all font-mono text-fg-muted">{s.address}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
     </>
   );
 }

@@ -9,6 +9,8 @@ import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
 import { syncCopies } from "@/lib/watchCopySync";
+import { summarizeLinks, type LinkEvidence } from "@/lib/walletLinks";
+import { evmLinkTransfers, solanaLinkTransfers } from "@/lib/adapters/walletLinkReads";
 import { detectChain } from "@/lib/lookup";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { claimWatchedAddresses, ensureWatchedAddress, refreshWatchedAddresses, type WatchedKey } from "@/lib/watchRefresh";
@@ -263,6 +265,84 @@ export async function setInDirectory(influencerId: string, on: boolean): Promise
   revalidate(influencerId);
   revalidatePath("/wallet-watch/directory");
   return { ok: true, influencerId };
+}
+
+/** A user suggests a wallet for a KOL in the directory (docs/wallet-watch/
+ * DIRECTORY.md, phase 2). It reaches nobody until the owner approves it. */
+const MAX_PENDING_SUGGESTIONS = 20;
+export async function suggestWallet(input: { influencerId: string; address: string; reason?: string; link?: string }): Promise<WatchActionResult> {
+  const user = await requireUser();
+  const parsed = parseAddress(input.address);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+  const link = cleanLink(input.link);
+  if (link && typeof link === "object") return { ok: false, error: link.error };
+  const reason = input.reason?.trim().slice(0, 500) || null;
+  const svc = serviceDb();
+  const [{ data: entry }, { data: existing }, { count }] = await Promise.all([
+    svc.from("watch_directory").select("influencer_id").eq("influencer_id", input.influencerId).maybeSingle(),
+    svc.from("watch_influencer_addresses").select("id").eq("influencer_id", input.influencerId).eq("chain", parsed.chain).eq("address", parsed.address).maybeSingle(),
+    svc.from("watch_suggestions").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "pending"),
+  ]);
+  if (!entry) return { ok: false, error: "That KOL isn't in the directory." };
+  if (existing) return { ok: false, error: "That wallet is already on this KOL." };
+  if ((count ?? 0) >= MAX_PENDING_SUGGESTIONS) return { ok: false, error: `You have ${MAX_PENDING_SUGGESTIONS} suggestions waiting — wait for those to be reviewed.` };
+  const db = await userDb();
+  const { error } = await db.from("watch_suggestions").insert({ influencer_id: input.influencerId, ...parsed, reason, source_link: link });
+  if (error) return { ok: false, error: /duplicate key/.test(error.message) ? "You've already suggested that wallet." : error.message };
+  revalidatePath("/wallet-watch/directory");
+  revalidatePath("/admin/suggestions");
+  return { ok: true };
+}
+
+/** Owner only: reads the transfers between a suggested wallet and the KOL's
+ * known wallets (walletLinkReads.ts) and stores what they show. */
+export async function checkSuggestion(id: string): Promise<{ ok: true; evidence: LinkEvidence } | { ok: false; error: string }> {
+  await requireAdmin();
+  const svc = serviceDb();
+  const { data: s, error } = await svc.from("watch_suggestions").select("influencer_id, chain, address").eq("id", id).single();
+  if (error) return { ok: false, error: error.message };
+  const { data: known } = await svc.from("watch_influencer_addresses").select("chain, address").eq("influencer_id", s.influencer_id).eq("chain", s.chain);
+  const knownAddresses = ((known ?? []) as { address: string }[]).map((k) => k.address);
+  if (knownAddresses.length === 0) return { ok: false, error: `The KOL has no ${s.chain} wallet to compare with.` };
+  try {
+    const transfers = s.chain === "ETH" ? await evmLinkTransfers(knownAddresses, s.address) : s.chain === "SOL" ? await solanaLinkTransfers(s.address) : null;
+    if (!transfers) return { ok: false, error: `No automatic check for ${s.chain} wallets yet.` };
+    const evidence = summarizeLinks(transfers, knownAddresses, s.address, new Date().toISOString());
+    await svc.from("watch_suggestions").update({ evidence }).eq("id", id);
+    revalidatePath("/admin/suggestions");
+    return { ok: true, evidence };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** Owner only: approves a suggestion — the wallet is added to the directory
+ * KOL (read now, and added to every copy that follows it) — or rejects it. */
+export async function decideSuggestion(id: string, approve: boolean): Promise<WatchActionResult> {
+  await requireAdmin();
+  const svc = serviceDb();
+  const { data: s, error } = await svc.from("watch_suggestions").select("influencer_id, chain, address, status").eq("id", id).single();
+  if (error) return { ok: false, error: error.message };
+  if (s.status !== "pending") return { ok: false, error: `Already ${s.status}.` };
+  if (approve) {
+    const key = { chain: s.chain as string, address: s.address as string };
+    const { data: owner } = await svc.from("watch_influencers").select("user_id").eq("id", s.influencer_id).single();
+    try {
+      await ensureWatchedAddress(key);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const { error: addError } = await svc.from("watch_influencer_addresses").upsert({ user_id: owner!.user_id, influencer_id: s.influencer_id, ...key }, { onConflict: "influencer_id,chain,address", ignoreDuplicates: true });
+    if (addError) return { ok: false, error: friendly(addError.message) };
+    await syncCopies(s.influencer_id, { kind: "add", ...key }).catch((e) => console.error(`Copies not updated: ${(e as Error).message}`));
+    await startRefresh([key]);
+  }
+  const { error: decideError } = await svc.from("watch_suggestions").update({ status: approve ? "approved" : "rejected", decided_at: new Date().toISOString() }).eq("id", id);
+  if (decideError) return { ok: false, error: decideError.message };
+  revalidate(s.influencer_id);
+  revalidatePath("/admin/suggestions");
+  revalidatePath("/wallet-watch/directory");
+  return { ok: true };
 }
 
 /** Turns the share link off; the old link stops working at once. */
