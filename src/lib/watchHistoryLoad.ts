@@ -5,9 +5,9 @@ import { readAssetPrices } from "./adapters/assetPrices";
 import { evmCheckable, readEvmChain } from "./adapters/watchActivitySources";
 import { identifyLegs } from "./watchActivityCheck";
 import { WEBHOOK_NETWORKS } from "./alchemyWebhookTx";
-import { CASH_KEYS, coinDays, type ActivityLeg, type RawChange, type TxActivity } from "./watchActivity";
+import { CASH_KEYS, coinDays, type ActivityLeg, type TxActivity } from "./watchActivity";
 import { assetStates } from "./watchDiff";
-import { windowBase, type HistoryDays } from "./watchHistory";
+import { extendCoverage, HISTORY_KEEP_DAYS, mergeHistoryLegs, planHistoryReads, windowBase, type HistoryDays, type TradeHistory } from "./watchHistory";
 import { createTtlCache } from "./ttlCache";
 import { parseNumeric } from "./valuation";
 import type { WatchSnapshot } from "./watchSnapshot";
@@ -15,12 +15,15 @@ import type { WatchCoinDay } from "./watchQuery";
 
 // Recent trades (watchHistory.ts): an influencer's EVM addresses read back
 // 7 or 30 days through Alchemy's transfers — the same reads, reduction and
-// per-coin view as Refresh activity, over a longer window. Swaps are sized
-// at the cash coin's close on the trade's day (asset_price_daily), else
-// today's price, and the result says how many. Each read is up to
-// HISTORY_PAGES × 100 transfers per direction per chain (120 CU a call);
-// reused for 15 minutes per influencer and window. Solana addresses are the
-// trading record's (Solana Tracker), not read here.
+// per-coin view as Refresh activity, over a longer window. What's read is
+// stored on the watched address (`trade_history`, 30 days): a later press,
+// or anyone watching the same wallet, reads only what's missing — newer
+// transfers since the last read, older days for a longer window — and the
+// morning read adds the day's legs (watchRefresh.ts). Swaps are sized at the
+// cash coin's close on the trade's day (asset_price_daily), else today's
+// price, and the result says how many. A read is up to HISTORY_PAGES × 100
+// transfers per direction per chain (120 CU a call). Solana addresses are
+// the trading record's (Solana Tracker), not read here.
 
 export interface RecentTrades {
   days: HistoryDays;
@@ -35,7 +38,7 @@ export interface RecentTrades {
   solanaAddresses: number;
 }
 
-const cache = createTtlCache<RecentTrades>(15 * 60_000, 100);
+const inFlight = createTtlCache<RecentTrades>(10_000, 100);
 /** Chains always read: the live networks and Base, besides the snapshot's. */
 const ALWAYS = [...Object.keys(WEBHOOK_NETWORKS), "base"];
 const DAY_MS = 86_400_000;
@@ -50,7 +53,8 @@ export async function loadRecentTrades(influencerId: string, days: HistoryDays):
   if (error) throw new Error(error.message);
   if (!inf) throw new Error("Not found");
   const influencer = inf as unknown as { id: string; name: string; watch_influencer_addresses: { chain: string; address: string }[] };
-  const r = await cache.get(`${influencerId}|${days}`, () => read(influencer, days));
+  // Concurrent presses share one read; storage does the rest.
+  const r = await inFlight.get(`${influencerId}|${days}`, () => read(influencer, days));
   return { trades: r.value, fetchedAtMs: r.fetchedAtMs };
 }
 
@@ -64,28 +68,33 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
   if (evm.length === 0) return empty;
 
   const svc = serviceDb();
-  const { data, error } = await svc.from("watched_addresses").select("address, snapshot, last_refresh_at").eq("chain", "ETH").in("address", evm);
+  const { data, error } = await svc.from("watched_addresses").select("address, snapshot, last_refresh_at, trade_history").eq("chain", "ETH").in("address", evm);
   if (error) throw new Error(error.message);
-  const rows = (data as { address: string; snapshot: WatchSnapshot | null; last_refresh_at: string | null }[]).filter((r) => r.snapshot && r.last_refresh_at);
+  const rows = (data as { address: string; snapshot: WatchSnapshot | null; last_refresh_at: string | null; trade_history: TradeHistory | null }[]).filter((r) => r.snapshot && r.last_refresh_at);
+  const keepFromMs = now - HISTORY_KEEP_DAYS * DAY_MS;
 
-  // Every address × chain, a few at a time (Alchemy's per-second cap).
+  // Only what isn't stored yet (watchHistory.ts planHistoryReads): per
+  // address × chain, a few at a time (Alchemy's per-second cap).
   const tasks = rows.flatMap((r) => {
-    const chains = new Set([...r.snapshot!.rows.map((x) => x.chain).filter((c): c is string => !!c), ...ALWAYS]);
-    return [...chains].filter(evmCheckable).map((chain) => ({ address: r.address, chain }));
+    const chains = [...new Set([...r.snapshot!.rows.map((x) => x.chain).filter((c): c is string => !!c), ...ALWAYS])].filter(evmCheckable);
+    return planHistoryReads(r.trade_history?.coverage ?? {}, chains, startMs, now).map((read) => ({ address: r.address, read }));
   });
   const failed: string[] = [];
   const partial: string[] = [];
+  const readAt = new Date(now).toISOString();
   const reads = await mapWithConcurrency(tasks, 3, async (t) => {
     try {
-      const res = await readEvmChain(t.address, t.chain, null, startMs, HISTORY_PAGES);
-      if (res.partial) partial.push(`${t.chain} (${t.address.slice(0, 6)}…)`);
-      return res.changes;
+      const { read } = t;
+      const res = await readEvmChain(t.address, read.chain, read.kind === "newer" ? read.fromBlock : null, startMs, HISTORY_PAGES, read.kind === "older" ? read.toBlock : null);
+      if (res.partial) partial.push(`${read.chain} (${t.address.slice(0, 6)}…)`);
+      // A capped read only covers back to its oldest transfer.
+      const readFrom = res.partial && res.oldestAt ? res.oldestAt : new Date(startMs).toISOString();
+      return { changes: res.changes, coverage: { kind: read.kind, readFrom, readTo: readAt, oldestBlock: res.oldestBlock ?? null, newestBlock: res.cursor } };
     } catch (e) {
-      failed.push(`${t.chain} (${t.address.slice(0, 6)}…): ${(e as Error).message}`);
-      return [] as RawChange[];
+      failed.push(`${t.read.chain} (${t.address.slice(0, 6)}…): ${(e as Error).message}`);
+      return null;
     }
   });
-
   if (tasks.length > 0 && failed.length === tasks.length) throw new Error(`No chain could be read: ${failed[0]}`); // not cached
 
   // The cash coins' daily closes in the window: one request.
@@ -98,8 +107,19 @@ async function read(influencer: { id: string; name: string; watch_influencer_add
   const checkedAt = new Date(now).toISOString();
   const activities: TxActivity[] = [];
   for (const r of rows) {
-    const changes = tasks.flatMap((t, i) => (t.address === r.address ? reads[i] : []));
-    const legs = await identifyLegs(changes, r.snapshot!, readAssetPrices, checkedAt, "check", undefined, closeOn);
+    const mine = tasks.map((t, i) => ({ t, res: reads[i] })).filter((x) => x.t.address === r.address);
+    const changes = mine.flatMap((x) => x.res?.changes ?? []);
+    const added = changes.length > 0 ? await identifyLegs(changes, r.snapshot!, readAssetPrices, checkedAt, "check", undefined, closeOn) : [];
+    // Saved for the next press and every other watcher: the new trades, and
+    // how far each chain has now been read (a failed read claims nothing).
+    const coverage = { ...(r.trade_history?.coverage ?? {}) };
+    for (const x of mine) if (x.res) coverage[x.t.read.chain] = extendCoverage(coverage[x.t.read.chain], x.res.coverage, keepFromMs);
+    const history: TradeHistory = { legs: mergeHistoryLegs(r.trade_history?.legs ?? [], added, keepFromMs), coverage };
+    if (mine.length > 0) {
+      const { error: saveError } = await svc.from("watched_addresses").update({ trade_history: history }).eq("chain", "ETH").eq("address", r.address);
+      if (saveError) throw new Error(`Recent trades not saved: ${saveError.message}`);
+    }
+    const legs = history.legs.filter((l) => Date.parse(l.at) >= startMs);
     activities.push({ boundary: from, legs, base: windowBase(assetStates(r.snapshot!), legs, Date.parse(r.last_refresh_at!), startMs) });
   }
   // Trades before today sized at today's price: a cash coin with no stored

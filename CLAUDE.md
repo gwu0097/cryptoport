@@ -165,8 +165,15 @@ owner's.
   coins' stored prices (`toLegs` `storedValueOf`, legs marked `sizedBy`,
   in the day's view too); the count sized at today's price is shown. Up to
   20 pages per direction (`HISTORY_PAGES`; a split-order trader made 461
-  transactions a week on one chain). Reused 15 minutes in-process (`ttlCache`), not stored; a chain that
-  hits the page cap or fails is named. Unpriced coins traded in the window
+  transactions a week on one chain). Stored on the watched address (`trade_history`, 30
+  days, `HISTORY_KEEP_DAYS`): a press reads only what isn't stored — per
+  chain, newer transfers from the last read's block, older days up to the
+  stored oldest block (`planHistoryReads`, `extendCoverage`; a chain read in
+  the last 15 minutes isn't read again) — one leg per transaction and coin
+  (`mergeHistoryLegs`); the morning read adds the day's legs it trims
+  (`watchRefresh.ts` `keepInHistory`). A chain that hits the page cap covers
+  only back to its oldest transfer; one that fails claims nothing; both are
+  named. Unpriced coins traded in the window
   get one batched `ensureAssetPrices`, as in Refresh activity.
   **Trading record** (an influencer's page, Solana addresses only): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in

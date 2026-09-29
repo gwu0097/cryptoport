@@ -2741,3 +2741,8 @@ as $$
 $$;
 revoke all on function cryptoport.add_api_calls(date, jsonb) from public;
 grant execute on function cryptoport.add_api_calls(date, jsonb) to service_role;
+
+-- (2026-09-29) -- Wallet Watch Recent trades (watchHistory.ts): an EVM address's trades,
+-- kept 30 days, and how far each chain has been read — so a later load, or
+-- another watcher, reads only what's missing. Written with the service role.
+alter table cryptoport.watched_addresses add column if not exists trade_history jsonb;

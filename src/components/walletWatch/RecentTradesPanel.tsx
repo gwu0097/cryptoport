@@ -38,7 +38,7 @@ export function RecentTradesPanel({ influencerId, evmAddresses, serverNowSec }: 
   return (
     <Panel
       title="Recent trades"
-      description="Their EVM wallets' trades over the last days, per coin — read on demand from each chain's transfers (Solana addresses: see the trading record)."
+      description="Their EVM wallets' trades over the last days, per coin — read from each chain's transfers once, then kept: later loads read only what's new (Solana addresses: see the trading record)."
     >
       <div className="flex flex-wrap items-center gap-2">
         {HISTORY_DAYS.map((d) => (
@@ -54,7 +54,7 @@ export function RecentTradesPanel({ influencerId, evmAddresses, serverNowSec }: 
       {t && (
         <div className="mt-3">
           <p className="text-xs text-fg-muted">
-            Last {t.days} days · {t.chains} chain reads · read <AgeText at={new Date(result!.fetchedAtMs).toISOString()} serverNowSec={serverNowSec} />
+            Last {t.days} days · {t.chains === 0 ? "from stored history, nothing new to read" : `${t.chains} chain read${t.chains === 1 ? "" : "s"} for what wasn't stored yet`} · <AgeText at={new Date(result!.fetchedAtMs).toISOString()} serverNowSec={serverNowSec} />
             {t.sizedToday > 0 && <span className="text-warning"> · {t.sizedToday} trade{t.sizedToday === 1 ? "" : "s"} sized at today&apos;s price (no stored price for that day, or a coin-for-coin swap)</span>}
           </p>
           {t.coins.length === 0 ? (

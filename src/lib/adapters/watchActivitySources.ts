@@ -33,6 +33,10 @@ export interface SourceRead {
   cursor: string | null;
   /** The page cap was reached: older transactions since the boundary weren't read. */
   partial: boolean;
+  /** EVM: the oldest block and time among the transfers read (Recent
+   * trades' stored coverage, watchHistory.ts); null when none were. */
+  oldestBlock?: string | null;
+  oldestAt?: string | null;
 }
 
 interface HeliusTx {
@@ -139,7 +143,7 @@ export function evmCheckable(chain: string): boolean {
 
 /** One EVM chain of an address via Alchemy's transfers, newest first, both
  * directions; the cursor is the newest block seen. */
-export async function readEvmChain(address: string, chain: string, cursor: string | null, boundaryMs: number, maxPages = MAX_PAGES): Promise<SourceRead> {
+export async function readEvmChain(address: string, chain: string, cursor: string | null, boundaryMs: number, maxPages = MAX_PAGES, toBlock?: string | null): Promise<SourceRead> {
   const host = ALCHEMY_HOSTS[chain];
   if (!host || !ALCHEMY_API_KEY) throw new Error(`Alchemy: ${chain} not served`);
   const lower = address.toLowerCase();
@@ -158,6 +162,7 @@ export async function readEvmChain(address: string, chain: string, cursor: strin
         withMetadata: true,
         excludeZeroValue: true,
         ...(fromBlock ? { fromBlock } : {}),
+        ...(toBlock ? { toBlock } : {}),
         ...(pageKey ? { pageKey } : {}),
       });
       for (const t of r.transfers) byId.set(t.uniqueId, t);
@@ -191,7 +196,9 @@ export async function readEvmChain(address: string, chain: string, cursor: strin
     });
   }
   const newest = transfers.reduce((m, t) => Math.max(m, parseInt(t.blockNum, 16)), cursor ? parseInt(cursor, 16) : 0);
-  return { changes, cursor: newest > 0 ? `0x${newest.toString(16)}` : cursor, partial };
+  const oldest = transfers.reduce((m, t) => Math.min(m, parseInt(t.blockNum, 16)), Infinity);
+  const oldestAt = changes.map((c) => c.at).sort()[0] ?? null;
+  return { changes, cursor: newest > 0 ? `0x${newest.toString(16)}` : cursor, partial, oldestBlock: Number.isFinite(oldest) ? `0x${oldest.toString(16)}` : null, oldestAt };
 }
 
 /** A Bitcoin address (Blockstream, bitcoinTx.ts): its recent transactions

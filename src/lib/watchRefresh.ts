@@ -11,7 +11,8 @@ import { JOB_STALE_MS, SCHEDULED_STATUS } from "./jobStatus";
 import { buildSnapshot, previousContracts, snapshotRowToAdapter, type SnapshotRow, type WatchSnapshot } from "./watchSnapshot";
 import { assetOf, assetStates, contractKeys, diffSnapshots, type AssetState } from "./watchDiff";
 import { positionChanges, type OpenPosition } from "./watchPositions";
-import { trimToBoundary } from "./watchActivity";
+import { trimToBoundary, type ActivityLeg } from "./watchActivity";
+import { HISTORY_KEEP_DAYS, mergeHistoryLegs, type TradeHistory } from "./watchHistory";
 import { rewriteActivity } from "./txActivityStore";
 import { markKeyFor } from "./perpPositions";
 import { parseNumeric, type PriceMap } from "./valuation";
@@ -178,7 +179,15 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
     if (saveError) throw new Error(saveError.message);
     // The activity legs from before this read are in the snapshot now — trimmed
     // under the compare-and-set, so a live delivery landing meanwhile isn't lost.
-    await rewriteActivity(chain, address, (prev) => trimToBoundary(prev, readStartedAt));
+    let dropped: ActivityLeg[] = [];
+    await rewriteActivity(chain, address, (prev) => {
+      dropped = (prev?.legs ?? []).filter((l) => Date.parse(l.at) < Date.parse(readStartedAt));
+      return trimToBoundary(prev, readStartedAt);
+    });
+    // …and kept in the address's stored trade history (Recent trades,
+    // watchHistory.ts) instead of discarded: history builds up at no extra
+    // read. EVM only — Recent trades reads EVM wallets.
+    if (chain === "ETH" && dropped.length > 0) await keepInHistory(address, dropped);
 
     const cashUsd = snapshot.rows.reduce((sum, r) => {
       if (!r.price_key || !isCashLike(stats.get(r.price_key))) return sum;
@@ -265,4 +274,16 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
 export async function refreshWatchedAddresses(keys: readonly WatchedKey[]): Promise<void> {
   const stats = await getAssetStatsMap().catch(() => new Map<string, AssetStats>());
   await mapWithConcurrency([...keys], CONCURRENCY, (k) => refreshWatchedAddress(k, stats));
+}
+
+/** The day's legs, once the morning read covers them, added to the stored
+ * trade history (two requests; the coverage isn't changed — these came from
+ * webhooks and checks, not a full read of the window). */
+async function keepInHistory(address: string, legs: readonly ActivityLeg[]): Promise<void> {
+  const db = serviceDb();
+  const { data } = await db.from("watched_addresses").select("trade_history").eq("chain", "ETH").eq("address", address).single();
+  const prev = (data?.trade_history as TradeHistory | null) ?? { legs: [], coverage: {} };
+  const next: TradeHistory = { ...prev, legs: mergeHistoryLegs(prev.legs, legs, Date.now() - HISTORY_KEEP_DAYS * 86_400_000) };
+  const { error } = await db.from("watched_addresses").update({ trade_history: next }).eq("chain", "ETH").eq("address", address);
+  if (error) console.error(`Trade history not kept for ${address}: ${error.message}`);
 }
