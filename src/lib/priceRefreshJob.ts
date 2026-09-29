@@ -45,38 +45,32 @@ export function revalidateAllPriceConsumers() {
 }
 
 /** The actual work, awaited by api/prices/refresh. One pricing pass (refreshAssetPrices):
- * every held coin and every watchlist coin, each from its one source. Its
- * lanes' progress goes to price_refresh_state.phases as they run (the
- * button shows it live). Never throws — a failure is recorded as this
- * singleton row's own status instead, same as every other sync action. */
+ * every held coin and every watchlist coin, each from its one source. Each
+ * lane's time is saved once, with the result (the button shows it) — not
+ * written as it runs: nobody polls for it now, and those ~8 sequential
+ * writes held the answer back (2026-09-29). Never throws — a failure is
+ * recorded as this singleton row's own status instead. */
 export async function runPriceRefresh(requestedAt: number, userId: string, extraPaths: string[] = []): Promise<void> {
   const db = serviceDb();
   const phases: PriceRefreshPhases = {};
-  // Writes queued in order, so a slow early write can't land after a later
-  // one and roll the progress back. Best-effort: purely cosmetic status.
-  let writes: Promise<unknown> = Promise.resolve();
   const onLane: OnLane = (lane, status) => {
     phases[lane] = { status, ms: status === "running" ? null : Date.now() - requestedAt };
-    const snapshot = { ...phases };
-    writes = writes.then(() => db.from("price_refresh_state").update({ phases: snapshot }).eq("id", 1)).catch(() => {});
   };
 
   try {
     const { requested, laneErrors } = await refreshAssetPrices("refresh-prices", undefined, onLane);
-    await writes;
     const status = laneErrors.length > 0 ? `partial — ${laneErrors.join("; ")}` : requested === 0 ? "no priced holdings" : "ok";
     const { error } = await db
       .from("price_refresh_state")
       // A failed lane means some prices weren't refreshed, so "Last priced"
       // doesn't move forward — only the status says what happened.
-      .update(laneErrors.length > 0 ? { status } : { refreshed_at: new Date().toISOString(), status })
+      .update(laneErrors.length > 0 ? { status, phases } : { refreshed_at: new Date().toISOString(), status, phases })
       .eq("id", 1);
     if (error) throw new Error(`Failed to record price refresh: ${error.message}`);
   } catch (e) {
-    await writes;
     await db
       .from("price_refresh_state")
-      .update({ status: `error: ${(e as Error).message}` })
+      .update({ status: `error: ${(e as Error).message}`, phases })
       .eq("id", 1);
   }
 

@@ -64,6 +64,7 @@ export async function refreshAssetPrices(
   const started = Date.now();
   const db = serviceDb();
   const keys = only ?? (await allHeldKeys());
+  const keysAt = Date.now();
   if (keys.length === 0) return { requested: 0, returned: 0, missing: [], laneErrors: [] };
   const bySource = new Map<string, string[]>();
   for (const k of keys) bySource.set(sourceOf(k), [...(bySource.get(sourceOf(k)) ?? []), k]);
@@ -208,6 +209,7 @@ export async function refreshAssetPrices(
     );
   }
   await Promise.all(lanes);
+  const fetchedAt = Date.now();
   // Fiat cash: the US dollar is $1 by definition (not a market price). Other
   // currencies stay unpriced until there's a source for them.
   for (const k of bySource.get("fiat") ?? []) {
@@ -251,7 +253,9 @@ export async function refreshAssetPrices(
     requested: keys.length,
     returned: found.length,
     missing: missing.map((k) => ({ key: k, error: errors.get(k) ?? "not returned" })),
-    calls,
+    // Where the time went (ms): choosing the keys, fetching, saving — a slow
+    // refresh says which (2026-09-29: 2–3.5 s normal, one took 7.3 s).
+    calls: { ...calls, ms_keys: keysAt - started, ms_fetch: fetchedAt - keysAt, ms_save: Date.now() - fetchedAt },
     ...(laneErrors.length > 0 ? { error: laneErrors.join("; ").slice(0, 1000) } : {}),
   });
   return { requested: keys.length, returned: found.length, missing, laneErrors };
