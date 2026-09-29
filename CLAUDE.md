@@ -59,9 +59,16 @@ owner's.
   ≥ $100 and either ≥ 1% of the position or ≥ $5,000 is a movement; coins summed across chains; venue cash,
   kept rows, unpriced and illiquid coins never move), each position's life
   (`watchPositions.ts`, `watched_positions`) and the day's value
-  (`watched_address_daily`). `/api/cron/wallet-watch` (08:00 UTC) reads
-  every due address, oldest first, within one invocation; what doesn't fit
-  waits for the next day.
+  (`watched_address_daily`). `/api/cron/wallet-watch` (08:00 UTC) runs
+  one batched pricing pass and starts the read lanes (`watchReadQueue.ts`:
+  EVM ×2, Solana ×1, other ×1 — per API family, since the pacers are per
+  process): each `api/wallet-watch/read` invocation answers at once, then
+  in `after()` claims the next due address of its lane, reads it and starts
+  the next link, so every address gets its own 300 s (2026-09-29: one
+  invocation read 4 of 24). A second cron delivery within the hour is
+  skipped (`app_settings` `wallet_watch_run`); a claim a dead link left is
+  re-claimed once stale (`JOB_STALE_MS`). Each read logs a `[watch-read]`
+  line with its step times and slowest chains.
   **Watch Insights** (Tools → `/watch-insights`, `watchInsightsQuery.ts` →
   pure `watchInsights.ts`) compares a group: coins at least two of them
   bought in the window, coins at least two hold now (≥ 0.5% of each wallet),
