@@ -102,6 +102,12 @@ function priceFor(asset: AssetState, rows: readonly SnapshotRow[], prices: Price
 export async function refreshWatchedAddress({ chain, address }: WatchedKey, stats: ReadonlyMap<string, AssetStats> = new Map()): Promise<void> {
   const db = serviceDb();
   const done = (fields: Record<string, unknown>) => db.from("watched_addresses").update(fields).eq("chain", chain).eq("address", address);
+  // Where a read's time goes, one log line per address (Vercel logs, no
+  // Supabase request): 2026-09-29's reads took 87–177 s and nothing said why.
+  const t0 = Date.now();
+  const marks: Record<string, number> = {};
+  const mark = (step: string) => (marks[step] = Date.now() - t0);
+  let slowest: { chain: string; ms: number; source: string }[] = [];
   try {
     // The activity check's day starts here, not when the snapshot is saved:
     // a trade during a minutes-long read is in neither the balances nor the
@@ -112,6 +118,8 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
     const previous = (row.snapshot as WatchSnapshot | null) ?? null;
 
     const result = await fetchAddressHoldings(chain as Chain, address, previousContracts(previous));
+    mark("fetch");
+    slowest = (result.discovery?.chainStats ?? []).map((c) => ({ chain: c.chain, ms: c.ms, source: c.source })).sort((a, b) => b.ms - a.ms).slice(0, 3);
     const fresh = await withPriceKeys(result.holdings, "auto");
     const previousRows = (previous?.rows ?? []).map(snapshotRowToAdapter);
     const carried = carryForward(fresh, previousRows, result.keep ?? []);
@@ -120,6 +128,7 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
     // Price what was read first: the snapshot keeps rows by current value.
     await ensureAssetPrices(fresh.map((r) => r.price_key), "watch").catch(() => {});
     const prices = await getPriceMap();
+    mark("price");
     const valueOf = (r: { ticker: string; qty: number | null; usd_override: number | null; price_key?: string | null }) => {
       const v = valueHolding({ ticker: r.ticker, qty: r.qty, usd_override: r.usd_override, source: "auto", price_key: r.price_key ?? null }, prices);
       return v.kind === "priced" ? v.usd : null;
@@ -260,6 +269,7 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
           ),
       updates.length === 0 ? Promise.resolve({ error: null }) : db.from("watched_positions").upsert(updates, { onConflict: "chain,address,asset_key,opened_at" }),
     ]);
+    mark("save");
     const failed = writes.map((w) => w.error?.message).filter(Boolean);
     if (failed.length > 0) {
       const text = `${statusText === "ok" ? "partial" : statusText} — history not saved: ${failed[0]}`;
@@ -268,7 +278,9 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey, stat
   } catch (e) {
     const statusText = `error: ${(e as Error).message}`;
     await done({ last_refresh_status: statusText, refresh_status: statusText });
+    marks.error = Date.now() - t0;
   }
+  console.log(`[watch-read] ${JSON.stringify({ chain, address, ms: Date.now() - t0, steps: marks, slowestChains: slowest })}`);
 }
 
 export async function refreshWatchedAddresses(keys: readonly WatchedKey[]): Promise<void> {
