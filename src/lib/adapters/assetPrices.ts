@@ -1,6 +1,7 @@
 import "server-only";
 import { serviceDb } from "../supabase";
 import { fetchMarketStatsByIds } from "./coingecko";
+import { fetchLlamaPrices } from "./llamaPrices";
 import { fetchTokenInfo } from "./jupiter";
 import { fetchHyperliquidSpotPrices, fetchHyperliquidPerpMarks } from "./hyperliquid";
 import { fetchLighterPerpMarks } from "./lighter";
@@ -92,7 +93,20 @@ export async function refreshAssetPrices(
     lanes.push(
       lane("coingecko", cg, async () => {
         calls.coingecko = Math.ceil(cg.length / 250);
-        const stats = await fetchMarketStatsByIds(cg);
+        let stats: Awaited<ReturnType<typeof fetchMarketStatsByIds>>;
+        try {
+          stats = await fetchMarketStatsByIds(cg);
+        } catch (e) {
+          // CoinGecko refused or failed (a blocked IP, a spent key): the same
+          // ids from DefiLlama — price and 24h change; market cap and volume
+          // keep their stored values (llamaPrices.ts).
+          const { prices, calls: n } = await fetchLlamaPrices(cg);
+          calls.defillama = n;
+          for (const [id, p] of prices) fetched.set(id, { usd: p.usd, change_24h: p.change24h, source: "defillama" });
+          laneErrors.push(`coingecko: ${(e as Error).message} — ${prices.size} of ${cg.length} priced from DefiLlama`);
+          for (const k of cg) if (!prices.has(k)) errors.set(k, `${(e as Error).message}; DefiLlama had no price`);
+          return;
+        }
         for (const [id, s] of stats) {
           fetched.set(id, { usd: s.usd, change_1h: s.change1h, change_24h: s.change24h, change_7d: s.change7d, change_30d: s.change30d, market_cap: s.marketCap, volume_24h: s.volume24h, source: "coingecko" });
           assets.push({ price_key: id, symbol: s.symbol ?? null, name: s.name ?? null, image_url: s.image ?? null, updated_at: nowIso() });
@@ -206,11 +220,18 @@ export async function refreshAssetPrices(
     for (const r of (data ?? []) as { price_key: string; missing_since: string | null }[]) missingSince.set(r.price_key, r.missing_since);
   }
   const writes = planPriceWrites(keys, fetched, errors, missingSince, nowIso());
-  // Found and missing rows carry different columns; an upsert only touches
-  // the columns it's given, so a missing key's stored usd is left alone.
+  // Rows are saved in groups of the same columns: in one upsert, a column
+  // some rows lack is set to null for them — a missing key would lose its
+  // price, and a DefiLlama fallback row (price only) its market cap and
+  // volume, which the liquidity check reads.
+  const byShape = new Map<string, typeof writes>();
+  for (const w of writes) {
+    const shape = Object.keys(w).sort().join(",");
+    byShape.set(shape, [...(byShape.get(shape) ?? []), w]);
+  }
   const found = writes.filter((w) => "usd" in w);
   const missed = writes.filter((w) => !("usd" in w));
-  for (const batch of [found, missed]) {
+  for (const batch of byShape.values()) {
     for (let i = 0; i < batch.length; i += 500) {
       const { error } = await db.from("asset_prices").upsert(batch.slice(i, i + 500), { onConflict: "price_key" });
       if (error) throw new Error(`Failed to save asset prices: ${error.message}`);
@@ -230,6 +251,7 @@ export async function refreshAssetPrices(
     returned: found.length,
     missing: missing.map((k) => ({ key: k, error: errors.get(k) ?? "not returned" })),
     calls,
+    ...(laneErrors.length > 0 ? { error: laneErrors.join("; ").slice(0, 1000) } : {}),
   });
   return { requested: keys.length, returned: found.length, missing, laneErrors };
 }

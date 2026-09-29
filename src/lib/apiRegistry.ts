@@ -165,11 +165,11 @@ export const API_SERVICES: ApiService[] = [
     tier: "free-no-signup",
     plan: "Free public API",
     limits: "No key; rate-limited per IP.",
-    usedFor: "The screener (Fundamentals): protocol TVL, fees, stablecoins and its price cross-checks.",
+    usedFor: "The screener (Fundamentals): protocol TVL, fees, stablecoins and its price cross-checks; the price refresh's fallback for CoinGecko coins when CoinGecko fails (price and 24h change, llamaPrices.ts).",
     scaling: "Fine until heavy use; Pro API if it starts rate-limiting.",
     env: [],
     hosts: ["coins.llama.fi", "api.llama.fi", "stablecoins.llama.fi"],
-    code: "src/lib/screener/adapters/defillama.ts, defillamaPrices.ts",
+    code: "src/lib/screener/adapters/defillama.ts, defillamaPrices.ts, src/lib/adapters/llamaPrices.ts",
   },
   {
     name: "Public RPC providers (PublicNode, dRPC, BlockPI)",

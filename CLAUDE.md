@@ -333,7 +333,11 @@ CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<TICKER>` /
 **Prices.** `asset_prices` holds one price per key plus its `change_*` and
 `market_cap` columns, filled by `refreshAssetPrices` (`adapters/assetPrices.ts`)
 in one lane per source — coingecko, jupiter, hyperliquid, coinbase — with
-`fiat:USD` fixed at $1. A price is **never overwritten with null**
+`fiat:USD` fixed at $1. When CoinGecko fails (2026-09-29: its CloudFront
+blocked every call from Vercel), the same ids are priced from DefiLlama
+(`adapters/llamaPrices.ts`: price and 24h change, serial calls 1.5 s apart;
+market cap and volume keep their stored values — rows are saved in groups
+of the same columns, since an upsert nulls a column a row lacks). A price is **never overwritten with null**
 (`planPriceWrites` in `assetPriceWrites.ts` sets `missing_since` instead). Each
 pass is logged to `pricing_runs` (keys requested/returned/missing, calls per
 source).
