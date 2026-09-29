@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { scopePricesToUser } from "@/lib/queries";
 import { getWalletsWithTotals, getTags, getPriceRefreshState } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
@@ -22,6 +23,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export default async function WalletsPage() {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const [{ wallets, grand }, tags, priceState, user] = await Promise.all([
     getWalletsWithTotals(),
     getTags(),

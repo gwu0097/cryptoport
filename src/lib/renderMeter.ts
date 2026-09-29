@@ -17,14 +17,14 @@ import { dbSpanMs, serialDepth, type Timed } from "./roundTrips";
 /** Serial Supabase round trips a page render should need at most. */
 export const TARGET_HOPS = 2;
 
-type Meter = { reqs: (Timed & { path: string })[]; logging: boolean };
+type Meter = { reqs: (Timed & { path: string })[]; logging: boolean; prices?: string; misses: Set<string> };
 
 let rendersOnThisInstance = 0;
 
 // One meter per request: React's cache() is per request during a render.
 // Outside one (a script, a request with no React scope) it doesn't dedupe,
 // so two calls return different objects and nothing is metered.
-const meterFor = cache((): Meter => ({ reqs: [], logging: false }));
+const meterFor = cache((): Meter => ({ reqs: [], logging: false, misses: new Set() }));
 
 function currentMeter(): Meter | null {
   try {
@@ -50,11 +50,28 @@ async function scheduleLog(m: Meter): Promise<void> {
       const over = hops > TARGET_HOPS ? ` (target ≤ ${TARGET_HOPS} hops)` : "";
       const slowest = m.reqs.reduce<(typeof m.reqs)[number] | null>((a, r) => (!a || r.end - r.start > a.end - a.start ? r : a), null);
       const slow = slowest ? ` slow=${slowest.path}:${Math.round(slowest.end - slowest.start)}ms` : "";
-      console.log(`[render] ${path}${cold} req=${m.reqs.length} hops=${hops} db=${Math.round(dbSpanMs(m.reqs))}ms${slow}${over}`);
+      const prices = m.prices ? ` prices=${m.prices}` : "";
+      const miss = m.misses.size > 0 ? ` scope-miss=${m.misses.size}(${[...m.misses].slice(0, 5).join(",")})` : "";
+      console.log(`[render] ${path}${cold} req=${m.reqs.length} hops=${hops} db=${Math.round(dbSpanMs(m.reqs))}ms${slow}${prices}${miss}${over}`);
     });
   } catch {
     // no request scope: nothing to log against
   }
+}
+
+/** The render's price scope ("mine:304"), for its log line. */
+export function notePriceScope(label: string): void {
+  const m = currentMeter();
+  if (m) m.prices = label;
+}
+
+/** A scoped price map was asked for a coin outside its scope (queries.ts
+ * guardPrices): a page that needs a wider scope. Logged, never thrown — the
+ * coin shows "—" (unknown), not a wrong number. */
+export function noteScopeMiss(key: string): void {
+  const m = currentMeter();
+  if (m) m.misses.add(key);
+  else console.error(`[render] scope-miss outside a render: ${key}`);
 }
 
 /** fetch for the Supabase clients: times each request into the render's

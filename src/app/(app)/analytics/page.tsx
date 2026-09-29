@@ -1,4 +1,5 @@
 import { getUser } from "@/lib/auth";
+import { scopePricesToUser } from "@/lib/queries";
 import { getAnalytics } from "@/lib/analyticsQuery";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -13,6 +14,7 @@ export const metadata = { title: "Analytics · CryptoPort" };
 const SUBTITLE = "What moved your portfolio, how risky it is, and where each holding stands";
 
 export default async function AnalyticsPage() {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const user = await getUser();
   if (!user) {
     const muted = "Log in and add a wallet to see your analytics here.";

@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { scopePricesToUser } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { getActiveWalletsWithHoldings, getValueHistory, getPriceMap, getWalletValueHistories, type WalletWithHoldings } from "@/lib/queries";
 import { getPriceHistoryMap } from "@/lib/priceHistory";
@@ -70,6 +71,7 @@ export default async function PerformancePage({
   // specific wallet's chart has to go through a query param instead.
   searchParams: Promise<{ wallet?: string }>;
 }) {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const { wallet: initialWalletId } = await searchParams;
   const user = await getUser();
   // PerformanceChart is a client component built around real wallet data

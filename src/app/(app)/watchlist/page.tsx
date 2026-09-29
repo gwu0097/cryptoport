@@ -1,4 +1,5 @@
 import { getWatchlists, getWatchlistItems, getPriceRefreshState } from "@/lib/queries";
+import { scopePricesToUser } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
@@ -34,6 +35,7 @@ export default async function WatchlistPage({
 }: {
   searchParams: Promise<{ list?: string; sort?: string; dir?: string }>;
 }) {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const { list: listParam, sort, dir } = await searchParams;
   const initialSort = parseInitialSort(sort, dir);
   const [watchlists, user, priceState] = await Promise.all([

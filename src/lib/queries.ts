@@ -1,4 +1,6 @@
 import "server-only";
+import { notePriceScope, noteScopeMiss } from "./renderMeter";
+import { GuardedMap, guardRecord } from "./scopedPrices";
 import { MARK_KEY_PREFIXES, POSITION_VENUES, isOpenPosition, markKeyFor, venueOwns, withCurrentPnl, type Mark } from "./perpPositions";
 import { nearestTpsl } from "./tpsl";
 import { cache } from "react";
@@ -205,16 +207,42 @@ type AssetPriceRow = {
   image_url: string | null;
 };
 
-/** Every asset_prices row with its coin's name and icon (assets), read once
- * per request and shared by the price map, the asset stats and the perp
- * marks. One request: the asset_market_rows RPC returns them as one json
- * value — paging each table 1,000 rows at a time cost 5 serial round trips
- * on every page (DECISIONS: 2026-09-29 Page latency). */
-const getAssetPriceRows = cache(async (): Promise<AssetPriceRow[]> => {
+/** Which prices a page render reads (docs/perf/PRICES_READ.md): "all"
+ * (every asset_prices row — admin, crons, pages showing anyone's coins),
+ * or the signed-in user's own coins ("mine": holdings, watchlist, perp
+ * marks; "mine+watch": plus the Wallet Watch coins they can see). A page
+ * sets it before its first read (scopePricesToUser); per request, "all" by
+ * default — outside a render nothing is scoped. */
+type PriceScope = "all" | "mine" | "mine+watch";
+const priceScopeFor = cache((): { scope: PriceScope } => ({ scope: "all" }));
+
+/** Called at the top of a page that shows only the user's own coins. */
+export function scopePricesToUser(withWatch = false): void {
+  priceScopeFor().scope = withWatch ? "mine+watch" : "mine";
+}
+
+/** The rows a render prices from, read once per request and shared by the
+ * price map, the asset stats and the perp marks — one request either way.
+ * Scoped: my_market_rows (the user's client; row-level security decides
+ * whose coins), one row per coin, priced or not, so a coin missing from it
+ * is a scope mistake — logged as scope-miss on the [render] line, never
+ * shown as a value. Otherwise asset_market_rows, every row (paging the
+ * tables cost 5 serial round trips, DECISIONS: 2026-09-29 Page latency). */
+const getAssetPriceRows = cache(async (): Promise<{ rows: AssetPriceRow[]; scoped: boolean }> => {
+  const scope = priceScopeFor().scope;
+  if (scope !== "all" && (await getUser())) {
+    const { data, error } = await (await userDb()).rpc("my_market_rows", { p_watch: scope === "mine+watch" });
+    if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
+    const rows = (data ?? []) as AssetPriceRow[];
+    notePriceScope(`${scope}:${rows.length}`);
+    return { rows, scoped: true };
+  }
   const { data, error } = await serviceDb().rpc("asset_market_rows");
   if (error) throw new Error(`Failed to load asset prices: ${error.message}`);
-  return (data ?? []) as AssetPriceRow[];
+  return { rows: (data ?? []) as AssetPriceRow[], scoped: false };
 });
+
+const isMarkKey = (key: string) => MARK_KEY_PREFIXES.some((p) => key.startsWith(p));
 
 /** Open perp positions' venue mark prices ("hlperp:<COIN>" / "lighterperp:<SYM>" rows of
  * asset_prices, written by Refresh prices only while a position is open),
@@ -222,7 +250,7 @@ const getAssetPriceRows = cache(async (): Promise<AssetPriceRow[]> => {
  * newer than the position's sync. Cached per request. */
 export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
   const marks = new Map<string, Mark>();
-  for (const r of await getAssetPriceRows()) {
+  for (const r of (await getAssetPriceRows()).rows) {
     if (r.usd === null || r.updated_at === null || !MARK_KEY_PREFIXES.some((p) => r.price_key.startsWith(p))) continue;
     marks.set(r.price_key, { usd: Number(r.usd), at: r.updated_at });
   }
@@ -233,13 +261,16 @@ export const getPerpMarks = cache(async (): Promise<Map<string, Mark>> => {
  * a holding worth more than its coin's market can bear is shown but not
  * counted (liquidity.ts, docs/pricing/ILLIQUID.md). */
 export const getPriceMap = cache(async (): Promise<PriceMap> => {
+  const { rows, scoped } = await getAssetPriceRows();
   const prices: PriceMap = {};
   const liquidity = new Map<string, CoinLiquidity>();
-  for (const r of await getAssetPriceRows()) {
+  for (const r of rows) {
     prices[r.price_key] = r.usd;
     liquidity.set(r.price_key, { volume24h: parseNumeric(r.volume_24h), marketCap: parseNumeric(r.market_cap) });
   }
-  return withLiquidity(prices, liquidity);
+  // The guard wraps the map before its liquidity is attached: that's keyed
+  // by the map object valueHolding receives.
+  return withLiquidity(scoped ? guardRecord(prices, noteScopeMiss, isMarkKey) : prices, liquidity);
 });
 
 export interface AssetStats {
@@ -262,9 +293,10 @@ export interface AssetStats {
  * and display info (asset_prices + assets) — what every asset row shows
  * (docs/pricing/PLAN.md). Cached per request. */
 export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>> => {
-  const out = new Map<string, AssetStats>();
+  const { rows, scoped } = await getAssetPriceRows();
+  const out = scoped ? new GuardedMap<AssetStats>(noteScopeMiss, isMarkKey) : new Map<string, AssetStats>();
   const num = (v: unknown) => parseNumeric(v as number | string | null);
-  for (const r of await getAssetPriceRows()) {
+  for (const r of rows) {
     out.set(r.price_key, {
       usd: num(r.usd),
       change1h: num(r.change_1h),

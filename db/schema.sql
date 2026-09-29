@@ -1798,6 +1798,58 @@ $$;
 revoke all on function cryptoport.asset_market_rows(text[]) from public, anon, authenticated;
 grant execute on function cryptoport.asset_market_rows(text[]) to service_role;
 
+-- The prices a signed-in user's pages show, in one request: every coin they
+-- hold or watch-list, every open position's mark, and (p_watch) the Wallet
+-- Watch coins they can see — one row per coin, priced or not, so a coin
+-- missing from the result is a scope mistake, never "no price". Row-level
+-- security decides whose rows those are (docs/perf/PRICES_READ.md).
+create or replace function cryptoport.my_market_rows(p_watch boolean default false)
+returns json
+language sql
+stable
+security invoker
+set search_path = cryptoport
+as $$
+  with keys as (
+    select h.price_key as k from cryptoport.holdings h where h.price_key is not null
+    union
+    select w.coingecko_id from cryptoport.watchlist_items w
+    union
+    select p.price_key from cryptoport.asset_prices p
+      where p.price_key like 'hlperp:%' or p.price_key like 'lighterperp:%' or p.price_key like 'asterperp:%'
+    union
+    select m.price_key from cryptoport.watched_movements m where p_watch and m.price_key is not null
+    union
+    select r->>'price_key' from cryptoport.watched_addresses a, jsonb_array_elements(coalesce(a.snapshot->'rows', '[]'::jsonb)) r
+      where p_watch
+    union
+    select l->>'priceKey' from cryptoport.watched_addresses a, jsonb_array_elements(coalesce(a.tx_activity->'legs', '[]'::jsonb)) l
+      where p_watch
+  )
+  select coalesce(json_agg(json_build_object(
+    'price_key', k.k,
+    'usd', p.usd,
+    'change_1h', p.change_1h,
+    'change_24h', p.change_24h,
+    'change_7d', p.change_7d,
+    'change_30d', p.change_30d,
+    'market_cap', p.market_cap,
+    'volume_24h', p.volume_24h,
+    'updated_at', p.updated_at,
+    'source', p.source,
+    'symbol', a.symbol,
+    'name', a.name,
+    'image_url', a.image_url
+  ) order by k.k), '[]'::json)
+  from keys k
+  left join cryptoport.asset_prices p on p.price_key = k.k
+  left join cryptoport.assets a on a.price_key = k.k
+  where k.k is not null;
+$$;
+
+revoke all on function cryptoport.my_market_rows(boolean) from public, anon;
+grant execute on function cryptoport.my_market_rows(boolean) to authenticated;
+
 alter table cryptoport.assets enable row level security;
 grant all on cryptoport.assets to service_role;
 
@@ -1846,6 +1898,18 @@ create table if not exists cryptoport.asset_prices (
 alter table cryptoport.asset_prices enable row level security;
 grant all on cryptoport.asset_prices to service_role;
 
+-- Prices and coin names are public market data: signed-in users may read
+-- them (as price_history and asset_price_daily already are) — asset_prices
+-- only its price columns, not the pricing pass's internal ones
+-- (last_attempt_at, missing_since, last_error).
+grant select (price_key, usd, change_1h, change_24h, change_7d, change_30d, market_cap, volume_24h, source, updated_at)
+  on cryptoport.asset_prices to authenticated;
+create policy "asset_prices: readable by all signed-in users"
+  on cryptoport.asset_prices for select to authenticated using (true);
+grant select on cryptoport.assets to authenticated;
+create policy "assets: readable by all signed-in users"
+  on cryptoport.assets for select to authenticated using (true);
+
 -- One row per pricing pass: what was asked, what came back, what it cost.
 create table if not exists cryptoport.pricing_runs (
   id          bigint generated always as identity primary key,
@@ -1863,6 +1927,8 @@ grant all on cryptoport.pricing_runs to service_role;
 
 alter table cryptoport.holdings add column if not exists price_key text;
 create index if not exists holdings_price_key_idx on cryptoport.holdings (price_key);
+-- The holdings policy looks up the caller's wallets per row.
+create index concurrently if not exists holdings_wallet_idx on cryptoport.holdings (wallet_id);
 
 -- Every sync function lists its insert columns, so each gains price_key.
 

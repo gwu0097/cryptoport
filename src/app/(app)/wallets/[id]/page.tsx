@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { scopePricesToUser } from "@/lib/queries";
 import { notFound, redirect } from "next/navigation";
 import { Trash, TriangleAlert, ExternalLink } from "lucide-react";
 import { getWalletDetail, getTags, getPriceRefreshState, isWalletLinked } from "@/lib/queries";
@@ -49,6 +50,7 @@ export default async function WalletDetailPage(
     }>;
   },
 ) {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const { id } = await props.params;
   const { chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow, autosync } = await props.searchParams;
 

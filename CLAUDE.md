@@ -164,8 +164,8 @@ owner's.
   — kept in the browser, shared by every panel): on, about a second after a
   delivery (at most every 15 s), turning itself off after an hour; off, at
   most every 30 minutes. Background tabs alike. The endpoint reads
-  `asset_prices` with the service role like every page — the user's client
-  is denied it (that 500 kept every live update from showing, 2026-09-28).
+  `asset_prices` with the service role (before 2026-09-29 the user's client
+  was denied it; that 500 kept every live update from showing, 2026-09-28).
   No polling; panels without live influencers don't listen.
   **Activity backfill** (an influencer's page; owner 2026-09-29: the
   Activity list is every transaction on every address): "Backfill 7 / 30
@@ -744,7 +744,16 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `[render] /dashboard load req=13 hops=2 db=198ms slow=wallets:120ms` —
   `slow` is the longest request (body included), `cold` marks a new server
   instance's first render. Check it on Vercel before and after any change
-  to a page or its queries. What a page sends the browser is a cost too:
+  to a page or its queries.
+  **A page showing only the user's own coins reads only their prices:**
+  `scopePricesToUser()` at its top → `my_market_rows` (holdings, watchlist,
+  perp marks; `true` adds the Wallet Watch coins they can see — one row per
+  coin, priced or not; signed-in users may read `asset_prices`' price
+  columns and `assets`). A lookup outside the scope is logged as
+  `scope-miss=` on the `[render]` line (`scopedPrices.ts`) and shows "—",
+  never a value; a page with any miss needs the wider scope. Pages showing
+  anyone's coins, admin and crons stay unscoped (docs/perf/PRICES_READ.md).
+  What a page sends the browser is a cost too:
   a long series goes packed — dates once, values as lists
   (`seriesPacking.ts`; Performance 1.24 MB → 173 KB).
   Streaming doesn't shorten a `router.refresh()` (a transition shows no

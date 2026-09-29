@@ -1,4 +1,5 @@
 import { getAssetsGroupedByChain, getPriceRefreshState, getWalletsWithTotals } from "@/lib/queries";
+import { scopePricesToUser } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { PageHeader } from "@/components/PageHeader";
@@ -31,6 +32,7 @@ export default async function PortfolioPage({
 }: {
   searchParams: Promise<{ chain?: string; protocol?: string; hideUnpriced?: string; hideLow?: string; merge?: string }>;
 }) {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const { chain: selectedChain, protocol: selectedProtocol, hideUnpriced, hideLow, merge } = await searchParams;
   const merged = merge === "1";
   const [{ groups, grand }, priceState, user, { wallets }] = await Promise.all([

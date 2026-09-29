@@ -1,4 +1,5 @@
 import { getAssetsGroupedByTicker, getChainIconMap, getPriceRefreshState } from "@/lib/queries";
+import { scopePricesToUser } from "@/lib/queries";
 import { chainAllocations } from "@/lib/chainAllocation";
 import { consolidateLiquidStaking, resolveBases } from "@/lib/liquidStaking";
 import { getLiquidStakingTokens } from "@/lib/adapters/liquidStakingRegistry";
@@ -64,6 +65,7 @@ export default async function AssetsPage({
 }: {
   searchParams: Promise<{ hideUnpriced?: string; hideLow?: string; lst?: string; sort?: string; dir?: string }>;
 }) {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const { hideUnpriced: hideUnpricedParam, hideLow: hideLowParam, lst, sort, dir } = await searchParams;
   const hideUnpriced = hideUnpricedParam !== "0";
   const hideLow = hideLowParam !== "0";

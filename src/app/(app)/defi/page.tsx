@@ -1,4 +1,5 @@
 import { getDefiGroupedByProtocol } from "@/lib/queries";
+import { scopePricesToUser } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "DeFi · CryptoPort" };
 
 export default async function DefiPage() {
+  scopePricesToUser(); // prices for the user's own coins only (docs/perf/PRICES_READ.md)
   const [{ groups }, user] = await Promise.all([getDefiGroupedByProtocol(), getUser()]);
 
   return (
