@@ -2,7 +2,8 @@ import { RefreshCw } from "lucide-react";
 import { getUser } from "@/lib/auth";
 import { getActiveWalletsWithHoldings, getValueHistory, getPriceMap, getWalletValueHistories, type WalletWithHoldings } from "@/lib/queries";
 import { getPriceHistoryMap } from "@/lib/priceHistory";
-import { estimateSeries, estimateCoverage, stitchSeries, type PriceHistoryMap } from "@/lib/performance";
+import { estimateSeries, estimateCoverage, stitchSeries, type PriceHistoryMap, type StitchedPoint } from "@/lib/performance";
+import { packSeries } from "@/lib/seriesPacking";
 import { valueHolding, type PriceMap } from "@/lib/valuation";
 import type { Holding } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
@@ -35,7 +36,7 @@ function buildOption(
   fetched: ReadonlySet<string>,
   dates: string[],
   real: { date: string; total: number }[],
-): WalletSeriesOption {
+): Omit<WalletSeriesOption, "packed"> & { points: StitchedPoint[] } {
   const estimated = estimateSeries(holdings, priceHistory, dates);
   const points = stitchSeries(estimated, real);
   // The estimate draws only days before the first real snapshot (today,
@@ -104,12 +105,25 @@ export default async function PerformancePage({
   // — so a missing day shows up as missing, not silently filled in.
   const dates = [...new Set([...priceHistory.values()].flatMap((byDate) => [...byDate.keys()]))].sort();
 
-  const options: WalletSeriesOption[] = [
+  const built = [
     buildOption("all", "All wallets", null, allHoldings, prices, priceHistory, fetched, dates, globalReal),
     ...wallets.map((w, i) =>
       buildOption(w.id, w.name, w.address, w.holdings, prices, priceHistory, fetched, dates, perWalletReal[i]),
     ),
   ];
+  // Sent packed: the dates once, each wallet's totals as a list (seriesPacking.ts).
+  const packing = packSeries(built.map((o) => o.points));
+  const options: WalletSeriesOption[] = built.map((o, i) => ({
+    id: o.id,
+    name: o.name,
+    address: o.address,
+    coveragePct: o.coveragePct,
+    unresolvedUsd: o.unresolvedUsd,
+    unresolvedCount: o.unresolvedCount,
+    uncachedUsd: o.uncachedUsd,
+    uncachedCount: o.uncachedCount,
+    packed: packing.packed[i],
+  }));
 
   return (
     <>
@@ -133,6 +147,7 @@ export default async function PerformancePage({
 
       <PerformanceChart
         options={options}
+        dates={packing.dates}
         initialWalletId={initialWalletId}
         emptyStateAction={
           <form action={backfillHistoryAction}>

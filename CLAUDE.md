@@ -741,8 +741,12 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   a new paging loop and its allowlist only shrinks. Each render logs one
   line (`renderMeter.ts`, via `meteredFetch` in both Supabase clients; the
   path and kind come from `proxy.ts`'s `x-cp-path`):
-  `[render] /dashboard load req=18 hops=7 db=1582ms (target ≤ 2 hops)` —
-  check it on Vercel before and after any change to a page or its queries.
+  `[render] /dashboard load req=13 hops=2 db=198ms slow=wallets:120ms` —
+  `slow` is the longest request (body included), `cold` marks a new server
+  instance's first render. Check it on Vercel before and after any change
+  to a page or its queries. What a page sends the browser is a cost too:
+  a long series goes packed — dates once, values as lists
+  (`seriesPacking.ts`; Performance 1.24 MB → 173 KB).
   Streaming doesn't shorten a `router.refresh()` (a transition shows no
   fallback); fewer round trips do. Functions run in **pdx1** (Vercel →
   Settings → Functions), next to the database in Oregon. As of 2026-09-29

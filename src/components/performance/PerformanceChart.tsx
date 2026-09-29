@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { StitchedPoint } from "@/lib/performance";
+import { hasPoints, unpackSeries, type PackedSeries } from "@/lib/seriesPacking";
 import { formatUsd } from "@/lib/format";
 import { recordRecentWallet } from "@/lib/recentWallets";
 import { usePersistedState } from "../usePersistedState";
@@ -15,7 +15,8 @@ export interface WalletSeriesOption {
   name: string;
   /** null for the "all" option, and for a wallet with no address on file. */
   address: string | null;
-  points: StitchedPoint[];
+  /** Its points, aligned to the chart's shared dates (seriesPacking.ts). */
+  packed: PackedSeries;
   coveragePct: number;
   /** No resolvable CoinGecko key at all (manual entries, DeFi/LP
    * positions) — backfilling again can never help these. */
@@ -160,11 +161,14 @@ function WalletCombobox({
 
 export function PerformanceChart({
   options,
+  dates,
   initialWalletId,
   emptyStateAction,
   backfillNudge,
 }: {
   options: WalletSeriesOption[];
+  /** Every option's dates, once (seriesPacking.ts). */
+  dates: string[];
   /** From the page's own `?wallet=` search param — set by the sidebar's
    * "Recent" Performance-wallet links, which have no client state to hand
    * off directly (see navItems.tsx). Wins over whatever was persisted
@@ -206,7 +210,8 @@ export function PerformanceChart({
     recordRecentWallet("analyticsWallets", { id: selected.id, name: selected.name });
   }, [selected.id, selected.name]);
 
-  const hasAnyHistory = options.some((o) => o.points.length > 0);
+  const points = useMemo(() => unpackSeries(dates, selected.packed), [dates, selected.packed]);
+  const hasAnyHistory = options.some((o) => hasPoints(o.packed));
 
   if (!hasAnyHistory) {
     return (
@@ -229,7 +234,7 @@ export function PerformanceChart({
         </div>
       )}
 
-      <ValueChart points={selected.points} rangeStorageKey={RANGE_STORAGE_KEY} />
+      <ValueChart points={points} rangeStorageKey={RANGE_STORAGE_KEY} />
 
       <div className="mt-3 space-y-1 text-xs text-fg-muted">
         {selected.coveragePct < 100 && (
@@ -257,7 +262,7 @@ export function PerformanceChart({
           Dashed portion is estimated from today&rsquo;s holdings at historical prices — it doesn&rsquo;t
           reflect past buys or sells. Solid portion is real, captured daily.
         </p>
-        {selected.points.some((p) => p.kind === "estimated") && selected.points.some((p) => p.kind === "real") && (
+        {points.some((p) => p.kind === "estimated") && points.some((p) => p.kind === "real") && (
           <p>
             * A range that crosses from the estimate into real snapshots links the two by their own % moves.
             The step where real snapshots begin isn&rsquo;t a gain or loss (the estimate leaves out holdings
