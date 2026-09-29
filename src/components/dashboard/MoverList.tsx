@@ -103,6 +103,15 @@ export function MoverList({
         )
       }
     >
+      <MoverRows items={items} />
+    </Panel>
+  );
+}
+
+/** A mover list's rows (the tabbed Dashboard card uses them too). */
+export function MoverRows({ items }: { items: MoverItem[] }) {
+  return (
+    <>
       {items.length === 0 ? (
         <p className="text-sm text-fg-muted">Not enough 24h data yet.</p>
       ) : (
@@ -178,6 +187,6 @@ export function MoverList({
           ))}
         </ul>
       )}
-    </Panel>
+    </>
   );
 }

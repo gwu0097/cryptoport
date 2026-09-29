@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { summarizePositions } from "@/lib/positionsSummary";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, RefreshCw } from "lucide-react";
@@ -142,18 +143,12 @@ export function OpenPositionsPanel({ positions: initial, asOfLabel }: { position
     return sortDir === "desc" ? -cmp : cmp;
   });
 
-  const known = positions.filter((p) => p.pnlUsd !== null);
-  const total = known.reduce((s, p) => s + (p.pnlUsd as number), 0);
-  const unknown = positions.length - known.length;
   // Margin locked in perps, and what prediction positions are worth — the
   // two kinds of money at risk here (a prediction has no margin).
-  const perps = positions.filter((p) => p.kind === "perp");
-  const margin = perps.reduce((s, p) => s + (p.valueUsd ?? 0), 0);
-  const predictions = positions.filter((p) => p.kind === "prediction");
-  const predictionValue = predictions.reduce((s, p) => s + (p.valueUsd ?? 0), 0);
+  const summary = summarizePositions(positions);
 
   return (
-    <div className="mb-4 rounded-xl border border-border bg-surface p-5">
+    <div className="rounded-xl border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         {/* The header toggles the table; the totals stay visible collapsed. */}
         <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="text-left">
@@ -164,19 +159,19 @@ export function OpenPositionsPanel({ positions: initial, asOfLabel }: { position
           <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 pl-5.5 text-sm">
             <span>
               <span className="text-fg-muted">Unrealized PnL </span>
-              <span className={`font-semibold tabular-nums ${tone(known.length ? total : null)}`}>{known.length ? formatUsdSigned(total) : "—"}</span>
-              {unknown > 0 && <span className="text-xs text-warning"> ({unknown} without PnL)</span>}
+              <span className={`font-semibold tabular-nums ${tone(summary.pnlUsd)}`}>{summary.pnlUsd !== null ? formatUsdSigned(summary.pnlUsd) : "—"}</span>
+              {summary.unknownPnl > 0 && <span className="text-xs text-warning"> ({summary.unknownPnl} without PnL)</span>}
             </span>
-            {perps.length > 0 && (
+            {summary.perps > 0 && (
               <span>
                 <span className="text-fg-muted">Total margin </span>
-                <span className="font-semibold tabular-nums text-fg">{formatUsd(margin)}</span>
+                <span className="font-semibold tabular-nums text-fg">{formatUsd(summary.marginUsd)}</span>
               </span>
             )}
-            {predictions.length > 0 && (
+            {summary.predictions > 0 && (
               <span>
                 <span className="text-fg-muted">In predictions </span>
-                <span className="font-semibold tabular-nums text-fg">{formatUsd(predictionValue)}</span>
+                <span className="font-semibold tabular-nums text-fg">{formatUsd(summary.predictionUsd)}</span>
               </span>
             )}
           </p>

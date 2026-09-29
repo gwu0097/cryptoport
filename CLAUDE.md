@@ -855,6 +855,16 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
 - **Mobile from the start:** secondary columns append `hideOnMobileClass` to the
   existing cell class; every table is wrapped in `overflow-x-auto`; the mobile
   nav drawer shares `navItems.tsx` with the sidebar.
+- **Page widths are fluid up to a cap** (`AppShell.tsx`): table pages fill
+  up to 1600px; a page marking itself `data-page-width="full"` (the
+  Dashboard) has no cap and adds columns on wide screens (a named `3xl`
+  breakpoint, 1920px, in `globals.css` — arbitrary `min-[…]` variants
+  sort before `2xl` and lose); reading pages (Settings, Profile,
+  Encyclopedia, new wallet) mark themselves `reading` in a route
+  `layout.tsx` and keep 1152px. The Dashboard is a 12-column grid: a stat
+  strip on top (`DashboardStats`), cards on `Panel`'s `actions`/`footer`/
+  `density="compact"`, tabs for alternatives of one kind (`MoversCard`,
+  Wallet Watch's today/between reads), phone order set by `order-*`.
 - **The sidebar and the mobile drawer share one layout:** pinned header,
   links in their own scroll area (`min-h-0 flex-1 overflow-y-auto
   overscroll-contain`), Admin/Settings pinned at the bottom; heights in `dvh`

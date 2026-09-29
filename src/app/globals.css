@@ -14,6 +14,12 @@
   --warning: #f59e0b;
 }
 
+/* A breakpoint past Tailwind's 2xl (1536px): the Dashboard adds a column on
+   1920px-wide screens instead of margins. Named, so it sorts after 2xl. */
+@theme {
+  --breakpoint-3xl: 120rem;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);

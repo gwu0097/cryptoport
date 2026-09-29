@@ -13,10 +13,11 @@ import { PriceRefreshButton } from "@/components/PriceRefreshButton";
 import { blendedChange, withLiveToday } from "@/lib/dashboard";
 import { requestNowSec } from "@/lib/requestClock";
 import { Panel } from "@/components/ui/Panel";
-import { TotalValuePanel } from "@/components/TotalValuePanel";
-import { BlendedChangeCaption } from "@/components/BlendedChangeCaption";
 import { GuestBanner } from "@/components/GuestBanner";
-import { MoverList, type MoverItem } from "@/components/dashboard/MoverList";
+import type { MoverItem } from "@/components/dashboard/MoverList";
+import { MoversCard } from "@/components/dashboard/MoversCard";
+import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { summarizePositions } from "@/lib/positionsSummary";
 import { ValueHistoryChart } from "@/components/dashboard/ValueHistoryChart";
 import { CryptoHeatmapPanel } from "@/components/dashboard/CryptoHeatmap";
 import { DashboardWatchlistFilter } from "@/components/dashboard/DashboardWatchlistFilter";
@@ -153,140 +154,73 @@ export default async function DashboardPage({
   // here).
   const watchlistHrefBase = selectedWatchlist ? `/watchlist?list=${selectedWatchlist.id}&` : "/watchlist?";
 
+  const summary = positions.length > 0 ? summarizePositions(positions) : null;
+  const watchStats =
+    watch && watch.hasInfluencers ? { coins: watch.day.coins.length, traders: new Set(watch.day.coins.map((c) => c.influencerId)).size } : null;
+  const guestNote = (noun: string) => <p className="text-sm text-fg-muted">Log in and add a wallet to see your {noun} here.</p>;
+
+  // A 12-column grid (industry convention: headline numbers on top, main
+  // content left, secondary right). Width: the Dashboard is full-width
+  // (data-page-width, AppShell). Wallet Watch's table always gets a full
+  // row (it wraps in less); the heatmap sits last, except from 1920px (3xl), where
+  // it joins the chart and movers in the first row (dense backfills it).
+  // Phone order (order-*): numbers, chart, Wallet Watch, movers, positions,
+  // heatmap; from xl the document order places them (dense fills gaps).
   return (
-    <>
-      {/* No PageHeader on the real dashboard view — the "Dashboard" title
-          and subtitle were pure repetition of the nav item you just
-          clicked, and the Refresh-prices action now lives in the Total
-          value box below instead of a separate header row above it, so
-          there was nothing left here to justify the row's own height. */}
-      {/* The unpriced-holdings count is dropped from this page specifically
-          (still shown on Assets/Portfolio, where "which holdings" is the
-          point) — on an at-a-glance dashboard it's a footnote competing
-          with the one number that actually matters here. */}
-      {user ? (
-        <TotalValuePanel
-          total={grand.total}
-          actions={<PriceRefreshButton priceState={priceState} />}
-        >
-          {change && <BlendedChangeCaption change={change} />}
-        </TotalValuePanel>
-      ) : (
-        <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
-      )}
+    <div data-page-width="full" className="grid grid-flow-row-dense grid-cols-1 gap-4 xl:grid-cols-12">
+      <div className="order-1 xl:order-none xl:col-span-12">
+        {user ? (
+          <DashboardStats total={grand.total} change={change} positions={summary} watch={watchStats} refresh={<PriceRefreshButton priceState={priceState} />} />
+        ) : (
+          <GuestBanner message="Sign up or connect a wallet to see your own portfolio here." />
+        )}
+      </div>
 
-      {user && positions.length > 0 && (
-        <OpenPositionsPanel
-          positions={positions}
-          asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
-        />
-      )}
-
-      {/* Chart and heatmap side by side rather than each full-width and
-          stacked — together they used to run well past one screen's worth
-          of scroll before you'd reach movers/watchlist below. Default
-          grid stretch (not items-start): before enough snapshot history
-          exists, ValueHistoryChart's own empty state is built to be
-          stretched (centered icon + message, matching SignInPrompt/
-          ComingSoon's shared shape) — items-start previously kept that
-          panel short instead, which left an ungrounded gap of bare page
-          background below it rather than a panel that reads as
-          deliberately sized. The heatmap itself isn't gated on `user` at
-          all — it's public market data, not something that needs an
-          account to see. */}
-      <div className="mb-4 grid gap-4 lg:grid-cols-2">
+      <div className="order-2 xl:order-none xl:col-span-7 2xl:col-span-8 3xl:col-span-5">
         {user ? (
           <ValueHistoryChart points={withLiveToday(history, new Date(requestNowSec() * 1000).toISOString().slice(0, 10), grand.total)} />
         ) : (
-          <Panel title="Value history">
-            <p className="text-sm text-fg-muted">Log in and add a wallet to see your value history here.</p>
-          </Panel>
+          <Panel title="Value history">{guestNote("value history")}</Panel>
         )}
+      </div>
+
+      <div className="order-4 xl:order-none xl:col-span-5 2xl:col-span-4 3xl:col-span-3">
+        {user ? (
+          <MoversCard
+            holdings={{ gainers: holdingsGainers, losers: holdingsLosers }}
+            watchlist={{ gainers: watchlistGainers, losers: watchlistLosers }}
+            watchlistFilter={watchlists.length > 0 ? <DashboardWatchlistFilter watchlists={watchlists} selected={selectedWatchlist?.id} /> : undefined}
+            holdingsHref={{ gainers: "/assets?sort=change24h&dir=desc", losers: "/assets?sort=change24h&dir=asc" }}
+            watchlistHref={{ gainers: `${watchlistHrefBase}sort=change24h&dir=desc`, losers: `${watchlistHrefBase}sort=change24h&dir=asc` }}
+          />
+        ) : (
+          <Panel title="Top movers (24h)">{guestNote("top movers")}</Panel>
+        )}
+      </div>
+
+      {watch && watch.hasInfluencers && (
+        <div className="order-3 min-w-0 xl:order-none xl:col-span-12">
+          <DashboardWatchActivity movements={watch.movements} groups={watch.groups} influencers={watch.influencers} day={watch.day} serverNowSec={requestNowSec()} />
+        </div>
+      )}
+
+      {user && positions.length > 0 && (
+        <div className="order-5 min-w-0 xl:order-none xl:col-span-12">
+          <OpenPositionsPanel
+            positions={positions}
+            asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
+          />
+        </div>
+      )}
+
+      {/* Public market data (not the user's): for everyone, last on a phone. */}
+      <div className="order-6 xl:order-none xl:col-span-12 3xl:col-span-4">
         <CryptoHeatmapPanel />
       </div>
 
-      {/* MoverList's own empty state ("Not enough 24h data yet") is wrong
-          for a guest — that's for a signed-in user whose holdings just
-          don't have 24h data, not "you have no holdings at all" — so
-          guests get their own placeholder panels here instead of an empty
-          MoverList. Two separate rows (Holdings, then Watchlist) rather
-          than a single 4-up grid — each row is its own coherent "top
-          movers among X" comparison, and the explicit "· Holdings" /
-          "· Watchlist" suffix on every title (reported directly as
-          ambiguous once Watchlist movers existed alongside these) makes
-          which is which unambiguous without having to infer it from
-          layout position alone. */}
-      <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        {user ? (
-          <>
-            <MoverList title="Top gainers (24h) · Holdings" items={holdingsGainers} href="/assets?sort=change24h&dir=desc" />
-            <MoverList title="Top losers (24h) · Holdings" items={holdingsLosers} href="/assets?sort=change24h&dir=asc" />
-          </>
-        ) : (
-          <>
-            <Panel title="Top gainers (24h) · Holdings">
-              <p className="text-sm text-fg-muted">Log in and add a wallet to see your top movers here.</p>
-            </Panel>
-            <Panel title="Top losers (24h) · Holdings">
-              <p className="text-sm text-fg-muted">Log in and add a wallet to see your top movers here.</p>
-            </Panel>
-          </>
-        )}
-      </div>
-
-      {/* Only mounted on the bare, param-less landing state (same
-          convention as TrendLastSearchRedirect) — never overrides an
-          explicit ?list= already in the URL. */}
+      {/* Only on the bare, param-less landing state — never overrides an explicit ?list=. */}
       {user && !list && <DashboardWatchlistRedirect />}
-
-      <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        {user ? (
-          <>
-            {/* The dropdown itself names the selected list (or "All
-                watchlists") inline in this panel's own title — no separate
-                row, and the Top losers panel below doesn't repeat the name
-                a second time, per the direct ask ("no need to say it
-                twice, save space"). */}
-            <MoverList
-              title="Top gainers (24h)"
-              items={watchlistGainers}
-              href={`${watchlistHrefBase}sort=change24h&dir=desc`}
-              filter={
-                watchlists.length > 0 ? (
-                  <DashboardWatchlistFilter watchlists={watchlists} selected={selectedWatchlist?.id} />
-                ) : undefined
-              }
-            />
-            <MoverList
-              title="Top losers (24h) · Watchlist"
-              items={watchlistLosers}
-              href={`${watchlistHrefBase}sort=change24h&dir=asc`}
-            />
-          </>
-        ) : (
-          <>
-            <Panel title="Top gainers (24h) · Watchlist">
-              <p className="text-sm text-fg-muted">Log in and create a watchlist to see your top movers here.</p>
-            </Panel>
-            <Panel title="Top losers (24h) · Watchlist">
-              <p className="text-sm text-fg-muted">Log in and create a watchlist to see your top movers here.</p>
-            </Panel>
-          </>
-        )}
-      </div>
-
-      {/* Wallet Watch's feed, at the bottom: someone else's trades come
-          after your own portfolio. Only for users watching someone. */}
-      {watch && watch.hasInfluencers && (
-        <DashboardWatchActivity
-          movements={watch.movements}
-          groups={watch.groups}
-          influencers={watch.influencers}
-          day={watch.day}
-          serverNowSec={requestNowSec()}
-        />
-      )}
-    </>
+    </div>
   );
 }
 
