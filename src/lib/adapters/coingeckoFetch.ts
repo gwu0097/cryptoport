@@ -1,6 +1,7 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
 import { windowDelay } from "../rateWindow";
+import { countApiCall } from "../apiUsage";
 
 // Every CoinGecko call in the app goes through here (the shared adapter and
 // the screener's own) — the key handling used to be duplicated in both.
@@ -71,12 +72,15 @@ async function takeSlot(): Promise<void> {
 
 export async function coingeckoFetch(
   url: string,
-  opts?: { attempts?: number; baseDelayMs?: number },
+  opts?: { attempts?: number; baseDelayMs?: number; feature?: string },
 ): Promise<Response> {
   await takeSlot();
+  const { feature, ...retry } = opts ?? {};
+  // What spends the monthly calls (Owner's console → API list).
+  countApiCall("coingecko", feature ?? endpointOf(url));
   for (;;) {
     const key = KEYS[active];
-    const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...DEFAULT_RETRY, ...opts, stopOn: isQuotaExhausted });
+    const res = await fetchWithRetry(url, { headers: key ? { "x-cg-demo-api-key": key } : {} }, { ...DEFAULT_RETRY, ...retry, stopOn: isQuotaExhausted });
     if (active < KEYS.length - 1 && (await isKeyRefused(res.clone()))) {
       console.warn(`[coingecko] key #${active + 1} refused (HTTP ${res.status}: ${await coingeckoError(res.clone())}) — switching to key #${active + 2}`);
       active++;
@@ -98,4 +102,11 @@ export async function coingeckoError(res: Response): Promise<string> {
     // not JSON (a proxy's HTML page)
   }
   return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "no reason given";
+}
+
+/** "/coins/markets", "/coins/:id/market_chart", "/search" — a call's
+ * endpoint with its ids taken out, when the caller doesn't name a feature. */
+export function endpointOf(url: string): string {
+  const path = new URL(url).pathname.replace(/^\/api\/v3/, "");
+  return path.replace(/^\/(coins|exchanges|simple\/token_price)\/(?!markets$|list$|categories)[^/]+/, "/$1/:id");
 }

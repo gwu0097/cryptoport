@@ -2714,3 +2714,30 @@ create index if not exists watch_suggestions_status_idx on cryptoport.watch_sugg
 -- × (price now − price then), measured from the snapshot's own moment.
 alter table cryptoport.wallet_snapshots add column if not exists assets jsonb;
 alter table cryptoport.wallet_snapshots add column if not exists positions_usd numeric;
+
+-- (2026-09-29) -- Calls per day to a metered API, by feature (src/lib/apiUsage.ts; Owner's
+-- console → API list). Written with the service role only.
+create table if not exists cryptoport.api_call_counts (
+  day     date not null,
+  service text not null,
+  feature text not null,
+  calls   integer not null default 0,
+  primary key (day, service, feature)
+);
+alter table cryptoport.api_call_counts enable row level security;
+grant all on cryptoport.api_call_counts to service_role;
+
+-- Adds one request's counts: p_rows = [{"service":…,"feature":…,"calls":…}].
+create or replace function cryptoport.add_api_calls(p_day date, p_rows jsonb)
+returns void
+language sql
+set search_path = cryptoport
+as $$
+  insert into cryptoport.api_call_counts (day, service, feature, calls)
+  select p_day, r->>'service', r->>'feature', (r->>'calls')::int
+  from jsonb_array_elements(p_rows) r
+  on conflict (day, service, feature) do update
+    set calls = cryptoport.api_call_counts.calls + excluded.calls;
+$$;
+revoke all on function cryptoport.add_api_calls(date, jsonb) from public;
+grant execute on function cryptoport.add_api_calls(date, jsonb) to service_role;

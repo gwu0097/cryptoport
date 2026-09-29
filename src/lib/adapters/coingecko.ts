@@ -46,8 +46,8 @@ interface AssetPlatform {
  */
 export async function refreshTokenRegistry(): Promise<{ chainId: string; count: number }[]> {
   const [coinsRes, platformsRes] = await Promise.all([
-    coingeckoFetch(`${API_BASE}/coins/list?include_platform=true`),
-    coingeckoFetch(`${API_BASE}/asset_platforms`),
+    coingeckoFetch(`${API_BASE}/coins/list?include_platform=true`, { feature: "token registry" }),
+    coingeckoFetch(`${API_BASE}/asset_platforms`, { feature: "token registry" }),
   ]);
   if (!coinsRes.ok) throw new Error(`CoinGecko coins/list failed: HTTP ${coinsRes.status}`);
   if (!platformsRes.ok) throw new Error(`CoinGecko asset_platforms failed: HTTP ${platformsRes.status}`);
@@ -182,7 +182,7 @@ export async function fetchTokenPrices(
     const url = `${API_BASE}/simple/token_price/${coingeckoPlatform}?contract_addresses=${batch.join(",")}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     // Longer backoff (5 tries, 6s base): two EVM wallets syncing at once
     // outran the per-minute limit with the default 3 tries (2026-09-25).
-    const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+    const res = await coingeckoFetch(url, { ...MARKETS_FETCH_OPTS, feature: "prices by contract" });
     if (!res.ok) throw new Error(`CoinGecko token_price(${coingeckoPlatform}) failed: HTTP ${res.status}`);
     const body: Record<string, { usd?: number; usd_24h_change?: number; usd_market_cap?: number }> =
       await res.json();
@@ -247,7 +247,7 @@ export async function fetchMarketStatsByIds(coingeckoIds: string[]): Promise<Map
     // without it a batch over 100 silently dropped its smallest coins
     // (2026-09-25).
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&price_change_percentage=1h,24h,7d,30d&sparkline=false`;
-    const res = await coingeckoFetch(url);
+    const res = await coingeckoFetch(url, { feature: "price refresh (markets by id)" });
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status} (${await coingeckoError(res)})`);
     const body: {
       id: string;
@@ -310,7 +310,7 @@ export async function fetchTokenImages(coingeckoIds: string[]): Promise<Map<stri
   const fetched: { coingecko_id: string; image_url: string; updated_at: string }[] = [];
   for (const batch of chunk(missing, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&ids=${batch.join(",")}&per_page=${batch.length}&sparkline=false`; // per_page: see fetchMarketStatsByIds
-    const res = await coingeckoFetch(url);
+    const res = await coingeckoFetch(url, { feature: "logos" });
     if (!res.ok) throw new Error(`CoinGecko coins/markets failed: HTTP ${res.status} (${await coingeckoError(res)})`);
     const body: { id: string; image?: string }[] = await res.json();
     for (const coin of body) {
@@ -347,7 +347,7 @@ async function fetchTokenImagesBySymbol(symbols: string[]): Promise<Map<string, 
 
   for (const batch of chunk(distinct, MARKETS_BATCH_SIZE)) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&symbols=${batch.join(",")}`;
-    const res = await coingeckoFetch(url);
+    const res = await coingeckoFetch(url, { feature: "logos by symbol" });
     if (!res.ok) throw new Error(`CoinGecko coins/markets(symbols) failed: HTTP ${res.status}`);
     const body: { symbol: string; image?: string }[] = await res.json();
     for (const coin of body) {
@@ -430,7 +430,7 @@ const searchCache = createTtlCache<{
 
 function cachedMarketsJson<T>(url: string, label: string): Promise<Fetched<T>> {
   return priceCache.get(url, async () => {
-    const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+    const res = await coingeckoFetch(url, { ...MARKETS_FETCH_OPTS, feature: `markets: ${label}` });
     if (!res.ok) throw new Error(`CoinGecko ${label} failed: HTTP ${res.status}`);
     return res.json();
   }) as Promise<Fetched<T>>;
@@ -549,7 +549,7 @@ export const fetchCategoryMembers = cache(async (categoryId: string): Promise<Ma
 
 /** Every CoinGecko category's id and name — one call. */
 export async function fetchCategoryList(): Promise<{ id: string; name: string }[]> {
-  const res = await coingeckoFetch(`${API_BASE}/coins/categories/list`, MARKETS_FETCH_OPTS);
+  const res = await coingeckoFetch(`${API_BASE}/coins/categories/list`, { ...MARKETS_FETCH_OPTS, feature: "categories" });
   if (!res.ok) throw new Error(`CoinGecko coins/categories/list failed: HTTP ${res.status}`);
   const body: { category_id: string; name: string }[] = await res.json();
   return body.map((c) => ({ id: c.category_id, name: c.name }));
@@ -563,7 +563,7 @@ export async function fetchAllCategoryMembers(categoryId: string): Promise<{ id:
   const out: { id: string; symbol: string }[] = [];
   for (let page = 1; page <= 8; page++) {
     const url = `${API_BASE}/coins/markets?vs_currency=usd&category=${encodeURIComponent(categoryId)}&per_page=250&page=${page}`;
-    const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+    const res = await coingeckoFetch(url, { ...MARKETS_FETCH_OPTS, feature: "category members" });
     if (!res.ok) throw new Error(`CoinGecko coins/markets(category=${categoryId}) failed: HTTP ${res.status}`);
     const rows: { id: string; symbol: string }[] = await res.json();
     out.push(...rows.map((r) => ({ id: r.id, symbol: r.symbol })));
@@ -675,7 +675,7 @@ const fetchSeedInfosKey = cache(async (idsCsv: string): Promise<Map<string, Seed
  * CoinGecko has no such coin. */
 export async function fetchCoinCategories(coingeckoId: string): Promise<string[] | null> {
   const url = `${API_BASE}/coins/${encodeURIComponent(coingeckoId)}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false`;
-  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS);
+  const res = await coingeckoFetch(url, { ...MARKETS_FETCH_OPTS, feature: "coin details" });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`CoinGecko coins/${coingeckoId} failed: HTTP ${res.status}`);
   const body: { categories?: (string | null)[] } = await res.json();
@@ -684,7 +684,7 @@ export async function fetchCoinCategories(coingeckoId: string): Promise<string[]
 
 export async function fetchNativePrice(coingeckoId: string): Promise<number | null> {
   const url = `${API_BASE}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
-  const res = await coingeckoFetch(url, MARKETS_FETCH_OPTS); // same reason as fetchTokenPrices
+  const res = await coingeckoFetch(url, { ...MARKETS_FETCH_OPTS, feature: "native price" }); // same reason as fetchTokenPrices
   if (!res.ok) throw new Error(`CoinGecko simple/price(${coingeckoId}) failed: HTTP ${res.status}`);
   const body: Record<string, { usd?: number }> = await res.json();
   return body[coingeckoId]?.usd ?? null;
@@ -718,7 +718,7 @@ export interface CoinSearchResult {
 export const searchCoins = cache(async (query: string): Promise<CoinSearchResult[]> => {
   const url = `${API_BASE}/search?query=${encodeURIComponent(query)}`;
   const { value: body } = await searchCache.get(url, async () => {
-    const res = await coingeckoFetch(url);
+    const res = await coingeckoFetch(url, { feature: "search" });
     if (!res.ok) throw new Error(`CoinGecko search failed: HTTP ${res.status}`);
     return (await res.json()) as {
       coins?: { id: string; symbol: string; name: string; thumb?: string; market_cap_rank?: number | null }[];
@@ -760,7 +760,7 @@ function marketChartUrl(key: string, days: number): string {
  * priceHistory.ts's caller). */
 async function fetchBucketedHistory(key: string, days: number, isoPrefixLen: number): Promise<[string, number][]> {
   const url = marketChartUrl(key, days);
-  const res = await coingeckoFetch(url);
+  const res = await coingeckoFetch(url, { feature: "price history" });
   if (!res.ok) {
     if (res.status === 404) return [];
     throw new Error(`CoinGecko market_chart(${key}) failed: HTTP ${res.status}`);

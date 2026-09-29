@@ -37,7 +37,7 @@ const HISTORY_FETCH_OPTS = { attempts: 5, baseDelayMs: 6000 };
 
 export async function fetchHistoricalMarketData(coingeckoId: string, days: number): Promise<HistoricalMarketPoint[]> {
   const url = `${API_BASE}/coins/${coingeckoId}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-  const res = await coingeckoFetch(url, HISTORY_FETCH_OPTS);
+  const res = await coingeckoFetch(url, { ...HISTORY_FETCH_OPTS, feature: "screener history" });
   if (!res.ok) {
     if (res.status === 404) return []; // CoinGecko has no history at all for this id
     throw new Error(`CoinGecko market_chart(${coingeckoId}) failed: HTTP ${res.status}`);
@@ -74,7 +74,7 @@ export async function fetchHistoricalMarketData(coingeckoId: string, days: numbe
  * tier has no dominance history (/global/market_cap_chart is paid), so the
  * 4-week change is built from our own stored regime rows instead. */
 export async function fetchBtcDominancePct(): Promise<number | null> {
-  const res = await coingeckoFetch(`${API_BASE}/global`, HISTORY_FETCH_OPTS);
+  const res = await coingeckoFetch(`${API_BASE}/global`, { ...HISTORY_FETCH_OPTS, feature: "screener global" });
   if (!res.ok) throw new Error(`CoinGecko /global failed: HTTP ${res.status}`);
   const body: { data?: { market_cap_percentage?: { btc?: number } } } = await res.json();
   const v = body.data?.market_cap_percentage?.btc;

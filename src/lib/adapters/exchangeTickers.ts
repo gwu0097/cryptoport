@@ -22,7 +22,7 @@ const KEPT_SOURCES = ["manual", "coinbase-registry"];
 async function fetchExchangeTickers(coingeckoId: string): Promise<ExchangeTicker[]> {
   const out: ExchangeTicker[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const res = await coingeckoFetch(`${API_BASE}/exchanges/${coingeckoId}/tickers?page=${page}`);
+    const res = await coingeckoFetch(`${API_BASE}/exchanges/${coingeckoId}/tickers?page=${page}`, { feature: "exchange tickers" });
     if (!res.ok) throw new Error(`CoinGecko ${coingeckoId} tickers page ${page}: HTTP ${res.status}`);
     const tickers = ((await res.json()) as { tickers?: ExchangeTicker[] }).tickers ?? [];
     out.push(...tickers);

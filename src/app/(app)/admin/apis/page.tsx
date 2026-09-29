@@ -1,6 +1,8 @@
 import { requireAdmin } from "@/lib/adminAuth";
 import { API_SERVICES, TIER_LABEL, UNLISTED_HOSTS, type ApiService, type ApiTier } from "@/lib/apiRegistry";
 import { Panel } from "@/components/ui/Panel";
+import { getApiCallCounts } from "@/lib/apiUsage";
+import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
 
 export const metadata = { title: "API list · Owner's console · CryptoPort" };
 
@@ -21,10 +23,52 @@ export default async function ApiListPage() {
   await requireAdmin();
   const count = (t: ApiTier) => API_SERVICES.filter((s) => s.tier === t).length;
   const unconfirmed = API_SERVICES.filter((s) => s.unconfirmed);
+  const coingecko = await getApiCallCounts("coingecko", 7);
+  const total = coingecko.reduce((n, f) => n + f.calls, 0);
+  const days = [...new Set(coingecko.flatMap((f) => Object.keys(f.byDay)))].sort();
 
   return (
     <>
       <p className="mb-4 text-sm text-fg-muted">Services that could need an upgrade as users grow — what we use, on which plan, and what breaks first.</p>
+      <Panel
+        className="mb-4"
+        title="CoinGecko calls, last 7 days"
+        description="What spends the free plan's 10,000 calls a month, by feature (counted since 2026-09-29; calls from a server instance that stopped before saving are missed)."
+      >
+        {coingecko.length === 0 ? (
+          <p className="text-sm text-fg-muted">No calls counted yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className={tableClass}>
+              <thead>
+                <tr className={theadRowClass}>
+                  <th className={thClass}>Feature</th>
+                  <th className={`${thClass} text-right`}>Calls</th>
+                  {days.map((d) => (
+                    <th key={d} className={`${thClass} text-right`}>
+                      {d.slice(5)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {coingecko.map((f) => (
+                  <tr key={f.feature} className={trClass}>
+                    <td className={tdClass}>{f.feature}</td>
+                    <td className={`${tdClass} text-right tabular-nums`}>{f.calls.toLocaleString()}</td>
+                    {days.map((d) => (
+                      <td key={d} className={`${tdClass} text-right tabular-nums text-fg-muted`}>
+                        {f.byDay[d] ?? "—"}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-1 text-xs text-fg-muted">{total.toLocaleString()} in all — {Math.round((total / Math.max(1, days.length)) * 30).toLocaleString()} a month at this pace.</p>
+          </div>
+        )}
+      </Panel>
       <Panel className="mb-4">
         <p className="text-sm text-fg">
           {API_SERVICES.length} services: {count("paid")} paid, {count("free-signup")} free with sign-up, {count("free-no-signup")} free without sign-up.

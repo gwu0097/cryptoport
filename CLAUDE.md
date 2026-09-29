@@ -588,6 +588,10 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `apiRegistry.test.ts` fails on any https host in the code that's in
   neither — add the entry in the same change that adds the call, and keep
   plans and limits true when they change. (Owner decision 2026-09-28.)
+  Every CoinGecko call is counted per day and feature (`apiUsage.ts`
+  `countApiCall`, from `coingeckoFetch`'s `feature` option or its endpoint;
+  one RPC per request, after the response) and shown on the API list — name
+  the feature when adding a call.
 - **Batch and dedupe by design:** one pricing pass per event, deduped across
   wallets and users (`ensureAssetPrices` reuses fresh prices); batched endpoints
   (`/coins/markets` by id, `per_page` = batch size); slow-changing data cached in
