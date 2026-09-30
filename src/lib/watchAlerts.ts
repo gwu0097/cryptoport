@@ -80,8 +80,11 @@ function closeDetail(c: CoinDay, mc: string, heldMs: number | null): string {
   const r = exitReturnPct(c);
   const share = c.boughtQty > 0 ? Math.min(1, c.soldQty / c.boughtQty) : 1;
   const lines: string[] = [];
-  if (r !== null && c.realizedUsd !== null) lines.push(`## ${formatUsdSigned(c.realizedUsd)} (${pct(r)})`);
-  else if (r !== null && c.boughtPay !== null && c.soldPay !== null && c.payTicker) lines.push(`## ${signedPay(c.soldPay - c.boughtPay * share, c.payTicker)} (${pct(r)})`);
+  // Discord's largest text is a "# " heading; text can't be coloured, so
+  // the dot carries it (with the card's bar).
+  const dot = r === null ? "" : r >= 0 ? "🟢 " : "🔴 ";
+  if (r !== null && c.realizedUsd !== null) lines.push(`# ${dot}${formatUsdSigned(c.realizedUsd)} (${pct(r)})`);
+  else if (r !== null && c.boughtPay !== null && c.soldPay !== null && c.payTicker) lines.push(`# ${dot}${signedPay(c.soldPay - c.boughtPay * share, c.payTicker)} (${pct(r)})`);
   else lines.push("## Closed · result unknown");
   const side = (qty: number | null, usd: number | null) => `${pay(qty, c.payTicker)}${usd !== null ? `(${formatUsd(usd)})` : ""}`.trim() || "—";
   if (!c.soldFromEarlier && c.buys > 0) lines.push(`In ${side(c.boughtPay, c.boughtUsd)} → Out ${side(c.soldPay, c.soldUsd)}`);

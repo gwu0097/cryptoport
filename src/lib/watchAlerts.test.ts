@@ -68,7 +68,7 @@ test("a trim posts at a quarter; selling out within the hour is a flip — poste
   const out = deliver(trim.after, swap(-70_000, 0.009));
   assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", false]]);
   assert.equal(out.alerts[0].headline, "closed GEM · -1.0%");
-  assert.match(out.alerts[0].detail, /^## -\$10\.00 \(-1\.0%\)\nIn 10\.00 SOL \(\$1,000\.00\) → Out 9\.90 SOL \(\$990\.00\)\n.* · flipped in 1m$/);
+  assert.match(out.alerts[0].detail, /^# 🔴 -\$10\.00 \(-1\.0%\)\nIn 10\.00 SOL \(\$1,000\.00\) → Out 9\.90 SOL \(\$990\.00\)\n.* · flipped in 1m$/);
   assert.equal(alertEmbed("Risk", out.alerts[0], null).title, "❌ Risk closed GEM · -1.0%");
 });
 
@@ -127,7 +127,7 @@ test("with the supply known, buys and sells show the market cap at their price",
   assert.equal(open.alerts[0].detail, "10.00 SOL ($1,000.00) at $0.01 · MC $10M");
   const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000), 0, 1_000_000_000);
   assert.equal(out.alerts[0].kind, "soldOut");
-  assert.equal(out.alerts[0].detail, "## +$1,000.00 (+100.0%)\nIn 10.00 SOL ($1,000.00) → Out 20.00 SOL ($2,000.00)\nExit $0.02 · MC $20M · held 3h");
+  assert.equal(out.alerts[0].detail, "# 🟢 +$1,000.00 (+100.0%)\nIn 10.00 SOL ($1,000.00) → Out 20.00 SOL ($2,000.00)\nExit $0.02 · MC $20M · held 3h");
 });
 
 test("without a supply, no market cap is shown (never a guessed one)", () => {
