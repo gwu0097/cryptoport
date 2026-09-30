@@ -70,23 +70,23 @@ test("a trim posts at a quarter; selling out within the hour is a flip — poste
   assert.match(out.alerts[0].headline, /flipped in 1m/);
 });
 
-test("selling out a position held over an hour pings", () => {
+test("selling out a position held over an hour posts, unpinged, and isn't a flip", () => {
   const open = deliver(null, swap(100_000, 0.01));
   const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000));
-  assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", true]]);
+  assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", false]]);
   assert.doesNotMatch(out.alerts[0].headline, /flipped/);
 });
 
-test("Bacon-style: the first add today to a coin held at the read pings; its steps don't repeat it", () => {
+test("Bacon-style: the first add today to a coin held at the read posts (unpinged); its steps don't repeat it", () => {
   const r = deliver(null, swap(150_000, 0.01), 1_000_000); // $1,500 more of a $10K position
-  assert.deepEqual(r.alerts.map((a) => [a.kind, a.ping]), [["resumed", true]]);
+  assert.deepEqual(r.alerts.map((a) => [a.kind, a.ping]), [["resumed", false]]);
   assert.equal(r.alerts[0].headline, "added to GEM");
   assert.match(r.alerts[0].detail, /\(\$1,500\.00\) at \$0\.01 · now holds \$11,500/);
   const more = deliver(r.after, swap(500_000, 0.01)); // seconds later: $6,500 today → the $5K step, no ping
   assert.deepEqual(more.alerts.map((a) => [a.kind, a.ping]), [["added", false]]);
 });
 
-test("buys within an hour are one burst; an hour's pause starts a new one, which pings", () => {
+test("buys within an hour are one burst; an hour's pause starts a new one, which posts", () => {
   const open = deliver(null, swap(15_000, 0.01)); // $150: opened, quietly
   assert.deepEqual(open.alerts.map((a) => [a.kind, a.ping]), [["opened", false]]);
   const soon = deliver(open.after, swap(10_000, 0.01, 30 * 60_000)); // 30 min later: $250, the open reaches $200
@@ -94,7 +94,7 @@ test("buys within an hour are one burst; an hour's pause starts a new one, which
   const small = deliver(soon.after, swap(5_000, 0.01, 2 * 3_600_000)); // 2 h later, $50: not yet
   assert.deepEqual(small.alerts, []);
   const later = deliver(small.after, swap(6_000, 0.01, 60_000)); // same burst reaches $110
-  assert.deepEqual(later.alerts.map((a) => [a.kind, a.ping]), [["resumed", true]]);
+  assert.deepEqual(later.alerts.map((a) => [a.kind, a.ping]), [["resumed", false]]);
   assert.equal(later.alerts[0].headline, "added to GEM after 2h without buying");
   assert.match(later.alerts[0].detail, /^2 buys/);
 });

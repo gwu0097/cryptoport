@@ -2,10 +2,11 @@
 // when it changes the picture, not per transaction — Risk's 51 BAGSPAY buys
 // are "opened", then "added $1K", "added $5K". Buys of a coin less than an
 // hour apart are one burst (spam-like DCA); a buy an hour or more after the
-// coin's previous one starts a new burst, which posts — and pings — once it
-// reaches $100 (Bacon adding to AURORA). A coin opened today pings once,
-// when what's been bought into it reaches $200 — in one buy or thirty — and
-// a sell-out within the hour of opening is a flip: posted, not pinged. Judged by comparing the
+// coin's previous one starts a new burst, which posts once it reaches $100
+// (Bacon adding to AURORA). The only ping (owner 2026-09-29: "only first
+// ping over 200 is good, rest is noise"): a coin opened today, once what's
+// been bought into it reaches $200 — in one buy or thirty. A sell-out within
+// the hour of opening is a flip, said so on its card. Judged by comparing the
 // coin's day (coinDays, the activity table's own numbers) before and after
 // the delivery's new legs, so a repeat of the same delivery posts nothing.
 // Every card shows the market cap at the trade's price (owner 2026-09-29:
@@ -41,8 +42,8 @@ export interface WatchAlert {
   headline: string;
   /** The numbers: "3.23 SOL ($384.02) at $0.00002616". */
   detail: string;
-  /** Pings the owner's Discord role: a position reaching $200, a new burst
-   * of buying, a full exit that wasn't a flip. */
+  /** Pings the owner's Discord role: only a position opened today reaching
+   * $200 (at once, or "is building"). */
   ping: boolean;
 }
 
@@ -138,7 +139,7 @@ export function watchAlerts(
         const burstQty = burst.reduce((s, t) => s + t.qty, 0);
         const burstPrice = burstQty > 0 && burst.every((t) => t.usd !== null) ? burstNow / burstQty : null;
         const at = burstPrice !== null ? ` at ${formatPrice(burstPrice)}` : "";
-        alert("resumed", `added to ${c.ticker}${pause}`, `${n}${paid}(${formatUsd(burstNow)})${at}${mcAt(burstPrice)}${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`, true);
+        alert("resumed", `added to ${c.ticker}${pause}`, `${n}${paid}(${formatUsd(burstNow)})${at}${mcAt(burstPrice)}${held !== null ? ` · now holds ${formatUsd(held)}` : ""}`, false);
         posted = true;
       }
     }
@@ -159,7 +160,7 @@ export function watchAlerts(
       const heldMs = openedToday && firstBuy && lastSell ? Date.parse(lastSell) - Date.parse(firstBuy) : null;
       const flip = heldMs !== null && heldMs < BURST_GAP_MS;
       const flipText = flip ? ` (flipped in ${Math.max(1, Math.round(heldMs / 60_000))}m)` : "";
-      alert("soldOut", `sold out of ${c.ticker}${flipText}`, sellDetail(c, mcAt(c.avgExitUsd), ""), !flip);
+      alert("soldOut", `sold out of ${c.ticker}${flipText}`, sellDetail(c, mcAt(c.avgExitUsd), ""), false);
       continue;
     }
     // Trimmed: a quarter, a half, three quarters of the position sold.

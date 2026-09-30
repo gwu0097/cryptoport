@@ -145,15 +145,15 @@ owner's.
   read, today's buys reach `ALERT_MIN_USD` $100; pings once its buys reach
   `PING_POSITION_USD` $200 — owner 2026-09-29, was $500 — at once or as "is building"), a new burst of buying
   (buys under `BURST_GAP_MS`, an hour, apart are one burst; a later burst,
-  or the first buys today of a coin held at the read, posts at $100 and
-  pings), added (today's buys cross
+  or the first buys today of a coin held at the read, posts at $100), added (today's buys cross
   `ADD_STEPS_USD` $1K/5K/10K…), sold out (worth under $1 now), trimmed
   (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
   (`watchAlertSend.ts` → `adapters/discordWebhook.ts`, as cards — `alertEmbed`:
   coloured by kind, the title linked to the coin on Fomo (Solana) or
-  DexScreener (EVM), CryptoPort linked on an open only; a position reaching
-  $200, a new burst and a full exit ping `DISCORD_WATCH_ROLE_ID` — a sell-out
-  within the hour of opening is a flip, posted unpinged, nobody else is ever pinged).
+  DexScreener (EVM), CryptoPort linked on an open only; the only ping of
+  `DISCORD_WATCH_ROLE_ID` is a position opened today reaching $200 — owner
+  2026-09-29: "rest is noise"; a sell-out within the hour of opening says
+  it was a flip; nobody else is ever pinged).
   Every card shows the market cap at its price (owner 2026-09-29) — the
   coin's circulating supply × the trade price: Jupiter's `circSupply` for a
   Solana mint (one call per post, only when something posts), else
