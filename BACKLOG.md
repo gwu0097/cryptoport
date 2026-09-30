@@ -72,22 +72,16 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
-### EVM trading record (Robinhood Chain first) — IN PROGRESS, held (owner 2026-09-30)
+### EVM trading record — SHIPPED on Zerion; transfer-scanning dropped (2026-09-30)
 
-Code on local `hold/evm-trading-record` (d278d73): `evmTradingRecord.ts` (per-coin,
-per-day books, average cost, unknown cost never 0; 6 tests pass), the loader's
-EVM branch (Alchemy transfers over a year in passes up to ~2 min, Zerion's
-realized profit logged as the cross-check), route/query/panel wording.
-Why held: VirtualBacon's record came out at −$452 realized vs Zerion's
-+$155K. Findings so far: per-day trades are stored compactly (a year of raw
-trades would be ~25 MB/address — 476 KB a week); a first read of his
-Robinhood Chain history needs several passes (reward airdrops — Bucket,
-dust tokenized stocks — fill the pages); EDEL showed priced sells ≈ unpriced
-"out" of the same size (double counting across passes, or sells whose payment
-leg isn't seen — check which). Next: read one heavy EDEL day with toBlock
-bounds and compare legs; test the passes for overlap; then reconcile with
-Zerion within ~10% before releasing. Zerion alone gives all-time totals per
-chain only (its date filter is ignored — tested).
+Shipped from Zerion's PnL (monthly windows via `since`/`till`). The
+transfer-scanning version (local `hold/evm-trading-record`, d278d73) is not
+to be released: VirtualBacon's Robinhood Chain history is 20,499 transfers,
+most trades are coin-for-coin (STANDARD→ZZZ, FRONG→ZZZ, launchpad quote
+coins), and valuing them at DefiLlama daily prices gave +$59–86K against
+Zerion's +$160K. Alchemy can't return internal transfers on Robinhood Chain;
+Blockscout's index of them was incomplete (18 in his whole history). Only
+revisit for per-coin detail on EVM, with a source that prices each swap.
 
 ### Address lookup: token discovery waits on the database one step at a time — IMPORTANT, later (owner 2026-09-29)
 

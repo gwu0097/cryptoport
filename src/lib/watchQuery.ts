@@ -577,11 +577,12 @@ export async function getTradingRecord(influencer: WatchFeedInfluencer, today: s
   otherAddresses: number;
   errors: string[];
 }> {
-  const sol = influencer.addresses.filter((a) => a.chain === "SOL").map((a) => a.address);
+  // Solana (Solana Tracker) and EVM (Zerion) addresses alike.
+  const sol = influencer.addresses.filter((a) => a.chain === "SOL" || a.chain === "ETH").map((a) => a.address);
   const otherAddresses = influencer.addresses.length - sol.length;
   if (sol.length === 0) return { summary: null, loadedAt: null, solanaAddresses: 0, otherAddresses, errors: [] };
   const db = await userDb();
-  const { data, error } = await db.from("watched_addresses").select("address, trading_record, trading_record_at, trading_record_status").eq("chain", "SOL").in("address", sol);
+  const { data, error } = await db.from("watched_addresses").select("address, trading_record, trading_record_at, trading_record_status").in("chain", ["SOL", "ETH"]).in("address", sol);
   if (error) throw new Error(`Failed to load the trading record: ${error.message}`);
   const rows = data as { address: string; trading_record: StoredTradingRecord | null; trading_record_at: string | null; trading_record_status: string | null }[];
   const records = rows.map((r) => r.trading_record).filter((r): r is StoredTradingRecord => !!r);

@@ -203,7 +203,17 @@ owner's.
   page cap covers only back to its oldest transfer; one that fails claims
   nothing; both are named. Unpriced coins traded get one batched
   `ensureAssetPrices`, as in Refresh activity.
-  **Trading record** (an influencer's page, Solana addresses only): "Load
+  **EVM trading record** (owner 2026-09-30, Robinhood Chain first): the same
+  panel from Zerion's profit and loss (`adapters/zerionDefi.ts`
+  `fetchZerionPnl`, pure `zerionRecord.ts`): all-time, 30/90 days and each
+  of the past 12 months (`since`/`till`) — 15 calls an address the first
+  load, then all-time, the windows and the running month (a month stored
+  before it ended is asked once more); 1.1 s apart. Totals only — no coin
+  list, win rate or best day ("—"); a window Zerion can't answer (over
+  3,000 transactions from its nearest mark) is "—", never 0. Rebuilding it
+  from transfers was tried and dropped: on Robinhood Chain most trades are
+  coin-for-coin, which daily prices can't value (BACKLOG).
+  **Trading record** (an influencer's page, Solana addresses): "Load
   trading record" pulls each address's profit and loss from Solana Tracker in
   USD — 2 requests (all-time summary + the past 365 days by day,
   `adapters/solanaTracker.ts`), reused for an hour (`tradingRecordLoad.ts`),

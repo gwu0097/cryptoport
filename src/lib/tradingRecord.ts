@@ -31,6 +31,14 @@ export interface StoredTradingRecord {
    * so a month's bar can list its coins. Built once, then only newer coins
    * are fetched: `cursor` is the newest last-trade time seen (ms). */
   coins?: { cursor: number | null; index: Record<string, CoinEntry> };
+  /** An EVM address's record comes from Zerion (owner 2026-09-30): its
+   * realized profit per month (YYYY-MM → [realized USD, USD put in, 1 when
+   * asked after the month ended]; null =
+   * Zerion couldn't answer for that month) and the 30/90-day windows,
+   * instead of `days`. No per-coin list, win rate or best day. */
+  source?: "zerion";
+  months?: Record<string, [number, number, number?] | null>;
+  windows?: { d30: number | null; d90: number | null };
 }
 
 /** A coin's result: [month it was last sold (YYYY-MM), realized USD, return %,
@@ -120,8 +128,9 @@ export interface TradingSummary {
   distribution: { range: string; count: number }[];
   months: { month: string; realizedUsd: number; trades: number }[];
   yearUsd: number;
-  last90Usd: number;
-  last30Usd: number;
+  /** Null when a Zerion window couldn't be read (unknown, never 0). */
+  last90Usd: number | null;
+  last30Usd: number | null;
   profitableMonths: number;
   activeMonths: number;
   /** Share of the year's profit from its best month / best day (null when the year isn't up). */
@@ -132,6 +141,8 @@ export interface TradingSummary {
   drawdownPct: number | null;
   /** Per month: the coins sold in it (when the coin list is loaded). */
   monthCoins: Record<string, MonthCoins>;
+  /** Whether any address can list coins (Solana; Zerion gives totals only). */
+  hasCoinDetail: boolean;
 }
 
 const addDays = (date: string, n: number) => {
@@ -169,9 +180,28 @@ export function summarizeTrading(records: readonly StoredTradingRecord[], today:
     m.trades += d.trades;
     byMonth.set(date.slice(0, 7), m);
   }
+  // Zerion records (EVM): their months as they come, for the past 12 months.
+  const yearAgoMonth = addDays(today, -365).slice(0, 7);
+  let zerionYear = 0;
+  for (const r of records) {
+    for (const [month, v] of Object.entries(r.months ?? {})) {
+      if (!v || month <= yearAgoMonth) continue;
+      const [realizedUsd, investedUsd] = v;
+      if (realizedUsd === 0 && investedUsd === 0) continue; // no activity that month
+      const m = byMonth.get(month) ?? { realizedUsd: 0, trades: 0 };
+      m.realizedUsd += realizedUsd;
+      byMonth.set(month, m);
+      zerionYear += realizedUsd;
+    }
+  }
   const months = [...byMonth].map(([month, m]) => ({ month, ...m })).sort((a, b) => a.month.localeCompare(b.month));
-  const since = (days: number) => [...byDay].filter(([date]) => date > addDays(today, -days)).reduce((s, [, d]) => s + d.usd, 0);
-  const yearUsd = [...byDay.values()].reduce((s, d) => s + d.usd, 0);
+  const zerion = records.filter((r) => r.source === "zerion");
+  const since = (days: number, window: "d30" | "d90") => {
+    if (zerion.some((r) => r.windows?.[window] == null)) return null;
+    const fromDays = [...byDay].filter(([date]) => date > addDays(today, -days)).reduce((s, [, d]) => s + d.usd, 0);
+    return fromDays + zerion.reduce((s, r) => s + r.windows![window]!, 0);
+  };
+  const yearUsd = [...byDay.values()].reduce((s, d) => s + d.usd, 0) + zerionYear;
   const bestMonth = months.reduce((b, m) => (m.realizedUsd > b ? m.realizedUsd : b), -Infinity);
   const best = [...byDay].sort((a, b) => b[1].usd - a[1].usd)[0];
   const firsts = records.map((r) => r.firstTradeAt).filter((t): t is string => !!t).sort();
@@ -194,8 +224,8 @@ export function summarizeTrading(records: readonly StoredTradingRecord[], today:
     distribution: [...dist].map(([range, count]) => ({ range, count })),
     months,
     yearUsd,
-    last90Usd: since(90),
-    last30Usd: since(30),
+    last90Usd: since(90, "d90"),
+    last30Usd: since(30, "d30"),
     profitableMonths: months.filter((m) => m.realizedUsd > 0).length,
     activeMonths: months.length,
     bestMonthShare: yearUsd > 0 && months.length > 0 ? bestMonth / yearUsd : null,
@@ -204,5 +234,6 @@ export function summarizeTrading(records: readonly StoredTradingRecord[], today:
     drawdownUsd: one?.drawdownUsd ?? null,
     drawdownPct: one?.drawdownPct ?? null,
     monthCoins: coinsByMonth(records),
+    hasCoinDetail: records.some((r) => r.source !== "zerion"),
   };
 }

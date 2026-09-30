@@ -230,3 +230,38 @@ export async function fetchZerionDefiPositions(address: string): Promise<ZerionD
 
   return { holdings, warnings };
 }
+
+export interface ZerionPnl {
+  realizedUsd: number;
+  unrealizedUsd: number;
+  /** What was put in over the window. */
+  investedUsd: number;
+  /** Zerion's total gain as a % of what was put in. */
+  relativeTotalPct: number | null;
+}
+
+/**
+ * An address's profit and loss from Zerion (its /pnl), all time or over a
+ * window (`since`/`till`, ms) — the EVM trading record (owner 2026-09-30:
+ * Solana Tracker is Solana-only). Zerion pre-computes standard marks (now,
+ * 1 day/week/month/year ago, the start of the year); another window works
+ * only with fewer than 3,000 transactions to the nearest mark — null then,
+ * never a guess. One call; it answers 503 while it first prepares a wallet
+ * (fetchWithRetry retries that).
+ */
+export async function fetchZerionPnl(address: string, window?: { sinceMs: number; tillMs: number }): Promise<ZerionPnl | null> {
+  const range = window ? `&since=${window.sinceMs}&till=${window.tillMs}` : "";
+  const res = await fetchWithRetry(`${API_BASE}/wallets/${address}/pnl?currency=usd${range}`, {
+    headers: { Authorization: authHeader(), Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const a = ((await res.json()) as { data?: { attributes?: Record<string, number | null> } }).data?.attributes;
+  if (!a || typeof a.realized_gain !== "number") return null;
+  return {
+    realizedUsd: a.realized_gain,
+    unrealizedUsd: a.unrealized_gain ?? 0,
+    investedUsd: a.total_invested ?? 0,
+    relativeTotalPct: typeof a.relative_total_gain_percentage === "number" ? a.relative_total_gain_percentage : null,
+  };
+}

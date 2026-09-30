@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { CopyButton } from "@/components/CopyButton";
 
-const signedCompact = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatCompactUsd(Math.abs(v))}`;
-const tone = (v: number) => (v > 0 ? "text-positive" : v < 0 ? "text-negative" : "text-fg");
+// Null is unknown (a Zerion window it couldn't read): "—", never $0.
+const signedCompact = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatCompactUsd(Math.abs(v))}`);
+const tone = (v: number | null) => (v === null ? "text-fg-muted" : v > 0 ? "text-positive" : v < 0 ? "text-negative" : "text-fg");
 const MONTH = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
 
 function hold(secs: number | null): string {
@@ -54,7 +55,7 @@ function CoinRow({ c }: { c: CoinBrief }) {
 /** The coins sold in a month (hover or tap its bar): how many, how many
  * won, the biggest gains and losses. A coin counts in the month it was last
  * sold, so these needn't add up exactly to the bar (daily figures). */
-function MonthDetail({ month, realizedUsd, coins, hasCoinList }: { month: string; realizedUsd: number; coins: MonthCoins | undefined; hasCoinList: boolean }) {
+function MonthDetail({ month, realizedUsd, coins, hasCoinList, hasCoinDetail }: { month: string; realizedUsd: number; coins: MonthCoins | undefined; hasCoinList: boolean; hasCoinDetail: boolean }) {
   const label = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
   return (
     <div className="mt-3 rounded-lg border border-border/60 p-3">
@@ -68,7 +69,7 @@ function MonthDetail({ month, realizedUsd, coins, hasCoinList }: { month: string
         )}
       </p>
       {!hasCoinList ? (
-        <p className="mt-1 text-xs text-fg-muted">Refresh the record to list each month&apos;s coins.</p>
+        <p className="mt-1 text-xs text-fg-muted">{hasCoinDetail ? "Refresh the record to list each month's coins." : "Per-coin detail covers Solana addresses; EVM months are totals (Zerion)."}</p>
       ) : !coins ? (
         <p className="mt-1 text-xs text-fg-muted">No coins sold this month.</p>
       ) : (
@@ -147,7 +148,7 @@ export function TradingRecordPanel({
   if (solanaAddresses === 0) {
     return (
       <Panel title="Trading record" className="mb-4">
-        <p className="mt-1 text-sm text-fg-muted">Trading records cover Solana addresses for now — this influencer has none.</p>
+        <p className="mt-1 text-sm text-fg-muted">Trading records cover Solana and EVM addresses — this influencer has neither.</p>
       </Panel>
     );
   }
@@ -165,7 +166,7 @@ export function TradingRecordPanel({
       summary={at ? <span className={tone(at.totalUsd)}>All time {signedCompact(at.totalUsd)} · 30d {signedCompact(summary!.last30Usd)}</span> : "not loaded"}
       actions={
         <span className="flex flex-col items-end gap-1">
-          <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={load} title="Two Solana Tracker requests per Solana address (2,500 a month free); a record under an hour old is reused.">
+          <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={load} title="Solana: Solana Tracker (2 requests per address). EVM: Zerion (15 requests the first time, 4–5 after). A record under an hour old is reused.">
             <LineChart className={`size-3.5 ${busy ? "animate-pulse" : ""}`} aria-hidden="true" />
             {busy ? "Loading…" : summary ? "Refresh record" : "Load trading record"}
           </Button>
@@ -181,11 +182,11 @@ export function TradingRecordPanel({
       description={
         summary ? (
           <>
-            Realized profit from their trades, in USD (Solana Tracker) · loaded <AgeText at={loadedAt} serverNowSec={serverNowSec} />
-            {otherAddresses > 0 && ` · ${otherAddresses} non-Solana address${otherAddresses === 1 ? "" : "es"} not covered`}
+            Realized profit from their trades, in USD (Solana: Solana Tracker; EVM: Zerion, monthly) · loaded <AgeText at={loadedAt} serverNowSec={serverNowSec} />
+            {otherAddresses > 0 && ` · ${otherAddresses} other address${otherAddresses === 1 ? "" : "es"} not covered`}
           </>
         ) : (
-          "Is this trader profitable all year, or on one hot streak? Load their record from Solana Tracker (2 requests per Solana address)."
+          "Is this trader profitable all year, or on one hot streak? Load their record (Solana from Solana Tracker, EVM from Zerion)."
         )
       }
       className="mb-4"
@@ -201,7 +202,7 @@ export function TradingRecordPanel({
           </div>
 
           <div className="mt-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">Realized profit by month · hover or tap a month for its coins</p>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">Realized profit by month{summary.hasCoinDetail ? " · hover or tap a month for its coins" : ""}</p>
             <div className="overflow-x-auto">
               <div className="grid min-w-[36rem] grid-cols-12 gap-1.5">
                 {months.map((m) => (
@@ -231,10 +232,10 @@ export function TradingRecordPanel({
             </div>
           </div>
 
-          {month && <MonthDetail month={month} realizedUsd={months.find((m) => m.month === month)?.realizedUsd ?? 0} coins={summary.monthCoins[month]} hasCoinList={Object.keys(summary.monthCoins).length > 0} />}
+          {month && <MonthDetail month={month} realizedUsd={months.find((m) => m.month === month)?.realizedUsd ?? 0} coins={summary.monthCoins[month]} hasCoinList={Object.keys(summary.monthCoins).length > 0} hasCoinDetail={summary.hasCoinDetail} />}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Figure label="Win rate (all time)" value={at.winRatePct !== null ? `${at.winRatePct.toFixed(1)}%` : "—"} caption={`${at.wins.toLocaleString()} of ${at.closed.toLocaleString()} closed coins · holds ${hold(at.avgHoldSecs)} on average`} />
+            <Figure label="Win rate (all time)" value={at.winRatePct !== null ? `${at.winRatePct.toFixed(1)}%` : "—"} caption={at.closed > 0 ? `${at.wins.toLocaleString()} of ${at.closed.toLocaleString()} closed coins · holds ${hold(at.avgHoldSecs)} on average` : "Per coin: Solana addresses only"} />
             <Figure
               label="Best month's share of the year"
               value={summary.bestMonthShare !== null ? `${Math.round(summary.bestMonthShare * 100)}%` : "—"}
