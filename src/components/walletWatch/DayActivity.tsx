@@ -11,7 +11,7 @@ import { fetchDelay, minutesLeft } from "@/lib/liveWatching";
 import { useWatching } from "./useWatching";
 import { onLiveActivity } from "@/lib/liveListener";
 import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
-import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { tableClass, theadRowClass, thClass, trClass, tdClass } from "@/components/ui/table";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { usePersistedState } from "@/components/usePersistedState";
 import { AgeText } from "@/components/AgeText";
@@ -313,7 +313,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
           <Amount payQty={c.soldPay} usd={c.soldUsd} ticker={c.payTicker} qty={c.soldQty} tone="text-negative" />
           {c.avgExitUsd !== null && <p className="text-xs text-fg-muted">avg exit {at(c.avgExitUsd)}</p>}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
+        <td className={`${tdClass} tabular-nums`}>
           {closed ? (
             // "sold all" only when nothing's left; a crumb under $1 says so.
             <>
@@ -441,7 +441,7 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
         </td>
         <td className={`${tdClass} tabular-nums text-positive`}>{formatUsd(sum((c) => c.boughtUsd))}</td>
         <td className={`${tdClass} tabular-nums text-negative`}>{formatUsd(sum((c) => c.soldUsd))}</td>
-        <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>sold all</td>
+        <td className={`${tdClass} text-fg-muted`}>sold all</td>
         <td className={`${tdClass} tabular-nums`}>
           <span className={realized >= 0 ? "text-positive" : "text-negative"} title={`Net result of what was bought and sold ${period}`}>
             {formatUsdSigned(realized)}
@@ -500,7 +500,8 @@ export function CoinTable({
             {head("Coin", "coin")}
             {head("Bought", "bought")}
             {head("Sold", "sold")}
-            <th className={`${thClass} ${hideOnMobileClass}`}>Holding</th>
+            {/* Shown on phones too: its refresh is the only way to price one coin. */}
+            <th className={thClass}>Holding</th>
             {head("Result", "result")}
             {head("When", "when", "text-right")}
           </tr>

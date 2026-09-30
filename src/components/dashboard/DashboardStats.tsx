@@ -15,8 +15,10 @@ const tone = (v: number | null) => (v === null || v === 0 ? "text-fg" : v > 0 ? 
  * of all three (the number never waits below it). */
 function Tile({ label, value, caption, className = "", action }: { label: ReactNode; value: ReactNode; caption?: ReactNode; className?: string; action?: ReactNode }) {
   return (
-    <div className={`flex min-w-0 items-start justify-between gap-2 rounded-xl border border-border bg-surface p-4 ${className}`}>
-      <div className="min-w-0">
+    // The action wraps under the figure when both don't fit (a phone), so
+    // the figure is never cut off to make room for it.
+    <div className={`flex min-w-0 flex-wrap items-start justify-between gap-2 rounded-xl border border-border bg-surface p-4 ${className}`}>
+      <div className="min-w-0 flex-1 basis-40">
         <p className="text-xs font-medium text-fg-muted">{label}</p>
         <div className="mt-1 truncate text-xl font-semibold tabular-nums">{value}</div>
         {caption && <div className="mt-0.5 truncate text-xs text-fg-muted">{caption}</div>}
