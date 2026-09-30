@@ -105,7 +105,7 @@ owner's.
   2026-09-29). Cash coins are only the payment side, never a row (owner
   2026-09-28: match KOLScan's per-trade view). For every trader alike, the
   coins they've sold out of (a leftover under $1 counts) fold into one row;
-  open positions and their most recent coin keep their own (`activityFold.ts`). Saved on `watched_addresses`
+  only open positions keep their own (`activityFold.ts`; owner 2026-09-30 — the most recent coin no longer stays out once sold). Saved on `watched_addresses`
   (`tx_activity` appended, `tx_cursor` per source) until the next read,
   whose start (`snapshot.readStartedAt`) is the day's boundary and which
   drops older legs (`trimToBoundary`). The view never reaches back past

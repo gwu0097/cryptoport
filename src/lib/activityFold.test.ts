@@ -5,9 +5,9 @@ import { foldSoldOut, soldOut } from "./activityFold.ts";
 const coin = (influencerId: string, name: string, lastAt: string, holdingQty: number, sells = 1, nowUsd: number | null = 1) => ({ influencerId, name, lastAt, holdingQty, sells, nowUsd });
 const shape = (items: ReturnType<typeof foldSoldOut<ReturnType<typeof coin>>>) => items.map((i) => (i.kind === "coin" ? i.c.name : `[${i.coins.map((c) => c.name).join(",")}]`));
 
-test("the same rule for every trader: sold-out coins fold, the newest coin stays (Hash's 3 coins)", () => {
+test("the same rule for every trader: every sold-out coin folds, the newest too (Hash's 3 coins)", () => {
   const hash = [coin("hash", "NIBS", "14:39", 0), coin("hash", "SATOSHI", "11:36", 0), coin("hash", "DUKE", "11:09", 0)];
-  assert.deepEqual(shape(foldSoldOut(hash)), ["NIBS", "[SATOSHI,DUKE]"]);
+  assert.deepEqual(shape(foldSoldOut(hash)), ["[NIBS,SATOSHI,DUKE]"]);
 });
 
 test("open positions keep their rows; only sold-out ones fold (Risk)", () => {
@@ -15,8 +15,9 @@ test("open positions keep their rows; only sold-out ones fold (Risk)", () => {
   assert.deepEqual(shape(foldSoldOut(risk)), ["X7", "WATCH", "[CLONES,GATHR,OPG]"]);
 });
 
-test("one sold-out coin doesn't fold; traders never mix", () => {
+test("traders never mix; a lone sold-out coin keeps its row", () => {
   const rows = [coin("a", "A1", "10:00", 0), coin("a", "A2", "09:00", 0), coin("b", "B1", "08:00", 0), coin("b", "B2", "07:00", 0), coin("b", "B3", "06:00", 0)];
-  assert.deepEqual(shape(foldSoldOut(rows)), ["A1", "A2", "B1", "[B2,B3]"]);
+  assert.deepEqual(shape(foldSoldOut(rows)), ["[A1,A2]", "[B1,B2,B3]"]);
+  assert.deepEqual(shape(foldSoldOut([coin("c", "C1", "10:00", 0), coin("c", "OPEN", "11:00", 5)])), ["C1", "OPEN"]);
   assert.equal(soldOut(coin("x", "X", "1", 5, 0)), false); // bought, never sold: open
 });
