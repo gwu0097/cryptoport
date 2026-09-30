@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ConfirmActionButton } from "../ui/ConfirmActionButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
@@ -80,22 +81,23 @@ export function GroupTabs({ groups, selected, counts }: { groups: WatchGroup[]; 
                 <Pencil className="size-3.5" aria-hidden="true" />
                 Rename
               </Button>
-              <Button
-                type="button"
-                variant="danger"
-                size="sm"
+              <ConfirmActionButton
+                message={`Delete the group "${selected.name}"? Its influencers stay in Wallet Watch.`}
+                confirmLabel="Delete group"
                 disabled={pending}
-                onClick={() => {
-                  if (!confirm(`Delete the group "${selected.name}"? Its influencers stay in Wallet Watch.`)) return;
+                onConfirm={() =>
                   start(async () => {
                     const r = await deleteGroup(selected.id);
                     if (r.ok) router.push("/wallet-watch");
-                  });
-                }}
-              >
-                <Trash2 className="size-3.5" aria-hidden="true" />
-                Delete group
-              </Button>
+                  })
+                }
+                trigger={(open) => (
+                  <Button type="button" variant="danger" size="sm" disabled={pending} onClick={open}>
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                    Delete group
+                  </Button>
+                )}
+              />
             </>
           )}
         </div>

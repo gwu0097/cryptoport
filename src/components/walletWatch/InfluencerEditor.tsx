@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ConfirmActionButton } from "../ui/ConfirmActionButton";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, X } from "lucide-react";
 import { removeInfluencer, removeWatchedAddress, setInfluencerGroups, updateInfluencer } from "@/app/(app)/wallet-watch/actions";
@@ -68,22 +69,23 @@ export function InfluencerEditor({
           <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" aria-hidden="true" /> Edit
           </Button>
-          <Button
-            type="button"
-            variant="danger"
-            size="sm"
+          <ConfirmActionButton
+            message={`Stop watching ${influencer.name}? Their addresses leave your Wallet Watch.`}
+            confirmLabel="Stop watching"
             disabled={pending}
-            onClick={() => {
-              if (!confirm(`Stop watching ${influencer.name}? Their addresses are removed from your Wallet Watch.`)) return;
+            onConfirm={() =>
               start(async () => {
                 const r = await removeInfluencer(influencer.id);
                 if (r.ok) router.push("/wallet-watch");
                 else setError(r.error);
-              });
-            }}
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" /> Stop watching
-          </Button>
+              })
+            }
+            trigger={(open) => (
+              <Button type="button" variant="danger" size="sm" disabled={pending} onClick={open}>
+                <Trash2 className="size-3.5" aria-hidden="true" /> Stop watching
+              </Button>
+            )}
+          />
         </div>
       )}
 
@@ -108,20 +110,20 @@ export function InfluencerEditor({
 export function RemoveAddressButton({ addressId, influencerId, address }: { addressId: string; influencerId: string; address: string }) {
   const [pending, start] = useTransition();
   return (
-    <button
-      type="button"
+    <ConfirmActionButton
+      message={`Remove ${address.slice(0, 6)}…${address.slice(-4)}?`}
+      confirmLabel="Remove"
       disabled={pending}
-      aria-label="Remove this address"
-      title="Remove this address"
-      className="rounded p-1 text-fg-muted hover:text-negative disabled:opacity-50"
-      onClick={() => {
-        if (!confirm(`Remove ${address} from this influencer?`)) return;
+      onConfirm={() =>
         start(async () => {
           await removeWatchedAddress(addressId, influencerId);
-        });
-      }}
-    >
-      <Trash2 className="size-3.5" aria-hidden="true" />
-    </button>
+        })
+      }
+      trigger={(open) => (
+        <button type="button" disabled={pending} aria-label="Remove this address" title="Remove this address" className="rounded p-1 text-fg-muted hover:text-negative disabled:opacity-50" onClick={open}>
+          <Trash2 className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
+    />
   );
 }
