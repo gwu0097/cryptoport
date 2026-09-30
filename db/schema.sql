@@ -2993,3 +2993,183 @@ alter table cryptoport.wallets add column if not exists auto_sync boolean not nu
 -- unsaved per user (the oldest goes; the owner keeps all), and the trigger's
 -- backstop is 200 (watch_enforce_caps above, replaced the same day).
 alter table cryptoport.watch_influencers add column if not exists unsaved_since timestamptz;
+
+-- 2026-09-30: shared groups (docs/wallet-watch/SHARED_GROUPS.md). Replaces the
+-- "owner only" link policy and the four watched_* "watchers only" policies above:
+-- visibility is now "an influencer you created, or one in a group you created
+-- or joined" (watch_visible_influencers).
+
+alter table cryptoport.watch_groups add column if not exists share_token uuid unique;
+create index if not exists watch_groups_user_idx on cryptoport.watch_groups (user_id);
+
+create table if not exists cryptoport.watch_group_members (
+  group_id  uuid not null references cryptoport.watch_groups(id) on delete cascade,
+  user_id   uuid not null references auth.users(id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+create index if not exists watch_group_members_user_idx on cryptoport.watch_group_members (user_id);
+alter table cryptoport.watch_group_members enable row level security;
+grant all on cryptoport.watch_group_members to service_role;
+grant select, delete on cryptoport.watch_group_members to authenticated;
+
+-- The groups the caller created or joined.
+create or replace function cryptoport.watch_my_groups()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = cryptoport, pg_temp
+as $$
+  select id from cryptoport.watch_groups where user_id = auth.uid()
+  union
+  select group_id from cryptoport.watch_group_members where user_id = auth.uid()
+$$;
+
+-- The influencers the caller may read: their own, and every one linked to a
+-- group they created or joined.
+create or replace function cryptoport.watch_visible_influencers()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = cryptoport, pg_temp
+as $$
+  select id from cryptoport.watch_influencers where user_id = auth.uid()
+  union
+  select gi.influencer_id from cryptoport.watch_group_influencers gi
+  where gi.group_id in (
+    select id from cryptoport.watch_groups where user_id = auth.uid()
+    union
+    select group_id from cryptoport.watch_group_members where user_id = auth.uid()
+  )
+$$;
+
+-- Joins the group a share token names; returns its id (null: no such link).
+create or replace function cryptoport.join_watch_group(p_token uuid)
+returns uuid
+language plpgsql
+volatile
+security definer
+set search_path = cryptoport, pg_temp
+as $$
+declare
+  v_group uuid;
+  v_owner uuid;
+begin
+  if auth.uid() is null or p_token is null then
+    return null;
+  end if;
+  select id, user_id into v_group, v_owner from cryptoport.watch_groups where share_token = p_token;
+  if v_group is null then
+    return null;
+  end if;
+  if v_owner = auth.uid() then
+    return v_group;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('watch_members:' || v_group::text));
+  if not exists (select 1 from cryptoport.watch_group_members where group_id = v_group and user_id = auth.uid())
+    and (select count(*) from cryptoport.watch_group_members where group_id = v_group) >= 20 then
+    raise exception 'This group has reached its limit of 20 members';
+  end if;
+  insert into cryptoport.watch_group_members (group_id, user_id) values (v_group, auth.uid())
+    on conflict do nothing;
+  return v_group;
+end;
+$$;
+
+-- Each co-member of a group the caller is in: the part of their email
+-- before the @, and whether they created the group.
+create or replace function cryptoport.watch_group_people(p_group uuid)
+returns table (user_id uuid, name text, is_creator boolean)
+language sql
+stable
+security definer
+set search_path = cryptoport, pg_temp
+as $$
+  select u.id, split_part(u.email, '@', 1), u.id = g.user_id
+  from cryptoport.watch_groups g
+  join auth.users u on u.id = g.user_id or u.id in (select m.user_id from cryptoport.watch_group_members m where m.group_id = g.id)
+  where g.id = p_group and g.id in (select cryptoport.watch_my_groups())
+$$;
+
+revoke all on function cryptoport.watch_my_groups() from public, anon;
+revoke all on function cryptoport.watch_visible_influencers() from public, anon;
+revoke all on function cryptoport.join_watch_group(uuid) from public, anon;
+revoke all on function cryptoport.watch_group_people(uuid) from public, anon;
+grant execute on function cryptoport.watch_my_groups() to authenticated;
+grant execute on function cryptoport.watch_visible_influencers() to authenticated;
+grant execute on function cryptoport.join_watch_group(uuid) to authenticated;
+grant execute on function cryptoport.watch_group_people(uuid) to authenticated;
+
+-- Members: see the members of their groups; leave, or the creator removes.
+drop policy if exists "watch_group_members: members read" on cryptoport.watch_group_members;
+create policy "watch_group_members: members read" on cryptoport.watch_group_members
+  for select using (group_id in (select cryptoport.watch_my_groups()));
+drop policy if exists "watch_group_members: leave or remove" on cryptoport.watch_group_members;
+create policy "watch_group_members: leave or remove" on cryptoport.watch_group_members
+  for delete using (
+    user_id = (select auth.uid())
+    or group_id in (select id from cryptoport.watch_groups where user_id = (select auth.uid()))
+  );
+
+-- Groups: members read a group they joined (writes stay the creator's).
+drop policy if exists "watch_groups: members read" on cryptoport.watch_groups;
+create policy "watch_groups: members read" on cryptoport.watch_groups
+  for select using (id in (select cryptoport.watch_my_groups()));
+
+-- Group links: read in your groups; add your own saved influencers to your
+-- groups; any member removes one.
+drop policy if exists "watch_group_influencers: owner only" on cryptoport.watch_group_influencers;
+drop policy if exists "watch_group_influencers: members read" on cryptoport.watch_group_influencers;
+create policy "watch_group_influencers: members read" on cryptoport.watch_group_influencers
+  for select using (group_id in (select cryptoport.watch_my_groups()));
+drop policy if exists "watch_group_influencers: add your own" on cryptoport.watch_group_influencers;
+create policy "watch_group_influencers: add your own" on cryptoport.watch_group_influencers
+  for insert with check (
+    user_id = (select auth.uid())
+    and group_id in (select cryptoport.watch_my_groups())
+    and influencer_id in (select id from cryptoport.watch_influencers where user_id = (select auth.uid()) and unsaved_since is null)
+  );
+drop policy if exists "watch_group_influencers: members remove" on cryptoport.watch_group_influencers;
+create policy "watch_group_influencers: members remove" on cryptoport.watch_group_influencers
+  for delete using (group_id in (select cryptoport.watch_my_groups()));
+
+-- Influencers and their addresses: read the ones your groups share.
+drop policy if exists "watch_influencers: shared read" on cryptoport.watch_influencers;
+create policy "watch_influencers: shared read" on cryptoport.watch_influencers
+  for select using (id in (select cryptoport.watch_visible_influencers()));
+drop policy if exists "watch_influencer_addresses: shared read" on cryptoport.watch_influencer_addresses;
+create policy "watch_influencer_addresses: shared read" on cryptoport.watch_influencer_addresses
+  for select using (influencer_id in (select cryptoport.watch_visible_influencers()));
+
+-- The shared per-address rows: readable by anyone who can see an influencer
+-- with that address (was: by those who added it themselves).
+drop policy if exists "watched_addresses: watchers only" on cryptoport.watched_addresses;
+create policy "watched_addresses: watchers only" on cryptoport.watched_addresses
+  for select using (exists (
+    select 1 from cryptoport.watch_influencer_addresses w
+    where w.chain = watched_addresses.chain and w.address = watched_addresses.address
+      and w.influencer_id in (select cryptoport.watch_visible_influencers())
+  ));
+drop policy if exists "watched_address_daily: watchers only" on cryptoport.watched_address_daily;
+create policy "watched_address_daily: watchers only" on cryptoport.watched_address_daily
+  for select using (exists (
+    select 1 from cryptoport.watch_influencer_addresses w
+    where w.chain = watched_address_daily.chain and w.address = watched_address_daily.address
+      and w.influencer_id in (select cryptoport.watch_visible_influencers())
+  ));
+drop policy if exists "watched_movements: watchers only" on cryptoport.watched_movements;
+create policy "watched_movements: watchers only" on cryptoport.watched_movements
+  for select using (exists (
+    select 1 from cryptoport.watch_influencer_addresses w
+    where w.chain = watched_movements.chain and w.address = watched_movements.address
+      and w.influencer_id in (select cryptoport.watch_visible_influencers())
+  ));
+drop policy if exists "watched_positions: watchers only" on cryptoport.watched_positions;
+create policy "watched_positions: watchers only" on cryptoport.watched_positions
+  for select using (exists (
+    select 1 from cryptoport.watch_influencer_addresses w
+    where w.chain = watched_positions.chain and w.address = watched_positions.address
+      and w.influencer_id in (select cryptoport.watch_visible_influencers())
+  ));
