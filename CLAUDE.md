@@ -146,7 +146,7 @@ owner's.
   `PING_POSITION_USD` $200 — owner 2026-09-29, was $500 — at once or as "is building"), a new burst of buying
   (buys under `BURST_GAP_MS`, an hour, apart are one burst; a later burst,
   or the first buys today of a coin held at the read, posts at $100), added (today's buys cross
-  `ADD_STEPS_USD` $1K/5K/10K…), closed (worth under $1 now; owner 2026-09-30: a win/loss card — ✅ green or ❌ red, "closed X · +12.6%" in the title, the result as a heading (dollars, else the coin paid with, `exitReturnPct`), In → Out, exit, how long held; "result unknown" when part was held before today — `closeDetail`), trimmed
+  `ADD_STEPS_USD` $1K/5K/10K…), closed (worth under $1 now; owner 2026-09-30: a win/loss card — ✅ green or ❌ red, "closed X · +12.6%" in the title, the result as a heading (dollars, else the coin paid with, `exitReturnPct`), In → Out, exit, how long held; "result unknown" when part was held before today — `closeDetail`; with a PnL image drawn by `next/og` in the same function and uploaded with the post, `closeCardImage.tsx` — no extra request, no public endpoint, only the bundled font, so its text is cut to Latin letters: an emoji or other script would make it fetch one from the web), trimmed
   (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
   (`watchAlertSend.ts` → `adapters/discordWebhook.ts`, as cards — `alertEmbed`:
   coloured by kind, the title linked to the coin on Fomo (Solana) or

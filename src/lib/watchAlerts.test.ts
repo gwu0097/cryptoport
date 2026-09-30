@@ -141,3 +141,12 @@ test("the exit return falls back to the coin paid with when a buy has no dollar 
   assert.equal(exitReturnPct({ ...c, soldFromEarlier: true }), null); // earlier cost unknown
   assert.equal(exitReturnPct({ ...c, boughtPay: null }), null);
 });
+
+test("a close carries its image's figures, and its card shows the attached image", () => {
+  const open = deliver(null, swap(100_000, 0.01), 0, 1_000_000_000);
+  const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000), 0, 1_000_000_000);
+  const a = out.alerts[0];
+  assert.deepEqual(a.card, { ticker: "GEM", payTicker: "SOL", pct: "+100.0%", win: true, result: "+$1,000.00", inText: "10.00 SOL ($1,000.00)", outText: "20.00 SOL ($2,000.00)", held: "held 3h", entryMc: "$10M", exitMc: "$20M" });
+  assert.deepEqual(alertEmbed("Risk", a, null, "close-1.png").image, { url: "attachment://close-1.png" });
+  assert.equal(open.alerts[0].card, undefined); // an open has no image
+});

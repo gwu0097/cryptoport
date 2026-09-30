@@ -47,6 +47,27 @@ export interface WatchAlert {
   ping: boolean;
   /** A close's return (%), when known: colours its card win or loss. */
   returnPct?: number | null;
+  /** A close's figures for its image (closeCardImage.tsx). */
+  card?: CloseCard;
+}
+
+/** What a closed position's image shows (owner 2026-09-30: like a trading
+ * bot's PnL card) — every figure already formatted. */
+export interface CloseCard {
+  ticker: string;
+  payTicker: string | null;
+  /** "-12.6%"; null when the result isn't known. */
+  pct: string | null;
+  win: boolean | null;
+  /** "-$18.26" or "+0.11 SOL"; null when unknown. */
+  result: string | null;
+  /** "1.43 SOL ($150.91)"; null when part was held before today. */
+  inText: string | null;
+  outText: string;
+  /** "flipped in 13m", "held 3h 20m". */
+  held: string | null;
+  entryMc: string | null;
+  exitMc: string | null;
 }
 
 /** The coin's latest trade price, else its average exit or entry. */
@@ -76,19 +97,44 @@ const signedPay = (v: number, ticker: string) => `${v > 0 ? "+" : v < 0 ? "−" 
  * and what it made or lost, as trading bots do): the result as a heading,
  * then what went in and came out, then the exit and how long it was held.
  * Part held before today: its cost isn't known here, so no result. */
+/** A close's result: "-$18.26" in dollars, else "+0.11 SOL" in the coin it
+ * was paid with; null when unknown. */
+function closeResult(c: CoinDay, r: number | null): string | null {
+  if (r === null) return null;
+  if (c.realizedUsd !== null) return formatUsdSigned(c.realizedUsd);
+  const share = c.boughtQty > 0 ? Math.min(1, c.soldQty / c.boughtQty) : 1;
+  return c.boughtPay !== null && c.soldPay !== null && c.payTicker ? signedPay(c.soldPay - c.boughtPay * share, c.payTicker) : null;
+}
+
+const sideText = (c: CoinDay, qty: number | null, usd: number | null) => `${pay(qty, c.payTicker)}${usd !== null ? `(${formatUsd(usd)})` : ""}`.trim() || "—";
+
+function closeCard(c: CoinDay, heldMs: number | null, entryMc: string | null, exitMc: string | null): CloseCard {
+  const r = exitReturnPct(c);
+  const result = closeResult(c, r);
+  return {
+    ticker: c.ticker,
+    payTicker: c.payTicker,
+    pct: r !== null && result !== null ? pct(r) : null,
+    win: r !== null && result !== null ? r >= 0 : null,
+    result,
+    inText: !c.soldFromEarlier && c.buys > 0 ? sideText(c, c.boughtPay, c.boughtUsd) : null,
+    outText: sideText(c, c.soldPay, c.soldUsd),
+    held: heldMs !== null ? heldText(heldMs) : null,
+    entryMc: c.soldFromEarlier ? null : entryMc,
+    exitMc,
+  };
+}
+
 function closeDetail(c: CoinDay, mc: string, heldMs: number | null): string {
   const r = exitReturnPct(c);
-  const share = c.boughtQty > 0 ? Math.min(1, c.soldQty / c.boughtQty) : 1;
+  const result = closeResult(c, r);
   const lines: string[] = [];
   // Discord's largest text is a "# " heading; text can't be coloured, so
-  // the dot carries it (with the card's bar).
-  const dot = r === null ? "" : r >= 0 ? "🟢 " : "🔴 ";
-  if (r !== null && c.realizedUsd !== null) lines.push(`# ${dot}${formatUsdSigned(c.realizedUsd)} (${pct(r)})`);
-  else if (r !== null && c.boughtPay !== null && c.soldPay !== null && c.payTicker) lines.push(`# ${dot}${signedPay(c.soldPay - c.boughtPay * share, c.payTicker)} (${pct(r)})`);
+  // the dot carries it (with the card's bar and the image).
+  if (r !== null && result !== null) lines.push(`# ${r >= 0 ? "🟢" : "🔴"} ${result} (${pct(r)})`);
   else lines.push("## Closed · result unknown");
-  const side = (qty: number | null, usd: number | null) => `${pay(qty, c.payTicker)}${usd !== null ? `(${formatUsd(usd)})` : ""}`.trim() || "—";
-  if (!c.soldFromEarlier && c.buys > 0) lines.push(`In ${side(c.boughtPay, c.boughtUsd)} → Out ${side(c.soldPay, c.soldUsd)}`);
-  else lines.push(`Out ${side(c.soldPay, c.soldUsd)}${c.soldFromEarlier ? " · some was held before today" : ""}`);
+  if (!c.soldFromEarlier && c.buys > 0) lines.push(`In ${sideText(c, c.boughtPay, c.boughtUsd)} → Out ${sideText(c, c.soldPay, c.soldUsd)}`);
+  else lines.push(`Out ${sideText(c, c.soldPay, c.soldUsd)}${c.soldFromEarlier ? " · some was held before today" : ""}`);
   const exit = c.avgExitUsd !== null ? `Exit ${formatPrice(c.avgExitUsd)}${mc}` : mc.replace(/^ · /, "");
   lines.push([exit, heldMs !== null ? heldText(heldMs) : ""].filter(Boolean).join(" · "));
   return lines.filter(Boolean).join("\n");
@@ -142,8 +188,9 @@ export function watchAlerts(
     const supply = supplyOf(c);
     const mcAt = (p: number | null) => (supply !== null && supply > 0 && p !== null ? ` · MC ${formatCompactUsd(p * supply)}` : "");
     const worth = (qty: number) => (price === null ? null : qty * price);
-    const alert = (kind: WatchAlertKind, headline: string, detail: string, ping: boolean, returnPct?: number | null) =>
-      out.push({ kind, ticker: c.ticker, contract: c.contract, chain: c.contractChain, headline, detail, ping, ...(returnPct !== undefined ? { returnPct } : {}) });
+    const alert = (kind: WatchAlertKind, headline: string, detail: string, ping: boolean, returnPct?: number | null, card?: CloseCard) =>
+      out.push({ kind, ticker: c.ticker, contract: c.contract, chain: c.contractChain, headline, detail, ping, ...(returnPct !== undefined ? { returnPct } : {}), ...(card ? { card } : {}) });
+    const mcOf = (p: number | null) => (supply !== null && supply > 0 && p !== null ? formatCompactUsd(p * supply) : null);
     const bought = c.boughtUsd ?? 0;
     const boughtBefore = b?.boughtUsd ?? 0;
     const sold = c.soldUsd ?? 0;
@@ -203,7 +250,7 @@ export function watchAlerts(
       const lastSell = c.trades.filter((t) => t.side === "sell").map((t) => t.at).sort().at(-1);
       const heldMs = openedToday && firstBuy && lastSell ? Date.parse(lastSell) - Date.parse(firstBuy) : null;
       const r = exitReturnPct(c);
-      alert("soldOut", `closed ${c.ticker}${r !== null ? ` · ${pct(r)}` : ""}`, closeDetail(c, mcAt(c.avgExitUsd), heldMs), false, r);
+      alert("soldOut", `closed ${c.ticker}${r !== null ? ` · ${pct(r)}` : ""}`, closeDetail(c, mcAt(c.avgExitUsd), heldMs), false, r, closeCard(c, heldMs, mcOf(c.avgEntryUsd), mcOf(c.avgExitUsd)));
       continue;
     }
     // Trimmed: a quarter, a half, three quarters of the position sold.
@@ -248,17 +295,19 @@ export interface DiscordEmbed {
   url?: string;
   description: string;
   color: number;
+  /** A file sent with the message: `attachment://<name>`. */
+  image?: { url: string };
 }
 
 /** One alert as a Discord card: the coloured bar says what happened, the
  * title (linked to the coin's trading page) who and what, then the numbers
  * and the contract to copy. The trader's CryptoPort page is linked on an
  * open only. */
-export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | null): DiscordEmbed {
+export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | null, imageName?: string): DiscordEmbed {
   const url = tokenLink(a.chain, a.contract);
   const lines = [a.detail];
   if (a.contract) lines.push(`\`${a.contract}\``);
   if (traderLink && a.kind === "opened") lines.push(`[${trader} on CryptoPort](${traderLink})`);
   const style = styleOf(a);
-  return { title: `${style.emoji} ${trader} ${a.headline}`.slice(0, 256), ...(url ? { url } : {}), description: lines.join("\n"), color: style.color };
+  return { title: `${style.emoji} ${trader} ${a.headline}`.slice(0, 256), ...(url ? { url } : {}), description: lines.join("\n"), color: style.color, ...(imageName ? { image: { url: `attachment://${imageName}` } } : {}) };
 }

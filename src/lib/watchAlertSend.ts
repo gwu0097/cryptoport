@@ -3,6 +3,7 @@ import { serviceDb } from "./supabase";
 import { postDiscord, DISCORD_MAX_EMBEDS } from "./adapters/discordWebhook";
 import { coinDays, type CoinDay, type TxActivity } from "./watchActivity";
 import { alertEmbed, watchAlerts } from "./watchAlerts";
+import { renderCloseCard } from "./closeCardImage";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { getMarketFor } from "./queries";
 
@@ -47,7 +48,26 @@ export async function sendWatchAlerts(chain: string, address: string, before: Tx
     for (let i = 0; i < alerts.length; i += DISCORD_MAX_EMBEDS) {
       const batch = alerts.slice(i, i + DISCORD_MAX_EMBEDS);
       const content = roleId && batch.some((a) => a.ping) ? `<@&${roleId}>` : "";
-      await postDiscord(url, content, roleId, batch.map((a) => alertEmbed(trader, a, link)));
+      // A close carries its PnL image, drawn here (no extra request); a card
+      // whose image fails posts without it.
+      const files: { name: string; data: ArrayBuffer }[] = [];
+      const embeds = [];
+      for (const a of batch) {
+        let image: string | undefined;
+        if (a.card) {
+          const name = `close-${files.length + 1}.png`;
+          const data = await renderCloseCard(trader, a.card).catch((e: Error) => {
+            console.error(`Close card not drawn: ${e.message}`);
+            return null;
+          });
+          if (data) {
+            files.push({ name, data });
+            image = name;
+          }
+        }
+        embeds.push(alertEmbed(trader, a, link, image));
+      }
+      await postDiscord(url, content, roleId, embeds, files);
     }
   } catch (e) {
     console.error(`Wallet Watch alert for ${chain}:${address} not sent: ${(e as Error).message}`);

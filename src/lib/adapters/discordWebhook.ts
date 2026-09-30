@@ -10,12 +10,22 @@ const DISCORD_WEBHOOK = /^https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/
 /** Discord's limit of cards (embeds) per message. */
 export const DISCORD_MAX_EMBEDS = 10;
 
-export async function postDiscord(url: string, content: string, roleId: string | null, embeds: readonly object[] = []): Promise<void> {
+/** `files`: images sent with the message, which a card shows as
+ * `attachment://<name>` (a closed position's PnL card). */
+export async function postDiscord(url: string, content: string, roleId: string | null, embeds: readonly object[] = [], files: readonly { name: string; data: ArrayBuffer }[] = []): Promise<void> {
   if (!DISCORD_WEBHOOK.test(url.trim())) throw new Error("Not a Discord webhook URL");
+  const payload = JSON.stringify({ content, embeds, allowed_mentions: { parse: [], roles: roleId ? [roleId] : [] } });
+  let body: string | FormData = payload;
+  if (files.length > 0) {
+    const form = new FormData();
+    form.set("payload_json", payload);
+    files.forEach((f, i) => form.set(`files[${i}]`, new Blob([f.data], { type: "image/png" }), f.name));
+    body = form;
+  }
   const res = await fetchWithRetry(url.trim(), {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ content, embeds, allowed_mentions: { parse: [], roles: roleId ? [roleId] : [] } }),
+    ...(files.length > 0 ? {} : { headers: { "content-type": "application/json" } }),
+    body,
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Discord: HTTP ${res.status}${res.status === 404 ? " (webhook deleted?)" : ""}`);
