@@ -88,7 +88,8 @@ async function LookupResults({
   // The holdings table's chain icons load alongside (cached per request).
   const [watch] = await Promise.all([(await getUser()) ? getWatchFeedTargets() : null, getChainIconMap()]);
   const normalized = normalizeWatchAddress(result.address);
-  const watchedAs = watch?.influencers.find((i) => i.addresses.some((a) => a.address === normalized));
+  // Your own (a shared group's wallet from another member doesn't count).
+  const watchedAs = watch?.influencers.find((i) => i.mine && i.addresses.some((a) => a.address === normalized));
 
   return (
     <>
@@ -125,7 +126,7 @@ async function LookupResults({
               </Link>
             ) : (
               <WatchAddressForm
-                options={{ influencers: watch.influencers.map((i) => ({ id: i.id, name: i.name })), groups: watch.groups }}
+                options={{ influencers: watch.influencers.filter((i) => i.mine).map((i) => ({ id: i.id, name: i.name })), groups: watch.groups }}
                 address={result.address}
                 label="Watch this wallet"
               />

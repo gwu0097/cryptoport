@@ -57,7 +57,8 @@ async function WalletWatchContent({ groupId, searchError, isOwner }: { groupId?:
   const selected = groups.find((g) => g.id === groupId) ?? null;
   const shown = selected ? influencers.filter((i) => i.groupIds.includes(selected.id)) : influencers;
   const counts = Object.fromEntries(groups.map((g) => [g.id, influencers.filter((i) => i.groupIds.includes(g.id)).length])) as Record<string, number>;
-  const options = { influencers: influencers.map((i) => ({ id: i.id, name: i.name })), groups };
+  // Only your own influencers take a new address (a shared group's belong to their creators).
+  const options = { influencers: influencers.filter((i) => i.mine).map((i) => ({ id: i.id, name: i.name })), groups };
   const [movements, day] = await Promise.all([getWatchMovements(shown, 50), getWatchDayActivity(shown)]);
 
   return (

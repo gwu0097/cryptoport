@@ -105,7 +105,8 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
 
   const visible = new Set(rows.map((r) => r.id));
   const chosen = [...selected].filter((id) => visible.has(id));
-  const allChosen = rows.length > 0 && chosen.length === rows.length;
+  const selectable = rows.filter((r) => r.mine);
+  const allChosen = selectable.length > 0 && chosen.length === selectable.length;
 
   return (
     <div className="overflow-x-auto">
@@ -169,7 +170,7 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
                 type="checkbox"
                 aria-label="Select all"
                 checked={allChosen}
-                onChange={() => setSelected(allChosen ? new Set() : new Set(rows.map((r) => r.id)))}
+                onChange={() => setSelected(allChosen ? new Set() : new Set(selectable.map((r) => r.id)))}
                 className="size-3.5 accent-accent"
               />
             </th>
@@ -198,21 +199,32 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
             return (
               <tr key={i.id} className={`${trClass} ${selected.has(i.id) ? "bg-accent/5" : ""}`}>
                 <td className={tdClass}>
-                  <input type="checkbox" aria-label={`Select ${i.name}`} checked={selected.has(i.id)} onChange={() => toggleOne(i.id)} className="size-3.5 accent-accent" />
+                  {i.mine && <input type="checkbox" aria-label={`Select ${i.name}`} checked={selected.has(i.id)} onChange={() => toggleOne(i.id)} className="size-3.5 accent-accent" />}
                 </td>
                 <td className={tdClass}>
                   <span className="flex items-center gap-1.5">
-                    <InlineName
-                      name={i.name}
-                      onSave={async (next) => {
-                        const r = await renameInfluencer(i.id, next);
-                        return r.ok ? null : r.error;
-                      }}
-                    >
-                      <Link href={`/wallet-watch/${i.id}`} className="font-medium text-fg hover:underline">
-                        {i.name}
-                      </Link>
-                    </InlineName>
+                    {i.mine ? (
+                      <InlineName
+                        name={i.name}
+                        onSave={async (next) => {
+                          const r = await renameInfluencer(i.id, next);
+                          return r.ok ? null : r.error;
+                        }}
+                      >
+                        <Link href={`/wallet-watch/${i.id}`} className="font-medium text-fg hover:underline">
+                          {i.name}
+                        </Link>
+                      </InlineName>
+                    ) : (
+                      <>
+                        <Link href={`/wallet-watch/${i.id}`} className="font-medium text-fg hover:underline">
+                          {i.name}
+                        </Link>
+                        <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent" title="Added to a shared group by another member — only they can edit it">
+                          shared
+                        </span>
+                      </>
+                    )}
                     {i.link && (
                       <a href={i.link} target="_blank" rel="noopener noreferrer" aria-label={`${i.name}'s profile`} className="text-fg-muted hover:text-fg">
                         <ExternalLink className="size-3.5" aria-hidden="true" />
@@ -246,7 +258,7 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
                 </td>
                 <td className={`${tdClass} ${hideOnMobileClass} [&>span]:mt-0`}>
                   {/* Click a group to add or remove it (GroupChips). */}
-                  <GroupChips influencerId={i.id} groupIds={i.groupIds} groups={groups} />
+                  <GroupChips influencerId={i.id} groupIds={i.groupIds} groups={groups} mine={i.mine} />
                 </td>
                 <td className={`${tdClass} ${hideOnMobileClass} text-xs text-fg-muted`}>
                   {reading ? "Reading now…" : <AgeText at={i.lastRefreshAt} serverNowSec={serverNowSec} />}
@@ -254,6 +266,7 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
                 </td>
                 {isOwner && <td className={tdClass}>{i.live === null ? <span className="text-xs text-fg-muted">—</span> : <LiveSwitch id={i.id} live={i.live} />}</td>}
                 <td className={`${tdClass} text-right`}>
+                  {i.mine && (
                   <ConfirmActionButton
                     message={`Stop watching ${i.name}?`}
                     confirmLabel="Stop watching"
@@ -264,6 +277,7 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
                       </button>
                     )}
                   />
+                  )}
                 </td>
               </tr>
             );

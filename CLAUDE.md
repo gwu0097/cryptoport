@@ -267,6 +267,19 @@ owner's.
   the oldest — never blocked (the owner keeps all; the trigger's backstop
   is 200). An
   address already watched opens its own page.
+  **Shared groups** (owner 2026-09-30, `docs/wallet-watch/SHARED_GROUPS.md`,
+  Fable-reviewed): a group's creator shares it (`shareGroup`, invite link
+  `/wallet-watch/join/<token>` → `join_watch_group`); members
+  (`watch_group_members`, ≤ 20) see the same group and every influencer
+  in it, add their own, take any out. Visibility is RLS through two
+  security-definer functions (`watch_my_groups`, `watch_visible_influencers`)
+  on the influencer, address and every `watched_*` table. Only an
+  influencer's creator edits it: RLS makes a non-owner's update match no row
+  silently, so every owner-only write filters `user_id` and checks a row
+  came back (`NOT_YOURS`); the UI hides those controls (`mine`). Leaving,
+  removing a member or stopping sharing takes that person's wallets out of
+  the group (they stay theirs). Members' names: `watch_group_people` (the
+  email before the @, to co-members only).
   **KOL directory** (Tools → `/wallet-watch/directory`,
   `docs/wallet-watch/DIRECTORY.md`): the owner's influencers marked for it
   (`watch_directory`, service role only — `setInDirectory`, `requireAdmin`;

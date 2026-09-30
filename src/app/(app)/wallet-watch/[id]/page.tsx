@@ -62,7 +62,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         <ArrowLeft className="size-3.5" aria-hidden="true" /> Wallet Watch
       </Link>
       <PageHeader
-        title={<InfluencerTitle influencer={influencer} name={<InfluencerName id={influencer.id} name={influencer.name} />} />}
+        title={<InfluencerTitle influencer={influencer} name={influencer.mine ? <InfluencerName id={influencer.id} name={influencer.name} /> : undefined} />}
         subtitle={
           <>
             {influencer.unsavedSince && (
@@ -72,13 +72,19 @@ export default async function InfluencerPage({ params, searchParams }: { params:
                 <InfoTooltip>Shown like a watched wallet so you can check its trading record. Give it a name with the pencil to add it to your list; unsaved searches are removed after 10 days.</InfoTooltip>
               </span>
             )}
+            {!influencer.mine && (
+              // In a shared group, added by another member: only they edit it.
+              <span className="mb-1 inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs text-accent">
+                Shared with you · only whoever added it can edit it
+              </span>
+            )}
             {influencer.note}
-            <GroupChips influencerId={influencer.id} groupIds={influencer.groupIds} groups={groups} />
+            <GroupChips influencerId={influencer.id} groupIds={influencer.groupIds} groups={groups} mine={influencer.mine} />
           </>
         }
         actions={
           <span className="flex flex-wrap items-start justify-end gap-2">
-            <ShareInfluencerButton influencerId={influencer.id} shareToken={influencer.shareToken} />
+            {influencer.mine && <ShareInfluencerButton influencerId={influencer.id} shareToken={influencer.shareToken} />}
             <RefreshWatchButton influencerIds={[influencer.id]} status={watchJobStatus(influencer.addresses, nowSec * 1000)} />
           </span>
         }
@@ -92,12 +98,12 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         daily={daily}
         serverNowSec={nowSec}
         baseHref={`/wallet-watch/${influencer.id}`}
-        valueExtra={<InfluencerEditor influencer={influencer} />}
+        valueExtra={influencer.mine ? <InfluencerEditor influencer={influencer} /> : undefined}
         headerFooter={
           influencer.copiedFrom || inDirectory !== null || (live && live.addresses > 0) ? (
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 [&>*]:mt-0">
               {live && live.addresses > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
-              {inDirectory !== null && <DirectoryToggle influencerId={influencer.id} inDirectory={inDirectory} />}
+              {inDirectory !== null && influencer.mine && <DirectoryToggle influencerId={influencer.id} inDirectory={inDirectory} />}
               {influencer.copiedFrom && <FollowingNote influencerId={influencer.id} />}
             </div>
           ) : undefined
@@ -121,9 +127,9 @@ export default async function InfluencerPage({ params, searchParams }: { params:
             <TradingRecordPanel influencerId={influencer.id} {...record} today={today} serverNowSec={nowSec} />
           </>
         }
-        addressExtra={(a) => <RemoveAddressButton addressId={a.id} influencerId={influencer.id} address={a.address} />}
+        addressExtra={influencer.mine ? (a) => <RemoveAddressButton addressId={a.id} influencerId={influencer.id} address={a.address} /> : undefined}
         addressesFooter={
-          influencer.addresses.length < 5 ? <WatchAddressForm options={{ influencers: [], groups: [] }} influencerId={influencer.id} label="Add another address" /> : undefined
+          influencer.mine && influencer.addresses.length < 5 ? <WatchAddressForm options={{ influencers: [], groups: [] }} influencerId={influencer.id} label="Add another address" /> : undefined
         }
       />
     </>

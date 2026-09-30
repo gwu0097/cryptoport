@@ -26,10 +26,18 @@ import { getSharedInfluencer } from "@/lib/watchQuery";
 
 export type WatchActionResult = { ok: true; influencerId?: string } | { ok: false; error: string };
 
+// Shared groups (docs/wallet-watch/SHARED_GROUPS.md): a member can see
+// another member's influencers, but only their creator changes them. RLS
+// makes such an update match no row — silently — so every owner-only write
+// names the owner and checks that a row came back.
+const NOT_YOURS = "Only whoever added it can change that — it's shared with you.";
+const NOT_YOUR_GROUP = "Only the group's creator can do that.";
+
 /** The database's own messages for its caps and checks, in plain words. */
 function friendly(message: string): string {
   if (/up to 25 influencers|up to 5 addresses|limit of watched addresses|unsaved wallet searches/.test(message)) return message.replace(/^.*?(You can|An influencer|Wallet Watch)/, "$1");
   if (/duplicate key/.test(message)) return "That address is already on this influencer.";
+  if (/row-level security/.test(message)) return NOT_YOURS;
   if (/check constraint/.test(message)) return "Please check the name and link (names up to 80 characters).";
   return message;
 }
@@ -80,10 +88,14 @@ export async function watchAddress(input: {
   /** A Wallet search: watched like any address, but unsaved until named. */
   unsaved?: boolean;
 }): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const parsed = parseAddress(input.address);
   if ("error" in parsed) return { ok: false, error: parsed.error };
   const db = await userDb();
+  if (input.influencerId) {
+    const { data: own } = await db.from("watch_influencers").select("id").eq("id", input.influencerId).eq("user_id", user.id).maybeSingle();
+    if (!own) return { ok: false, error: NOT_YOURS };
+  }
 
   let influencerId = input.influencerId;
   const created = !influencerId;
@@ -142,12 +154,13 @@ export async function searchWallet(form: FormData): Promise<void> {
   const parsed = parseAddress(String(form.get("address") ?? ""));
   if ("error" in parsed) redirect(`/wallet-watch?searchError=${encodeURIComponent(parsed.error)}`);
   const db = await userDb();
-  const { data: mine } = await db.from("watch_influencer_addresses").select("influencer_id").eq("chain", parsed.chain).eq("address", parsed.address).limit(1);
+  // Already watched by you (not a shared group's): open it.
+  const { data: mine } = await db.from("watch_influencer_addresses").select("influencer_id").eq("chain", parsed.chain).eq("address", parsed.address).eq("user_id", user.id).limit(1);
   const existing = (mine as { influencer_id: string }[] | null)?.[0]?.influencer_id;
   if (existing) redirect(`/wallet-watch/${existing}`);
   // Room for it: the oldest unsaved searches go first (not the owner's).
   if (!isAdminEmail(user.email, process.env.ADMIN_EMAIL)) {
-    const { data: unsaved } = await db.from("watch_influencers").select("id").not("unsaved_since", "is", null).order("unsaved_since");
+    const { data: unsaved } = await db.from("watch_influencers").select("id").eq("user_id", user.id).not("unsaved_since", "is", null).order("unsaved_since");
     const over = ((unsaved ?? []) as { id: string }[]).slice(0, Math.max(0, (unsaved?.length ?? 0) - (UNSAVED_MAX - 1)));
     if (over.length > 0) await db.from("watch_influencers").delete().in("id", over.map((u) => u.id));
   }
@@ -159,63 +172,71 @@ export async function searchWallet(form: FormData): Promise<void> {
 
 /** Link and note (the name is renamed beside it: renameInfluencer). */
 export async function updateInfluencer(id: string, input: { link?: string; note?: string }): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const link = cleanLink(input.link);
   if (link && typeof link === "object") return { ok: false, error: link.error };
   const db = await userDb();
-  const { error } = await db
+  const { data, error } = await db
     .from("watch_influencers")
     .update({ link, note: input.note?.trim() || null })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select("id");
   if (error) return { ok: false, error: friendly(error.message) };
+  if (!data?.length) return { ok: false, error: NOT_YOURS };
   revalidate(id);
   return { ok: true };
 }
 
 export async function renameInfluencer(id: string, name: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const clean = name.trim();
   if (!clean) return { ok: false, error: "Give the influencer a name." };
   const db = await userDb();
   // Naming an unsaved Wallet search saves it — within the 25 the list allows
   // (the database checks that only when a row is added).
-  const { data: row } = await db.from("watch_influencers").select("unsaved_since").eq("id", id).maybeSingle();
-  const saving = !!row?.unsaved_since;
+  const { data: row } = await db.from("watch_influencers").select("unsaved_since").eq("id", id).eq("user_id", user.id).maybeSingle();
+  if (!row) return { ok: false, error: NOT_YOURS };
+  const saving = !!row.unsaved_since;
   if (saving) {
-    const { count } = await db.from("watch_influencers").select("id", { count: "exact", head: true }).is("unsaved_since", null);
+    const { count } = await db.from("watch_influencers").select("id", { count: "exact", head: true }).eq("user_id", user.id).is("unsaved_since", null);
     if ((count ?? 0) >= 25) return { ok: false, error: "You can watch up to 25 influencers — remove one to save this wallet." };
   }
-  const { error } = await db.from("watch_influencers").update({ name: clean, ...(saving ? { unsaved_since: null } : {}) }).eq("id", id);
+  const { error } = await db.from("watch_influencers").update({ name: clean, ...(saving ? { unsaved_since: null } : {}) }).eq("id", id).eq("user_id", user.id);
   if (error) return { ok: false, error: friendly(error.message) };
   revalidate(id);
   return { ok: true };
 }
 
 export async function removeInfluencer(id: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const db = await userDb();
-  const { error } = await db.from("watch_influencers").delete().eq("id", id);
+  const { data, error } = await db.from("watch_influencers").delete().eq("id", id).eq("user_id", user.id).select("id");
   if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: NOT_YOURS };
   revalidate();
   return { ok: true };
 }
 
 /** Stops watching several influencers at once (the list's select-and-delete). */
 export async function removeInfluencers(ids: string[]): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   if (ids.length === 0) return { ok: true };
   const db = await userDb();
-  const { error } = await db.from("watch_influencers").delete().in("id", ids);
+  const { data, error } = await db.from("watch_influencers").delete().in("id", ids).eq("user_id", user.id).select("id");
   if (error) return { ok: false, error: error.message };
   revalidate();
+  const skipped = ids.length - (data?.length ?? 0);
+  if (skipped > 0) return { ok: false, error: `${skipped} shared with you ${skipped === 1 ? "wasn't" : "weren't"} removed — only whoever added them can.` };
   return { ok: true };
 }
 
 export async function removeWatchedAddress(addressId: string, influencerId: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const db = await userDb();
-  const { data, error } = await db.from("watch_influencer_addresses").delete().eq("id", addressId).select("chain, address");
+  const { data, error } = await db.from("watch_influencer_addresses").delete().eq("id", addressId).eq("user_id", user.id).select("chain, address");
   if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: NOT_YOURS };
   const removed = (data as { chain: string; address: string }[] | null)?.[0];
   // Copies of this influencer made from its share link lose it too.
   if (removed) await syncCopies(influencerId, { kind: "remove", ...removed }).catch((e) => console.error(`Copies not updated: ${(e as Error).message}`));
@@ -226,9 +247,9 @@ export async function removeWatchedAddress(addressId: string, influencerId: stri
 /** A copy stops following the shared list it came from: its addresses are
  * then its own. */
 export async function stopFollowing(influencerId: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const db = await userDb();
-  const { error } = await db.from("watch_influencers").update({ copied_from: null }).eq("id", influencerId);
+  const { error } = await db.from("watch_influencers").update({ copied_from: null }).eq("id", influencerId).eq("user_id", user.id);
   if (error) return { ok: false, error: error.message };
   revalidate(influencerId);
   return { ok: true };
@@ -246,34 +267,111 @@ export async function createGroup(name: string): Promise<WatchActionResult> {
 }
 
 export async function renameGroup(id: string, name: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const clean = name.trim();
   if (!clean) return { ok: false, error: "Give the group a name." };
   const db = await userDb();
-  const { error } = await db.from("watch_groups").update({ name: clean }).eq("id", id);
+  const { data, error } = await db.from("watch_groups").update({ name: clean }).eq("id", id).eq("user_id", user.id).select("id");
   if (error) return { ok: false, error: friendly(error.message) };
+  if (!data?.length) return { ok: false, error: NOT_YOUR_GROUP };
   revalidate();
   return { ok: true };
 }
 
 export async function deleteGroup(id: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const db = await userDb();
-  const { error } = await db.from("watch_groups").delete().eq("id", id);
+  const { data, error } = await db.from("watch_groups").delete().eq("id", id).eq("user_id", user.id).select("id");
   if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: NOT_YOUR_GROUP };
   revalidate();
   return { ok: true };
 }
 
-/** Sets exactly which groups an influencer is in. */
-export async function setInfluencerGroups(influencerId: string, groupIds: string[]): Promise<WatchActionResult> {
+/** Shares a group (docs/wallet-watch/SHARED_GROUPS.md): its invite link's
+ * token, made on first share. The group's creator only. */
+export async function shareGroup(id: string): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const db = await userDb();
+  const { data, error } = await db.from("watch_groups").select("share_token").eq("id", id).eq("user_id", user.id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: NOT_YOUR_GROUP };
+  if (data.share_token) return { ok: true, token: data.share_token as string };
+  const token = crypto.randomUUID();
+  const { error: saveError } = await db.from("watch_groups").update({ share_token: token }).eq("id", id).eq("user_id", user.id);
+  if (saveError) return { ok: false, error: saveError.message };
+  revalidate();
+  return { ok: true, token };
+}
+
+/** Stops sharing: the link stops working and every member is removed (a
+ * later share starts with a new link and no members). */
+export async function stopSharingGroup(id: string): Promise<WatchActionResult> {
+  const user = await requireUser();
+  const db = await userDb();
+  const { data, error } = await db.from("watch_groups").update({ share_token: null }).eq("id", id).eq("user_id", user.id).select("id");
+  if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: NOT_YOUR_GROUP };
+  // The members' wallets leave the group with them (they stay theirs).
+  const { error: linksError } = await db.from("watch_group_influencers").delete().eq("group_id", id).neq("user_id", user.id);
+  if (linksError) return { ok: false, error: linksError.message };
+  const { error: membersError } = await db.from("watch_group_members").delete().eq("group_id", id);
+  if (membersError) return { ok: false, error: membersError.message };
+  revalidate();
+  return { ok: true };
+}
+
+/** A member leaves a shared group, or its creator removes a member. */
+export async function removeGroupMember(groupId: string, userId?: string): Promise<WatchActionResult> {
+  const user = await requireUser();
+  const db = await userDb();
+  const who = userId ?? user.id;
+  // The wallets they added leave the group with them (they stay theirs) —
+  // while they're still a member, so the delete is allowed.
+  const { error: linksError } = await db.from("watch_group_influencers").delete().eq("group_id", groupId).eq("user_id", who);
+  if (linksError) return { ok: false, error: linksError.message };
+  const { data, error } = await db.from("watch_group_members").delete().eq("group_id", groupId).eq("user_id", who).select("user_id");
+  if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: userId ? NOT_YOUR_GROUP : "You're not a member of that group." };
+  revalidate();
+  return { ok: true };
+}
+
+/** Who's in a group you're in: each person's name (the part of their email
+ * before the @) and whether they created it. One request. */
+export async function groupPeople(groupId: string): Promise<{ ok: true; people: { userId: string; name: string; isCreator: boolean; isYou: boolean }[] } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const db = await userDb();
+  const { data, error } = await db.rpc("watch_group_people", { p_group: groupId });
+  if (error) return { ok: false, error: error.message };
+  const rows = (data ?? []) as { user_id: string; name: string; is_creator: boolean }[];
+  return { ok: true, people: rows.map((r) => ({ userId: r.user_id, name: r.name, isCreator: r.is_creator, isYou: r.user_id === user.id })).sort((a, b) => Number(b.isCreator) - Number(a.isCreator) || a.name.localeCompare(b.name)) };
+}
+
+/** Joins the group an invite link names; to it on Wallet Watch. */
+export async function joinGroup(token: string): Promise<void> {
   await requireUser();
   const db = await userDb();
-  const { error: delError } = await db.from("watch_group_influencers").delete().eq("influencer_id", influencerId);
-  if (delError) return { ok: false, error: delError.message };
-  if (groupIds.length > 0) {
-    const { error } = await db.from("watch_group_influencers").insert(groupIds.map((group_id) => ({ group_id, influencer_id: influencerId })));
-    if (error) return { ok: false, error: friendly(error.message) };
+  const { data, error } = await db.rpc("join_watch_group", { p_token: token });
+  if (error) redirect(`/wallet-watch?searchError=${encodeURIComponent(error.message.replace(/^.*?(This group)/, "$1"))}`);
+  if (!data) redirect(`/wallet-watch?searchError=${encodeURIComponent("That invite link is no longer valid.")}`);
+  revalidate();
+  redirect(`/wallet-watch?group=${data as string}`);
+}
+
+/** Puts an influencer in a group or takes it out — one link at a time (a
+ * shared group's other links belong to its other members). Adding needs the
+ * influencer to be yours; any member takes one out (RLS). */
+export async function setInfluencerGroup(influencerId: string, groupId: string, on: boolean): Promise<WatchActionResult> {
+  const user = await requireUser();
+  const db = await userDb();
+  if (on) {
+    const { error } = await db.from("watch_group_influencers").upsert({ group_id: groupId, influencer_id: influencerId, user_id: user.id }, { onConflict: "group_id,influencer_id", ignoreDuplicates: true });
+    if (error) return { ok: false, error: /row-level security/.test(error.message) ? NOT_YOURS : friendly(error.message) };
+  } else {
+    const { data, error } = await db.from("watch_group_influencers").delete().eq("group_id", groupId).eq("influencer_id", influencerId).select("group_id");
+    if (error) return { ok: false, error: error.message };
+    if (!data?.length) return { ok: false, error: "That group isn't one you're in." };
   }
   revalidate(influencerId);
   return { ok: true };
@@ -297,7 +395,7 @@ export async function refreshInfluencers(influencerIds: string[]): Promise<JobSt
 export async function shareInfluencer(id: string): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
   await requireUser();
   const db = await userDb();
-  const { data, error } = await db.from("watch_influencers").select("share_token").eq("id", id).single();
+  const { data, error } = await db.from("watch_influencers").select("share_token").eq("id", id).eq("user_id", (await requireUser()).id).single();
   if (error) return { ok: false, error: error.message };
   if (data.share_token) return { ok: true, token: data.share_token as string };
   const token = crypto.randomUUID();
@@ -315,7 +413,7 @@ export async function shareInfluencer(id: string): Promise<{ ok: true; token: st
 export async function setInDirectory(influencerId: string, on: boolean): Promise<WatchActionResult> {
   await requireAdmin();
   const db = await userDb();
-  const { data, error } = await db.from("watch_influencers").select("id").eq("id", influencerId).maybeSingle(); // the owner's own (RLS)
+  const { data, error } = await db.from("watch_influencers").select("id").eq("id", influencerId).eq("user_id", (await requireUser()).id).maybeSingle(); // the owner's own
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: "Not one of your influencers." };
   if (on) {
@@ -412,9 +510,9 @@ export async function decideSuggestion(id: string, approve: boolean): Promise<Wa
 
 /** Turns the share link off; the old link stops working at once. */
 export async function unshareInfluencer(id: string): Promise<WatchActionResult> {
-  await requireUser();
+  const user = await requireUser();
   const db = await userDb();
-  const { error } = await db.from("watch_influencers").update({ share_token: null }).eq("id", id);
+  const { error } = await db.from("watch_influencers").update({ share_token: null }).eq("id", id).eq("user_id", user.id);
   if (error) return { ok: false, error: error.message };
   revalidate(id);
   return { ok: true };

@@ -5,7 +5,8 @@ import { watchGroupCookie } from "@/lib/watchGroupCookie";
 import { ConfirmActionButton } from "../ui/ConfirmActionButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Plus, Trash2, X } from "lucide-react";
+import { Check, Plus, Trash2, Users, X } from "lucide-react";
+import { GroupShareControls } from "./GroupShareControls";
 import { InlineName } from "@/components/ui/InlineName";
 import { createGroup, deleteGroup, renameGroup, type WatchActionResult } from "@/app/(app)/wallet-watch/actions";
 import { inputClass } from "@/components/ui/Field";
@@ -64,18 +65,20 @@ export function GroupTabs({ groups, selected, counts }: { groups: WatchGroup[]; 
           All <span className="opacity-70">({counts.all})</span>
         </Link>
         {groups.map((g) =>
-          selected?.id === g.id ? (
+          selected?.id === g.id && g.mine !== false ? (
             // The selected group renames beside its own tab (InlineName).
             <InlineName key={g.id} name={g.name} label="Rename group" maxLength={60} onSave={async (name) => {
               const r = await renameGroup(g.id, name);
               return r.ok ? null : r.error;
             }}>
-              <Link href={`/wallet-watch?group=${g.id}`} className={tabClass(true)}>
+              <Link href={`/wallet-watch?group=${g.id}`} className={`${tabClass(true)} inline-flex items-center gap-1`}>
+                {g.shared && <Users className="size-3.5" aria-label="Shared" />}
                 {g.name} <span className="opacity-70">({counts[g.id] ?? 0})</span>
               </Link>
             </InlineName>
           ) : (
-            <Link key={g.id} href={`/wallet-watch?group=${g.id}`} className={tabClass(false)}>
+            <Link key={g.id} href={`/wallet-watch?group=${g.id}`} className={`${tabClass(selected?.id === g.id)} inline-flex items-center gap-1`} title={g.shared ? (g.mine ? "Shared by you" : "Shared with you") : undefined}>
+              {g.shared && <Users className="size-3.5" aria-label="Shared" />}
               {g.name} <span className="opacity-70">({counts[g.id] ?? 0})</span>
             </Link>
           ),
@@ -90,7 +93,9 @@ export function GroupTabs({ groups, selected, counts }: { groups: WatchGroup[]; 
         )}
       </div>
       {selected && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-start gap-2">
+          <GroupShareControls group={selected} />
+          {selected.mine !== false && (
               <ConfirmActionButton
                 message={`Delete the group "${selected.name}"? Its influencers stay in Wallet Watch.`}
                 confirmLabel="Delete group"
@@ -108,6 +113,7 @@ export function GroupTabs({ groups, selected, counts }: { groups: WatchGroup[]; 
                   </Button>
                 )}
               />
+          )}
         </div>
       )}
     </div>
