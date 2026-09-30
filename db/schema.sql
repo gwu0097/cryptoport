@@ -2669,8 +2669,12 @@ as $$
 begin
   perform pg_advisory_xact_lock(hashtext('watch_caps:' || new.user_id::text));
   if tg_table_name = 'watch_influencers' then
-    if (select count(*) from cryptoport.watch_influencers where user_id = new.user_id) >= 25 then
-      raise exception 'You can watch up to 25 influencers';
+    if new.unsaved_since is null then
+      if (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is null) >= 25 then
+        raise exception 'You can watch up to 25 influencers';
+      end if;
+    elsif (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is not null) >= 10 then
+      raise exception 'You can have up to 10 unsaved wallet searches';
     end if;
   elsif tg_table_name = 'watch_influencer_addresses' then
     if (select count(*) from cryptoport.watch_influencer_addresses where influencer_id = new.influencer_id) >= 5 then
@@ -2980,3 +2984,11 @@ alter table cryptoport.solana_token_info
 -- change often is synced when its owner presses Refresh prices, at most once
 -- a day; no cron. At most 5 per user (setAutoSync in wallets/actions.ts).
 alter table cryptoport.wallets add column if not exists auto_sync boolean not null default false;
+
+-- 2026-09-30: Wallet search. A searched address is an influencer with
+-- unsaved_since set (its short address as the name): shown on the
+-- influencer page like any watched wallet, left out of the list and the
+-- Dashboard feed, saved by naming it (renameInfluencer), deleted by the
+-- daily tick after 10 days. The 25 cap counts saved ones; at most 10
+-- unsaved (watch_enforce_caps above, replaced the same day).
+alter table cryptoport.watch_influencers add column if not exists unsaved_since timestamptz;

@@ -12,6 +12,7 @@ import { GroupTabs } from "@/components/walletWatch/GroupTabs";
 import { WatchTable } from "@/components/walletWatch/WatchTable";
 import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
 import { RefreshWatchButton } from "@/components/walletWatch/RefreshWatchButton";
+import { WalletSearch } from "@/components/walletWatch/WalletSearch";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet Watch · CryptoPort" };
@@ -20,7 +21,7 @@ export const maxDuration = 300;
 
 const SUBTITLE = "Follow other people's wallets — influencers, funds, smart money — and group them by why you follow them";
 
-export default async function WalletWatchPage({ searchParams }: { searchParams: Promise<{ group?: string }> }) {
+export default async function WalletWatchPage({ searchParams }: { searchParams: Promise<{ group?: string; searchError?: string }> }) {
   scopePricesToUser(true); // the user's own coins and the Wallet Watch coins they see (docs/perf/PRICES_READ.md)
   const user = await getUser();
   if (!user) {
@@ -34,16 +35,16 @@ export default async function WalletWatchPage({ searchParams }: { searchParams: 
       </>
     );
   }
-  const { group } = await searchParams;
+  const { group, searchError } = await searchParams;
   return (
     <Suspense key={group ?? "all"} fallback={<Panel><p className="text-sm text-fg-muted">Loading…</p></Panel>}>
-      <WalletWatchContent groupId={group} />
+      <WalletWatchContent groupId={group} searchError={searchError} />
     </Suspense>
   );
 }
 
-async function WalletWatchContent({ groupId }: { groupId?: string }) {
-  const { groups, influencers } = await getWatchOverview();
+async function WalletWatchContent({ groupId, searchError }: { groupId?: string; searchError?: string }) {
+  const { groups, influencers, searched } = await getWatchOverview();
   const nowSec = requestNowSec();
   const selected = groups.find((g) => g.id === groupId) ?? null;
   const shown = selected ? influencers.filter((i) => i.groupIds.includes(selected.id)) : influencers;
@@ -57,11 +58,14 @@ async function WalletWatchContent({ groupId }: { groupId?: string }) {
         title="Wallet Watch"
         subtitle={SUBTITLE}
         actions={
-          <RefreshWatchButton
-            influencerIds={shown.map((i) => i.id)}
-            status={watchJobStatus(shown.flatMap((i) => i.addresses), nowSec * 1000)}
-            label={selected ? `Refresh ${selected.name}` : "Refresh all"}
-          />
+          <span className="flex flex-wrap items-start justify-end gap-2">
+            <WalletSearch searched={searched} error={searchError} />
+            <RefreshWatchButton
+              influencerIds={shown.map((i) => i.id)}
+              status={watchJobStatus(shown.flatMap((i) => i.addresses), nowSec * 1000)}
+              label={selected ? `Refresh ${selected.name}` : "Refresh all"}
+            />
+          </span>
         }
       />
       <GroupTabs groups={groups} selected={selected} counts={{ ...counts, all: influencers.length }} />

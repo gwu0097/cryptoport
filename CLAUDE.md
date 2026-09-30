@@ -237,6 +237,15 @@ owner's.
   only the change, so a copier's own additions and removals stay; copies of
   copies too). "Stop following" on the copy ends it; an influencer the user
   created follows nothing.
+  **Wallet search** (owner 2026-09-30; the search bar in Wallet Watch's
+  header, `WalletSearch` → `searchWallet`): an address opens on the
+  influencer page exactly as if watched (read now, trading record a click
+  away) as an influencer with `unsaved_since` set and its short address as
+  the name — left out of the list, groups, Insights and the Dashboard feed
+  (`readWatchBase`, `getWatchFeedTargets`), listed as "Recent searches";
+  naming it saves it (`renameInfluencer`, within the 25); the daily tick
+  deletes unsaved ones after 10 days; at most 10 (the oldest goes). An
+  address already watched opens its own page.
   **KOL directory** (Tools → `/wallet-watch/directory`,
   `docs/wallet-watch/DIRECTORY.md`): the owner's influencers marked for it
   (`watch_directory`, service role only — `setInDirectory`, `requireAdmin`;

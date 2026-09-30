@@ -9,6 +9,8 @@ export const maxDuration = 120;
 
 /** History kept (the screener's 400-day archive rule). */
 const RETENTION_DAYS = 400;
+/** A wallet searched but never named (Wallet search) is removed after this. */
+const UNSAVED_DAYS = 10;
 /** The day's prep marker (app_settings): once per morning. */
 const RUN_SETTING = "wallet_watch_run";
 
@@ -41,6 +43,7 @@ export async function POST(request: Request): Promise<Response> {
       await Promise.all([
         db.from("watched_movements").delete().lt("snapshot_at", cutoff.toISOString()),
         db.from("watched_address_daily").delete().lt("day", cutoff.toISOString().slice(0, 10)),
+        db.from("watch_influencers").delete().lt("unsaved_since", new Date(now - UNSAVED_DAYS * 86_400_000).toISOString()),
       ]);
     }
     const slots = await freeSlots().catch((e: Error) => {

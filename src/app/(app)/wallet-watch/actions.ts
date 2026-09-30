@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { serviceDb, userDb } from "@/lib/supabase";
@@ -27,7 +28,7 @@ export type WatchActionResult = { ok: true; influencerId?: string } | { ok: fals
 
 /** The database's own messages for its caps and checks, in plain words. */
 function friendly(message: string): string {
-  if (/up to 25 influencers|up to 5 addresses|limit of watched addresses/.test(message)) return message.replace(/^.*?(You can|An influencer|Wallet Watch)/, "$1");
+  if (/up to 25 influencers|up to 5 addresses|limit of watched addresses|unsaved wallet searches/.test(message)) return message.replace(/^.*?(You can|An influencer|Wallet Watch)/, "$1");
   if (/duplicate key/.test(message)) return "That address is already on this influencer.";
   if (/check constraint/.test(message)) return "Please check the name and link (names up to 80 characters).";
   return message;
@@ -76,6 +77,8 @@ export async function watchAddress(input: {
   name?: string;
   link?: string;
   groupIds?: string[];
+  /** A Wallet search: watched like any address, but unsaved until named. */
+  unsaved?: boolean;
 }): Promise<WatchActionResult> {
   await requireUser();
   const parsed = parseAddress(input.address);
@@ -89,7 +92,7 @@ export async function watchAddress(input: {
     if (!name) return { ok: false, error: "Give the influencer a name." };
     const link = cleanLink(input.link);
     if (link && typeof link === "object") return { ok: false, error: link.error };
-    const { data, error } = await db.from("watch_influencers").insert({ name, link }).select("id").single();
+    const { data, error } = await db.from("watch_influencers").insert({ name, link, ...(input.unsaved ? { unsaved_since: new Date().toISOString() } : {}) }).select("id").single();
     if (error) return { ok: false, error: friendly(error.message) };
     influencerId = data.id as string;
   }
@@ -121,6 +124,36 @@ export async function watchAddress(input: {
   return { ok: true, influencerId };
 }
 
+/** How many unsaved Wallet searches a user keeps; a new one past this
+ * replaces the oldest (the database refuses more than this). */
+const UNSAVED_MAX = 10;
+
+/**
+ * Wallet search (owner 2026-09-30): opens any address on the influencer
+ * page, exactly as if it were watched — read now, its trading record a
+ * click away — but unsaved: no name (its short address stands in), no
+ * group, not in the list. Naming it saves it (renameInfluencer); unsaved
+ * ones go after 10 days (the daily tick). An address the user already
+ * watches opens its own page instead.
+ */
+export async function searchWallet(form: FormData): Promise<void> {
+  await requireUser();
+  const parsed = parseAddress(String(form.get("address") ?? ""));
+  if ("error" in parsed) redirect(`/wallet-watch?searchError=${encodeURIComponent(parsed.error)}`);
+  const db = await userDb();
+  const { data: mine } = await db.from("watch_influencer_addresses").select("influencer_id").eq("chain", parsed.chain).eq("address", parsed.address).limit(1);
+  const existing = (mine as { influencer_id: string }[] | null)?.[0]?.influencer_id;
+  if (existing) redirect(`/wallet-watch/${existing}`);
+  // Room for it: the oldest unsaved searches go first.
+  const { data: unsaved } = await db.from("watch_influencers").select("id").not("unsaved_since", "is", null).order("unsaved_since");
+  const over = ((unsaved ?? []) as { id: string }[]).slice(0, Math.max(0, (unsaved?.length ?? 0) - (UNSAVED_MAX - 1)));
+  if (over.length > 0) await db.from("watch_influencers").delete().in("id", over.map((u) => u.id));
+  const short = parsed.address.length > 12 ? `${parsed.address.slice(0, 6)}…${parsed.address.slice(-4)}` : parsed.address;
+  const r = await watchAddress({ address: parsed.address, name: short, unsaved: true });
+  if (!r.ok) redirect(`/wallet-watch?searchError=${encodeURIComponent(r.error)}`);
+  redirect(`/wallet-watch/${r.influencerId}`);
+}
+
 /** Link and note (the name is renamed beside it: renameInfluencer). */
 export async function updateInfluencer(id: string, input: { link?: string; note?: string }): Promise<WatchActionResult> {
   await requireUser();
@@ -141,7 +174,15 @@ export async function renameInfluencer(id: string, name: string): Promise<WatchA
   const clean = name.trim();
   if (!clean) return { ok: false, error: "Give the influencer a name." };
   const db = await userDb();
-  const { error } = await db.from("watch_influencers").update({ name: clean }).eq("id", id);
+  // Naming an unsaved Wallet search saves it — within the 25 the list allows
+  // (the database checks that only when a row is added).
+  const { data: row } = await db.from("watch_influencers").select("unsaved_since").eq("id", id).maybeSingle();
+  const saving = !!row?.unsaved_since;
+  if (saving) {
+    const { count } = await db.from("watch_influencers").select("id", { count: "exact", head: true }).is("unsaved_since", null);
+    if ((count ?? 0) >= 25) return { ok: false, error: "You can watch up to 25 influencers — remove one to save this wallet." };
+  }
+  const { error } = await db.from("watch_influencers").update({ name: clean, ...(saving ? { unsaved_since: null } : {}) }).eq("id", id);
   if (error) return { ok: false, error: friendly(error.message) };
   revalidate(id);
   return { ok: true };

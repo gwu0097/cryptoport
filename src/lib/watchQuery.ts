@@ -50,6 +50,9 @@ export interface WatchedInfluencer {
   /** The shared influencer this one was copied from: its addresses follow
    * that one's (watchCopySync.ts). Null for one the user created. */
   copiedFrom: string | null;
+  /** Set while it's only a Wallet search (no name given yet): shown like a
+   * watched wallet, left out of the list, removed after 10 days. */
+  unsavedSince: string | null;
   groupIds: string[];
   addresses: WatchedAddressView[];
   /** Sum over addresses read at least once; null if none has been. */
@@ -92,7 +95,7 @@ function valueSnapshot(snapshot: WatchSnapshot, prices: PriceMap) {
   return { total, unpriced, assets: [...byAsset.values()] };
 }
 
-type InfluencerRow = { id: string; name: string; link: string | null; note: string | null; share_token: string | null; copied_from?: string | null };
+type InfluencerRow = { id: string; name: string; link: string | null; note: string | null; share_token: string | null; copied_from?: string | null; unsaved_since?: string | null };
 type WatchData = {
   influencers: InfluencerRow[];
   addresses: { id: string; influencer_id: string; chain: string; address: string }[];
@@ -111,7 +114,7 @@ const WATCHED_COLUMNS = "chain, address, snapshot, last_refresh_at, last_refresh
  * for its address list — readWatch. Read once per request (React cache). */
 const readWatchBase = cache(async (onlyId?: string) => {
   const db = await userDb();
-  const influencersQ = db.from("watch_influencers").select("id, name, link, note, share_token, copied_from, created_at").order("created_at");
+  const influencersQ = db.from("watch_influencers").select("id, name, link, note, share_token, copied_from, unsaved_since, created_at").order("created_at");
   const addressesQ = db.from("watch_influencer_addresses").select("id, influencer_id, chain, address").order("created_at");
   const linksQ = db.from("watch_group_influencers").select("group_id, influencer_id");
   const [influencers, addresses, groups, links, allWatched] = await Promise.all([
@@ -122,12 +125,19 @@ const readWatchBase = cache(async (onlyId?: string) => {
     onlyId ? null : db.from("watched_addresses").select(WATCHED_COLUMNS),
   ]);
   for (const r of [influencers, addresses, groups, links, allWatched]) if (r?.error) throw new Error(`Failed to load Wallet Watch: ${r.error.message}`);
+  const all = influencers.data as InfluencerRow[];
+  const allAddresses = addresses.data as { id: string; influencer_id: string; chain: string; address: string }[];
+  // The list leaves out unsaved searches (listed apart as `searched`); one
+  // influencer's page shows it either way.
+  const unsaved = onlyId ? [] : all.filter((i) => i.unsaved_since);
+  const hidden = new Set(unsaved.map((i) => i.id));
   return {
-    influencers: influencers.data as InfluencerRow[],
-    addresses: addresses.data as { id: string; influencer_id: string; chain: string; address: string }[],
+    influencers: all.filter((i) => !hidden.has(i.id)),
+    addresses: allAddresses.filter((a) => !hidden.has(a.influencer_id)),
     groups: groups.data as WatchGroup[],
-    links: links.data as { group_id: string; influencer_id: string }[],
+    links: (links.data as { group_id: string; influencer_id: string }[]).filter((l) => !hidden.has(l.influencer_id)),
     allWatched: allWatched ? (allWatched.data as WatchedRow[]) : null,
+    searched: unsaved.map((i) => ({ id: i.id, name: i.name, unsavedSince: i.unsaved_since!, addresses: allAddresses.filter((a) => a.influencer_id === i.id).map((a) => a.address) })),
   };
 });
 
@@ -161,9 +171,18 @@ export async function getInfluencerFeed(id: string): Promise<(WatchFeedInfluence
   };
 }
 
-export async function getWatchOverview(): Promise<{ groups: WatchGroup[]; influencers: WatchedInfluencer[] }> {
+/** A Wallet search not saved yet (listed under the search bar). */
+export interface SearchedWallet {
+  id: string;
+  name: string;
+  unsavedSince: string;
+  addresses: string[];
+}
+
+export async function getWatchOverview(): Promise<{ groups: WatchGroup[]; influencers: WatchedInfluencer[]; searched: SearchedWallet[] }> {
   const { groups, influencers } = await loadOverview();
-  return { groups, influencers };
+  const searched = (await getUser()) ? (await readWatchBase()).searched : [];
+  return { groups, influencers, searched };
 }
 
 /** The overview plus each watched address's stored snapshot, keyed
@@ -278,6 +297,7 @@ function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[
       note: inf.note,
       shareToken: inf.share_token,
       copiedFrom: inf.copied_from ?? null,
+      unsavedSince: inf.unsaved_since ?? null,
       groupIds: data.links.filter((l) => l.influencer_id === inf.id).map((l) => l.group_id),
       addresses,
       valueUsd: value,
@@ -416,7 +436,8 @@ export type WatchFeedInfluencer = Pick<WatchedInfluencer, "id" | "name" | "group
 export async function getWatchFeedTargets(): Promise<{ groups: WatchGroup[]; influencers: WatchFeedInfluencer[] }> {
   const db = await userDb();
   const [influencers, addresses, groups, links] = await Promise.all([
-    db.from("watch_influencers").select("id, name").order("created_at"),
+    // Unsaved Wallet searches aren't in the Dashboard's feed.
+    db.from("watch_influencers").select("id, name").is("unsaved_since", null).order("created_at"),
     db.from("watch_influencer_addresses").select("influencer_id, chain, address"),
     db.from("watch_groups").select("id, name").order("created_at"),
     db.from("watch_group_influencers").select("group_id, influencer_id"),

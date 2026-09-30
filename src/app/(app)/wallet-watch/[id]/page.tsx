@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { GroupChips } from "@/components/walletWatch/GroupChips";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { getChainIconMap, scopePricesToUser } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -64,6 +65,13 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         title={<InfluencerTitle influencer={influencer} name={<InfluencerName id={influencer.id} name={influencer.name} />} />}
         subtitle={
           <>
+            {influencer.unsavedSince && (
+              // A Wallet search: naming it (the pencil) saves it.
+              <span className="mb-1 inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning">
+                Unsaved search · name it to keep it
+                <InfoTooltip>Shown like a watched wallet so you can check its trading record. Give it a name with the pencil to add it to your list; unsaved searches are removed after 10 days.</InfoTooltip>
+              </span>
+            )}
             {influencer.note}
             <GroupChips influencerId={influencer.id} groupIds={influencer.groupIds} groups={groups} />
           </>
