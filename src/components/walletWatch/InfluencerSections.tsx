@@ -2,7 +2,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { isInProgressStatus } from "@/lib/jobStatus";
 import { ExternalLink, Search } from "lucide-react";
-import { CopyButton } from "@/components/CopyButton";
+import { TruncatedAddress } from "@/components/TruncatedAddress";
+import { CollapsiblePanel } from "@/components/ui/CollapsiblePanel";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import type { InfluencerDetail, WatchedInfluencer, WatchMovementView } from "@/lib/watchQuery";
 import { externalPortfolioViewer } from "@/lib/walletDisplay";
 import { formatUsd } from "@/lib/format";
@@ -14,7 +16,7 @@ import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { ActivityFeed } from "@/components/walletWatch/ActivityFeed";
 import { CheckboxLink } from "@/components/ui/CheckboxLink";
 
-// An influencer's page body — value, chart, activity, addresses, holdings —
+// An influencer's page body — value and addresses, activity, holdings, chart —
 // shared by the owner's page (/wallet-watch/[id]) and a shared link
 // (/wallet-watch/shared/[token]). The owner's page adds its own controls
 // through the slots.
@@ -57,6 +59,7 @@ export function InfluencerSections({
   activityTop,
   addressExtra,
   addressesFooter,
+  headerFooter,
 }: {
   influencer: WatchedInfluencer;
   holdings: InfluencerDetail["holdings"];
@@ -76,79 +79,79 @@ export function InfluencerSections({
   /** Per-address controls (the owner's remove button). */
   addressExtra?: (address: WatchedInfluencer["addresses"][number]) => ReactNode;
   addressesFooter?: ReactNode;
+  /** Rare owner switches under the header card (live updates, directory, following). */
+  headerFooter?: ReactNode;
 }) {
+  // Owner 2026-09-30: the addresses near the top to copy, the width used,
+  // sections collapsible (Fable's layout). The header card: value left,
+  // addresses right; then Activity, the trading record, holdings, the chart.
   return (
     <>
-      <Panel className="mb-4">
-        <p className="text-3xl font-semibold tabular-nums text-fg">{influencer.valueUsd === null ? "—" : formatUsd(influencer.valueUsd)}</p>
-        <p className="mt-1 text-xs text-fg-muted">
-          Last read at today&apos;s prices{influencer.unpricedCount > 0 ? ` · ${influencer.unpricedCount} holdings unpriced or illiquid, not counted` : ""}.
-        </p>
-        {valueExtra && <div className="mt-4">{valueExtra}</div>}
+      <Panel className="mb-4" footer={headerFooter}>
+        <div className="grid gap-x-8 gap-y-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+          <div className="min-w-0">
+            <p className="text-3xl font-semibold tabular-nums text-fg">{influencer.valueUsd === null ? "—" : formatUsd(influencer.valueUsd)}</p>
+            <p className="mt-1 text-xs text-fg-muted">
+              Last read at today&apos;s prices{influencer.unpricedCount > 0 ? ` · ${influencer.unpricedCount} holdings unpriced or illiquid, not counted` : ""}.
+            </p>
+            {valueExtra && <div className="mt-4">{valueExtra}</div>}
+          </div>
+          <div className="min-w-0">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-fg">
+                Addresses ({influencer.addresses.length})
+                <InfoTooltip>Lookup links open the address on CryptoPort for anyone — no account needed.</InfoTooltip>
+              </h3>
+              {influencer.addresses.length > 0 && (
+                <ShareLinkButton
+                  paths={influencer.addresses.map((a) => lookupPath(a.address))}
+                  label={influencer.addresses.length > 1 ? `Copy ${influencer.addresses.length} lookup links` : "Copy lookup link"}
+                />
+              )}
+            </div>
+            <ul className="divide-y divide-border/60">
+              {influencer.addresses.map((a) => {
+                const viewer = externalPortfolioViewer(a.chain, a.address);
+                return (
+                  <li key={a.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 py-1.5 text-sm">
+                    <span className="rounded bg-surface-raised px-1.5 py-0.5 text-xs text-fg-muted">{a.chain}</span>
+                    <span className="font-mono text-xs text-fg">
+                      <TruncatedAddress address={a.address} chars={4} />
+                    </span>
+                    {viewer && (
+                      <a href={viewer.url} target="_blank" rel="noopener noreferrer" title={`View on ${viewer.label}`} className="text-fg-muted hover:text-fg">
+                        <ExternalLink className="size-3.5" aria-hidden="true" />
+                      </a>
+                    )}
+                    <Link href={lookupPath(a.address)} title="Open in CryptoPort lookup" aria-label="Open in CryptoPort lookup" className="text-fg-muted hover:text-fg">
+                      <Search className="size-3.5" aria-hidden="true" />
+                    </Link>
+                    <ShareLinkButton compact paths={[lookupPath(a.address)]} label="Copy lookup link" />
+                    <span className="ml-auto tabular-nums text-fg-muted">{a.valueUsd === null ? "—" : formatUsd(a.valueUsd)}</span>
+                    <span className="text-xs text-fg-muted">
+                      {isInProgressStatus(a.refreshStatus) ? "reading now…" : <AgeText at={a.lastRefreshAt} serverNowSec={serverNowSec} prefix="read " />}
+                    </span>
+                    {a.lastRefreshStatus && a.lastRefreshStatus !== "ok" && !isInProgressStatus(a.refreshStatus) && (
+                      <span className={`text-xs ${a.lastRefreshStatus.startsWith("error:") ? "text-negative" : "text-warning"}`} title={a.lastRefreshStatus}>
+                        {a.lastRefreshStatus.startsWith("error:") ? "last read failed" : "partly read"}
+                      </span>
+                    )}
+                    {addressExtra?.(a)}
+                  </li>
+                );
+              })}
+            </ul>
+            {addressesFooter && <div className="mt-3">{addressesFooter}</div>}
+          </div>
+        </div>
       </Panel>
 
-      {afterValue}
-      <Panel title="Value over time" className="mb-4">
-        {daily.length < 2 ? (
-          <p className="text-sm text-fg-muted">The chart fills in as the wallet is read each day ({daily.length} day{daily.length === 1 ? "" : "s"} so far).</p>
-        ) : (
-          <ValueChart points={daily.map((d) => ({ ...d, kind: "real" as const }))} rangeStorageKey="cryptoport:watchValueRange" />
-        )}
-      </Panel>
-
-      <Panel title="Activity" description="Changes between reads, sized at that read's price." className="mb-4">
+      <CollapsiblePanel storageKey="cryptoport:watchActivityOpen" title="Activity" description="Changes between reads, sized at that read's price." className="mb-4">
         {activityTop}
         <ActivityFeed movements={movements} serverNowSec={serverNowSec} showNames={false} showWallet={influencer.addresses.length > 1} />
-      </Panel>
+      </CollapsiblePanel>
 
-      <Panel
-        title={
-          <span className="flex flex-wrap items-center justify-between gap-2">
-            Addresses
-            {influencer.addresses.length > 0 && (
-              <ShareLinkButton
-                paths={influencer.addresses.map((a) => lookupPath(a.address))}
-                label={influencer.addresses.length > 1 ? `Copy ${influencer.addresses.length} lookup links` : "Copy lookup link"}
-              />
-            )}
-          </span>
-        }
-        description="Lookup links open the address on CryptoPort for anyone — no account needed."
-        className="mb-4"
-      >
-        <ul className="space-y-2">
-          {influencer.addresses.map((a) => {
-            const viewer = externalPortfolioViewer(a.chain, a.address);
-            return (
-              <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <span className="rounded bg-surface-raised px-1.5 py-0.5 text-xs text-fg-muted">{a.chain}</span>
-                <span className="break-all font-mono text-xs text-fg">{a.address}</span>
-                <CopyButton value={a.address} label="Copy address" title={`Copy the address: ${a.address}`} />
-                {viewer && (
-                  <a href={viewer.url} target="_blank" rel="noopener noreferrer" title={`View on ${viewer.label}`} className="text-fg-muted hover:text-fg">
-                    <ExternalLink className="size-3.5" aria-hidden="true" />
-                  </a>
-                )}
-                <Link href={lookupPath(a.address)} title="Open in CryptoPort lookup" aria-label="Open in CryptoPort lookup" className="text-fg-muted hover:text-fg">
-                  <Search className="size-3.5" aria-hidden="true" />
-                </Link>
-                <ShareLinkButton compact paths={[lookupPath(a.address)]} label="Copy lookup link" />
-                <span className="tabular-nums text-fg-muted">{a.valueUsd === null ? "—" : formatUsd(a.valueUsd)}</span>
-                <span className="text-xs text-fg-muted">
-                  {isInProgressStatus(a.refreshStatus) ? "reading now…" : <AgeText at={a.lastRefreshAt} serverNowSec={serverNowSec} prefix="read " />}
-                </span>
-                {a.lastRefreshStatus && a.lastRefreshStatus !== "ok" && !isInProgressStatus(a.refreshStatus) && (
-                  <span className={`text-xs ${a.lastRefreshStatus.startsWith("error:") ? "text-negative" : "text-warning"}`} title={a.lastRefreshStatus}>
-                    {a.lastRefreshStatus.startsWith("error:") ? "last read failed" : "partly read"}
-                  </span>
-                )}
-                {addressExtra?.(a)}
-              </li>
-            );
-          })}
-        </ul>
-        {addressesFooter && <div className="mt-4">{addressesFooter}</div>}
-      </Panel>
+      {afterValue}
 
       <h2 className="mb-2 text-sm font-medium text-fg-muted">
         Holdings across {influencer.addresses.length === 1 ? "its address" : `all ${influencer.addresses.length} addresses`}
@@ -178,6 +181,20 @@ export function InfluencerSections({
           <p className="text-sm text-fg-muted">{influencer.addresses.some((a) => isInProgressStatus(a.refreshStatus)) ? "Reading these addresses…" : "Not read yet."}</p>
         </Panel>
       )}
+
+      <CollapsiblePanel
+        storageKey="cryptoport:watchChartOpen"
+        defaultOpen={daily.length >= 7}
+        title="Value over time"
+        summary={`${daily.length} day${daily.length === 1 ? "" : "s"} so far`}
+        className="mt-4"
+      >
+        {daily.length < 2 ? (
+          <p className="text-sm text-fg-muted">The chart fills in as the wallet is read each day ({daily.length} day{daily.length === 1 ? "" : "s"} so far).</p>
+        ) : (
+          <ValueChart points={daily.map((d) => ({ ...d, kind: "real" as const }))} rangeStorageKey="cryptoport:watchValueRange" />
+        )}
+      </CollapsiblePanel>
     </>
   );
 }

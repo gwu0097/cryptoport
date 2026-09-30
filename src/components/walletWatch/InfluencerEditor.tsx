@@ -4,30 +4,16 @@ import { useState, useTransition } from "react";
 import { ConfirmActionButton } from "../ui/ConfirmActionButton";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, X } from "lucide-react";
-import { removeInfluencer, removeWatchedAddress, setInfluencerGroups, updateInfluencer } from "@/app/(app)/wallet-watch/actions";
+import { removeInfluencer, removeWatchedAddress, updateInfluencer } from "@/app/(app)/wallet-watch/actions";
 import { Field, inputClass } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
-import type { WatchGroup } from "@/lib/watchQuery";
 
-/** Name, link, note and groups of one influencer; remove it. */
-export function InfluencerEditor({
-  influencer,
-  groups,
-}: {
-  influencer: { id: string; name: string; link: string | null; note: string | null; groupIds: string[] };
-  groups: WatchGroup[];
-}) {
+/** Name, link and note of one influencer; remove it (its groups: GroupChips). */
+export function InfluencerEditor({ influencer }: { influencer: { id: string; name: string; link: string | null; note: string | null; groupIds: string[] } }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-
-  const toggleGroup = (groupId: string, on: boolean) =>
-    start(async () => {
-      const next = on ? [...influencer.groupIds, groupId] : influencer.groupIds.filter((g) => g !== groupId);
-      const r = await setInfluencerGroups(influencer.id, next);
-      if (!r.ok) setError(r.error);
-    });
 
   return (
     <div className="space-y-3">
@@ -89,18 +75,6 @@ export function InfluencerEditor({
         </div>
       )}
 
-      <div className="text-sm">
-        <span className="mr-3 text-fg-muted">Groups:</span>
-        {groups.length === 0 ? (
-          <span className="text-fg-muted">none yet — create one on Wallet Watch</span>
-        ) : (
-          groups.map((g) => (
-            <label key={g.id} className="mr-4 inline-flex items-center gap-1.5">
-              <input type="checkbox" disabled={pending} checked={influencer.groupIds.includes(g.id)} onChange={(e) => toggleGroup(g.id, e.target.checked)} /> {g.name}
-            </label>
-          ))
-        )}
-      </div>
       {error && <p className="text-xs text-negative">{error}</p>}
     </div>
   );

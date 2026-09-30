@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GroupChips } from "@/components/walletWatch/GroupChips";
 import { getChainIconMap, scopePricesToUser } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -61,7 +62,12 @@ export default async function InfluencerPage({ params, searchParams }: { params:
       </Link>
       <PageHeader
         title={<InfluencerTitle influencer={influencer} />}
-        subtitle={influencer.note ?? undefined}
+        subtitle={
+          <>
+            {influencer.note}
+            <GroupChips influencerId={influencer.id} groupIds={influencer.groupIds} groups={groups} />
+          </>
+        }
         actions={
           <span className="flex flex-wrap items-start justify-end gap-2">
             <ShareInfluencerButton influencerId={influencer.id} shareToken={influencer.shareToken} />
@@ -78,13 +84,15 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         daily={daily}
         serverNowSec={nowSec}
         baseHref={`/wallet-watch/${influencer.id}`}
-        valueExtra={
-          <>
-            <InfluencerEditor influencer={influencer} groups={groups} />
-            {influencer.copiedFrom && <FollowingNote influencerId={influencer.id} />}
-            {inDirectory !== null && <DirectoryToggle influencerId={influencer.id} inDirectory={inDirectory} />}
-            {live && live.addresses > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
-          </>
+        valueExtra={<InfluencerEditor influencer={influencer} />}
+        headerFooter={
+          influencer.copiedFrom || inDirectory !== null || (live && live.addresses > 0) ? (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 [&>*]:mt-0">
+              {live && live.addresses > 0 && <LiveToggle influencerId={influencer.id} live={live.live} liveSince={live.liveSince} lastEventAt={live.lastEventAt} serverNowSec={nowSec} />}
+              {inDirectory !== null && <DirectoryToggle influencerId={influencer.id} inDirectory={inDirectory} />}
+              {influencer.copiedFrom && <FollowingNote influencerId={influencer.id} />}
+            </div>
+          ) : undefined
         }
         activityTop={
           <>

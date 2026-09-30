@@ -8,9 +8,9 @@ import { Copy, Check } from "lucide-react";
  * native `title` tooltip, plus a one-click copy-to-clipboard button. Client
  * component only for the clipboard call; the truncation itself is plain
  * string slicing, no interactivity needed for that part. */
-export function TruncatedAddress({ address }: { address: string }) {
+export function TruncatedAddress({ address, chars = 5 }: { address: string; chars?: number }) {
   const [copied, setCopied] = useState(false);
-  const truncated = address.length > 12 ? `${address.slice(0, 5)}…${address.slice(-5)}` : address;
+  const truncated = address.length > chars * 2 + 2 ? `${address.slice(0, chars)}…${address.slice(-chars)}` : address;
 
   async function copy() {
     try {

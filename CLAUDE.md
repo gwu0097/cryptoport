@@ -874,6 +874,16 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `useDayActivity` + `DayStatus` + `DayTable` (the Dashboard puts the status
   in its header and listens for live updates only on that tab;
   `DayActivity` composes the same parts on the Wallet Watch pages).
+- **A section a reader may not need every time is collapsible**
+  (`ui/CollapsiblePanel`: the title toggles it, remembered per browser,
+  a summary beside the title when collapsed, actions still reachable).
+  An influencer's page (Fable, 2026-09-30): a header card with the value
+  left and every address right (chain · first/last 4 · copy, links),
+  groups as chips under the title (`GroupChips`), rare switches in the
+  card's footer; then Activity, Trading record, Holdings, Value over time
+  (collapsed under 7 days of data). Confirmations happen in the page
+  (`ConfirmActionButton`), never `window.confirm` — an app's built-in
+  browser can block it and the button then does nothing.
 - **The sidebar and the mobile drawer share one layout:** pinned header,
   links in their own scroll area (`min-h-0 flex-1 overflow-y-auto
   overscroll-contain`), Admin/Settings pinned at the bottom; heights in `dvh`

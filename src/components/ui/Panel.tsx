@@ -45,7 +45,7 @@ export function Panel({
           {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
         </div>
       )}
-      {hasHeader ? <div className={`${compact ? "mt-3" : "mt-4"} min-h-0 flex-1`}>{children}</div> : children}
+      {hasHeader ? children != null && children !== false && <div className={`${compact ? "mt-3" : "mt-4"} min-h-0 flex-1`}>{children}</div> : children}
       {footer && <div className={`${compact ? "mt-3" : "mt-4"} border-t border-border pt-3 text-xs text-fg-muted`}>{footer}</div>}
     </div>
   );
