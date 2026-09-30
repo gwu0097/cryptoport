@@ -2,7 +2,7 @@ import "server-only";
 import { serviceDb } from "./supabase";
 import { postDiscord, DISCORD_MAX_EMBEDS } from "./adapters/discordWebhook";
 import { coinDays, type CoinDay, type TxActivity } from "./watchActivity";
-import { alertEmbed, watchAlerts } from "./watchAlerts";
+import { alertEmbed, walletTradesLink, watchAlerts } from "./watchAlerts";
 import { renderCloseCard } from "./closeCardImage";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { getMarketFor } from "./queries";
@@ -65,7 +65,7 @@ export async function sendWatchAlerts(chain: string, address: string, before: Tx
             image = name;
           }
         }
-        embeds.push(alertEmbed(trader, a, link, image));
+        embeds.push(alertEmbed(trader, a, link, image, walletTradesLink(chain, address)));
       }
       await postDiscord(url, content, roleId, embeds, files);
     }

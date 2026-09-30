@@ -150,7 +150,7 @@ owner's.
   (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
   (`watchAlertSend.ts` → `adapters/discordWebhook.ts`, as cards — `alertEmbed`:
   coloured by kind, the title linked to the coin on Fomo (Solana) or
-  DexScreener (EVM), CryptoPort linked on an open only; the only ping of
+  DexScreener (EVM), CryptoPort linked on an open only, and on every card "Wallet trades" beside the contract — Solscan's DeFi activities (Solana) or DeBank's history (EVM), `walletTradesLink`, owner 2026-09-30; the only ping of
   `DISCORD_WATCH_ROLE_ID` is a position opened today reaching $200 — owner
   2026-09-29: "rest is noise"; a sell-out within the hour of opening says
   it was a flip; nobody else is ever pinged).

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alertEmbed, exitReturnPct, tokenLink, watchAlerts } from "./watchAlerts.ts";
+import { alertEmbed, exitReturnPct, tokenLink, walletTradesLink, watchAlerts } from "./watchAlerts.ts";
 import { appendLegs, coinDays, type ActivityLeg, type TxActivity } from "./watchActivity.ts";
 
 const BOUNDARY = "2026-09-28T08:00:00Z";
@@ -152,4 +152,12 @@ test("a close carries its image's figures, and its card shows the attached image
   assert.equal(withImage.description, "`GemMint111`"); // the image carries the numbers
   assert.match(alertEmbed("Risk", a, null).description, /^# 🟢/); // no image: the text keeps them
   assert.equal(open.alerts[0].card, undefined); // an open has no image
+});
+
+test("every card links the wallet's trades beside the contract: Solscan for Solana, DeBank for EVM", () => {
+  const open = deliver(null, swap(100_000, 0.01));
+  const e = alertEmbed("Risk", open.alerts[0], null, undefined, walletTradesLink("SOL", "Addr1"));
+  assert.match(e.description, /`GemMint111` · \[Wallet trades ↗\]\(https:\/\/solscan\.io\/account\/Addr1#defiactivities\)$/);
+  assert.equal(walletTradesLink("ETH", "0xabc")?.url, "https://debank.com/profile/0xabc/history");
+  assert.equal(walletTradesLink("BTC", "bc1q"), null);
 });

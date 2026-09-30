@@ -290,6 +290,16 @@ export function tokenLink(chain: string | null, contract: string | null): string
   return slug ? `https://dexscreener.com/${slug}/${contract}` : null;
 }
 
+/** Where the wallet's recent trades are listed (owner 2026-09-30; our own
+ * page shows holdings, not trades): Solscan's DeFi activities (its swaps)
+ * for a Solana address, DeBank's history for an EVM one. `chain` is the
+ * watched address's ("SOL", "ETH"). */
+export function walletTradesLink(chain: string, address: string): { url: string; label: string } | null {
+  if (chain === "SOL") return { url: `https://solscan.io/account/${address}#defiactivities`, label: "Solscan" };
+  if (chain === "ETH") return { url: `https://debank.com/profile/${address}/history`, label: "DeBank" };
+  return null;
+}
+
 export interface DiscordEmbed {
   title: string;
   url?: string;
@@ -303,13 +313,16 @@ export interface DiscordEmbed {
  * title (linked to the coin's trading page) who and what, then the numbers
  * and the contract to copy. The trader's CryptoPort page is linked on an
  * open only. */
-export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | null, imageName?: string): DiscordEmbed {
+export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | null, imageName?: string, tradesLink?: { url: string; label: string } | null): DiscordEmbed {
   const url = tokenLink(a.chain, a.contract);
   // With its image, a close says it all there: the card keeps only the
   // contract to copy (owner 2026-09-30). Without one (it failed to draw),
   // the numbers stay in the text.
   const lines = imageName ? [] : [a.detail];
-  if (a.contract) lines.push(`\`${a.contract}\``);
+  // The contract to copy, then the wallet's trades on one line.
+  const trades = tradesLink ? `[Wallet trades ↗](${tradesLink.url})` : "";
+  const copy = a.contract ? `\`${a.contract}\`` : "";
+  if (copy || trades) lines.push([copy, trades].filter(Boolean).join(" · "));
   if (traderLink && a.kind === "opened") lines.push(`[${trader} on CryptoPort](${traderLink})`);
   const style = styleOf(a);
   return { title: `${style.emoji} ${trader} ${a.headline}`.slice(0, 256), ...(url ? { url } : {}), description: lines.join("\n"), color: style.color, ...(imageName ? { image: { url: `attachment://${imageName}` } } : {}) };
