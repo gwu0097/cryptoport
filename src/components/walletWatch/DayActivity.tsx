@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, RefreshCw } from "lucide-react";
 import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import type { CoinTrade } from "@/lib/watchActivity";
 import { foldSoldOut, soldOut } from "@/lib/activityFold";
@@ -259,7 +259,7 @@ function CoinPriceButton({ priceKey, ticker, onPrice }: { priceKey: string; tick
 }
 
 /** One coin's row, and its trades underneath when opened. */
-function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number }) {
+function CoinRows({ c, isNew, showNames, serverNowSec, nested = false }: { c: WatchCoinDay; isNew: boolean; showNames: boolean; serverNowSec: number; nested?: boolean }) {
   const [open, setOpen] = useState(false);
   const [refreshed, setRefreshed] = useState<Refreshed | null>(null);
   const period = useContext(PeriodContext);
@@ -279,13 +279,20 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
   const cols = showNames ? 8 : 7;
   return (
     <>
-      <tr className={trClass}>
+      <tr className={nested ? `${trClass} ${NESTED_ROW}` : trClass}>
         {showNames && (
           <td className={tdClass}>
-            {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-            <Link href={`/wallet-watch/${c.influencerId}`} className="font-medium text-fg hover:underline">
-              {c.influencerName}
-            </Link>
+            {nested ? (
+              // Inside an opened group: the trader is the group's row above.
+              <span className="pl-2 text-fg-muted" aria-hidden="true">↳</span>
+            ) : (
+              <>
+                {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
+                <Link href={`/wallet-watch/${c.influencerId}`} className="font-medium text-fg hover:underline">
+                  {c.influencerName}
+                </Link>
+              </>
+            )}
           </td>
         )}
         <td className={tdClass}>
@@ -380,7 +387,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
         </td>
       </tr>
       {open && (
-        <tr className="border-b border-border/60">
+        <tr className={`border-b border-border/60 ${nested ? NESTED_ROW : ""}`}>
           <td colSpan={cols} className="px-3 pb-3">
             <ul className="space-y-0.5 border-l border-border/60 pl-3 text-xs">
               {c.trades.map((t) => (
@@ -403,6 +410,10 @@ function CoinRows({ c, isNew, showNames, serverNowSec }: { c: WatchCoinDay; isNe
   );
 }
 
+/** An opened group's coin rows: tinted, with the group's accent edge, so
+ * they read as the group's (owner 2026-09-30: which row closes it?). */
+const NESTED_ROW = "bg-surface-raised/40 [&>td:first-child]:border-l-2 [&>td:first-child]:border-accent/50";
+
 /** A trader's sold-out coins on one row: how many, totals, net result
  * and the tickers colored by result — their coin rows behind a toggle. */
 function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchCoinDay[]; latest: number; showNames: boolean; serverNowSec: number }) {
@@ -416,7 +427,12 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
   const byResult = [...coins].sort((a, b) => Math.abs(b.realizedUsd ?? 0) - Math.abs(a.realizedUsd ?? 0));
   return (
     <>
-      <tr className={`${trClass} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+      <tr
+        className={`${trClass} cursor-pointer ${open ? "bg-surface-raised [&>td:first-child]:border-l-2 [&>td:first-child]:border-accent" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        title={open ? "Hide these coins" : "Show these coins"}
+      >
         {showNames && (
           <td className={tdClass}>
             {isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
@@ -427,7 +443,10 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
         )}
         <td className={tdClass}>
           {!showNames && isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-          <span className="font-semibold text-fg">{coins.length} coins sold out {period}</span>
+          <span className="inline-flex items-center gap-1 font-semibold text-fg">
+            {open ? <ChevronDown className="size-4 text-accent" aria-hidden="true" /> : <ChevronRight className="size-4 text-fg-muted" aria-hidden="true" />}
+            {coins.length} coins sold out {period}
+          </span>
           <p className="text-xs text-fg-muted">
             {sum((c) => c.buys)} buys · {sum((c) => c.sells)} sells
           </p>
@@ -454,7 +473,7 @@ function TraderGroup({ coins, latest, showNames, serverNowSec }: { coins: WatchC
           </span>
         </td>
       </tr>
-      {open && coins.map((c) => <CoinRows key={c.assetKey} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} />)}
+      {open && coins.map((c) => <CoinRows key={c.assetKey} c={c} isNew={Date.parse(c.firstCheckedAt) >= latest} showNames={showNames} serverNowSec={serverNowSec} nested />)}
     </>
   );
 }
