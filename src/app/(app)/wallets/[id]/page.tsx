@@ -8,7 +8,9 @@ import { getWalletUnrecognizedTokens } from "@/lib/unrecognizedTokensQuery";
 import { UnrecognizedTokensPanel } from "@/components/wallets/UnrecognizedTokensPanel";
 import { isExtendedPublicKey, pinnedWalletChain, externalPortfolioViewer } from "@/lib/walletDisplay";
 import { Panel } from "@/components/ui/Panel";
-import { TotalValuePanel } from "@/components/TotalValuePanel";
+import { TotalValueFigure } from "@/components/TotalValuePanel";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { isSyncNote } from "@/lib/syncNotes";
 import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { ChainGroupedHoldings } from "@/components/ChainGroupedHoldings";
 import { HoldingsTable } from "@/components/HoldingsTable";
@@ -117,132 +119,14 @@ export default async function WalletDetailPage(
         </Link>
       </p>
 
-      {/* items-start (not items-center) + shrink-0 on the actions column is
-          what keeps Sync/Delete pinned top-right regardless of how long the
-          left column's content gets — a raw xpub/address is one unbreakable
-          token with no natural wrap points, which used to force the whole
-          header to wrap onto two rows instead of just the text underneath
-          it wrapping. TruncatedAddress below removes the giant unbroken
-          string entirely, but this stays robust either way. flex-wrap
-          (matches PageHeader's own header row) is required too — without
-          it, on a narrow viewport the shrink-0 actions column refused to
-          shrink and min-w-0 let the title column get squeezed down to a
-          near-zero width instead, wrapping the wallet name one word per
-          line and burying the edit/verify/external-link icons under the
-          action buttons. With flex-wrap, the actions column drops to its
-          own row below the title once it no longer fits alongside it. */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1">
-            <h1 className="text-xl font-semibold text-fg">
-              <InlineName name={wallet.name} inputClassName="text-lg font-semibold" onSave={renameWallet.bind(null, wallet.id)} />
-            </h1>
-            <EditWalletModal
-              wallet={wallet}
-              tagNames={tagNames}
-              updateWallet={updateWallet.bind(null, wallet.id)}
-              settingsIcon
-            />
-            {pinnedChain && wallet.address && (alreadyLinked ? (
-              <VerifiedBadge />
-            ) : (
-              <VerifyWalletModal pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
-            ))}
-            {externalViewer && (
-              <a
-                href={externalViewer.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={`View on ${externalViewer.label}`}
-                aria-label={`View on ${externalViewer.label}`}
-                className="text-fg-muted transition hover:text-fg"
-              >
-                <ExternalLink className="size-3.5" aria-hidden="true" />
-              </a>
-            )}
-          </div>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
-            <span>{wallet.chain}</span>
-            <span>·</span>
-            <span>{wallet.mode}</span>
-            {wallet.address && (
-              <>
-                <span>·</span>
-                <TruncatedAddress address={wallet.address} />
-              </>
-            )}
-            {wallet.last_refresh_status?.startsWith("partial") && (
-              // Native `title` tooltip, not a full-text paragraph — a
-              // handful of unverified balance checks (see
-              // multicallEvm.ts's unverifiedCount) is expected noise from
-              // free RPC providers at this scale, not something wrong with
-              // the sync. Full detail is still one hover away. (title has
-              // to live on a wrapping element — lucide-react's icon props
-              // don't pass it through to the underlying <svg>.)
-              <span
-                className="inline-block align-text-bottom"
-                title={wallet.last_refresh_status}
-                aria-label={wallet.last_refresh_status}
-              >
-                <TriangleAlert className="size-3.5 text-warning" aria-hidden="true" />
-              </span>
-            )}
-          </p>
-          <div className="mt-2">
-            <WalletTags walletId={wallet.id} tags={wallet.tags.map((t) => t.name)} allTags={tagNames} />
-          </div>
-          {canAutoSync(wallet) && (
-            <div className="mt-3">
-              <AutoSyncToggle walletId={wallet.id} on={wallet.auto_sync === true} />
-            </div>
-          )}
-        </div>
-
-        <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
-          <div className="flex flex-wrap items-start justify-end gap-2">
-            {wallet.provider ? (
-              // A connected exchange has no on-chain address to scan — just
-              // its own independent balances job
-              // (see SyncExchangeButton's own doc comment) and a disconnect
-              // action instead of the regular delete/sync UI below.
-              <SyncExchangeButton
-                exchangeSyncStatus={wallet.exchange_sync_status}
-                exchangeSyncStartedAt={wallet.exchange_sync_started_at}
-                exchangeSyncedAt={wallet.exchange_synced_at}
-                sync={syncExchangeHoldings.bind(null, wallet.id)}
-              />
-            ) : (
-              <>
-                {wallet.mode === "auto" ? (
-                  // No separate "Refresh prices" button for an auto wallet —
-                  // syncWalletHoldings now always prices this wallet's own
-                  // holdings' price_keys as part of every sync (see its own
-                  // doc comment in wallets/actions.ts), so Sync is a strict
-                  // superset of what a scoped refresh button would add here.
-                  <SyncWalletButtons
-                    lastRefreshStatus={wallet.last_refresh_status}
-                    syncStartedAt={wallet.sync_started_at}
-                    lastRefreshAt={wallet.last_refresh_at}
-                    lastSyncDurationMs={wallet.last_sync_duration_ms}
-                    sync={syncWalletHoldings.bind(null, wallet.id, false)}
-                    fullSync={
-                      isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null
-                    }
-                  />
-                ) : null}
-                {wallet.mode !== "auto" && (
-                  // A manual wallet has no Sync action at all — addHolding
-                  // reprices a brand-new ticker at add time, but this is still
-                  // the only way to freshen an already-known ticker's price
-                  // from this page (same reasoning as the other price-consumer
-                  // pages that keep this button).
-                  <PriceRefreshButton
-                    priceState={priceState}
-                    walletId={wallet.id}
-                  />
-                )}
-              </>
-            )}
+      {/* One header card (Fable, 2026-09-30; the influencer page's shape):
+          who the wallet is left, its total in the middle, the sync job right
+          with its own status; rare switches and delete in the footer. */}
+      <Panel
+        className="mb-4"
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {canAutoSync(wallet) ? <AutoSyncToggle walletId={wallet.id} on={wallet.auto_sync === true} /> : <span />}
             <form action={(wallet.provider ? disconnectExchange : deleteWallet).bind(null, wallet.id)}>
               <ConfirmDeleteButton
                 confirmMessage={
@@ -256,35 +140,120 @@ export default async function WalletDetailPage(
               </ConfirmDeleteButton>
             </form>
           </div>
-          {isBtcXpub && !wallet.btc_script_type && wallet.last_refresh_status !== "syncing" && (
-            <p className="max-w-xs text-right text-xs text-fg-muted">
-              First sync checks all 3 Bitcoin address formats and can take a few minutes — once it
-              finds where your funds are, every sync after that will be much faster.
+        }
+      >
+        <div className="grid gap-x-8 gap-y-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-start">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1">
+              <h1 className="text-xl font-semibold text-fg">
+                <InlineName name={wallet.name} inputClassName="text-lg font-semibold" onSave={renameWallet.bind(null, wallet.id)} />
+              </h1>
+              <EditWalletModal wallet={wallet} tagNames={tagNames} updateWallet={updateWallet.bind(null, wallet.id)} settingsIcon />
+              {pinnedChain && wallet.address && (alreadyLinked ? (
+                <VerifiedBadge />
+              ) : (
+                <VerifyWalletModal pinnedTarget={{ chain: pinnedChain, address: wallet.address }} />
+              ))}
+              {externalViewer && (
+                <a
+                  href={externalViewer.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`View on ${externalViewer.label}`}
+                  aria-label={`View on ${externalViewer.label}`}
+                  className="text-fg-muted transition hover:text-fg"
+                >
+                  <ExternalLink className="size-3.5" aria-hidden="true" />
+                </a>
+              )}
+            </div>
+            <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-fg-muted">
+              <span>{wallet.chain}</span>
+              <span>·</span>
+              <span>{wallet.mode}</span>
+              {wallet.address && (
+                <>
+                  <span>·</span>
+                  <TruncatedAddress address={wallet.address} />
+                </>
+              )}
+              {wallet.last_refresh_status?.startsWith("partial") && (
+                // A few unverified balance checks are expected noise from
+                // free RPCs; the detail is one hover away. (title lives on a
+                // wrapper — lucide icons don't pass it to the <svg>.)
+                <span className="inline-block align-text-bottom" title={wallet.last_refresh_status} aria-label={wallet.last_refresh_status}>
+                  <TriangleAlert className="size-3.5 text-warning" aria-hidden="true" />
+                </span>
+              )}
             </p>
-          )}
-        </div>
-      </div>
+            <div className="mt-2">
+              <WalletTags walletId={wallet.id} tags={wallet.tags.map((t) => t.name)} allTags={tagNames} />
+            </div>
+          </div>
 
-      <TotalValuePanel total={total}>
-        {unpricedCount > 0 && (
-          <p className="mt-2 text-sm text-warning">
-            {unpricedCount} holding{unpricedCount === 1 ? "" : "s"} unpriced and excluded from the
-            total
-          </p>
-        )}
-        {unrecognized.length > 0 && (
-          <p className="mt-2 text-sm text-fg-muted">
-            <a href="#unrecognized" className="hover:text-fg hover:underline">
-              {unrecognized.length} unrecognized token{unrecognized.length === 1 ? "" : "s"} not included
-              {unrecognizedSpam > 0 && ` (${unrecognizedSpam === unrecognized.length ? "all" : unrecognizedSpam} look like spam)`}
-            </a>
-          </p>
-        )}
-        {wallet.last_refresh_status?.startsWith("error:") && (
-          <p className="mt-2 text-sm text-negative">Last sync failed: {wallet.last_refresh_status}</p>
-        )}
-        {wallet.notes && <p className="mt-2 text-sm text-fg-muted">{wallet.notes}</p>}
-      </TotalValuePanel>
+          <div className="min-w-0">
+            <TotalValueFigure
+              total={total}
+              label={
+                <>
+                  Total value
+                  {isSyncNote(wallet.notes) && <InfoTooltip>{wallet.notes}</InfoTooltip>}
+                </>
+              }
+            />
+            {unpricedCount > 0 && (
+              <p className="mt-1 text-xs text-warning">
+                {unpricedCount} holding{unpricedCount === 1 ? "" : "s"} unpriced and excluded from the total
+              </p>
+            )}
+            {unrecognized.length > 0 && (
+              <p className="mt-1 text-xs text-fg-muted">
+                <a href="#unrecognized" className="hover:text-fg hover:underline">
+                  {unrecognized.length} unrecognized token{unrecognized.length === 1 ? "" : "s"} not included
+                  {unrecognizedSpam > 0 && ` (${unrecognizedSpam === unrecognized.length ? "all" : unrecognizedSpam} look like spam)`}
+                </a>
+              </p>
+            )}
+            {wallet.last_refresh_status?.startsWith("error:") && (
+              <p className="mt-1 text-xs text-negative">Last sync failed: {wallet.last_refresh_status}</p>
+            )}
+            {wallet.notes && !isSyncNote(wallet.notes) && <p className="mt-1 text-xs text-fg-muted">{wallet.notes}</p>}
+          </div>
+
+          <div className="flex flex-col items-start gap-2 md:items-end">
+            {wallet.provider ? (
+              // A connected exchange has no address to scan — its own
+              // balances job (SyncExchangeButton).
+              <SyncExchangeButton
+                exchangeSyncStatus={wallet.exchange_sync_status}
+                exchangeSyncStartedAt={wallet.exchange_sync_started_at}
+                exchangeSyncedAt={wallet.exchange_synced_at}
+                sync={syncExchangeHoldings.bind(null, wallet.id)}
+              />
+            ) : wallet.mode === "auto" ? (
+              // Sync also prices this wallet's own coins, so there's no
+              // separate Refresh prices here.
+              <SyncWalletButtons
+                lastRefreshStatus={wallet.last_refresh_status}
+                syncStartedAt={wallet.sync_started_at}
+                lastRefreshAt={wallet.last_refresh_at}
+                lastSyncDurationMs={wallet.last_sync_duration_ms}
+                sync={syncWalletHoldings.bind(null, wallet.id, false)}
+                fullSync={isBtcXpub && wallet.btc_script_type ? syncWalletHoldings.bind(null, wallet.id, true) : null}
+              />
+            ) : (
+              // A manual wallet has no sync: this is how its known coins get
+              // a fresh price from here.
+              <PriceRefreshButton priceState={priceState} walletId={wallet.id} />
+            )}
+            {isBtcXpub && !wallet.btc_script_type && wallet.last_refresh_status !== "syncing" && (
+              <p className="max-w-xs text-xs text-fg-muted md:text-right">
+                First sync checks all 3 Bitcoin address formats and can take a few minutes; later syncs are much faster.
+              </p>
+            )}
+          </div>
+        </div>
+      </Panel>
 
       {wallet.mode === "auto" ? (
         <div className="mb-6">
@@ -304,20 +273,18 @@ export default async function WalletDetailPage(
       ) : null}
       {wallet.mode === "auto" && unrecognized.length > 0 ? <UnrecognizedTokensPanel tokens={unrecognized} /> : null}
       {wallet.mode === "auto" ? null : (
-        <>
-        <div className="mb-4">
-          <AddHoldingModal addHolding={addHoldingForWallet} defaultTicker={wallet.chain} />
-        </div>
-        {holdings.length === 0 ? (
-          <Panel className="text-center">
-            <p className="text-sm text-fg-muted">No holdings yet.</p>
-          </Panel>
-        ) : (
-          <Panel padding={false} className="mb-6 overflow-hidden">
+        <Panel
+          padding={false}
+          className="mb-6 overflow-hidden [&>div:first-child]:px-5 [&>div:first-child]:pt-4"
+          title="Holdings"
+          actions={<AddHoldingModal addHolding={addHoldingForWallet} defaultTicker={wallet.chain} />}
+        >
+          {holdings.length === 0 ? (
+            <p className="px-5 pb-5 text-sm text-fg-muted">No holdings yet.</p>
+          ) : (
             <HoldingsTable holdings={toHoldingRows(holdings)} walletId={wallet.id} />
-          </Panel>
-        )}
-        </>
+          )}
+        </Panel>
       )}
     </>
   );

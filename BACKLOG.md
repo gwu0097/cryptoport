@@ -83,6 +83,13 @@ Zerion's +$160K. Alchemy can't return internal transfers on Robinhood Chain;
 Blockscout's index of them was incomplete (18 in his whole history). Only
 revisit for per-coin detail on EVM, with a source that prices each swap.
 
+### A Solana sync overwrites the wallet's own note — small, open (found 2026-09-30)
+Every Solana sync writes `SOL_SYNC_NOTE` (`src/lib/syncNotes.ts`) into
+`wallets.notes` (`wallets/actions.ts`), replacing whatever the user wrote.
+The wallet page now shows that text as a tooltip beside the total instead of
+as the note. Fix: stop writing it (the page can show the coverage note for
+every Solana wallet from the chain alone) and leave `notes` to the user.
+
 ### Address lookup: token discovery waits on the database one step at a time — IMPORTANT, later (owner 2026-09-29)
 
 The slowest thing left after the 2026-09-29 latency work (every page ≤ 2

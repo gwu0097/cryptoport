@@ -12,22 +12,17 @@ import { CheckboxLink } from "./ui/CheckboxLink";
 import { StopPropagationLink } from "./StopPropagationLink";
 import { CollapseExpandAllButtons } from "./CollapseExpandAllButtons";
 import { MoreFilterPicker } from "./MoreFilterPicker";
+import { chipClass } from "./ui/chip";
 
 const LOW_VALUE_USD = 10;
 const GROUPS_CONTAINER_ID = "chain-grouped-holdings";
 
 // Deliberately not DeBank's own "show every chain/protocol, however tiny"
-// layout — reported directly as taking up too much space. Capped to 2 rows
-// each, sized for the widest (desktop, `md:`) column count each grid uses
-// below — a narrower viewport just wraps into more visual rows, same
-// trade-off every other responsive grid in this app already accepts rather
-// than chasing pixel-exact row counts at every breakpoint. The very last
-// slot in each row becomes a "N more…" picker once there's overflow, never
-// a growing wall of near-zero cards.
-const CHAIN_DESKTOP_COLS = 5;
-const CHAIN_ROWS = 2;
-const PROTOCOL_DESKTOP_COLS = 6;
-const PROTOCOL_ROWS = 2;
+// layout — reported directly as taking up too much space. Chips sized to
+// their content (Fable, 2026-09-30: fixed-width cards left most of the row
+// empty); past this many the rest go behind a "N more…" picker chip.
+const CHAIN_CHIPS = 9;
+const PROTOCOL_CHIPS = 12;
 
 interface ProtocolGroup {
   protocol: string;
@@ -157,16 +152,6 @@ function HiddenByFiltersNotice({
   );
 }
 
-// compact: the protocol row's own cards — smaller padding than the chain
-// row's, part of reading as visibly secondary/quieter (see that row's own
-// doc comment).
-function cardClass(active: boolean, compact = false): string {
-  const base = `rounded-lg border text-left transition ${compact ? "px-2 py-1.5" : "px-3 py-2"}`;
-  return active
-    ? `${base} border-accent bg-surface-raised`
-    : `${base} border-border bg-surface hover:border-accent/50 hover:bg-surface-raised`;
-}
-
 // The exact "$X · Y%" string every card (chain, protocol, and now each row
 // inside the overflow picker) shows under its own name — one place so a
 // picker row reads identically to a card that happened to fit outside it.
@@ -204,8 +189,8 @@ function buildHref(
 }
 
 /**
- * The $/% summary cards double as the chain filter (click a card to dive
- * into that chain, click "All chains" to go back) — one control instead of
+ * The $/% chips double as the chain filter (click a chip to dive into
+ * that chain, click "All chains" to go back) — one control instead of
  * a summary grid plus a separate, redundant pill row. Below that,
  * collapsible per-chain sections (native <details>/<summary>, no client JS
  * for the shell — only the table rows inside are interactive, for
@@ -219,8 +204,8 @@ function buildHref(
  * saved wallet, so there's no single wallet_id an edit/delete action could
  * target.
  *
- * `actions`, when given, renders next to the hide-unpriced/hide-low
- * checkboxes — "under chains, before the token list" (e.g. the wallet
+ * `actions`, when given, renders at the end of the filter row, after the
+ * hide-unpriced/hide-low checkboxes (e.g. the wallet
  * detail page's "+ Add holding" button). Rendered even when there are no
  * holdings yet, since adding the first one is exactly when it matters most.
  */
@@ -262,19 +247,14 @@ export async function ChainGroupedHoldings({
   const protocolSummaries = summarizeProtocols(groups);
 
   const sortedChains = [...groups].sort((a, b) => b.total - a.total);
-  // -1 slot reserved for the "All chains" card, always shown.
-  const chainCardSlots = CHAIN_DESKTOP_COLS * CHAIN_ROWS - 1;
-  const chainNeedsPicker = sortedChains.length > chainCardSlots;
-  const visibleChains = chainNeedsPicker ? sortedChains.slice(0, chainCardSlots - 1) : sortedChains;
-  const overflowChains = chainNeedsPicker ? sortedChains.slice(chainCardSlots - 1) : [];
+  const chainNeedsPicker = sortedChains.length > CHAIN_CHIPS;
+  const visibleChains = chainNeedsPicker ? sortedChains.slice(0, CHAIN_CHIPS - 1) : sortedChains;
+  const overflowChains = chainNeedsPicker ? sortedChains.slice(CHAIN_CHIPS - 1) : [];
   const activeOverflowChain = overflowChains.find((g) => g.chainId === selectedChain);
 
-  const protocolCardSlots = PROTOCOL_DESKTOP_COLS * PROTOCOL_ROWS;
-  const protocolNeedsPicker = protocolSummaries.length > protocolCardSlots;
-  const visibleProtocols = protocolNeedsPicker
-    ? protocolSummaries.slice(0, protocolCardSlots - 1)
-    : protocolSummaries;
-  const overflowProtocols = protocolNeedsPicker ? protocolSummaries.slice(protocolCardSlots - 1) : [];
+  const protocolNeedsPicker = protocolSummaries.length > PROTOCOL_CHIPS;
+  const visibleProtocols = protocolNeedsPicker ? protocolSummaries.slice(0, PROTOCOL_CHIPS - 1) : protocolSummaries;
+  const overflowProtocols = protocolNeedsPicker ? protocolSummaries.slice(PROTOCOL_CHIPS - 1) : [];
   const activeOverflowProtocol = overflowProtocols.find((pg) => pg.protocol === selectedProtocol);
 
   const visibleGroups = groups
@@ -301,110 +281,49 @@ export async function ChainGroupedHoldings({
 
   return (
     <>
-      <div className="mb-2 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-        <Link
-          href={buildHref(baseHref, undefined, undefined, hideUnpriced, hideLow)}
-          className={cardClass(!selectedChain && !selectedProtocol)}
-        >
-          <p className="text-sm font-medium text-fg">All chains</p>
-          <p className="tabular-nums text-xs text-fg-muted">{formatUsd(grandTotal)} · 100%</p>
-        </Link>
-        {visibleChains.map((g) => (
-          <Link
-            key={g.chainId}
-            href={buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow)}
-            className={cardClass(selectedChain === g.chainId)}
-          >
-            <p className="flex items-center gap-1.5 truncate text-sm font-medium text-fg">
-              <TokenIcon ticker={g.chainName} url={chainIcons[g.chainId] ?? null} />
-              {g.chainName}
-            </p>
-            <p className="tabular-nums text-xs text-fg-muted">{cardValue(g.total, grandTotal)}</p>
-          </Link>
-        ))}
-        {chainNeedsPicker && (
-          <MoreFilterPicker
-            label={`${overflowChains.length} more chains…`}
-            options={overflowChains.map((g) => ({
-              key: g.chainId,
-              label: g.chainName,
-              href: buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow),
-              icon: chainIcons[g.chainId] ?? null,
-              value: cardValue(g.total, grandTotal),
-            }))}
-            active={
-              activeOverflowChain
-                ? {
-                    key: activeOverflowChain.chainId,
-                    label: activeOverflowChain.chainName,
-                    icon: chainIcons[activeOverflowChain.chainId] ?? null,
-                    value: cardValue(activeOverflowChain.total, grandTotal),
-                  }
-                : undefined
-            }
-          />
-        )}
-      </div>
-
-      {/* Second navigation row, same idea as the chain cards above but
-          cutting across chains by protocol instead — DeBank's own
-          portfolio view pairs these two rows the same way. Deliberately
-          smaller/quieter than the chain row (its own label, a smaller
-          TokenIcon, tighter padding) — reported directly that an identical
-          look made a DeFi protocol read as if it were another L2, not a
-          different kind of thing. Mutually exclusive with the chain
-          selection (see buildHref's own doc comment): picking a protocol
-          here clears any chain filter, and vice versa. Omitted entirely
-          when nothing in scope has a protocol at all (a wallet/lookup with
-          only plain token balances). */}
-      {protocolSummaries.length > 0 && (
-        <>
-          <p className="mb-1.5 text-xs font-medium text-fg-muted">DeFi protocols</p>
-          <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-            {visibleProtocols.map((pg) => (
-              <Link
-                key={pg.protocol}
-                href={buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow)}
-                className={cardClass(selectedProtocol === pg.protocol, true)}
-              >
-                <p className="flex items-center gap-1.5 truncate text-xs font-medium text-fg">
-                  <TokenIcon ticker={pg.ticker} url={pg.icon} size="sm" />
-                  <span className="truncate">{pg.protocol}</span>
-                </p>
-                <p className="tabular-nums text-[11px] text-fg-muted">{cardValue(pg.total, grandTotal)}</p>
+      {/* One row: the chain chips (the filter), then the display filters
+          and the page's action. A single chain has nothing to choose, so no
+          chips (Fable, 2026-09-30). */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {sortedChains.length > 1 && (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Link href={buildHref(baseHref, undefined, undefined, hideUnpriced, hideLow)} className={chipClass(!selectedChain && !selectedProtocol)}>
+              <span className="font-medium text-fg">All chains</span>
+              <span className="tabular-nums text-xs text-fg-muted">{formatUsd(grandTotal)}</span>
+            </Link>
+            {visibleChains.map((g) => (
+              <Link key={g.chainId} href={buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow)} className={chipClass(selectedChain === g.chainId)}>
+                <TokenIcon ticker={g.chainName} url={chainIcons[g.chainId] ?? null} />
+                <span className="font-medium text-fg">{g.chainName}</span>
+                <span className="tabular-nums text-xs text-fg-muted">{cardValue(g.total, grandTotal)}</span>
               </Link>
             ))}
-            {protocolNeedsPicker && (
+            {chainNeedsPicker && (
               <MoreFilterPicker
-                compact
-                label={`${overflowProtocols.length} more…`}
-                options={overflowProtocols.map((pg) => ({
-                  key: pg.protocol,
-                  label: pg.protocol,
-                  href: buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow),
-                  icon: pg.icon,
-                  value: cardValue(pg.total, grandTotal),
+                label={`${overflowChains.length} more chains…`}
+                options={overflowChains.map((g) => ({
+                  key: g.chainId,
+                  label: g.chainName,
+                  href: buildHref(baseHref, g.chainId, undefined, hideUnpriced, hideLow),
+                  icon: chainIcons[g.chainId] ?? null,
+                  value: cardValue(g.total, grandTotal),
                 }))}
                 active={
-                  activeOverflowProtocol
+                  activeOverflowChain
                     ? {
-                        key: activeOverflowProtocol.protocol,
-                        label: activeOverflowProtocol.protocol,
-                        icon: activeOverflowProtocol.icon,
-                        value: cardValue(activeOverflowProtocol.total, grandTotal),
+                        key: activeOverflowChain.chainId,
+                        label: activeOverflowChain.chainName,
+                        icon: chainIcons[activeOverflowChain.chainId] ?? null,
+                        value: cardValue(activeOverflowChain.total, grandTotal),
                       }
                     : undefined
                 }
               />
             )}
           </div>
-        </>
-      )}
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-        <div>{actions}</div>
-        <div className="flex flex-wrap items-center gap-4">
-          <CollapseExpandAllButtons containerId={GROUPS_CONTAINER_ID} />
+        )}
+        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
+          {visibleGroups.length > 1 && <CollapseExpandAllButtons containerId={GROUPS_CONTAINER_ID} />}
           <CheckboxLink
             href={buildHref(baseHref, selectedChain, selectedProtocol, !hideUnpriced, hideLow)}
             checked={hideUnpriced}
@@ -415,8 +334,49 @@ export async function ChainGroupedHoldings({
             checked={hideLow}
             label={`Hide low price tokens (< $${LOW_VALUE_USD})`}
           />
+          {actions}
         </div>
       </div>
+
+      {/* Second row, cutting across chains by protocol (DeBank pairs the two
+          the same way); quieter chips so a protocol doesn't read as another
+          chain. Picking one clears the chain filter and vice versa. Omitted
+          when nothing in scope has a protocol. */}
+      {protocolSummaries.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-fg-muted">DeFi</span>
+          {visibleProtocols.map((pg) => (
+            <Link key={pg.protocol} href={buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow)} className={chipClass(selectedProtocol === pg.protocol, true)}>
+              <TokenIcon ticker={pg.ticker} url={pg.icon} size="sm" />
+              <span className="font-medium text-fg">{pg.protocol}</span>
+              <span className="tabular-nums text-[11px] text-fg-muted">{cardValue(pg.total, grandTotal)}</span>
+            </Link>
+          ))}
+          {protocolNeedsPicker && (
+            <MoreFilterPicker
+              compact
+              label={`${overflowProtocols.length} more…`}
+              options={overflowProtocols.map((pg) => ({
+                key: pg.protocol,
+                label: pg.protocol,
+                href: buildHref(baseHref, undefined, pg.protocol, hideUnpriced, hideLow),
+                icon: pg.icon,
+                value: cardValue(pg.total, grandTotal),
+              }))}
+              active={
+                activeOverflowProtocol
+                  ? {
+                      key: activeOverflowProtocol.protocol,
+                      label: activeOverflowProtocol.protocol,
+                      icon: activeOverflowProtocol.icon,
+                      value: cardValue(activeOverflowProtocol.total, grandTotal),
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </div>
+      )}
 
       <HiddenByFiltersNotice
         items={hiddenGroups.map((g) => ({ label: g.chainName, total: g.total }))}

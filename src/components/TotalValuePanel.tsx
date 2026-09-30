@@ -78,3 +78,27 @@ export function TotalValuePanel({
     </Panel>
   );
 }
+
+/** The same figure and eye for a page's header card (the wallet page):
+ * a small label over a large number, masked like the panel's. `label`
+ * may carry a tooltip beside it. */
+export function TotalValueFigure({ total, label = "Total value" }: { total: number; label?: ReactNode }) {
+  const { hidden, setHidden } = useHideBalance();
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">{label}</div>
+      <div className="mt-0.5 flex items-center gap-2">
+        <p className="text-3xl font-semibold tabular-nums text-fg">{hidden ? MASK : formatUsd(total)}</p>
+        <button
+          type="button"
+          onClick={() => setHidden(!hidden)}
+          aria-label={hidden ? "Show total value" : "Hide total value"}
+          aria-pressed={hidden}
+          className="rounded p-0.5 text-fg-muted transition hover:text-fg"
+        >
+          {hidden ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+        </button>
+      </div>
+    </div>
+  );
+}

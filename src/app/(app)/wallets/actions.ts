@@ -33,6 +33,7 @@ import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 import { scheduleUserSnapshot } from "@/lib/priceRefreshJob";
 import { AUTO_SYNC_MAX } from "@/lib/autoSync";
+import { SOL_SYNC_NOTE } from "@/lib/syncNotes";
 
 
 
@@ -383,15 +384,6 @@ export async function deleteHolding(holdingId: string, walletId: string) {
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");
 }
-
-// Solana sync captures plain token balances plus Jupiter's own DeFi
-// products (Earn, Limit Order, Perps, ...) via api.jup.ag/portfolio — but
-// that API only covers Jupiter's own product suite, not third-party
-// protocols (Meteora DLMM, Marinade, Kamino, Raydium, ...), which still
-// aren't captured. Recorded in the wallet's notes rather than silently
-// under-reporting with no explanation.
-const SOL_SYNC_NOTE =
-  "Auto-synced token balances + DeFi positions from Jupiter (Earn, Limit Order, Perps, DAO staking), Kamino (lending, multiply, leverage, earn, liquidity, staking), Wormhole (staked W), Meteora (open DLMM positions), and Parcl (margin) — other protocols are not yet captured by this sync.";
 
 // BTC isn't dispatched through here — see syncWalletHoldings, which calls
 // fetchBitcoinHoldingsForSync directly so it can pass the wallet's cached

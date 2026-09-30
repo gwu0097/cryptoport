@@ -901,6 +901,38 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   turns it into a field in place — the influencer and wallet titles, the
   selected group and watchlist tab); an Edit button or dialog is for the
   other settings (the wallet's gear, an influencer's link and note).
+- **Layout rules** (Fable, 2026-09-30, after the Dashboard, the influencer
+  page and the wallet page each wasted the width) — check a page against
+  them before pushing:
+  - Explanation longer than one line goes in an `InfoTooltip` beside what
+    it explains, never a `max-w-*` paragraph under it; a one-line caption
+    is fine.
+  - A detail page's first card is its header card: identity (name, chain ·
+    mode · address, tags) left, the headline figure and its caption lines
+    beside it, the job button in the card's top right with its own status,
+    rare switches and delete in the `footer` (`InfluencerSections`, the
+    wallet page with `TotalValueFigure`) — never a header row plus a
+    separate figure card.
+  - No `justify-between` row with one item each side and an empty middle:
+    group related controls, or use a grid that fills the width.
+  - Filters sit on one row with the card they filter (chips, Collapse/
+    Expand, Hide checkboxes, the Add button); a filter with one option isn't
+    rendered (one chain: no chain chips).
+  - A variable number of options is `flex-wrap` chips sized to content
+    (`ui/chip.ts` `chipClass`, `GroupChips`), figure inline — never
+    `grid-cols-N` cards.
+  - A job button owns its status: "Synced x ago · took Ns", errors and the
+    slow hint sit under it (`SyncWalletButtons`, `SlowJobHint`).
+  - A dollar figure derived from a total is masked with it (`useHideBalance`).
+  - Text a sync writes into user data isn't page copy: the page recognizes
+    it and shows it as a tooltip (`syncNotes.ts` `isSyncNote`).
+  - Secondary sections are `CollapsiblePanel`s with a `summary`; the page's
+    main table is never collapsed by default.
+  - Width comes from layout (a grid, a stat strip), never from raising
+    `AppShell`'s cap or widening prose.
+  - Check every layout change at 390px and 1440px (and 1920px on
+    `data-page-width="full"` pages): actions wrap under the title, never
+    squeeze it.
 - **The sidebar and the mobile drawer share one layout:** pinned header,
   links in their own scroll area (`min-h-0 flex-1 overflow-y-auto
   overscroll-contain`), Admin/Settings pinned at the bottom; heights in `dvh`
