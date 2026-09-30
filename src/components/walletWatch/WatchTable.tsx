@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { isInProgressStatus } from "@/lib/jobStatus";
-import { ExternalLink, Radio, Trash2 } from "lucide-react";
+import { ExternalLink, Radio, Search, Trash2, X } from "lucide-react";
 import { removeInfluencer, removeInfluencers, renameInfluencer, setInfluencerLive } from "@/app/(app)/wallet-watch/actions";
 import { InlineName } from "@/components/ui/InlineName";
 import { ConfirmActionButton } from "@/components/ui/ConfirmActionButton";
@@ -31,6 +31,23 @@ function sortValue(i: WatchedInfluencer, key: SortKey): number | string {
 }
 
 const FAMILY: Record<string, string> = { ETH: "EVM", SOL: "Solana", BTC: "Bitcoin" };
+
+/** Does the influencer match the search: every word in its name, note,
+ * addresses, chains, groups or top holdings (like the Wallets list's). */
+function matches(i: WatchedInfluencer, groupName: Map<string, string>, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const text = [
+    i.name,
+    i.note ?? "",
+    ...i.addresses.flatMap((a) => [a.address, a.chain, FAMILY[a.chain] ?? ""]),
+    ...i.groupIds.map((g) => groupName.get(g) ?? ""),
+    ...i.topHoldings.map((h) => h.ticker),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return words.every((w) => text.includes(w));
+}
 
 /** Owner only: live updates on or off from the list (the same switch as the
  * influencer page's LiveToggle). */
@@ -63,6 +80,8 @@ function LiveSwitch({ id, live }: { id: string; live: boolean }) {
  * row, or the ticked ones together. */
 export function WatchTable({ influencers, groups, serverNowSec, isOwner = false }: { influencers: WatchedInfluencer[]; groups: WatchGroup[]; serverNowSec: number; isOwner?: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+  const groupName = new Map(groups.map((g) => [g.id, g.name]));
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const toggleOne = (id: string) =>
@@ -77,7 +96,7 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
   function toggleSort(key: SortKey) {
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
   }
-  const rows = [...influencers].sort((a, b) => {
+  const rows = influencers.filter((i) => matches(i, groupName, query)).sort((a, b) => {
     const av = sortValue(a, sortKey);
     const bv = sortValue(b, sortKey);
     const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
@@ -90,6 +109,32 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
 
   return (
     <div className="overflow-x-auto">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-muted" aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQuery("");
+            }}
+            placeholder="Search by name, address, chain, group or coin"
+            aria-label="Search watched wallets"
+            className="w-full rounded-lg border border-border bg-surface-raised py-1.5 pl-8 pr-8 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+          />
+          {query && (
+            <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg">
+              <X className="size-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        {query && (
+          <span className="text-xs text-fg-muted">
+            {rows.length} of {influencers.length}
+          </span>
+        )}
+      </div>
       {chosen.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-raised/40 px-3 py-2 text-sm">
           <span className="text-fg">{chosen.length} selected</span>
@@ -140,6 +185,13 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
           </tr>
         </thead>
         <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={isOwner ? 8 : 7} className={`${tdClass} text-center text-sm text-fg-muted`}>
+                No watched wallet matches “{query}”.
+              </td>
+            </tr>
+          )}
           {rows.map((i) => {
             const reading = i.addresses.some((a) => isInProgressStatus(a.refreshStatus));
             const failed = i.addresses.filter((a) => a.lastRefreshStatus?.startsWith("error:")).length;
