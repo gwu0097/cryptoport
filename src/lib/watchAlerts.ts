@@ -305,7 +305,10 @@ export interface DiscordEmbed {
  * open only. */
 export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | null, imageName?: string): DiscordEmbed {
   const url = tokenLink(a.chain, a.contract);
-  const lines = [a.detail];
+  // With its image, a close says it all there: the card keeps only the
+  // contract to copy (owner 2026-09-30). Without one (it failed to draw),
+  // the numbers stay in the text.
+  const lines = imageName ? [] : [a.detail];
   if (a.contract) lines.push(`\`${a.contract}\``);
   if (traderLink && a.kind === "opened") lines.push(`[${trader} on CryptoPort](${traderLink})`);
   const style = styleOf(a);

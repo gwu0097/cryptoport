@@ -147,6 +147,9 @@ test("a close carries its image's figures, and its card shows the attached image
   const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000), 0, 1_000_000_000);
   const a = out.alerts[0];
   assert.deepEqual(a.card, { ticker: "GEM", payTicker: "SOL", pct: "+100.0%", win: true, result: "+$1,000.00", inText: "10.00 SOL ($1,000.00)", outText: "20.00 SOL ($2,000.00)", held: "held 3h", entryMc: "$10M", exitMc: "$20M" });
-  assert.deepEqual(alertEmbed("Risk", a, null, "close-1.png").image, { url: "attachment://close-1.png" });
+  const withImage = alertEmbed("Risk", a, null, "close-1.png");
+  assert.deepEqual(withImage.image, { url: "attachment://close-1.png" });
+  assert.equal(withImage.description, "`GemMint111`"); // the image carries the numbers
+  assert.match(alertEmbed("Risk", a, null).description, /^# 🟢/); // no image: the text keeps them
   assert.equal(open.alerts[0].card, undefined); // an open has no image
 });
