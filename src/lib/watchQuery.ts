@@ -37,6 +37,8 @@ export interface WatchedAddressView {
   lastRefreshStatus: string | null;
   refreshStatus: string | null;
   refreshStartedAt: string | null;
+  /** On the live webhooks (phases 5–6). */
+  live: boolean;
 }
 
 export interface WatchedInfluencer {
@@ -62,6 +64,8 @@ export interface WatchedInfluencer {
   topHoldings: { ticker: string; usd: number; iconUrl: string | null }[];
   /** The oldest address refresh (what the whole row is "as of"). */
   lastRefreshAt: string | null;
+  /** Live updates on any Solana/EVM address; null when it has neither. */
+  live: boolean | null;
 }
 
 type WatchedRow = {
@@ -72,6 +76,7 @@ type WatchedRow = {
   last_refresh_status: string | null;
   refresh_status: string | null;
   refresh_started_at: string | null;
+  live?: boolean | null;
 };
 
 const TOP_HOLDINGS = 3;
@@ -104,7 +109,7 @@ type WatchData = {
   watched: Map<string, WatchedRow>;
 };
 
-const WATCHED_COLUMNS = "chain, address, snapshot, last_refresh_at, last_refresh_status, refresh_status, refresh_started_at";
+const WATCHED_COLUMNS = "chain, address, snapshot, last_refresh_at, last_refresh_status, refresh_status, refresh_started_at, live";
 
 /** The user's influencers, their addresses, groups and group links — or,
  * with `onlyId`, one influencer's — in one round trip. Without `onlyId` the
@@ -288,6 +293,7 @@ function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[
           lastRefreshStatus: w?.last_refresh_status ?? null,
           refreshStatus: w?.refresh_status ?? null,
           refreshStartedAt: w?.refresh_started_at ?? null,
+          live: w?.live === true,
         };
       });
     return {
@@ -304,6 +310,7 @@ function buildInfluencers(data: WatchData, prices: PriceMap): WatchedInfluencer[
       unpricedCount,
       topHoldings: [...assets.values()].sort((x, y) => y.usd - x.usd).slice(0, TOP_HOLDINGS),
       lastRefreshAt,
+      live: addresses.some((a) => a.chain === "SOL" || a.chain === "ETH") ? addresses.some((a) => a.live) : null,
     };
   });
 }

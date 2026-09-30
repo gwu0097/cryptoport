@@ -1,4 +1,7 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { isAdminEmail } from "@/lib/adminAuth";
+import { WATCH_GROUP_COOKIE } from "@/lib/watchGroupCookie";
 import { scopePricesToUser } from "@/lib/queries";
 import { getUser } from "@/lib/auth";
 import { getWatchDayActivity, getWatchMovements, getWatchOverview, watchJobStatus } from "@/lib/watchQuery";
@@ -35,15 +38,20 @@ export default async function WalletWatchPage({ searchParams }: { searchParams: 
       </>
     );
   }
-  const { group, searchError } = await searchParams;
+  const { group: asked, searchError } = await searchParams;
+  // No group in the link (the sidebar, a back link): the last one picked
+  // (owner 2026-09-30); "all" is an explicit All.
+  const remembered = (await cookies()).get(WATCH_GROUP_COOKIE)?.value;
+  const group = (asked ?? remembered) === "all" ? undefined : (asked ?? remembered);
+  const isOwner = isAdminEmail(user.email, process.env.ADMIN_EMAIL);
   return (
     <Suspense key={group ?? "all"} fallback={<Panel><p className="text-sm text-fg-muted">Loading…</p></Panel>}>
-      <WalletWatchContent groupId={group} searchError={searchError} />
+      <WalletWatchContent groupId={group} searchError={searchError} isOwner={isOwner} />
     </Suspense>
   );
 }
 
-async function WalletWatchContent({ groupId, searchError }: { groupId?: string; searchError?: string }) {
+async function WalletWatchContent({ groupId, searchError, isOwner }: { groupId?: string; searchError?: string; isOwner: boolean }) {
   const { groups, influencers, searched } = await getWatchOverview();
   const nowSec = requestNowSec();
   const selected = groups.find((g) => g.id === groupId) ?? null;
@@ -84,7 +92,7 @@ async function WalletWatchContent({ groupId, searchError }: { groupId?: string; 
               : "No wallets watched yet. Add one here, or use “Watch this wallet” after searching an address in the top bar."}
           </p>
         ) : (
-          <WatchTable influencers={shown} groups={groups} serverNowSec={nowSec} />
+          <WatchTable influencers={shown} groups={groups} serverNowSec={nowSec} isOwner={isOwner} />
         )}
       </Panel>
       <Panel

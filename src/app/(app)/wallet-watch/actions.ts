@@ -200,6 +200,17 @@ export async function removeInfluencer(id: string): Promise<WatchActionResult> {
   return { ok: true };
 }
 
+/** Stops watching several influencers at once (the list's select-and-delete). */
+export async function removeInfluencers(ids: string[]): Promise<WatchActionResult> {
+  await requireUser();
+  if (ids.length === 0) return { ok: true };
+  const db = await userDb();
+  const { error } = await db.from("watch_influencers").delete().in("id", ids);
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
 export async function removeWatchedAddress(addressId: string, influencerId: string): Promise<WatchActionResult> {
   await requireUser();
   const db = await userDb();

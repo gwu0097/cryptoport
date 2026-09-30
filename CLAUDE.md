@@ -249,6 +249,13 @@ owner's.
   only the change, so a copier's own additions and removals stay; copies of
   copies too). "Stop following" on the copy ends it; an influencer the user
   created follows nothing.
+  **The list is managed in place** (owner 2026-09-30, like the Wallets
+  list; `WatchTable`): rename (`InlineName`), group chips (`GroupChips`),
+  the owner's Live switch, delete per row or the ticked rows together
+  (`removeInfluencers`); live state rides on the list's own read
+  (`WATCHED_COLUMNS` `live`). The group last picked is remembered in a
+  cookie (`watchGroupCookie.ts`): a link naming no group opens it; All is
+  `?group=all`.
   **Wallet search** (owner 2026-09-30; the search bar in Wallet Watch's
   header, `WalletSearch` → `searchWallet`): an address opens on the
   influencer page exactly as if watched (read now, trading record a click

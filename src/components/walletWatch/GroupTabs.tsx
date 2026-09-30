@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { watchGroupCookie } from "@/lib/watchGroupCookie";
 import { ConfirmActionButton } from "../ui/ConfirmActionButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -51,11 +52,15 @@ export function GroupTabs({ groups, selected, counts }: { groups: WatchGroup[]; 
   const router = useRouter();
   const [editing, setEditing] = useState<"new" | null>(null);
   const [pending, start] = useTransition();
+  // Remembered for the next visit without a group in the link.
+  useEffect(() => {
+    document.cookie = watchGroupCookie(selected?.id ?? "all");
+  }, [selected?.id]);
 
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Link href="/wallet-watch" className={tabClass(selected === null)}>
+        <Link href="/wallet-watch?group=all" className={tabClass(selected === null)}>
           All <span className="opacity-70">({counts.all})</span>
         </Link>
         {groups.map((g) =>
@@ -93,7 +98,7 @@ export function GroupTabs({ groups, selected, counts }: { groups: WatchGroup[]; 
                 onConfirm={() =>
                   start(async () => {
                     const r = await deleteGroup(selected.id);
-                    if (r.ok) router.push("/wallet-watch");
+                    if (r.ok) router.push("/wallet-watch?group=all");
                   })
                 }
                 trigger={(open) => (
