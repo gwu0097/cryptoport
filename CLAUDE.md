@@ -396,7 +396,9 @@ threshold; the user's **Auto-sync daily** wallets (owner 2026-09-30, `autoSync.t
 the wallet page's `AutoSyncToggle`, at most `AUTO_SYNC_MAX` 5): Refresh prices
 returns the marked ones not synced in a day and the button hands them to
 the browser's sync queue after the prices — the click isn't slowed, no
-cron runs, and Sync by hand is unchanged (it resets the day); before the daily snapshot when older than the threshold in
+cron runs, the tab doesn't ask before closing (a wallet not reached is
+still due next time; Sync all still asks), and Sync by hand is unchanged
+(it resets the day); before the daily snapshot when older than the threshold in
 `api/cron/snapshot/route.ts` (`refreshAssetPricesIfOlderThan`).
 
 **Valuation** (`valueHolding`, `valuation.ts`): `qty × asset_prices[price_key]`,

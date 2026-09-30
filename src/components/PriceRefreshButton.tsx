@@ -76,7 +76,7 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
     // "Auto-sync daily" wallets due today sync in the background, after the
     // prices (the queue skips them if a sync is already running).
     if (body.autoSync && body.autoSync.length > 0 && !queue.active) {
-      queue.start(body.autoSync);
+      queue.start(body.autoSync, { warnOnLeave: false });
       setAutoSyncing(body.autoSync.length);
     }
     split.current = { requestMs: Date.now() - t0, serverMs: body.serverMs ?? null, pageFrom: Date.now() };

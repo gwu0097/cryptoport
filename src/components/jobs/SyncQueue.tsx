@@ -26,7 +26,9 @@ interface SyncQueueValue {
   entries: Record<string, QueueEntry>;
   /** True while any lane still has work. */
   active: boolean;
-  start: (wallets: QueuedWallet[]) => void;
+  /** `warnOnLeave`: ask before the tab closes while wallets wait (Sync all);
+   * auto-sync doesn't — a wallet it didn't reach is still due next time. */
+  start: (wallets: QueuedWallet[], opts?: { warnOnLeave?: boolean }) => void;
   dismiss: () => void;
 }
 
@@ -85,6 +87,7 @@ async function waitForWallet(w: QueuedWallet): Promise<{ status: string | null; 
 export function SyncQueueProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<Record<string, QueueEntry>>({});
   const [active, setActive] = useState(false);
+  const [warnOnLeave, setWarnOnLeave] = useState(false);
   const runningRef = useRef(false);
 
   const set = useCallback((id: string, patch: Partial<QueueEntry>) => {
@@ -118,10 +121,11 @@ export function SyncQueueProvider({ children }: { children: ReactNode }) {
   );
 
   const start = useCallback(
-    (wallets: QueuedWallet[]) => {
+    (wallets: QueuedWallet[], opts?: { warnOnLeave?: boolean }) => {
       if (runningRef.current || wallets.length === 0) return;
       runningRef.current = true;
       setActive(true);
+      setWarnOnLeave(opts?.warnOnLeave ?? true);
       setEntries(Object.fromEntries(wallets.map((w) => [w.id, { name: w.name, state: "queued" as const, detail: null }])));
       const lanes = groupByLane(wallets, (w) => w.lane);
       const runLanes = () =>
@@ -155,11 +159,11 @@ export function SyncQueueProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !warnOnLeave) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [active]);
+  }, [active, warnOnLeave]);
 
   return <SyncQueueContext.Provider value={{ entries, active, start, dismiss }}>{children}</SyncQueueContext.Provider>;
 }
