@@ -72,6 +72,23 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
+### EVM trading record (Robinhood Chain first) — IN PROGRESS, held (owner 2026-09-30)
+
+Code on local `hold/evm-trading-record` (d278d73): `evmTradingRecord.ts` (per-coin,
+per-day books, average cost, unknown cost never 0; 6 tests pass), the loader's
+EVM branch (Alchemy transfers over a year in passes up to ~2 min, Zerion's
+realized profit logged as the cross-check), route/query/panel wording.
+Why held: VirtualBacon's record came out at −$452 realized vs Zerion's
++$155K. Findings so far: per-day trades are stored compactly (a year of raw
+trades would be ~25 MB/address — 476 KB a week); a first read of his
+Robinhood Chain history needs several passes (reward airdrops — Bucket,
+dust tokenized stocks — fill the pages); EDEL showed priced sells ≈ unpriced
+"out" of the same size (double counting across passes, or sells whose payment
+leg isn't seen — check which). Next: read one heavy EDEL day with toBlock
+bounds and compare legs; test the passes for overlap; then reconcile with
+Zerion within ~10% before releasing. Zerion alone gives all-time totals per
+chain only (its date filter is ignored — tested).
+
 ### Address lookup: token discovery waits on the database one step at a time — IMPORTANT, later (owner 2026-09-29)
 
 The slowest thing left after the 2026-09-29 latency work (every page ≤ 2
