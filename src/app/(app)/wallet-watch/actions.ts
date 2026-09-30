@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { serviceDb, userDb } from "@/lib/supabase";
-import { requireAdmin } from "@/lib/adminAuth";
+import { isAdminEmail, requireAdmin } from "@/lib/adminAuth";
 import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
@@ -125,7 +125,8 @@ export async function watchAddress(input: {
 }
 
 /** How many unsaved Wallet searches a user keeps; a new one past this
- * replaces the oldest (the database refuses more than this). */
+ * replaces the oldest — never blocked. The owner keeps every search until
+ * it's 10 days old (owner 2026-09-30); the database's backstop is 200. */
 const UNSAVED_MAX = 10;
 
 /**
@@ -137,17 +138,19 @@ const UNSAVED_MAX = 10;
  * watches opens its own page instead.
  */
 export async function searchWallet(form: FormData): Promise<void> {
-  await requireUser();
+  const user = await requireUser();
   const parsed = parseAddress(String(form.get("address") ?? ""));
   if ("error" in parsed) redirect(`/wallet-watch?searchError=${encodeURIComponent(parsed.error)}`);
   const db = await userDb();
   const { data: mine } = await db.from("watch_influencer_addresses").select("influencer_id").eq("chain", parsed.chain).eq("address", parsed.address).limit(1);
   const existing = (mine as { influencer_id: string }[] | null)?.[0]?.influencer_id;
   if (existing) redirect(`/wallet-watch/${existing}`);
-  // Room for it: the oldest unsaved searches go first.
-  const { data: unsaved } = await db.from("watch_influencers").select("id").not("unsaved_since", "is", null).order("unsaved_since");
-  const over = ((unsaved ?? []) as { id: string }[]).slice(0, Math.max(0, (unsaved?.length ?? 0) - (UNSAVED_MAX - 1)));
-  if (over.length > 0) await db.from("watch_influencers").delete().in("id", over.map((u) => u.id));
+  // Room for it: the oldest unsaved searches go first (not the owner's).
+  if (!isAdminEmail(user.email, process.env.ADMIN_EMAIL)) {
+    const { data: unsaved } = await db.from("watch_influencers").select("id").not("unsaved_since", "is", null).order("unsaved_since");
+    const over = ((unsaved ?? []) as { id: string }[]).slice(0, Math.max(0, (unsaved?.length ?? 0) - (UNSAVED_MAX - 1)));
+    if (over.length > 0) await db.from("watch_influencers").delete().in("id", over.map((u) => u.id));
+  }
   const short = parsed.address.length > 12 ? `${parsed.address.slice(0, 6)}…${parsed.address.slice(-4)}` : parsed.address;
   const r = await watchAddress({ address: parsed.address, name: short, unsaved: true });
   if (!r.ok) redirect(`/wallet-watch?searchError=${encodeURIComponent(r.error)}`);

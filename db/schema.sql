@@ -2673,8 +2673,8 @@ begin
       if (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is null) >= 25 then
         raise exception 'You can watch up to 25 influencers';
       end if;
-    elsif (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is not null) >= 10 then
-      raise exception 'You can have up to 10 unsaved wallet searches';
+    elsif (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is not null) >= 200 then
+      raise exception 'You can have up to 200 unsaved wallet searches';
     end if;
   elsif tg_table_name = 'watch_influencer_addresses' then
     if (select count(*) from cryptoport.watch_influencer_addresses where influencer_id = new.influencer_id) >= 5 then
@@ -2989,6 +2989,7 @@ alter table cryptoport.wallets add column if not exists auto_sync boolean not nu
 -- unsaved_since set (its short address as the name): shown on the
 -- influencer page like any watched wallet, left out of the list and the
 -- Dashboard feed, saved by naming it (renameInfluencer), deleted by the
--- daily tick after 10 days. The 25 cap counts saved ones; at most 10
--- unsaved (watch_enforce_caps above, replaced the same day).
+-- daily tick after 10 days. The 25 cap counts saved ones; the app keeps 10
+-- unsaved per user (the oldest goes; the owner keeps all), and the trigger's
+-- backstop is 200 (watch_enforce_caps above, replaced the same day).
 alter table cryptoport.watch_influencers add column if not exists unsaved_since timestamptz;

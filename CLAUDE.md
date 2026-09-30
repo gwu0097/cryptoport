@@ -244,7 +244,9 @@ owner's.
   the name — left out of the list, groups, Insights and the Dashboard feed
   (`readWatchBase`, `getWatchFeedTargets`), listed as "Recent searches";
   naming it saves it (`renameInfluencer`, within the 25); the daily tick
-  deletes unsaved ones after 10 days; at most 10 (the oldest goes). An
+  deletes unsaved ones after 10 days; a user keeps 10, a new one replacing
+  the oldest — never blocked (the owner keeps all; the trigger's backstop
+  is 200). An
   address already watched opens its own page.
   **KOL directory** (Tools → `/wallet-watch/directory`,
   `docs/wallet-watch/DIRECTORY.md`): the owner's influencers marked for it
