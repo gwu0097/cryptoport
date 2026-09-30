@@ -162,7 +162,7 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
           one short line; the full breakdown on hover. */}
       {compact && !busy && showPhases && phaseText && (
         // Wraps between items, never inside one (and never cut off).
-        <p className="flex max-w-96 flex-wrap justify-end gap-x-1.5 text-right text-[11px] text-fg-muted/70">
+        <p className="flex flex-wrap justify-end gap-x-1.5 text-right text-[11px] text-fg-muted/70">
           {[timing ? `Done in ${formatMs(timing.totalMs)}` : null, ...phaseText.split(" · ")]
             .filter((x): x is string => !!x)
             .map((x, i) => (
