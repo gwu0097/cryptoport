@@ -210,6 +210,19 @@ export async function updateWallet(walletId: string, formData: FormData) {
   revalidatePath("/wallets");
 }
 
+/** Renames a wallet from beside its name (InlineName). */
+export async function renameWallet(walletId: string, name: string): Promise<string | null> {
+  await requireUser();
+  const clean = name.trim();
+  if (!clean) return "Give the wallet a name.";
+  const db = await userDb();
+  const { error } = await db.from("wallets").update({ name: clean }).eq("id", walletId);
+  if (error) return `Couldn't rename: ${error.message}`;
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+  return null;
+}
+
 /** Sets a wallet's tags from its own page (WalletTags), without the rest of
  * the edit form. */
 export async function setWalletTags(walletId: string, formData: FormData) {

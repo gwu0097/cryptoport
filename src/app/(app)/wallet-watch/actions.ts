@@ -121,17 +121,27 @@ export async function watchAddress(input: {
   return { ok: true, influencerId };
 }
 
-export async function updateInfluencer(id: string, input: { name: string; link?: string; note?: string }): Promise<WatchActionResult> {
+/** Link and note (the name is renamed beside it: renameInfluencer). */
+export async function updateInfluencer(id: string, input: { link?: string; note?: string }): Promise<WatchActionResult> {
   await requireUser();
-  const name = input.name.trim();
-  if (!name) return { ok: false, error: "Give the influencer a name." };
   const link = cleanLink(input.link);
   if (link && typeof link === "object") return { ok: false, error: link.error };
   const db = await userDb();
   const { error } = await db
     .from("watch_influencers")
-    .update({ name, link, note: input.note?.trim() || null })
+    .update({ link, note: input.note?.trim() || null })
     .eq("id", id);
+  if (error) return { ok: false, error: friendly(error.message) };
+  revalidate(id);
+  return { ok: true };
+}
+
+export async function renameInfluencer(id: string, name: string): Promise<WatchActionResult> {
+  await requireUser();
+  const clean = name.trim();
+  if (!clean) return { ok: false, error: "Give the influencer a name." };
+  const db = await userDb();
+  const { error } = await db.from("watch_influencers").update({ name: clean }).eq("id", id);
   if (error) return { ok: false, error: friendly(error.message) };
   revalidate(id);
   return { ok: true };

@@ -32,10 +32,11 @@ function mergeToggleHref(baseHref: string, filters: Record<string, string | unde
   return s ? `${baseHref}?${s}` : baseHref;
 }
 
-export function InfluencerTitle({ influencer }: { influencer: WatchedInfluencer }) {
+/** `name`: the name as shown — the owner's page passes its rename (InfluencerName). */
+export function InfluencerTitle({ influencer, name }: { influencer: WatchedInfluencer; name?: ReactNode }) {
   return (
     <span className="flex items-center gap-2">
-      {influencer.name}
+      {name ?? influencer.name}
       {influencer.link && (
         <a href={influencer.link} target="_blank" rel="noopener noreferrer" aria-label="Profile" className="text-fg-muted hover:text-fg">
           <ExternalLink className="size-4" aria-hidden="true" />

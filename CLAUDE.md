@@ -893,7 +893,10 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   card's footer; then Activity, Trading record, Holdings, Value over time
   (collapsed under 7 days of data). Confirmations happen in the page
   (`ConfirmActionButton`), never `window.confirm` — an app's built-in
-  browser can block it and the button then does nothing.
+  browser can block it and the button then does nothing. A name renames beside itself (`ui/InlineName`: a pencil
+  turns it into a field in place — the influencer and wallet titles, the
+  selected group and watchlist tab); an Edit button or dialog is for the
+  other settings (the wallet's gear, an influencer's link and note).
 - **The sidebar and the mobile drawer share one layout:** pinned header,
   links in their own scroll area (`min-h-0 flex-1 overflow-y-auto
   overscroll-contain`), Admin/Settings pinned at the bottom; heights in `dvh`

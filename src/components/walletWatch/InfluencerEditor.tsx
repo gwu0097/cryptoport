@@ -4,11 +4,23 @@ import { useState, useTransition } from "react";
 import { ConfirmActionButton } from "../ui/ConfirmActionButton";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, X } from "lucide-react";
-import { removeInfluencer, removeWatchedAddress, updateInfluencer } from "@/app/(app)/wallet-watch/actions";
+import { removeInfluencer, removeWatchedAddress, renameInfluencer, updateInfluencer } from "@/app/(app)/wallet-watch/actions";
+import { InlineName } from "@/components/ui/InlineName";
 import { Field, inputClass } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 
-/** Name, link and note of one influencer; remove it (its groups: GroupChips). */
+/** The influencer's name with its rename beside it (the page title). */
+export function InfluencerName({ id, name }: { id: string; name: string }) {
+  return (
+    <InlineName name={name} label="Rename" inputClassName="text-lg font-semibold" onSave={async (next) => {
+      const r = await renameInfluencer(id, next);
+      return r.ok ? null : r.error;
+    }} />
+  );
+}
+
+/** Link and note of one influencer; remove it (its name: InfluencerName;
+ * its groups: GroupChips). */
 export function InfluencerEditor({ influencer }: { influencer: { id: string; name: string; link: string | null; note: string | null; groupIds: string[] } }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -22,7 +34,6 @@ export function InfluencerEditor({ influencer }: { influencer: { id: string; nam
           action={(form) =>
             start(async () => {
               const r = await updateInfluencer(influencer.id, {
-                name: String(form.get("name") ?? ""),
                 link: String(form.get("link") ?? ""),
                 note: String(form.get("note") ?? ""),
               });
@@ -32,9 +43,6 @@ export function InfluencerEditor({ influencer }: { influencer: { id: string; nam
           }
           className="max-w-md space-y-3"
         >
-          <Field label="Name">
-            <input name="name" required maxLength={80} defaultValue={influencer.name} className={inputClass} />
-          </Field>
           <Field label="Link">
             <input name="link" type="url" defaultValue={influencer.link ?? ""} className={inputClass} placeholder="https://x.com/…" />
           </Field>
@@ -53,7 +61,7 @@ export function InfluencerEditor({ influencer }: { influencer: { id: string; nam
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>
-            <Pencil className="size-3.5" aria-hidden="true" /> Edit
+            <Pencil className="size-3.5" aria-hidden="true" /> Edit link &amp; note
           </Button>
           <ConfirmActionButton
             message={`Stop watching ${influencer.name}? Their addresses leave your Wallet Watch.`}

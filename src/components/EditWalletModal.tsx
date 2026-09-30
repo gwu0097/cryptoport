@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Settings2 } from "lucide-react";
 import { Field, inputClass } from "./ui/Field";
 import { SubmitButton } from "./ui/SubmitButton";
 import { Dialog } from "./ui/Dialog";
@@ -23,7 +23,11 @@ export function EditWalletModal({
   wallet,
   tagNames,
   updateWallet,
+  settingsIcon = false,
 }: {
+  /** Beside a name that renames in place (InlineName), the dialog is the
+   * wallet's other settings: a gear, not a second pencil. */
+  settingsIcon?: boolean;
   wallet: WalletWithTags;
   tagNames: string[];
   updateWallet: (formData: FormData) => void | Promise<void>;
@@ -34,11 +38,12 @@ export function EditWalletModal({
     <>
       <button
         type="button"
-        aria-label={`Edit ${wallet.name}`}
+        aria-label={settingsIcon ? `Wallet settings for ${wallet.name}` : `Edit ${wallet.name}`}
+        title={settingsIcon ? "Wallet settings (address, chain, tags)" : undefined}
         onClick={() => dialogRef.current?.showModal()}
         className="grid size-7 shrink-0 place-items-center rounded-lg text-fg-muted transition hover:bg-surface-raised hover:text-fg"
       >
-        <Pencil className="size-3.5" aria-hidden="true" />
+        {settingsIcon ? <Settings2 className="size-3.5" aria-hidden="true" /> : <Pencil className="size-3.5" aria-hidden="true" />}
       </button>
 
       <Dialog ref={dialogRef} title="Edit wallet">

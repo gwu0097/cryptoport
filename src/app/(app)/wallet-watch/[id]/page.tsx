@@ -10,7 +10,7 @@ import { LiveToggle } from "@/components/walletWatch/LiveToggle";
 import { requestNowSec } from "@/lib/requestClock";
 import { PageHeader } from "@/components/PageHeader";
 import { SignInPrompt } from "@/components/SignInPrompt";
-import { InfluencerEditor, RemoveAddressButton } from "@/components/walletWatch/InfluencerEditor";
+import { InfluencerEditor, InfluencerName, RemoveAddressButton } from "@/components/walletWatch/InfluencerEditor";
 import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
 import { RefreshWatchButton } from "@/components/walletWatch/RefreshWatchButton";
 import { ShareInfluencerButton } from "@/components/walletWatch/ShareInfluencerButton";
@@ -61,7 +61,7 @@ export default async function InfluencerPage({ params, searchParams }: { params:
         <ArrowLeft className="size-3.5" aria-hidden="true" /> Wallet Watch
       </Link>
       <PageHeader
-        title={<InfluencerTitle influencer={influencer} />}
+        title={<InfluencerTitle influencer={influencer} name={<InfluencerName id={influencer.id} name={influencer.name} />} />}
         subtitle={
           <>
             {influencer.note}

@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Pencil, Copy, Check, X } from "lucide-react";
+import { Plus, Copy, X } from "lucide-react";
 import type { WatchlistSummary } from "@/lib/queries";
+import { InlineName } from "@/components/ui/InlineName";
 import { createWatchlist, renameWatchlist, cloneWatchlist, deleteWatchlist } from "@/app/(app)/watchlist/actions";
 import { inputClass } from "../ui/Field";
 import { Button } from "../ui/Button";
@@ -45,36 +46,9 @@ function NewWatchlistForm() {
   );
 }
 
-function RenameForm({ watchlist, onDone }: { watchlist: WatchlistSummary; onDone: () => void }) {
-  return (
-    <form
-      action={async (formData: FormData) => {
-        await renameWatchlist(watchlist.id, formData);
-        onDone();
-      }}
-      className="flex items-center gap-2"
-    >
-      <input
-        name="name"
-        type="text"
-        autoFocus
-        required
-        defaultValue={watchlist.name}
-        className={`${inputClass} w-40 py-1.5`}
-      />
-      <SubmitButton size="sm" pendingLabel="Saving…" variant="secondary">
-        <Check className="size-3.5" aria-hidden="true" />
-      </SubmitButton>
-      <button type="button" onClick={onDone} aria-label="Cancel" className="rounded p-1 text-fg-muted hover:text-fg">
-        <X className="size-4" aria-hidden="true" />
-      </button>
-    </form>
-  );
-}
-
 /** Link-based tab row (URL is the source of truth for which list is
- * selected, same philosophy as CheckboxLink) plus New/Rename/Clone/Delete
- * for whichever list is currently selected — those four are the only
+ * selected, same philosophy as CheckboxLink) plus New/Clone/Delete for
+ * whichever list is currently selected, which also renames beside its tab — those four are the only
  * pieces that need client state (an inline text input, a confirm dialog),
  * so the pill row itself stays plain <Link>s rather than client-side tab
  * switching. */
@@ -85,37 +59,46 @@ export function WatchlistTabs({
   watchlists: WatchlistSummary[];
   selected: WatchlistSummary;
 }) {
-  const [renaming, setRenaming] = useState(false);
-
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {watchlists.map((w) => (
-          <Link
-            key={w.id}
-            href={`/watchlist?list=${w.id}`}
-            className={
-              "rounded-lg px-3 py-1.5 text-sm transition " +
-              (w.id === selected.id
-                ? "bg-accent text-accent-fg"
-                : "border border-border text-fg-muted hover:bg-surface-raised hover:text-fg")
-            }
-          >
-            {w.name} <span className="opacity-70">({w.itemCount})</span>
-          </Link>
-        ))}
+        {watchlists.map((w) => {
+          const tab = (
+            <Link
+              key={w.id}
+              href={`/watchlist?list=${w.id}`}
+              className={
+                "rounded-lg px-3 py-1.5 text-sm transition " +
+                (w.id === selected.id
+                  ? "bg-accent text-accent-fg"
+                  : "border border-border text-fg-muted hover:bg-surface-raised hover:text-fg")
+              }
+            >
+              {w.name} <span className="opacity-70">({w.itemCount})</span>
+            </Link>
+          );
+          // The selected list renames beside its own tab (InlineName).
+          return w.id === selected.id ? (
+            <InlineName key={w.id} name={w.name} label="Rename list" onSave={async (name) => {
+              const form = new FormData();
+              form.set("name", name);
+              try {
+                await renameWatchlist(w.id, form);
+                return null;
+              } catch (e) {
+                return (e as Error).message;
+              }
+            }}>
+              {tab}
+            </InlineName>
+          ) : (
+            tab
+          );
+        })}
         <NewWatchlistForm />
       </div>
 
       <div className="flex items-center gap-2">
-        {renaming ? (
-          <RenameForm watchlist={selected} onDone={() => setRenaming(false)} />
-        ) : (
-          <>
-            <Button type="button" variant="secondary" size="sm" onClick={() => setRenaming(true)}>
-              <Pencil className="size-3.5" aria-hidden="true" />
-              Rename
-            </Button>
             <form action={cloneWatchlist.bind(null, selected.id)}>
               <SubmitButton variant="secondary" size="sm" pendingLabel="Cloning…">
                 <Copy className="size-3.5" aria-hidden="true" />
@@ -127,8 +110,6 @@ export function WatchlistTabs({
                 Delete
               </ConfirmDeleteButton>
             </form>
-          </>
-        )}
       </div>
     </div>
   );

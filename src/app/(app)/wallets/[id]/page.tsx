@@ -16,6 +16,7 @@ import { toHoldingRows } from "@/lib/holdingRows";
 import { WalletTags } from "@/components/WalletTags";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
+import { InlineName } from "@/components/ui/InlineName";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
@@ -31,6 +32,7 @@ import {
   syncWalletHoldings,
   syncExchangeHoldings,
   updateWallet,
+  renameWallet,
 } from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
@@ -130,11 +132,14 @@ export default async function WalletDetailPage(
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-1">
-            <h1 className="text-xl font-semibold text-fg">{wallet.name}</h1>
+            <h1 className="text-xl font-semibold text-fg">
+              <InlineName name={wallet.name} inputClassName="text-lg font-semibold" onSave={renameWallet.bind(null, wallet.id)} />
+            </h1>
             <EditWalletModal
               wallet={wallet}
               tagNames={tagNames}
               updateWallet={updateWallet.bind(null, wallet.id)}
+              settingsIcon
             />
             {pinnedChain && wallet.address && (alreadyLinked ? (
               <VerifiedBadge />
