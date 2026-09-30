@@ -118,7 +118,8 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
   }, [busy]);
 
   // Compact (the Dashboard's stat tile): the per-source times and the
-  // click's timing go in the caption's tooltip instead of lines under it.
+  // click's total in one line (owner 2026-09-30: wanted them back), the
+  // full breakdown in the tooltip.
   const phaseText = priceState.phases
     ? PHASE_ORDER.filter((name) => priceState.phases![name])
         .map((name) => {
@@ -157,6 +158,14 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
           (which lane is running, how long each took) the button label
           can't show. */}
       {!busy && <PricedCaption priceState={priceState} />}
+      {/* Compact (the stat tile): each source's time and the click's total in
+          one short line; the full breakdown on hover. */}
+      {compact && !busy && showPhases && phaseText && (
+        <p className="max-w-80 truncate text-right text-[11px] text-fg-muted/70">
+          {timing ? `Done in ${formatMs(timing.totalMs)} · ` : ""}
+          {phaseText}
+        </p>
+      )}
       {!compact && showPhases && priceState.phases && (
         <p className="flex flex-wrap justify-end gap-x-2 text-[11px] text-fg-muted/70">
           {PHASE_ORDER.filter((name) => priceState.phases![name]).map((name) => (
