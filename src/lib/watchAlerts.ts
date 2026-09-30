@@ -45,6 +45,8 @@ export interface WatchAlert {
   /** Pings the owner's Discord role: only a position opened today reaching
    * $200 (at once, or "is building"). */
   ping: boolean;
+  /** A close's return (%), when known: colours its card win or loss. */
+  returnPct?: number | null;
 }
 
 /** The coin's latest trade price, else its average exit or entry. */
@@ -60,6 +62,34 @@ function crossed(steps: readonly number[], prev: number, now: number): number | 
 
 const pay = (qty: number | null, ticker: string | null) => (qty !== null && ticker ? `${qty < 1 ? qty.toFixed(3) : qty.toFixed(2)} ${ticker} ` : "");
 const pct = (p: number) => `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`;
+
+/** How long a position was held: "13m", "3h 20m"; under an hour a flip. */
+function heldText(ms: number): string {
+  const m = Math.max(1, Math.round(ms / 60_000));
+  const d = m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
+  return ms < BURST_GAP_MS ? `flipped in ${d}` : `held ${d}`;
+}
+
+const signedPay = (v: number, ticker: string) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v) < 1 ? Math.abs(v).toFixed(3) : Math.abs(v).toFixed(2)} ${ticker}`;
+
+/** A closed position's card (owner 2026-09-30: say plainly that it closed
+ * and what it made or lost, as trading bots do): the result as a heading,
+ * then what went in and came out, then the exit and how long it was held.
+ * Part held before today: its cost isn't known here, so no result. */
+function closeDetail(c: CoinDay, mc: string, heldMs: number | null): string {
+  const r = exitReturnPct(c);
+  const share = c.boughtQty > 0 ? Math.min(1, c.soldQty / c.boughtQty) : 1;
+  const lines: string[] = [];
+  if (r !== null && c.realizedUsd !== null) lines.push(`## ${formatUsdSigned(c.realizedUsd)} (${pct(r)})`);
+  else if (r !== null && c.boughtPay !== null && c.soldPay !== null && c.payTicker) lines.push(`## ${signedPay(c.soldPay - c.boughtPay * share, c.payTicker)} (${pct(r)})`);
+  else lines.push("## Closed · result unknown");
+  const side = (qty: number | null, usd: number | null) => `${pay(qty, c.payTicker)}${usd !== null ? `(${formatUsd(usd)})` : ""}`.trim() || "—";
+  if (!c.soldFromEarlier && c.buys > 0) lines.push(`In ${side(c.boughtPay, c.boughtUsd)} → Out ${side(c.soldPay, c.soldUsd)}`);
+  else lines.push(`Out ${side(c.soldPay, c.soldUsd)}${c.soldFromEarlier ? " · some was held before today" : ""}`);
+  const exit = c.avgExitUsd !== null ? `Exit ${formatPrice(c.avgExitUsd)}${mc}` : mc.replace(/^ · /, "");
+  lines.push([exit, heldMs !== null ? heldText(heldMs) : ""].filter(Boolean).join(" · "));
+  return lines.filter(Boolean).join("\n");
+}
 
 /** A sale's card: what it brought in (and the market cap then), then the
  * result when what was sold was bought today. */
@@ -109,8 +139,8 @@ export function watchAlerts(
     const supply = supplyOf(c);
     const mcAt = (p: number | null) => (supply !== null && supply > 0 && p !== null ? ` · MC ${formatCompactUsd(p * supply)}` : "");
     const worth = (qty: number) => (price === null ? null : qty * price);
-    const alert = (kind: WatchAlertKind, headline: string, detail: string, ping: boolean) =>
-      out.push({ kind, ticker: c.ticker, contract: c.contract, chain: c.contractChain, headline, detail, ping });
+    const alert = (kind: WatchAlertKind, headline: string, detail: string, ping: boolean, returnPct?: number | null) =>
+      out.push({ kind, ticker: c.ticker, contract: c.contract, chain: c.contractChain, headline, detail, ping, ...(returnPct !== undefined ? { returnPct } : {}) });
     const bought = c.boughtUsd ?? 0;
     const boughtBefore = b?.boughtUsd ?? 0;
     const sold = c.soldUsd ?? 0;
@@ -169,11 +199,8 @@ export function watchAlerts(
       const firstBuy = c.trades.filter((t) => t.side === "buy").map((t) => t.at).sort()[0];
       const lastSell = c.trades.filter((t) => t.side === "sell").map((t) => t.at).sort().at(-1);
       const heldMs = openedToday && firstBuy && lastSell ? Date.parse(lastSell) - Date.parse(firstBuy) : null;
-      const flip = heldMs !== null && heldMs < BURST_GAP_MS;
-      const flipText = flip ? ` (flipped in ${Math.max(1, Math.round(heldMs / 60_000))}m)` : "";
       const r = exitReturnPct(c);
-      const rText = r !== null ? ` · ${r >= 0 ? "win" : "loss"} ${pct(r)}` : "";
-      alert("soldOut", `sold out of ${c.ticker}${flipText}${rText}`, sellDetail(c, mcAt(c.avgExitUsd), ""), false);
+      alert("soldOut", `closed ${c.ticker}${r !== null ? ` · ${pct(r)}` : ""}`, closeDetail(c, mcAt(c.avgExitUsd), heldMs), false, r);
       continue;
     }
     // Trimmed: a quarter, a half, three quarters of the position sold.
@@ -194,8 +221,14 @@ const STYLE: Record<WatchAlertKind, { emoji: string; color: number }> = {
   resumed: { emoji: "🔵", color: 0x3b82f6 },
   added: { emoji: "➕", color: 0x64748b },
   trimmed: { emoji: "🟠", color: 0xf59e0b },
-  soldOut: { emoji: "🔴", color: 0xef4444 },
+  soldOut: { emoji: "⚪", color: 0x64748b },
 };
+
+/** A close is a win or a loss by its result; unknown stays grey. */
+function styleOf(a: WatchAlert): { emoji: string; color: number } {
+  if (a.kind !== "soldOut" || a.returnPct == null) return STYLE[a.kind];
+  return a.returnPct >= 0 ? { emoji: "✅", color: 0x22c55e } : { emoji: "❌", color: 0xef4444 };
+}
 
 /** Where the coin trades: Fomo for Solana (its token page, checked
  * 2026-09-28); DexScreener for EVM chains whose slug it's known by. */
@@ -223,5 +256,6 @@ export function alertEmbed(trader: string, a: WatchAlert, traderLink: string | n
   const lines = [a.detail];
   if (a.contract) lines.push(`\`${a.contract}\``);
   if (traderLink && a.kind === "opened") lines.push(`[${trader} on CryptoPort](${traderLink})`);
-  return { title: `${STYLE[a.kind].emoji} ${trader} ${a.headline}`.slice(0, 256), ...(url ? { url } : {}), description: lines.join("\n"), color: STYLE[a.kind].color };
+  const style = styleOf(a);
+  return { title: `${style.emoji} ${trader} ${a.headline}`.slice(0, 256), ...(url ? { url } : {}), description: lines.join("\n"), color: style.color };
 }
