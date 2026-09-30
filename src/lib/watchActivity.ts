@@ -196,7 +196,16 @@ export function toLegs(
  * ones, each transaction + coin once — appended, never overwritten. */
 export function appendLegs(prev: TxActivity | null, boundary: string, legs: readonly ActivityLeg[], base: Record<string, ActivityBase>): TxActivity {
   const since = Date.parse(boundary);
-  const kept = prev && prev.boundary === boundary ? prev.legs : (prev?.legs ?? []).filter((l) => Date.parse(l.at) >= since);
+  const stored = prev && prev.boundary === boundary ? prev.legs : (prev?.legs ?? []).filter((l) => Date.parse(l.at) >= since);
+  // A transaction read again that now sizes a leg saved unsized fills it in
+  // (a fix in the reduction reaches trades already saved, e.g. the route
+  // residue that left Risk's ELON buys unsized, 2026-09-30); a sized leg is
+  // never changed.
+  const sized = new Map(legs.filter((l) => l.priceUsd !== null).map((l) => [`${l.txId}|${l.assetKey}`, l]));
+  const kept = stored.map((l) => {
+    const better = l.priceUsd === null ? sized.get(`${l.txId}|${l.assetKey}`) : undefined;
+    return better ? { ...l, priceUsd: better.priceUsd, ...(better.sizedBy ? { sizedBy: better.sizedBy } : {}) } : l;
+  });
   const seen = new Set(kept.map((l) => `${l.txId}|${l.assetKey}`));
   const added = legs.filter((l) => Date.parse(l.at) >= since && !seen.has(`${l.txId}|${l.assetKey}`));
   return { boundary, legs: [...kept, ...added], base: { ...(prev?.boundary === boundary ? prev.base : {}), ...base } };

@@ -217,3 +217,10 @@ test("a day whose read didn't happen starts at the read time; the starting quant
   // Already read today: unchanged.
   assert.equal(rebaseToDay({ ...act, boundary: "2026-09-29T08:07:00Z" }, Date.parse("2026-09-29T08:00:00Z")).legs.length, 2);
 });
+
+test("a transaction read again fills in a leg saved unsized, never a sized one", () => {
+  const b = "2026-09-30T08:00:00Z";
+  const first = appendLegs(null, b, [leg({ txId: "a", qtyDelta: 5, priceUsd: null }), leg({ txId: "c", qtyDelta: 1, priceUsd: 2 })], {});
+  const again = appendLegs(first, b, [leg({ txId: "a", qtyDelta: 5, priceUsd: 0.5 }), leg({ txId: "c", qtyDelta: 1, priceUsd: 9 })], {});
+  assert.deepEqual(again.legs.map((l) => [l.txId, l.priceUsd]), [["a", 0.5], ["c", 2]]);
+});
