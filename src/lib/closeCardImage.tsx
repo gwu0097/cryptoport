@@ -10,7 +10,7 @@ import type { CloseCard } from "./watchAlerts";
 // every text is cut to Latin letters first (sanitize).
 
 const W = 800;
-const H = 460;
+const H = 400;
 const GREEN = "#22c55e";
 const RED = "#ef4444";
 const GREY = "#94a3b8";
@@ -35,8 +35,8 @@ export async function renderCloseCard(trader: string, card: CloseCard): Promise<
             <span>CryptoPort</span>
           </div>
           <div style={{ display: "flex", fontSize: 34, color: "#f8fafc", marginTop: 10 }}>{pair || "Position"}</div>
-          <div style={{ display: "flex", fontSize: 120, lineHeight: 1, color: tone, marginTop: 18 }}>{card.pct ? t(card.pct) : "Closed"}</div>
-          <div style={{ display: "flex", fontSize: 40, color: tone, marginTop: 8, marginBottom: 24 }}>{card.result ? t(card.result) : "result unknown"}</div>
+          <div style={{ display: "flex", fontSize: 84, lineHeight: 1, color: tone, marginTop: 16 }}>{card.pct ? t(card.pct) : "Closed"}</div>
+          <div style={{ display: "flex", fontSize: 32, color: tone, marginTop: 8, marginBottom: 20 }}>{card.result ? t(card.result) : "result unknown"}</div>
           <div style={{ flex: 1 }} />
           <div style={{ display: "flex", gap: 36 }}>
             {card.inText && (
