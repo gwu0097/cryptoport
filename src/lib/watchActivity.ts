@@ -507,10 +507,13 @@ export function coinDays(activities: readonly TxActivity[], ownAddresses: Readon
       holdingQty: Math.max(0, heldBefore + legs.reduce((s, l) => s + l.qtyDelta, 0)),
       realizedUsd,
       realizedPct: realizedUsd !== null && boughtUsd ? (realizedUsd / (matched * (boughtUsd / boughtQty))) * 100 : null,
-      // Relative slack: summing 19,187,448 + 1,671,814.48 in floating point
-      // came out a few billionths under selling exactly that (Eustaz's TAIL,
-      // 2026-09-30), and a close showed "result unknown".
-      soldFromEarlier: soldQty > boughtQty * (1 + 1e-9) + 1e-9,
+      // Only when something was held at the read: selling a hair more than
+      // was bought, with nothing held before (Risk's FF: 1,807 of 33.4M, a
+      // buy the webhook never delivered or a token's own fee), isn't an
+      // earlier position — the result is today's matched part, as trims show.
+      // Relative slack besides: float sums of 19,187,448 + 1,671,814.48 came
+      // out a few billionths under selling exactly that (Eustaz's TAIL).
+      soldFromEarlier: soldQty > boughtQty * (1 + 1e-9) + 1e-9 && heldBefore * (avgExitUsd ?? avgEntryUsd ?? 0) >= 1,
       avgEntryUsd,
       entryLiqUsd: legs.find((l) => l.entryLiqUsd != null)?.entryLiqUsd ?? null,
       avgExitUsd,

@@ -177,3 +177,13 @@ test("selling exactly what was bought closes with a result, float sums notwithst
   assert.match(out.alerts[0].headline, /closed GEM · -\d+\.\d%$/);
   assert.equal(out.alerts[0].card?.win, false);
 });
+
+test("selling a little more than was bought, with nothing held at the read, still closes with a result (Risk's FF)", () => {
+  const a = deliver(null, swap(1_000_000, 0.01));
+  const out = deliver(a.after, swap(-1_000_050, 0.02, 45 * 60_000));
+  assert.equal(out.alerts[0].kind, "soldOut");
+  assert.match(out.alerts[0].headline, /closed GEM · \+100\.0%$/);
+  // Held at the read: that part's cost isn't known — no result.
+  const held = deliver(deliver(null, swap(1_000_000, 0.01), 500_000).after, swap(-1_500_000, 0.02, 45 * 60_000), 500_000);
+  assert.equal(held.alerts[0].card?.pct, null);
+});
