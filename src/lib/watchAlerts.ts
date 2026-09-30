@@ -4,7 +4,7 @@
 // hour apart are one burst (spam-like DCA); a buy an hour or more after the
 // coin's previous one starts a new burst, which posts — and pings — once it
 // reaches $100 (Bacon adding to AURORA). A coin opened today pings once,
-// when what's been bought into it reaches $500 — in one buy or thirty — and
+// when what's been bought into it reaches $200 — in one buy or thirty — and
 // a sell-out within the hour of opening is a flip: posted, not pinged. Judged by comparing the
 // coin's day (coinDays, the activity table's own numbers) before and after
 // the delivery's new legs, so a repeat of the same delivery posts nothing.
@@ -22,7 +22,7 @@ export const ADD_STEPS_USD = [1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250
 /** A trim posts at each of these shares of the position sold. */
 export const TRIM_STEPS = [0.25, 0.5, 0.75];
 /** A position opened today pings once its buys reach this. */
-export const PING_POSITION_USD = 500;
+export const PING_POSITION_USD = 200;
 /** Buys of one coin closer than this are one burst; a position sold out
  * within this of its first buy is a flip. */
 export const BURST_GAP_MS = 60 * 60_000;
@@ -41,7 +41,7 @@ export interface WatchAlert {
   headline: string;
   /** The numbers: "3.23 SOL ($384.02) at $0.00002616". */
   detail: string;
-  /** Pings the owner's Discord role: a position reaching $500, a new burst
+  /** Pings the owner's Discord role: a position reaching $200, a new burst
    * of buying, a full exit that wasn't a flip. */
   ping: boolean;
 }
@@ -114,7 +114,7 @@ export function watchAlerts(
       alert("opened", `opened ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(c.buys === 1 ? " at " : " · avg entry ")}${mcAt(c.avgEntryUsd)}`, bought >= PING_POSITION_USD);
       posted = true;
     } else if (openedToday && bought >= PING_POSITION_USD && boughtBefore < PING_POSITION_USD) {
-      // A small open built up: one ping when it reaches $500.
+      // A small open built up: one ping when it reaches $200.
       alert("building", `is building ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(" · avg entry ")}${mcAt(c.avgEntryUsd)}`, true);
       posted = true;
     } else if (!openedToday || boughtBefore >= ALERT_MIN_USD) {
