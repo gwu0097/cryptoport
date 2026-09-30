@@ -15,7 +15,9 @@ import { getMarketFor } from "./queries";
 // logged, never thrown: the trade is saved either way, and a retried delivery
 // adds no new legs, so it can't post twice.
 
-export async function sendWatchAlerts(chain: string, address: string, before: TxActivity | null, after: TxActivity, newTxIds: ReadonlySet<string>): Promise<void> {
+/** `known`: supplies already read this delivery (the coins it opened —
+ * entryLiquidity.ts), so they aren't asked for again. */
+export async function sendWatchAlerts(chain: string, address: string, before: TxActivity | null, after: TxActivity, newTxIds: ReadonlySet<string>, known: ReadonlyMap<string, number> = new Map()): Promise<void> {
   const url = process.env.DISCORD_WATCH_WEBHOOK_URL;
   if (!url) return;
   try {
@@ -28,10 +30,11 @@ export async function sendWatchAlerts(chain: string, address: string, before: Tx
     // With something to post: the coins' supply, for the market cap at each
     // card's price (one Jupiter call for Solana coins, one read for others).
     const posting = afterDays.filter((c) => first.some((a) => a.ticker === c.ticker && a.contract === c.contract));
-    const supply = await supplies(posting).catch((e: Error) => {
+    const supply = await supplies(posting.filter((c) => !known.has(c.assetKey))).catch((e: Error) => {
       console.error(`Wallet Watch alert supply not read: ${e.message}`);
       return new Map<string, number>();
     });
+    for (const [k, v] of known) supply.set(k, v);
     const alerts = watchAlerts(beforeDays, afterDays, newTxIds, (c) => supply.get(c.assetKey) ?? null);
 
     const { data, error } = await serviceDb().from("watch_influencer_addresses").select("influencer_id, watch_influencers(name)").eq("chain", chain).eq("address", address);

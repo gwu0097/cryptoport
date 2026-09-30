@@ -84,6 +84,9 @@ function crossed(steps: readonly number[], prev: number, now: number): number | 
 const pay = (qty: number | null, ticker: string | null) => (qty !== null && ticker ? `${qty < 1 ? qty.toFixed(3) : qty.toFixed(2)} ${ticker} ` : "");
 const pct = (p: number) => `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`;
 
+/** The coin's liquidity when the position opened: " · Liq $7.2K". */
+const liqAt = (c: CoinDay) => (c.entryLiqUsd !== null ? ` · Liq ${formatCompactUsd(c.entryLiqUsd)}` : "");
+
 /** How long a position was held: "13m", "3h 20m"; under an hour a flip. */
 function heldText(ms: number): string {
   const m = Math.max(1, Math.round(ms / 60_000));
@@ -203,11 +206,11 @@ export function watchAlerts(
     const buysText = c.buys === 1 ? "" : `${c.buys} buys · `;
     let posted = false; // a buy alert this delivery: the size steps don't repeat it
     if (openedToday && bought >= ALERT_MIN_USD && boughtBefore < ALERT_MIN_USD) {
-      alert("opened", `opened ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(c.buys === 1 ? " at " : " · avg entry ")}${mcAt(c.avgEntryUsd)}`, bought >= PING_POSITION_USD);
+      alert("opened", `opened ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(c.buys === 1 ? " at " : " · avg entry ")}${mcAt(c.avgEntryUsd)}${liqAt(c)}`, bought >= PING_POSITION_USD);
       posted = true;
     } else if (openedToday && bought >= PING_POSITION_USD && boughtBefore < PING_POSITION_USD) {
       // A small open built up: one ping when it reaches $200.
-      alert("building", `is building ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(" · avg entry ")}${mcAt(c.avgEntryUsd)}`, true);
+      alert("building", `is building ${c.ticker}`, `${buysText}${pay(c.boughtPay, c.payTicker)}(${formatUsd(bought)})${entryText(" · avg entry ")}${mcAt(c.avgEntryUsd)}${liqAt(c)}`, true);
       posted = true;
     } else if (!openedToday || boughtBefore >= ALERT_MIN_USD) {
       // A new burst: the latest buys, back to a gap of an hour or more (or to

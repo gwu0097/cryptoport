@@ -161,3 +161,10 @@ test("every card links the wallet's trades beside the contract: Solscan for Sola
   assert.equal(walletTradesLink("ETH", "0xabc")?.url, "https://debank.com/profile/0xabc/history");
   assert.equal(walletTradesLink("BTC", "bc1q"), null);
 });
+
+test("an open shows the liquidity at entry when it was captured", () => {
+  const legs = swap(100_000, 0.01);
+  legs[0].entryLiqUsd = 7_200;
+  const open = deliver(null, legs, 0, 1_000_000_000);
+  assert.equal(open.alerts[0].detail, "10.00 SOL ($1,000.00) at $0.01 · MC $10M · Liq $7.2K");
+});

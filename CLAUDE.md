@@ -154,6 +154,16 @@ owner's.
   `DISCORD_WATCH_ROLE_ID` is a position opened today reaching $200 — owner
   2026-09-29: "rest is noise"; a sell-out within the hour of opening says
   it was a flip; nobody else is ever pinged).
+  **Liquidity at entry** (owner 2026-09-30: only the initial figure): when a
+  live delivery opens a position — a coin not held at the read whose buys
+  reach $100 with it, the "opened" alert's moment (`entryLiquidity.ts`
+  `openingLegs`) — the coin's liquidity is asked once and saved on that
+  buy (`entryLiqUsd`): Solana from Jupiter (the call the alert made for the
+  supply anyway — it reuses the answer), EVM from GeckoTerminal (one call
+  per chain for every coin opened, `adapters/geckoTerminal.ts`; its market
+  cap gives the alert's supply too). Shown as "avg entry MC $X · Liq $Y" and
+  on the opened alert; trades found by Refresh activity or the morning read
+  have none (a past liquidity can't be looked up).
   Every card shows the market cap at its price (owner 2026-09-29) — the
   coin's circulating supply × the trade price: Jupiter's `circSupply` for a
   Solana mint (one call per post, only when something posts), else

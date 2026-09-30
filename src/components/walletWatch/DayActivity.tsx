@@ -314,7 +314,12 @@ function CoinRows({ c, isNew, showNames, serverNowSec, nested = false }: { c: Wa
         </td>
         <td className={`${tdClass} tabular-nums`}>
           <Amount payQty={c.boughtPay} usd={c.boughtUsd} ticker={c.payTicker} qty={c.boughtQty} tone="text-positive" />
-          {c.avgEntryUsd !== null && <p className="text-xs text-fg-muted">avg entry {at(c.avgEntryUsd)}</p>}
+          {c.avgEntryUsd !== null && (
+            <p className="text-xs text-fg-muted">
+              avg entry {at(c.avgEntryUsd)}
+              {c.entryLiqUsd !== null && <span title="The coin's liquidity when the position opened (live updates only)"> · Liq {formatCompactUsd(c.entryLiqUsd)}</span>}
+            </p>
+          )}
         </td>
         <td className={`${tdClass} tabular-nums`}>
           <Amount payQty={c.soldPay} usd={c.soldUsd} ticker={c.payTicker} qty={c.soldQty} tone="text-negative" />

@@ -62,6 +62,9 @@ export interface ActivityLeg {
   /** Who found it: the live webhook or a Refresh activity check (phase 5 —
    * a check on a live wallet counts what the webhook missed). */
   source?: "webhook" | "check";
+  /** On the buy that opened a position (live only): the coin's liquidity
+   * then, in USD (entryLiquidity.ts). */
+  entryLiqUsd?: number;
 }
 
 /** A coin's quantity in the morning snapshot (summed across chains), and
@@ -413,6 +416,8 @@ export interface CoinDay {
   soldFromEarlier: boolean;
   /** Average price paid across today's buys, and received across today's sales. */
   avgEntryUsd: number | null;
+  /** The coin's liquidity when the position opened (live only). */
+  entryLiqUsd: number | null;
   avgExitUsd: number | null;
   /** With no buys today: the share of the morning position sold (0–1). */
   soldShareOfPosition: number | null;
@@ -504,6 +509,7 @@ export function coinDays(activities: readonly TxActivity[], ownAddresses: Readon
       realizedPct: realizedUsd !== null && boughtUsd ? (realizedUsd / (matched * (boughtUsd / boughtQty))) * 100 : null,
       soldFromEarlier: soldQty > boughtQty + 1e-9,
       avgEntryUsd,
+      entryLiqUsd: legs.find((l) => l.entryLiqUsd != null)?.entryLiqUsd ?? null,
       avgExitUsd,
       soldShareOfPosition: buys.length === 0 && heldBefore > 0 && soldQty > 0 ? Math.min(1, soldQty / heldBefore) : null,
       firstAt: trades.at(-1)!.at,

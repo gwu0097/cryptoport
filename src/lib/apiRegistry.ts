@@ -135,6 +135,18 @@ export const API_SERVICES: ApiService[] = [
     code: "src/lib/adapters/jupiterFetch.ts (every api.jup.ag call)",
   },
   {
+    name: "GeckoTerminal",
+    category: "Prices & market data",
+    tier: "free-no-signup",
+    plan: "Public API (no key)",
+    limits: "30 calls a minute; up to 30 coins a call.",
+    usedFor: "Wallet Watch: an EVM coin's liquidity and market cap when a live trader opens a position (once per delivery that opens one, every coin in it together) — the entry's liquidity on the activity table and the alert.",
+    scaling: "Calls grow with positions opened by live EVM traders, not with viewers. A paid CoinGecko plan includes GeckoTerminal's Pro API.",
+    env: [],
+    hosts: ["api.geckoterminal.com"],
+    code: "src/lib/adapters/geckoTerminal.ts",
+  },
+  {
     name: "Solana Tracker",
     category: "Blockchain data",
     tier: "free-signup",

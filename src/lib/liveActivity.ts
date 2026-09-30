@@ -11,6 +11,42 @@ import { alchemyChanges, type AlchemyDelivery } from "./alchemyWebhookTx";
 import { loadAlchemyWebhooks, type AlchemyWebhooks } from "./alchemyWebhookSync";
 import { assetStates } from "./watchDiff";
 import type { WatchSnapshot } from "./watchSnapshot";
+import { openingLegs } from "./entryLiquidity";
+import { fetchTokenInfo } from "./adapters/jupiter";
+import { fetchTokenMarkets } from "./adapters/geckoTerminal";
+import type { ActivityLeg } from "./watchActivity";
+
+/** For the coins a delivery opens: liquidity then, and circulating supply
+ * (the alert's market cap), by asset key — Solana from Jupiter (the call
+ * the "opened" alert made anyway), EVM from GeckoTerminal (one call per
+ * chain for every coin). A failure means none, never a guess. */
+async function entryMarkets(opening: readonly ActivityLeg[]): Promise<Map<string, { liq: number | null; supply: number | null }>> {
+  const out = new Map<string, { liq: number | null; supply: number | null }>();
+  const sol = opening.filter((l) => l.sourceChain === "solana" && l.contract);
+  if (sol.length > 0) {
+    const info = await fetchTokenInfo(sol.map((l) => l.contract!)).catch((e: Error) => {
+      console.error(`Entry liquidity (Jupiter): ${e.message}`);
+      return new Map();
+    });
+    for (const l of sol) {
+      const i = info.get(l.contract!);
+      if (i) out.set(l.assetKey, { liq: typeof i.liquidity === "number" && i.liquidity > 0 ? i.liquidity : null, supply: typeof i.circSupply === "number" && i.circSupply > 0 ? i.circSupply : null });
+    }
+  }
+  const evm = opening.filter((l) => l.sourceChain !== "solana" && l.contract);
+  for (const chain of new Set(evm.map((l) => l.sourceChain))) {
+    const mine = evm.filter((l) => l.sourceChain === chain);
+    const markets = await fetchTokenMarkets(chain, mine.map((l) => l.contract!)).catch((e: Error) => {
+      console.error(`Entry liquidity (GeckoTerminal ${chain}): ${e.message}`);
+      return new Map();
+    });
+    for (const l of mine) {
+      const m = markets.get(l.contract!.toLowerCase());
+      if (m) out.set(l.assetKey, { liq: m.liquidityUsd, supply: m.marketCapUsd && m.priceUsd ? m.marketCapUsd / m.priceUsd : null });
+    }
+  }
+  return out;
+}
 
 // Wallet Watch live activity (docs/wallet-watch/PLAN.md, phases 5 and 6):
 // what a Helius "raw" webhook (Solana) or an Alchemy Address Activity
@@ -72,12 +108,23 @@ async function saveChanges(chain: "SOL" | "ETH", perOwner: Map<string, RawChange
     const states = assetStates(row.snapshot);
     const base: Record<string, ActivityBase> = {};
     for (const l of legs) base[l.assetKey] = { qty: states.get(l.assetKey)?.qty ?? 0, kept: states.get(l.assetKey)?.kept ?? false };
+    // A position this delivery opens gets its liquidity at entry, asked once
+    // (entryLiquidity.ts); the alert reuses the same answer for its supply.
+    const stored = row.tx_activity;
+    const prevLegs = !stored ? [] : stored.boundary === boundary ? stored.legs : stored.legs.filter((l) => Date.parse(l.at) >= Date.parse(boundary));
+    const opening = openingLegs(prevLegs, legs, base);
+    const markets = opening.length > 0 ? await entryMarkets(opening) : new Map<string, { liq: number | null; supply: number | null }>();
+    for (const l of opening) {
+      const liq = markets.get(l.assetKey)?.liq;
+      if (liq != null) l.entryLiqUsd = Math.round(liq);
+    }
     // Compare-and-set (txActivityStore.ts): two deliveries in the same second
     // no longer overwrite each other. Only new legs count (a duplicate adds none).
     const appended = await appendActivity(chain, row.address, row.last_refresh_at, boundary, legs, base, { live_last_event_at: now });
     if (!appended || appended.added === 0) continue;
     saved += appended.added;
-    await sendWatchAlerts(chain, row.address, appended.before, appended.after, new Set(legs.map((l) => l.txId)));
+    const known = new Map([...markets].flatMap(([k, m]) => (m.supply !== null ? [[k, m.supply] as [string, number]] : [])));
+    await sendWatchAlerts(chain, row.address, appended.before, appended.after, new Set(legs.map((l) => l.txId)), known);
   }
   if (saved > 0) await broadcastActivity(); // new lines: open pages fetch theirs (one request)
   return saved;
