@@ -238,6 +238,10 @@ export interface ZerionPnl {
   investedUsd: number;
   /** Zerion's total gain as a % of what was put in. */
   relativeTotalPct: number | null;
+  /** Fees paid on trades; the return on coins sold (%) and their cost. */
+  feesUsd: number | null;
+  realizedPct: number | null;
+  realizedCostUsd: number | null;
 }
 
 /**
@@ -263,5 +267,8 @@ export async function fetchZerionPnl(address: string, window?: { sinceMs: number
     unrealizedUsd: a.unrealized_gain ?? 0,
     investedUsd: a.total_invested ?? 0,
     relativeTotalPct: typeof a.relative_total_gain_percentage === "number" ? a.relative_total_gain_percentage : null,
+    feesUsd: typeof a.total_fee === "number" ? a.total_fee : null,
+    realizedPct: typeof a.relative_realized_gain_percentage === "number" ? a.relative_realized_gain_percentage : null,
+    realizedCostUsd: typeof a.realized_cost_basis === "number" ? a.realized_cost_basis : null,
   };
 }

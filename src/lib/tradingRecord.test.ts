@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coinsByMonth, investedFrom, mergeCoins, summarizeTrading, type StoredTradingRecord } from "./tradingRecord.ts";
+import { monthDrop, coinsByMonth, investedFrom, mergeCoins, summarizeTrading, type StoredTradingRecord } from "./tradingRecord.ts";
 
 const rec = (over: Partial<StoredTradingRecord>): StoredTradingRecord => ({
   realizedUsd: 0,
@@ -97,4 +97,11 @@ test("what was put in: stored when the load has it, else worked out from profit 
   const now = Date.parse("2026-09-28T00:00:00Z");
   const idx = mergeCoins(undefined, [{ mint: "M", symbol: "M", realizedUsd: 10, roiPct: 5, investedUsd: 200, lastSellMs: now, lastTradeMs: now }], now);
   assert.equal(coinsByMonth([{ ...rec({}), coins: idx }])["2026-09"].top[0].investedUsd, 200);
+});
+
+test("the monthly drop is the running profit's biggest fall between month-ends", () => {
+  assert.deepEqual(monthDrop([{ month: "2026-07", realizedUsd: 50_000 }, { month: "2026-08", realizedUsd: -20_000 }, { month: "2026-09", realizedUsd: 5_000 }]), { usd: 20_000, from: "2026-07", to: "2026-08" });
+  assert.deepEqual(monthDrop([{ month: "2026-07", realizedUsd: -3_000 }, { month: "2026-08", realizedUsd: 9_000 }]), { usd: 3_000, from: "", to: "2026-07" });
+  assert.equal(monthDrop([{ month: "2026-08", realizedUsd: 1 }, { month: "2026-09", realizedUsd: 2 }])!.usd, 0);
+  assert.equal(monthDrop([]), null);
 });

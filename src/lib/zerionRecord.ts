@@ -11,6 +11,12 @@ export interface PnlAnswer {
   unrealizedUsd: number;
   investedUsd: number;
   relativeTotalPct: number | null;
+  /** Also in every answer (owner 2026-09-30: use what the call already
+   * returns): fees paid, the return on coins sold (realized ÷ their cost)
+   * and what those coins cost. Kept from the all-time answer. */
+  feesUsd?: number | null;
+  realizedPct?: number | null;
+  realizedCostUsd?: number | null;
 }
 
 export type ZerionWindow = { kind: "all" } | { kind: "d30" | "d90"; sinceMs: number; tillMs: number } | { kind: "month"; month: string; sinceMs: number; tillMs: number; endMs: number };
@@ -70,5 +76,8 @@ export function zerionRecord(prev: StoredTradingRecord | null, answers: readonly
     drawdownPct: null,
     months,
     windows,
+    feesUsd: all.feesUsd ?? null,
+    closedReturnPct: all.realizedPct ?? null,
+    closedCostUsd: all.realizedCostUsd ?? null,
   };
 }

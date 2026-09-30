@@ -39,6 +39,12 @@ export interface StoredTradingRecord {
   source?: "zerion";
   months?: Record<string, [number, number, number?] | null>;
   windows?: { d30: number | null; d90: number | null };
+  /** From Zerion's all-time answer: fees paid on trades, the return on the
+   * coins sold (%) and what they cost. Missing on records loaded before
+   * 2026-09-30's refresh. */
+  feesUsd?: number | null;
+  closedReturnPct?: number | null;
+  closedCostUsd?: number | null;
 }
 
 /** A coin's result: [month it was last sold (YYYY-MM), realized USD, return %,
@@ -143,6 +149,42 @@ export interface TradingSummary {
   monthCoins: Record<string, MonthCoins>;
   /** Whether any address can list coins (Solana; Zerion gives totals only). */
   hasCoinDetail: boolean;
+  /** Zerion records: the return on coins sold (realized ÷ their cost) and
+   * that cost, all addresses together; null when any lacks it. */
+  closedReturn: { pct: number; costUsd: number } | null;
+  /** Zerion records: fees paid on trades, all time. */
+  feesUsd: number | null;
+  /** The largest fall of the running realized profit between month-ends
+   * over the months shown (usd ≥ 0; 0 = it never fell; `from` "" = the
+   * start); null with no months. */
+  monthDrop: { usd: number; from: string; to: string } | null;
+}
+
+/** Realized ÷ cost over the coins sold, every Zerion address together. */
+function closedReturnOf(zerion: readonly StoredTradingRecord[]): TradingSummary["closedReturn"] {
+  if (zerion.length === 0 || zerion.some((r) => typeof r.closedCostUsd !== "number" || typeof r.closedReturnPct !== "number")) return null;
+  const cost = zerion.reduce((s, r) => s + r.closedCostUsd!, 0);
+  if (cost <= 0) return null;
+  // Each address's realized on its sold coins is its % × its cost.
+  const realized = zerion.reduce((s, r) => s + (r.closedReturnPct! / 100) * r.closedCostUsd!, 0);
+  return { pct: (realized / cost) * 100, costUsd: cost };
+}
+
+/** Peak-to-trough fall of the running realized profit, month by month. */
+export function monthDrop(months: readonly { month: string; realizedUsd: number }[]): TradingSummary["monthDrop"] {
+  if (months.length === 0) return null;
+  let run = 0;
+  let peak = 0;
+  let peakMonth = ""; // "" = before the first month shown
+  let best = { usd: 0, from: "", to: months[0].month };
+  for (const m of months) {
+    run += m.realizedUsd;
+    if (run > peak) {
+      peak = run;
+      peakMonth = m.month;
+    } else if (peak - run > best.usd) best = { usd: peak - run, from: peakMonth, to: m.month };
+  }
+  return best;
 }
 
 const addDays = (date: string, n: number) => {
@@ -235,5 +277,8 @@ export function summarizeTrading(records: readonly StoredTradingRecord[], today:
     drawdownPct: one?.drawdownPct ?? null,
     monthCoins: coinsByMonth(records),
     hasCoinDetail: records.some((r) => r.source !== "zerion"),
+    closedReturn: closedReturnOf(zerion),
+    feesUsd: zerion.length > 0 && zerion.every((r) => typeof r.feesUsd === "number") ? zerion.reduce((s, r) => s + r.feesUsd!, 0) : null,
+    monthDrop: monthDrop(months),
   };
 }

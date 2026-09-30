@@ -235,24 +235,51 @@ export function TradingRecordPanel({
           {month && <MonthDetail month={month} realizedUsd={months.find((m) => m.month === month)?.realizedUsd ?? 0} coins={summary.monthCoins[month]} hasCoinList={Object.keys(summary.monthCoins).length > 0} hasCoinDetail={summary.hasCoinDetail} />}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Figure label="Win rate (all time)" value={at.winRatePct !== null ? `${at.winRatePct.toFixed(1)}%` : "—"} caption={at.closed > 0 ? `${at.wins.toLocaleString()} of ${at.closed.toLocaleString()} closed coins · holds ${hold(at.avgHoldSecs)} on average` : "Per coin: Solana addresses only"} />
+            {at.winRatePct === null && summary.closedReturn ? (
+              // EVM (Zerion gives no per-coin results in the calls made):
+              // the return on the coins they sold instead.
+              <Figure
+                label="Return on sold coins (all time)"
+                value={formatPercent(summary.closedReturn.pct)}
+                valueClass={tone(summary.closedReturn.pct)}
+                caption={`${formatCompactUsd(summary.closedReturn.costUsd)} put into the coins they sold · win rate is Solana only`}
+              />
+            ) : (
+              <Figure label="Win rate (all time)" value={at.winRatePct !== null ? `${at.winRatePct.toFixed(1)}%` : "—"} caption={at.closed > 0 ? `${at.wins.toLocaleString()} of ${at.closed.toLocaleString()} closed coins · holds ${hold(at.avgHoldSecs)} on average` : "Per coin: Solana addresses only"} />
+            )}
             <Figure
               label="Best month's share of the year"
               value={summary.bestMonthShare !== null ? `${Math.round(summary.bestMonthShare * 100)}%` : "—"}
               caption={summary.bestMonthShare === null ? "The year isn't up" : summary.bestMonthShare > 0.5 ? "Most of the year's profit came from one month" : "Spread across the year"}
             />
-            <Figure
-              label="Best day"
-              value={summary.bestDay ? signedCompact(summary.bestDay.realizedUsd) : "—"}
-              valueClass={summary.bestDay ? tone(summary.bestDay.realizedUsd) : undefined}
-              caption={summary.bestDay ? `${summary.bestDay.date}${summary.bestDayShare !== null ? ` · ${Math.round(summary.bestDayShare * 100)}% of the year` : ""}` : undefined}
-            />
-            <Figure
-              label="Biggest drop from a peak"
-              value={summary.drawdownPct !== null ? `−${summary.drawdownPct.toFixed(0)}%` : "—"}
-              valueClass={summary.drawdownPct !== null ? "text-negative" : undefined}
-              caption={summary.drawdownUsd !== null ? `${formatCompactUsd(summary.drawdownUsd)} over the year` : summary.addresses > 1 ? "Not combined across addresses" : undefined}
-            />
+            {!summary.bestDay && summary.feesUsd !== null ? (
+              // EVM: no day-by-day figures; the fees Zerion reports instead.
+              <Figure label="Fees paid (all time)" value={formatCompactUsd(summary.feesUsd)} caption="Transaction fees on their trades" />
+            ) : (
+              <Figure
+                label="Best day"
+                value={summary.bestDay ? signedCompact(summary.bestDay.realizedUsd) : "—"}
+                valueClass={summary.bestDay ? tone(summary.bestDay.realizedUsd) : undefined}
+                caption={summary.bestDay ? `${summary.bestDay.date}${summary.bestDayShare !== null ? ` · ${Math.round(summary.bestDayShare * 100)}% of the year` : ""}` : undefined}
+              />
+            )}
+            {summary.drawdownPct === null && summary.monthDrop ? (
+              // Without a day-by-day series: the running profit's biggest
+              // fall between month-ends (a dip within a month doesn't show).
+              <Figure
+                label="Biggest drop (by month)"
+                value={summary.monthDrop.usd > 0 ? `−${formatCompactUsd(summary.monthDrop.usd)}` : "None"}
+                valueClass={summary.monthDrop.usd > 0 ? "text-negative" : undefined}
+                caption={summary.monthDrop.usd > 0 ? `${summary.monthDrop.from ? MONTH.format(new Date(`${summary.monthDrop.from}-01T00:00:00Z`)) : "The start"} → ${MONTH.format(new Date(`${summary.monthDrop.to}-01T00:00:00Z`))} · month-end realized profit` : "Realized profit never fell from one month-end to the next"}
+              />
+            ) : (
+              <Figure
+                label="Biggest drop from a peak"
+                value={summary.drawdownPct !== null ? `−${summary.drawdownPct.toFixed(0)}%` : "—"}
+                valueClass={summary.drawdownPct !== null ? "text-negative" : undefined}
+                caption={summary.drawdownUsd !== null ? `${formatCompactUsd(summary.drawdownUsd)} over the year` : summary.addresses > 1 ? "Not combined across addresses" : undefined}
+              />
+            )}
           </div>
 
           {summary.distribution.length > 0 && (

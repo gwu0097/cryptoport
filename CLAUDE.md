@@ -219,7 +219,9 @@ owner's.
   of the past 12 months (`since`/`till`) — 15 calls an address the first
   load, then all-time, the windows and the running month (a month stored
   before it ended is asked once more); 1.1 s apart. Totals only — no coin
-  list, win rate or best day ("—"); a window Zerion can't answer (over
+  list, win rate or best day; instead, from the all-time answer, the return
+  on coins sold, fees paid, and the biggest fall of month-end realized
+  profit (`monthDrop`) — no extra call; a window Zerion can't answer (over
   3,000 transactions from its nearest mark) is "—", never 0. Rebuilding it
   from transfers was tried and dropped: on Robinhood Chain most trades are
   coin-for-coin, which daily prices can't value (BACKLOG).
