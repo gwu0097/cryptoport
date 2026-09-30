@@ -168,3 +168,12 @@ test("an open shows the liquidity at entry when it was captured", () => {
   const open = deliver(null, legs, 0, 1_000_000_000);
   assert.equal(open.alerts[0].detail, "10.00 SOL ($1,000.00) at $0.01 · MC $10M · Liq $7.2K");
 });
+
+test("selling exactly what was bought closes with a result, float sums notwithstanding (Eustaz's TAIL)", () => {
+  const a = deliver(null, swap(19_187_448, 0.000018678));
+  const b = deliver(a.after, swap(1_671_814.48, 0.000017859));
+  const out = deliver(b.after, swap(-20_859_262.48, 0.0000105292, 15 * 60_000));
+  assert.equal(out.alerts[0].kind, "soldOut");
+  assert.match(out.alerts[0].headline, /closed GEM · -\d+\.\d%$/);
+  assert.equal(out.alerts[0].card?.win, false);
+});

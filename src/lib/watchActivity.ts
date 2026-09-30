@@ -507,7 +507,10 @@ export function coinDays(activities: readonly TxActivity[], ownAddresses: Readon
       holdingQty: Math.max(0, heldBefore + legs.reduce((s, l) => s + l.qtyDelta, 0)),
       realizedUsd,
       realizedPct: realizedUsd !== null && boughtUsd ? (realizedUsd / (matched * (boughtUsd / boughtQty))) * 100 : null,
-      soldFromEarlier: soldQty > boughtQty + 1e-9,
+      // Relative slack: summing 19,187,448 + 1,671,814.48 in floating point
+      // came out a few billionths under selling exactly that (Eustaz's TAIL,
+      // 2026-09-30), and a close showed "result unknown".
+      soldFromEarlier: soldQty > boughtQty * (1 + 1e-9) + 1e-9,
       avgEntryUsd,
       entryLiqUsd: legs.find((l) => l.entryLiqUsd != null)?.entryLiqUsd ?? null,
       avgExitUsd,
