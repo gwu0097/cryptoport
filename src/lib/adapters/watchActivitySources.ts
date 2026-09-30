@@ -2,7 +2,7 @@ import "server-only";
 import { fetchWithRetry } from "./http";
 import { ALCHEMY_HOSTS, blockTimes } from "./alchemy";
 import { fetchBitcoinTransactions } from "./bitcoinTx";
-import type { RawChange } from "../watchActivity";
+import { isRouteResidue, type RawChange } from "../watchActivity";
 
 // The activity check's reads (docs/wallet-watch/PLAN.md, phase 4): an
 // address's transactions from its cursor (where the last check stopped) —
@@ -93,18 +93,19 @@ export async function readSolana(address: string, cursor: string | null, boundar
     const at = new Date(tx.timestamp * 1000).toISOString();
     let lamports = tx.accountData?.find((a) => a.account === address)?.nativeBalanceChange ?? 0;
     if (tx.feePayer === address) lamports += tx.fee;
-    const byMint = new Map<string, number>();
+    const byMint = new Map<string, { raw: number; decimals: number }>();
     for (const c of (tx.accountData ?? []).flatMap((a) => a.tokenBalanceChanges ?? [])) {
       if (c.userAccount !== address) continue;
-      const qty = Number(c.rawTokenAmount.tokenAmount) / 10 ** c.rawTokenAmount.decimals;
-      if (c.mint === WSOL) lamports += qty * 1e9;
-      else byMint.set(c.mint, (byMint.get(c.mint) ?? 0) + qty);
+      const raw = Number(c.rawTokenAmount.tokenAmount);
+      if (c.mint === WSOL) lamports += raw * 10 ** (9 - c.rawTokenAmount.decimals);
+      else byMint.set(c.mint, { raw: (byMint.get(c.mint)?.raw ?? 0) + raw, decimals: c.rawTokenAmount.decimals });
     }
     if (lamports !== 0) {
       changes.push({ txId: tx.signature, at, chain: "solana", contract: null, symbol: "SOL", qty: lamports / 1e9, counterparty: otherSide(tx.nativeTransfers ?? [], address) });
     }
-    for (const [mint, qty] of byMint) {
-      if (qty === 0) continue;
+    for (const [mint, { raw, decimals }] of byMint) {
+      if (raw === 0 || isRouteResidue(raw, decimals)) continue;
+      const qty = raw / 10 ** decimals;
       const moves = (tx.tokenTransfers ?? []).filter((t) => t.mint === mint);
       changes.push({ txId: tx.signature, at, chain: "solana", contract: mint, symbol: null, qty, counterparty: otherSide(moves, address) });
     }

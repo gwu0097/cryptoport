@@ -119,7 +119,7 @@ owner's.
   transaction) POSTs to `api/wallet-watch/webhook` (checks the
   `HELIUS_WEBHOOK_SECRET` Authorization header). `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
-  spam that only arrives is dropped before any request (`worthSaving`); legs
+  spam that only arrives is dropped before any request (`worthSaving`); a token moved by ≤ 10 base units (a coin the route passed through) is no leg, in both Solana reductions (`isRouteResidue` — as a third leg it left buys unsized); legs
   are appended to `tx_activity` tagged `source: "webhook"` — every write of
   `tx_activity` (webhook, Refresh activity, the morning read's trim) goes
   through `txActivityStore.ts`, a compare-and-set on `tx_version` with retry;
@@ -146,7 +146,7 @@ owner's.
   `PING_POSITION_USD` $200 — owner 2026-09-29, was $500 — at once or as "is building"), a new burst of buying
   (buys under `BURST_GAP_MS`, an hour, apart are one burst; a later burst,
   or the first buys today of a coin held at the read, posts at $100), added (today's buys cross
-  `ADD_STEPS_USD` $1K/5K/10K…), sold out (worth under $1 now), trimmed
+  `ADD_STEPS_USD` $1K/5K/10K…), sold out (worth under $1 now; the headline carries the win/loss % — in dollars, else in the coin paid with, `exitReturnPct`; none when part was held before today), trimmed
   (`TRIM_STEPS` 25/50/75% of the position) — to `DISCORD_WATCH_WEBHOOK_URL`
   (`watchAlertSend.ts` → `adapters/discordWebhook.ts`, as cards — `alertEmbed`:
   coloured by kind, the title linked to the coin on Fomo (Solana) or

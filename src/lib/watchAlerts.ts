@@ -74,6 +74,17 @@ function result(c: CoinDay): string {
   return c.soldUsd !== null ? `received ${formatUsd(c.soldUsd)}` : "size unknown";
 }
 
+/** A whole position's return on selling out (owner 2026-09-30): in dollars
+ * when every trade was sized, else in the coin it was paid with (SOL in, SOL
+ * out — exact even when a trade has no dollar price). Null when some of what
+ * was sold was held before today: that part's cost isn't known here. */
+export function exitReturnPct(c: CoinDay): number | null {
+  if (c.soldFromEarlier || c.boughtQty <= 0 || c.soldQty <= 0) return null;
+  if (c.realizedPct !== null) return c.realizedPct;
+  if (c.boughtPay === null || c.soldPay === null || c.boughtPay <= 0) return null;
+  return ((c.soldPay / c.soldQty) / (c.boughtPay / c.boughtQty) - 1) * 100;
+}
+
 /** What a sale brought in: "received 4.12 SOL ($490.10) at $0.00001420". */
 function received(c: CoinDay): string {
   const sold = c.soldUsd !== null ? `(${formatUsd(c.soldUsd)})` : "";
@@ -160,7 +171,9 @@ export function watchAlerts(
       const heldMs = openedToday && firstBuy && lastSell ? Date.parse(lastSell) - Date.parse(firstBuy) : null;
       const flip = heldMs !== null && heldMs < BURST_GAP_MS;
       const flipText = flip ? ` (flipped in ${Math.max(1, Math.round(heldMs / 60_000))}m)` : "";
-      alert("soldOut", `sold out of ${c.ticker}${flipText}`, sellDetail(c, mcAt(c.avgExitUsd), ""), false);
+      const r = exitReturnPct(c);
+      const rText = r !== null ? ` · ${r >= 0 ? "win" : "loss"} ${pct(r)}` : "";
+      alert("soldOut", `sold out of ${c.ticker}${flipText}${rText}`, sellDetail(c, mcAt(c.avgExitUsd), ""), false);
       continue;
     }
     // Trimmed: a quarter, a half, three quarters of the position sold.

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alertEmbed, tokenLink, watchAlerts } from "./watchAlerts.ts";
+import { alertEmbed, exitReturnPct, tokenLink, watchAlerts } from "./watchAlerts.ts";
 import { appendLegs, coinDays, type ActivityLeg, type TxActivity } from "./watchActivity.ts";
 
 const BOUNDARY = "2026-09-28T08:00:00Z";
@@ -67,7 +67,7 @@ test("a trim posts at a quarter; selling out within the hour is a flip — poste
   assert.equal(trim.alerts[0].detail, "received 3.60 SOL ($360.00) at $0.012\n+$60.00 (+20.0%) on what was sold");
   const out = deliver(trim.after, swap(-70_000, 0.009));
   assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", false]]);
-  assert.match(out.alerts[0].headline, /flipped in 1m/);
+  assert.match(out.alerts[0].headline, /flipped in 1m\) · loss -1\.0%$/);
 });
 
 test("selling out a position held over an hour posts, unpinged, and isn't a flip", () => {
@@ -75,6 +75,7 @@ test("selling out a position held over an hour posts, unpinged, and isn't a flip
   const out = deliver(open.after, swap(-100_000, 0.02, 3 * 3_600_000));
   assert.deepEqual(out.alerts.map((a) => [a.kind, a.ping]), [["soldOut", false]]);
   assert.doesNotMatch(out.alerts[0].headline, /flipped/);
+  assert.match(out.alerts[0].headline, / · win \+100\.0%$/);
 });
 
 test("Bacon-style: the first add today to a coin held at the read posts (unpinged); its steps don't repeat it", () => {
@@ -128,4 +129,11 @@ test("with the supply known, buys and sells show the market cap at their price",
 test("without a supply, no market cap is shown (never a guessed one)", () => {
   const open = deliver(null, swap(100_000, 0.01));
   assert.doesNotMatch(open.alerts[0].detail, /MC/);
+});
+
+test("the exit return falls back to the coin paid with when a buy has no dollar price", () => {
+  const c = { soldFromEarlier: false, boughtQty: 1000, soldQty: 1000, realizedPct: null, boughtPay: 6.25, soldPay: 40.7 } as unknown as Parameters<typeof exitReturnPct>[0];
+  assert.equal(Math.round(exitReturnPct(c)!), 551);
+  assert.equal(exitReturnPct({ ...c, soldFromEarlier: true }), null); // earlier cost unknown
+  assert.equal(exitReturnPct({ ...c, boughtPay: null }), null);
 });

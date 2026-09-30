@@ -96,6 +96,15 @@ export const DOLLAR_KEYS: ReadonlySet<string> = new Set(["usd-coin", "tether", "
 /** Native SOL moves under this per transaction (rent, fees, tips) without
  * any other coin are not activity. */
 export const SOL_DUST = 0.005;
+
+/** A token balance that moved by a few base units in a swap: what a route
+ * leaves behind in a coin it passed through, not a trade. As a third leg it
+ * kept the real coin from being sized by the SOL paid (Risk's ELON buys,
+ * 2026-09-30: 1 unit of SPCX each). Coins with few decimals (whole-unit
+ * tokens) are never judged this way. */
+export function isRouteResidue(rawUnits: number, decimals: number): boolean {
+  return decimals >= 6 && rawUnits !== 0 && Math.abs(rawUnits) <= 10;
+}
 /** EVM native dust per transaction (gas refunds, tips). */
 export const NATIVE_DUST = 0.0001;
 

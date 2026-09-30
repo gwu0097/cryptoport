@@ -4,7 +4,7 @@
 // (adapters/watchActivitySources.ts readSolana): SOL with the fee added
 // back and wrapped SOL counted as SOL, tokens by mint. Pure.
 
-import type { RawChange } from "./watchActivity.ts";
+import { isRouteResidue, type RawChange } from "./watchActivity.ts";
 
 const WSOL = "So11111111111111111111111111111111111111112";
 
@@ -54,21 +54,21 @@ export function rawTxChanges(tx: RawWebhookTx, owner: string): RawChange[] {
   if (keys[0] === owner) lamports += meta.fee ?? 0; // the fee payer's fee isn't a trade
 
   // Token balances by account: post − pre, for accounts the owner holds.
-  const byAccount = new Map<number, { mint: string; qty: number }>();
+  const byAccount = new Map<number, { mint: string; raw: number; decimals: number }>();
   for (const b of meta.preTokenBalances ?? []) {
     if (b.owner !== owner) continue;
-    byAccount.set(b.accountIndex, { mint: b.mint, qty: -units(b) });
+    byAccount.set(b.accountIndex, { mint: b.mint, raw: -Number(b.uiTokenAmount.amount), decimals: b.uiTokenAmount.decimals });
   }
   for (const b of meta.postTokenBalances ?? []) {
     if (b.owner !== owner) continue;
-    const cur = byAccount.get(b.accountIndex) ?? { mint: b.mint, qty: 0 };
-    cur.qty += units(b);
+    const cur = byAccount.get(b.accountIndex) ?? { mint: b.mint, raw: 0, decimals: b.uiTokenAmount.decimals };
+    cur.raw += Number(b.uiTokenAmount.amount);
     byAccount.set(b.accountIndex, cur);
   }
-  const byMint = new Map<string, number>();
-  for (const { mint, qty } of byAccount.values()) {
-    if (mint === WSOL) lamports += qty * 1e9;
-    else byMint.set(mint, (byMint.get(mint) ?? 0) + qty);
+  const byMint = new Map<string, { raw: number; decimals: number }>();
+  for (const { mint, raw, decimals } of byAccount.values()) {
+    if (mint === WSOL) lamports += raw * 10 ** (9 - decimals);
+    else byMint.set(mint, { raw: (byMint.get(mint)?.raw ?? 0) + raw, decimals });
   }
 
   // The other side of a one-way token move, when exactly one other owner's
@@ -83,8 +83,10 @@ export function rawTxChanges(tx: RawWebhookTx, owner: string): RawChange[] {
 
   const out: RawChange[] = [];
   if (lamports !== 0) out.push({ txId, at, chain: "solana", contract: null, symbol: "SOL", qty: lamports / 1e9, counterparty: null });
-  for (const [mint, qty] of byMint) {
-    if (qty !== 0) out.push({ txId, at, chain: "solana", contract: mint, symbol: null, qty, counterparty: counterpartyOf(mint, qty) });
+  for (const [mint, { raw, decimals }] of byMint) {
+    if (raw === 0 || isRouteResidue(raw, decimals)) continue;
+    const qty = raw / 10 ** decimals;
+    out.push({ txId, at, chain: "solana", contract: mint, symbol: null, qty, counterparty: counterpartyOf(mint, qty) });
   }
   return out;
 }

@@ -74,3 +74,16 @@ test("a token sent to another wallet names its counterparty", () => {
   assert.equal(gem.counterparty, "Friend");
   assert.equal(gem.qty, -0.0005);
 });
+
+test("a coin the route passed through, leaving a unit behind, isn't a leg", () => {
+  const HOP = "Hop1111111111111111111111111111111111111111";
+  const withHop: RawWebhookTx = {
+    ...buy,
+    meta: { ...buy.meta!, postTokenBalances: [...buy.meta!.postTokenBalances!, tb(4, HOP, OWNER, "1")] },
+    transaction: { signatures: ["sigHop"], message: { accountKeys: [OWNER, "OwnerGemAta", POOL, "x", "OwnerHopAta"] } },
+  };
+  assert.deepEqual(rawTxChanges(withHop, OWNER).map((x) => x.contract), [null, GEM]);
+  // A whole-unit token (0 decimals) moving by 1 is real.
+  const whole: RawWebhookTx = { ...withHop, meta: { ...withHop.meta!, postTokenBalances: [...buy.meta!.postTokenBalances!, tb(4, HOP, OWNER, "1", 0)] } };
+  assert.deepEqual(rawTxChanges(whole, OWNER).map((x) => x.contract), [null, GEM, HOP]);
+});
