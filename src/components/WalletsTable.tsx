@@ -12,6 +12,7 @@ import { EditWalletModal } from "./EditWalletModal";
 import { WalletTagsCell } from "./WalletTagsCell";
 import { VerifyWalletModal } from "./VerifyWalletModal";
 import { VerifiedBadge } from "./VerifiedBadge";
+import { CopyButton } from "./CopyButton";
 import { JobButton } from "./jobs/JobButton";
 import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
@@ -85,6 +86,7 @@ function WalletRow({ wallet, tagNames }: { wallet: WalletWithTotal; tagNames: st
           <Link href={`/wallets/${wallet.id}`} className="text-fg hover:text-accent">
             {wallet.name}
           </Link>
+          {wallet.address && <CopyButton value={wallet.address} label={`Copy ${wallet.name}'s address`} title={`Copy address: ${wallet.address}`} />}
           {wallet.externalViewer && (
             <a
               href={wallet.externalViewer.url}
