@@ -85,6 +85,9 @@ export interface Wallet {
    * — used to compute last_sync_duration_ms once it finishes. */
   sync_started_at: string | null;
   last_sync_duration_ms: number | null;
+  /** Synced by Refresh prices at most once a day (autoSync.ts) — for
+   * wallets whose coins change often. */
+  auto_sync?: boolean;
   /** Cached from a prior full BTC xpub scan (see bitcoinXpub.ts) — which of
    * the three address formats actually has this wallet's funds, so later
    * syncs can go straight to it instead of checking all three again. Only

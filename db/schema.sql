@@ -2975,3 +2975,8 @@ grant execute on function cryptoport.solana_token_info_get(text[]) to service_ro
 alter table cryptoport.solana_token_info
   add column if not exists unsellable        boolean,
   add column if not exists shield_checked_at timestamptz;
+
+-- 2026-09-30: "Auto-sync daily" (src/lib/autoSync.ts). A wallet whose coins
+-- change often is synced when its owner presses Refresh prices, at most once
+-- a day; no cron. At most 5 per user (setAutoSync in wallets/actions.ts).
+alter table cryptoport.wallets add column if not exists auto_sync boolean not null default false;

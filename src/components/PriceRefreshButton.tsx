@@ -10,6 +10,7 @@ import { useJob } from "./jobs/useJob";
 import { useJobStatus } from "./jobs/useJobStatus";
 import { JobButton } from "./jobs/JobButton";
 import { usePageRefreshes } from "./jobs/JobPoller";
+import { useSyncQueue, type QueuedWallet } from "./jobs/SyncQueue";
 
 // One lane per price source in the pricing pass (refreshAssetPrices).
 const PHASE_LABELS: Record<string, string> = {
@@ -65,11 +66,19 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
   // then refreshes the page once — no polling while it runs. A refresh
   // another tab started is still waited for by useJob's polling.
   const split = useRef<{ requestMs: number; serverMs: number | null; pageFrom: number } | null>(null);
+  const queue = useSyncQueue();
+  const [autoSyncing, setAutoSyncing] = useState<number | null>(null);
   const refresh = async (): Promise<JobStartResult> => {
     const t0 = Date.now();
     const res = await fetch("/api/prices/refresh", { method: "POST", body: JSON.stringify({ walletId }) });
-    const body = (await res.json().catch(() => ({}))) as { started?: boolean; reason?: string; error?: string; serverMs?: number };
+    const body = (await res.json().catch(() => ({}))) as { started?: boolean; reason?: string; error?: string; serverMs?: number; autoSync?: QueuedWallet[] };
     if (!res.ok) throw new Error(body.error ?? `Refresh failed (HTTP ${res.status})`);
+    // "Auto-sync daily" wallets due today sync in the background, after the
+    // prices (the queue skips them if a sync is already running).
+    if (body.autoSync && body.autoSync.length > 0 && !queue.active) {
+      queue.start(body.autoSync);
+      setAutoSyncing(body.autoSync.length);
+    }
     split.current = { requestMs: Date.now() - t0, serverMs: body.serverMs ?? null, pageFrom: Date.now() };
     if (body.started) router.refresh();
     return body.started ? { started: true } : { started: false, reason: body.reason ?? "A price refresh is already running." };
@@ -158,6 +167,11 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
           (which lane is running, how long each took) the button label
           can't show. */}
       {!busy && <PricedCaption priceState={priceState} />}
+      {autoSyncing !== null && queue.active && (
+        <p className="text-right text-xs text-fg-muted" title="Wallets marked Auto-sync daily sync once a day when you refresh prices.">
+          Auto-syncing {autoSyncing} wallet{autoSyncing === 1 ? "" : "s"}…
+        </p>
+      )}
       {/* Compact (the stat tile): each source's time and the click's total in
           one short line; the full breakdown on hover. */}
       {compact && !busy && showPhases && phaseText && (

@@ -392,7 +392,11 @@ Refresh prices button; after a sync, only the keys it touched
 (`ensureAssetPrices`, which skips keys priced *or tried* within its `maxAgeMs`
 default — 453 keys no source prices used to trigger a pass on every read);
 before a Sync all when the newest price is older than `primeSyncPricesAction`'s
-threshold; before the daily snapshot when older than the threshold in
+threshold; the user's **Auto-sync daily** wallets (owner 2026-09-30, `autoSync.ts`,
+the wallet page's `AutoSyncToggle`, at most `AUTO_SYNC_MAX` 5): Refresh prices
+returns the marked ones not synced in a day and the button hands them to
+the browser's sync queue after the prices — the click isn't slowed, no
+cron runs, and Sync by hand is unchanged (it resets the day); before the daily snapshot when older than the threshold in
 `api/cron/snapshot/route.ts` (`refreshAssetPricesIfOlderThan`).
 
 **Valuation** (`valueHolding`, `valuation.ts`): `qty × asset_prices[price_key]`,

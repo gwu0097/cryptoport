@@ -32,6 +32,7 @@ import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
 import { scheduleUserSnapshot } from "@/lib/priceRefreshJob";
+import { AUTO_SYNC_MAX } from "@/lib/autoSync";
 
 
 
@@ -208,6 +209,23 @@ export async function updateWallet(walletId: string, formData: FormData) {
 
   revalidatePath(`/wallets/${walletId}`);
   revalidatePath("/wallets");
+}
+
+/** Marks a wallet "Auto-sync daily" (autoSync.ts) or clears it; at most
+ * AUTO_SYNC_MAX per user. Syncing by hand is never affected. */
+export async function setAutoSync(walletId: string, on: boolean): Promise<string | null> {
+  await requireUser();
+  const db = await userDb();
+  if (on) {
+    const { count, error } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("auto_sync", true).eq("active", true).neq("id", walletId);
+    if (error) return `Couldn't save: ${error.message}`;
+    if ((count ?? 0) >= AUTO_SYNC_MAX) return `Up to ${AUTO_SYNC_MAX} wallets can auto-sync — turn one off first.`;
+  }
+  const { error } = await db.from("wallets").update({ auto_sync: on }).eq("id", walletId);
+  if (error) return `Couldn't save: ${error.message}`;
+  revalidatePath(`/wallets/${walletId}`);
+  revalidatePath("/wallets");
+  return null;
 }
 
 /** Renames a wallet from beside its name (InlineName). */

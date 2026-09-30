@@ -17,6 +17,8 @@ import { WalletTags } from "@/components/WalletTags";
 import { TruncatedAddress } from "@/components/TruncatedAddress";
 import { EditWalletModal } from "@/components/EditWalletModal";
 import { InlineName } from "@/components/ui/InlineName";
+import { AutoSyncToggle } from "@/components/wallets/AutoSyncToggle";
+import { canAutoSync } from "@/lib/autoSync";
 import { AddHoldingModal } from "@/components/AddHoldingModal";
 import { AutoSyncOnMount } from "@/components/AutoSyncOnMount";
 import { PriceRefreshButton } from "@/components/PriceRefreshButton";
@@ -189,6 +191,11 @@ export default async function WalletDetailPage(
           <div className="mt-2">
             <WalletTags walletId={wallet.id} tags={wallet.tags.map((t) => t.name)} allTags={tagNames} />
           </div>
+          {canAutoSync(wallet) && (
+            <div className="mt-3">
+              <AutoSyncToggle walletId={wallet.id} on={wallet.auto_sync === true} />
+            </div>
+          )}
         </div>
 
         <div className="flex w-full flex-col items-end gap-2 sm:w-auto sm:shrink-0">
