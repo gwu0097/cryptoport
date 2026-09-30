@@ -18,7 +18,8 @@ export function TopBar({ userEmail, isAdmin }: { userEmail: string | null; isAdm
           <Plug className="size-5" aria-hidden="true" />
         </Link>
 
-        <Link href="/wallets" className="text-lg font-semibold tracking-tight text-fg">
+        {/* Home: the Dashboard when signed in, Wallets for a guest. */}
+        <Link href={userEmail ? "/dashboard" : "/wallets"} className="text-lg font-semibold tracking-tight text-fg">
           Crypto<span className="text-accent">Port</span>
         </Link>
       </div>
