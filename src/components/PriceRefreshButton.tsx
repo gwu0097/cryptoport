@@ -161,9 +161,16 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
       {/* Compact (the stat tile): each source's time and the click's total in
           one short line; the full breakdown on hover. */}
       {compact && !busy && showPhases && phaseText && (
-        <p className="max-w-80 truncate text-right text-[11px] text-fg-muted/70">
-          {timing ? `Done in ${formatMs(timing.totalMs)} · ` : ""}
-          {phaseText}
+        // Wraps between items, never inside one (and never cut off).
+        <p className="flex max-w-96 flex-wrap justify-end gap-x-1.5 text-right text-[11px] text-fg-muted/70">
+          {[timing ? `Done in ${formatMs(timing.totalMs)}` : null, ...phaseText.split(" · ")]
+            .filter((x): x is string => !!x)
+            .map((x, i) => (
+              <span key={x} className="whitespace-nowrap">
+                {i > 0 && "· "}
+                {x}
+              </span>
+            ))}
         </p>
       )}
       {!compact && showPhases && priceState.phases && (
