@@ -264,7 +264,9 @@ export async function fetchZerionPnl(address: string, window?: { sinceMs: number
   const res = await fetchWithRetry(
     `${API_BASE}/wallets/${address}/pnl?currency=usd${range}`,
     { headers: { Authorization: authHeader(), Accept: "application/json" }, cache: "no-store" },
-    { attempts: 1 },
+    // A 503 comes back as an answer (fetchWithRetry otherwise raises once
+    // its attempts run out, and one window's error ended the whole load).
+    { attempts: 1, stopOn: async () => true },
   );
   if (res.status === 503 || res.status === 202) return ZERION_PREPARING;
   if (!res.ok) return null;

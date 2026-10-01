@@ -64,7 +64,8 @@ export async function loadTradingRecords(addresses: readonly { chain: string; ad
         // All-time first: a wallet Zerion is still preparing stops here (one
         // call, not 15). The rest within a time budget — a month not reached
         // is asked next load (zerionWindows skips only finished months).
-        const ask = (w: (typeof windows)[number]) => fetchZerionPnl(row.address, w.kind === "all" ? undefined : { sinceMs: w.sinceMs, tillMs: w.tillMs });
+        // A window that fails (any error) is simply unanswered: asked again next load.
+        const ask = (w: (typeof windows)[number]) => fetchZerionPnl(row.address, w.kind === "all" ? undefined : { sinceMs: w.sinceMs, tillMs: w.tillMs }).catch(() => null);
         const first = await ask(windows[0]);
         if (first === ZERION_PREPARING) throw new Error("Zerion is preparing this wallet's history (its first look) — try again in a minute or two");
         if (!first) throw new Error("Zerion had no answer for this address");
