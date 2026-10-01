@@ -1,8 +1,7 @@
 import "server-only";
 import { serviceDb } from "./supabase";
 import { fetchTradingRecord } from "./adapters/solanaTracker";
-import { fetchZerionPnl } from "./adapters/zerionDefi";
-import { sequentialWithSpacing } from "./adapters/http";
+import { fetchZerionPnl, ZERION_PREPARING, type ZerionPnl } from "./adapters/zerionDefi";
 import { zerionRecord, zerionWindows } from "./zerionRecord";
 import type { StoredTradingRecord } from "./tradingRecord";
 
@@ -25,6 +24,9 @@ export interface RecordLoadOutcome {
 }
 
 const ZERION_SPACING_MS = 1_100;
+/** Stop asking Zerion after this (the route has 120 s; saving and the page
+ * refresh need the rest). */
+const ZERION_BUDGET_MS = 75_000;
 
 /** A Solana record with no trade at all — what a not-yet-indexed answer
  * used to save as $0 (never reused, cleared on the next failed load). */
@@ -59,12 +61,30 @@ export async function loadTradingRecords(addresses: readonly { chain: string; ad
       } else {
         const prev = row.trading_record?.source === "zerion" ? row.trading_record : null;
         const windows = zerionWindows(prev, nowMs);
-        const results = await sequentialWithSpacing(windows, ZERION_SPACING_MS, (w) => fetchZerionPnl(row.address, w.kind === "all" ? undefined : { sinceMs: w.sinceMs, tillMs: w.tillMs }));
-        const built = zerionRecord(prev, results.map((r) => ({ window: r.item, pnl: r.result ?? null })), nowMs);
+        // All-time first: a wallet Zerion is still preparing stops here (one
+        // call, not 15). The rest within a time budget — a month not reached
+        // is asked next load (zerionWindows skips only finished months).
+        const ask = (w: (typeof windows)[number]) => fetchZerionPnl(row.address, w.kind === "all" ? undefined : { sinceMs: w.sinceMs, tillMs: w.tillMs });
+        const first = await ask(windows[0]);
+        if (first === ZERION_PREPARING) throw new Error("Zerion is preparing this wallet's history (its first look) — try again in a minute or two");
+        if (!first) throw new Error("Zerion had no answer for this address");
+        const answers: { window: (typeof windows)[number]; pnl: ZerionPnl | null }[] = [{ window: windows[0], pnl: first }];
+        let calls = 1;
+        for (const w of windows.slice(1)) {
+          if (Date.now() - t0 > ZERION_BUDGET_MS) {
+            answers.push({ window: w, pnl: null });
+            continue;
+          }
+          await new Promise((r) => setTimeout(r, ZERION_SPACING_MS));
+          const a = await ask(w);
+          calls++;
+          answers.push({ window: w, pnl: a === ZERION_PREPARING ? null : a });
+        }
+        const built = zerionRecord(prev, answers, nowMs);
         if (!built) throw new Error("Zerion had no answer for this address");
         record = built;
-        const missed = results.filter((r) => !r.result).length;
-        console.log(`[trading-record] ${row.address} zerion calls=${windows.length}${missed ? ` unanswered=${missed}` : ""} realized=${Math.round(record.realizedUsd)} ms=${Date.now() - t0}`);
+        const missed = answers.filter((r) => !r.pnl).length;
+        console.log(`[trading-record] ${row.address} zerion calls=${calls}${missed ? ` unanswered=${missed}` : ""} realized=${Math.round(record.realizedUsd)} ms=${Date.now() - t0}`);
       }
       const { error: saveError } = await db
         .from("watched_addresses")

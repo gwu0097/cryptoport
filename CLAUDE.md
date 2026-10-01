@@ -219,7 +219,10 @@ owner's.
   `fetchZerionPnl`, pure `zerionRecord.ts`): all-time, 30/90 days and each
   of the past 12 months (`since`/`till`) — 15 calls an address the first
   load, then all-time, the windows and the running month (a month stored
-  before it ended is asked once more); 1.1 s apart. Totals only — no coin
+  before it ended is asked once more); 1.1 s apart, all-time first — a
+  wallet Zerion is still preparing (503) stops there with "try again in a
+  minute" — and no more after 75 s (the rest asked next load; the route
+  has 120 s, and a first load of a new wallet once ran past it). Totals only — no coin
   list, win rate or best day; instead, from the all-time answer, the return
   on coins sold, fees paid, and the biggest fall of month-end realized
   profit (`monthDrop`) — no extra call; a window Zerion can't answer (over

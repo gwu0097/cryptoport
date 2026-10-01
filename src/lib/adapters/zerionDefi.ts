@@ -253,12 +253,20 @@ export interface ZerionPnl {
  * never a guess. One call; it answers 503 while it first prepares a wallet
  * (fetchWithRetry retries that).
  */
-export async function fetchZerionPnl(address: string, window?: { sinceMs: number; tillMs: number }): Promise<ZerionPnl | null> {
+/** Zerion answers 503 while it first prepares a wallet it hasn't seen. */
+export const ZERION_PREPARING = "preparing" as const;
+
+export async function fetchZerionPnl(address: string, window?: { sinceMs: number; tillMs: number }): Promise<ZerionPnl | null | typeof ZERION_PREPARING> {
   const range = window ? `&since=${window.sinceMs}&till=${window.tillMs}` : "";
-  const res = await fetchWithRetry(`${API_BASE}/wallets/${address}/pnl?currency=usd${range}`, {
-    headers: { Authorization: authHeader(), Accept: "application/json" },
-    cache: "no-store",
-  });
+  // One attempt: a wallet Zerion is still preparing answers 503 for a while,
+  // and retrying each of a load's 15 calls ran past the route's 2 minutes
+  // (2026-10-01). The caller stops and says "try again" instead.
+  const res = await fetchWithRetry(
+    `${API_BASE}/wallets/${address}/pnl?currency=usd${range}`,
+    { headers: { Authorization: authHeader(), Accept: "application/json" }, cache: "no-store" },
+    { attempts: 1 },
+  );
+  if (res.status === 503 || res.status === 202) return ZERION_PREPARING;
   if (!res.ok) return null;
   const a = ((await res.json()) as { data?: { attributes?: Record<string, number | null> } }).data?.attributes;
   if (!a || typeof a.realized_gain !== "number") return null;

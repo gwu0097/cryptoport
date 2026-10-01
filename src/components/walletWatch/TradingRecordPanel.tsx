@@ -133,7 +133,15 @@ export function TradingRecordPanel({
     setError(null);
     try {
       const res = await fetch("/api/wallet-watch/trading-record", { method: "POST", body: JSON.stringify({ influencerId }) });
-      const body = (await res.json()) as { outcomes?: { status: string; error?: string }[]; error?: string };
+      // A function stopped at its time limit answers with Vercel's plain-text
+      // error page, not JSON (2026-10-01: "Unexpected token 'A'…").
+      const text = await res.text();
+      let body: { outcomes?: { status: string; error?: string }[]; error?: string };
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw new Error(res.status === 504 || !res.ok ? "This took too long and was stopped — press it again; it picks up where it left off." : "The server sent an unexpected answer — try again.");
+      }
       if (!res.ok) throw new Error(body.error ?? `Failed (${res.status})`);
       const failed = body.outcomes?.filter((o) => o.status === "error") ?? [];
       if (failed.length > 0) setError(failed.map((f) => f.error).join("; "));
