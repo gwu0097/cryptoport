@@ -16,7 +16,7 @@ import { SortableHeader } from "@/components/ui/SortableHeader";
 import { usePersistedState } from "@/components/usePersistedState";
 import { AgeText } from "@/components/AgeText";
 
-type SortKey = "name" | "value" | "refreshed";
+type SortKey = "name" | "value" | "refreshed" | "live";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 function sortValue(i: WatchedInfluencer, key: SortKey): number | string {
@@ -27,6 +27,9 @@ function sortValue(i: WatchedInfluencer, key: SortKey): number | string {
       return i.valueUsd ?? -Infinity;
     case "refreshed":
       return i.lastRefreshAt ? Date.parse(i.lastRefreshAt) : -Infinity;
+    case "live":
+      // Live first, then off, then wallets that can't be live; value breaks ties.
+      return (i.live === true ? 2 : i.live === false ? 1 : 0) * 1e15 + (i.valueUsd ?? 0);
   }
 }
 
@@ -179,7 +182,7 @@ export function WatchTable({ influencers, groups, serverNowSec, isOwner = false 
             <th className={`${thClass} ${hideOnMobileClass}`}>Top holdings</th>
             <th className={`${thClass} ${hideOnMobileClass}`}>Groups</th>
             <SortableHeader label="Last read" sortKeyValue="refreshed" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={hideOnMobileClass} />
-            {isOwner && <th className={thClass}>Live</th>}
+            {isOwner && <SortableHeader label="Live" sortKeyValue="live" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />}
             <th className={thClass}>
               <span className="sr-only">Delete</span>
             </th>
