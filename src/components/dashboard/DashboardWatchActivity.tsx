@@ -90,7 +90,7 @@ export function DashboardWatchActivity({
             value={tab}
             onChange={setTab}
           />
-          {tab === "today" && <DayStatus live={today.live} watch={today.watch} checkedAt={today.checkedAt} issues={today.issues} serverNowSec={serverNowSec} />}
+          {tab === "today" && <DayStatus live={today.live} watch={today.watch} checkedAt={today.checkedAt} issues={today.issues} serverNowSec={serverNowSec} reload={today.reload} reloading={today.reloading} />}
           <InfoTooltip>{tab === "today" ? DAY_ACTIVITY_NOTE : "Each wallet's changes between its daily reads, newest first — the full history is on Wallet Watch."}</InfoTooltip>
         </>
       }

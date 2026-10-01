@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, RefreshCw, RotateCw } from "lucide-react";
 import type { WatchCoinDay, WatchDayActivity } from "@/lib/watchQuery";
 import type { CoinTrade } from "@/lib/watchActivity";
 import { foldSoldOut, soldOut } from "@/lib/activityFold";
@@ -26,8 +26,9 @@ import { CopyButton } from "@/components/CopyButton";
  * background tab alike. Nothing polls; without live influencers nothing
  * listens.
  */
-function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
+function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, serverCoins: readonly WatchCoinDay[]): { fresh: WatchDayActivity | null; reload: () => Promise<void>; reloading: boolean } {
   const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
+  const [reloading, setReloading] = useState(false);
   // A new server render (navigation, router.refresh) supersedes what was fetched.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -59,7 +60,19 @@ function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, se
       unsubscribe();
     };
   }, [live, key, watching]);
-  return fresh;
+  // The Update button (owner 2026-10-01): the same read on demand — the
+  // trades already saved (live deliveries, a check elsewhere), no lookups.
+  const reload = useCallback(async () => {
+    if (!key) return;
+    setReloading(true);
+    try {
+      const res = await fetch(`/api/wallet-watch/day?ids=${key}`, { cache: "no-store" }).catch(() => null);
+      if (res?.ok) setFresh((await res.json()) as WatchDayActivity);
+    } finally {
+      setReloading(false);
+    }
+  }, [key]);
+  return { fresh, reload, reloading };
 }
 
 /** The viewer's "Watching" switch: fast live updates for an hour. */
@@ -565,14 +578,14 @@ export function useDayActivity({
 }) {
   const live = liveIds.some((id) => influencerIds.includes(id));
   const watch = useWatching();
-  const fresh = useLiveDay(influencerIds, live && enabled, watch.watching, serverCoins);
+  const { fresh, reload, reloading } = useLiveDay(influencerIds, live && enabled, watch.watching, serverCoins);
   const shown = new Set(influencerIds);
   const coins = fresh ? fresh.coins.filter((c) => shown.has(c.influencerId)) : serverCoins;
   const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
   const checkedAt = fresh ? (influencerIds.map((id) => fresh.checkedAt[id]).filter(Boolean).sort().at(-1) ?? serverCheckedAt) : serverCheckedAt;
   // Found by the latest check (the ones before it were already there).
   const latest = checkedAt ? Date.parse(checkedAt) - 60_000 : Infinity;
-  return { coins, issues, checkedAt, latest, live, watch };
+  return { coins, issues, checkedAt, latest, live, watch, reload, reloading };
 }
 
 /** LIVE, the Watching switch, when last checked, and addresses not fully
@@ -583,15 +596,32 @@ export function DayStatus({
   checkedAt,
   issues,
   serverNowSec,
+  reload,
+  reloading = false,
 }: {
   live: boolean;
   watch: ReturnType<typeof useWatching>;
   checkedAt: string | null;
   issues: { address: string; status: string }[];
   serverNowSec: number;
+  /** Re-reads the saved trades (useDayActivity's reload): no lookups. */
+  reload?: () => Promise<void>;
+  reloading?: boolean;
 }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+      {reload && (
+        <button
+          type="button"
+          onClick={() => void reload()}
+          disabled={reloading}
+          title="Show trades saved since this page loaded (live deliveries, a check from another page) — no new lookups. Refresh activity looks for new ones."
+          className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-fg-muted transition hover:text-fg disabled:opacity-60"
+        >
+          <RotateCw className={`size-3 ${reloading ? "animate-spin" : ""}`} aria-hidden="true" />
+          {reloading ? "Updating…" : "Update"}
+        </button>
+      )}
       {live && (
         <>
           <span className="rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-positive" title="Trades arrive by webhook as they happen (Helius for Solana, Alchemy for Ethereum, Arbitrum and Robinhood Chain); this panel shows them within a second while Watching, else within 30 minutes.">
@@ -670,7 +700,7 @@ export function DayActivity({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex flex-wrap items-center gap-x-1.5 text-sm">
           <span className="font-semibold text-fg">Since this morning&apos;s read</span>
-          <DayStatus live={day.live} watch={day.watch} checkedAt={day.checkedAt} issues={day.issues} serverNowSec={serverNowSec} />
+          <DayStatus live={day.live} watch={day.watch} checkedAt={day.checkedAt} issues={day.issues} serverNowSec={serverNowSec} reload={day.reload} reloading={day.reloading} />
         </p>
         <ActivityCheckButton influencerIds={influencerIds} />
       </div>
