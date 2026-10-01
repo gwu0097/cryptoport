@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { ChevronRight } from "lucide-react";
 import type { WatchDayActivity, WatchFeedInfluencer, WatchGroup, WatchMovementView } from "@/lib/watchQuery";
 import { inputClass } from "../ui/Field";
@@ -43,9 +44,14 @@ export function DashboardWatchActivity({
 
   const [tab, setTab] = usePersistedState<"today" | "movements">("cryptoport:dashboardWatchTab", "today");
   const influencerIds = [...ids];
+  // Built once per server render and group — a new array on every render
+  // made the live updates (and Update) reset to the page's own lines.
+  const groupKey = selected?.id ?? "all";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dayCoins = useMemo(() => day.coins.filter((c) => ids.has(c.influencerId)), [day.coins, groupKey]);
   // The day's lines, listening for live updates only while that tab shows.
   const today = useDayActivity({
-    coins: day.coins.filter((c) => ids.has(c.influencerId)),
+    coins: dayCoins,
     checkedAt: influencerIds.map((id) => day.checkedAt[id]).filter(Boolean).sort().at(-1) ?? null,
     issues: day.issues.filter((i) => ids.has(i.influencerId)),
     liveIds: day.liveIds,

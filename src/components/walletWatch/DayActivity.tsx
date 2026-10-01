@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, Eye, EyeOff, RefreshCw, RotateCw } from "lucide-react";
@@ -26,9 +26,8 @@ import { CopyButton } from "@/components/CopyButton";
  * background tab alike. Nothing polls; without live influencers nothing
  * listens.
  */
-function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, serverCoins: readonly WatchCoinDay[]): { fresh: WatchDayActivity | null; reload: () => Promise<void>; reloading: boolean } {
+function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, serverCoins: readonly WatchCoinDay[]): WatchDayActivity | null {
   const [fresh, setFresh] = useState<WatchDayActivity | null>(null);
-  const [reloading, setReloading] = useState(false);
   // A new server render (navigation, router.refresh) supersedes what was fetched.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -60,19 +59,7 @@ function useLiveDay(ids: readonly string[], live: boolean, watching: boolean, se
       unsubscribe();
     };
   }, [live, key, watching]);
-  // The Update button (owner 2026-10-01): the same read on demand — the
-  // trades already saved (live deliveries, a check elsewhere), no lookups.
-  const reload = useCallback(async () => {
-    if (!key) return;
-    setReloading(true);
-    try {
-      const res = await fetch(`/api/wallet-watch/day?ids=${key}`, { cache: "no-store" }).catch(() => null);
-      if (res?.ok) setFresh((await res.json()) as WatchDayActivity);
-    } finally {
-      setReloading(false);
-    }
-  }, [key]);
-  return { fresh, reload, reloading };
+  return fresh;
 }
 
 /** The viewer's "Watching" switch: fast live updates for an hour. */
@@ -578,7 +565,13 @@ export function useDayActivity({
 }) {
   const live = liveIds.some((id) => influencerIds.includes(id));
   const watch = useWatching();
-  const { fresh, reload, reloading } = useLiveDay(influencerIds, live && enabled, watch.watching, serverCoins);
+  const fresh = useLiveDay(influencerIds, live && enabled, watch.watching, serverCoins);
+  // The Update button (owner 2026-10-01: "like refreshing the page, without
+  // the reload"): the page's data rendered again in place (router.refresh) —
+  // its own Supabase reads, no lookups elsewhere.
+  const router = useRouter();
+  const [reloading, startReload] = useTransition();
+  const reload = useCallback(async () => startReload(() => router.refresh()), [router]);
   const shown = new Set(influencerIds);
   const coins = fresh ? fresh.coins.filter((c) => shown.has(c.influencerId)) : serverCoins;
   const issues = fresh ? fresh.issues.filter((i) => shown.has(i.influencerId)) : serverIssues;
