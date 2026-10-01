@@ -26,6 +26,10 @@ export interface RecordLoadOutcome {
 
 const ZERION_SPACING_MS = 1_100;
 
+/** A Solana record with no trade at all — what a not-yet-indexed answer
+ * used to save as $0 (never reused, cleared on the next failed load). */
+const emptyRecord = (r: StoredTradingRecord | null) => !!r && r.source !== "zerion" && !r.firstTradeAt && r.days.length === 0;
+
 export async function loadTradingRecords(addresses: readonly { chain: string; address: string }[], nowMs: number): Promise<RecordLoadOutcome[]> {
   const wanted = addresses.filter((a) => a.chain === "SOL" || a.chain === "ETH");
   if (wanted.length === 0) return [];
@@ -39,7 +43,7 @@ export async function loadTradingRecords(addresses: readonly { chain: string; ad
   const out: RecordLoadOutcome[] = [];
   // One address at a time: the free plan allows 3 requests a second.
   for (const row of data as { chain: string; address: string; trading_record: StoredTradingRecord | null; trading_record_at: string | null }[]) {
-    if (row.trading_record_at && nowMs - Date.parse(row.trading_record_at) < RECORD_REUSE_MS) {
+    if (row.trading_record_at && nowMs - Date.parse(row.trading_record_at) < RECORD_REUSE_MS && !emptyRecord(row.trading_record)) {
       out.push({ address: row.address, status: "reused" });
       continue;
     }
@@ -71,8 +75,15 @@ export async function loadTradingRecords(addresses: readonly { chain: string; ad
       out.push({ address: row.address, status: "loaded" });
     } catch (e) {
       const message = (e as Error).message;
-      // The previous record (if any) stays; only the status says what failed.
-      await db.from("watched_addresses").update({ trading_record_status: `error: ${message}` }).eq("chain", row.chain).eq("address", row.address);
+      // The previous record (if any) stays; only the status says what failed —
+      // except an empty one saved from a not-yet-indexed answer (all $0, no
+      // trade ever), which was never a record.
+      const empty = emptyRecord(row.trading_record);
+      await db
+        .from("watched_addresses")
+        .update({ trading_record_status: `error: ${message}`, ...(empty ? { trading_record: null, trading_record_at: null } : {}) })
+        .eq("chain", row.chain)
+        .eq("address", row.address);
       out.push({ address: row.address, status: "error", error: message });
     }
   }

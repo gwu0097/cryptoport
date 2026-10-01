@@ -33,6 +33,10 @@ async function get<T>(path: string): Promise<T> {
 }
 
 interface Summary {
+  /** false (with queued) while Solana Tracker hasn't indexed the wallet yet:
+   * an answer with no figures, not a record of $0. */
+  indexed?: boolean;
+  queued?: boolean;
   summary?: {
     pnl?: { realized?: number; unrealized?: number };
     invested?: number;
@@ -47,6 +51,8 @@ interface Performance {
 }
 
 const iso = (ms: number | null | undefined) => (ms ? new Date(ms).toISOString() : null);
+
+export const NOT_INDEXED = "Solana Tracker is still indexing this wallet (its first look) — try again in a few minutes";
 
 interface PositionsPage {
   positions?: {
@@ -97,6 +103,9 @@ export async function fetchTradingRecord(
   nowMs: number,
 ): Promise<{ record: StoredTradingRecord; coinPages: number; firstCoinLoad: boolean; newCoins: number }> {
   const summary = await get<Summary>(`${address}?currency=usd`);
+  // Not indexed yet (2026-10-01: a $293K wallet came back as "$0 everywhere"):
+  // unknown, never 0 — say so and keep what was stored.
+  if (summary.indexed === false || !summary.summary) throw new Error(NOT_INDEXED);
   const perf = await get<Performance>(`${address}/performance?days=365&currency=usd`);
   const firstCoinLoad = !prev?.coins?.cursor;
   const fetched = await fetchCoinsSince(address, prev?.coins?.cursor ?? null, nowMs);
