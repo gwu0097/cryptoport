@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight, TrendingUp, BookOpen, ExternalLink } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
+import { CopyCoinContract } from "./CopyCoinContract";
 import { TokenIcon } from "../TokenIcon";
 import { Panel } from "../ui/Panel";
 import { MoverHoldingValue } from "./MoverHoldingValue";
@@ -124,6 +125,7 @@ export function MoverRows({ items }: { items: MoverItem[] }) {
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <TokenIcon ticker={item.ticker} url={item.iconUrl} />
                 <span className="max-w-[7rem] shrink-0 truncate text-sm font-medium text-fg">{item.ticker}</span>
+                {item.coingeckoId && <CopyCoinContract priceKey={item.coingeckoId} ticker={item.ticker} />}
                 <MoverHoldingValue usd={item.holdingValueUsd} />
               </div>
               <div className="flex shrink-0 items-center gap-2">
