@@ -45,7 +45,8 @@ owner's.
   fixed-threshold flags — observations, not advice).
 - **Wallet Watch** (Tools → `/wallet-watch`, `docs/wallet-watch/PLAN.md`)
   follows other people's addresses — never part of the user's portfolio or
-  any total. An influencer has up to 5 addresses; groups are the user's own.
+  any total. Up to 40 influencers per user (owner 2026-09-30; was 25), each
+  with up to 5 addresses; groups are the user's own.
   One shared `watched_addresses` row per address (read once however many
   watch it; RLS: readable only by its watchers). Every snapshot write goes
   through `watchRefresh.ts` `refreshWatchedAddress`: the address is read
@@ -262,7 +263,7 @@ owner's.
   away) as an influencer with `unsaved_since` set and its short address as
   the name — left out of the list, groups, Insights and the Dashboard feed
   (`readWatchBase`, `getWatchFeedTargets`), listed as "Recent searches";
-  naming it saves it (`renameInfluencer`, within the 25); the daily tick
+  naming it saves it (`renameInfluencer`, within the 40); the daily tick
   deletes unsaved ones after 10 days; a user keeps 10, a new one replacing
   the oldest — never blocked (the owner keeps all; the trigger's backstop
   is 200). An

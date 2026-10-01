@@ -2656,7 +2656,7 @@ create policy "watched_addresses: watchers only" on cryptoport.watched_addresses
   );
 create index if not exists watched_addresses_next_idx on cryptoport.watched_addresses (next_refresh_at);
 
--- Caps, enforced here rather than in the app: 25 influencers per user, 5
+-- Caps, enforced here rather than in the app: 40 influencers per user (25 until 2026-09-30), 5
 -- addresses per influencer, 500 distinct watched addresses app-wide. The
 -- advisory lock serializes one user's inserts so two at once can't both pass
 -- the count. security definer: the app-wide count must see every user's rows.
@@ -2670,8 +2670,8 @@ begin
   perform pg_advisory_xact_lock(hashtext('watch_caps:' || new.user_id::text));
   if tg_table_name = 'watch_influencers' then
     if new.unsaved_since is null then
-      if (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is null) >= 25 then
-        raise exception 'You can watch up to 25 influencers';
+      if (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is null) >= 40 then
+        raise exception 'You can watch up to 40 influencers';
       end if;
     elsif (select count(*) from cryptoport.watch_influencers where user_id = new.user_id and unsaved_since is not null) >= 200 then
       raise exception 'You can have up to 200 unsaved wallet searches';

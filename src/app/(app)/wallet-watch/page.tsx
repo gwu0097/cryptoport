@@ -111,7 +111,7 @@ async function WalletWatchContent({ groupId, searchError, isOwner }: { groupId?:
         />
         <ActivityFeed movements={movements} serverNowSec={nowSec} />
       </Panel>
-      <p className="text-xs text-fg-muted">Up to 25 influencers, 5 addresses each. DeFi positions aren&apos;t read for watched wallets.</p>
+      <p className="text-xs text-fg-muted">Up to 40 influencers, 5 addresses each. DeFi positions aren&apos;t read for watched wallets.</p>
     </>
   );
 }

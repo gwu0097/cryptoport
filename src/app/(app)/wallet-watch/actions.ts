@@ -32,10 +32,13 @@ export type WatchActionResult = { ok: true; influencerId?: string } | { ok: fals
 // names the owner and checks that a row came back.
 const NOT_YOURS = "Only whoever added it can change that — it's shared with you.";
 const NOT_YOUR_GROUP = "Only the group's creator can do that.";
+/** Influencers a user can watch (owner 2026-09-30: was 25); the database
+ * trigger watch_enforce_caps holds the same number. */
+const INFLUENCER_MAX = 40;
 
 /** The database's own messages for its caps and checks, in plain words. */
 function friendly(message: string): string {
-  if (/up to 25 influencers|up to 5 addresses|limit of watched addresses|unsaved wallet searches/.test(message)) return message.replace(/^.*?(You can|An influencer|Wallet Watch)/, "$1");
+  if (/up to \d+ influencers|up to 5 addresses|limit of watched addresses|unsaved wallet searches/.test(message)) return message.replace(/^.*?(You can|An influencer|Wallet Watch)/, "$1");
   if (/duplicate key/.test(message)) return "That address is already on this influencer.";
   if (/row-level security/.test(message)) return NOT_YOURS;
   if (/check constraint/.test(message)) return "Please check the name and link (names up to 80 characters).";
@@ -193,14 +196,14 @@ export async function renameInfluencer(id: string, name: string): Promise<WatchA
   const clean = name.trim();
   if (!clean) return { ok: false, error: "Give the influencer a name." };
   const db = await userDb();
-  // Naming an unsaved Wallet search saves it — within the 25 the list allows
+  // Naming an unsaved Wallet search saves it — within the 40 the list allows
   // (the database checks that only when a row is added).
   const { data: row } = await db.from("watch_influencers").select("unsaved_since").eq("id", id).eq("user_id", user.id).maybeSingle();
   if (!row) return { ok: false, error: NOT_YOURS };
   const saving = !!row.unsaved_since;
   if (saving) {
     const { count } = await db.from("watch_influencers").select("id", { count: "exact", head: true }).eq("user_id", user.id).is("unsaved_since", null);
-    if ((count ?? 0) >= 25) return { ok: false, error: "You can watch up to 25 influencers — remove one to save this wallet." };
+    if ((count ?? 0) >= INFLUENCER_MAX) return { ok: false, error: `You can watch up to ${INFLUENCER_MAX} influencers — remove one to save this wallet.` };
   }
   const { error } = await db.from("watch_influencers").update({ name: clean, ...(saving ? { unsaved_since: null } : {}) }).eq("id", id).eq("user_id", user.id);
   if (error) return { ok: false, error: friendly(error.message) };

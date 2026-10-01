@@ -19,7 +19,7 @@ defaults (owner, 2026-09-30):
   shares it, deletes it, or turns live on (live stays owner-only app-wide).
 - **Only the group's creator** renames or deletes the group, removes
   members, stops sharing.
-- **Caps:** the 25-influencer cap counts only influencers a user created;
+- **Caps:** the influencer cap (40) counts only influencers a user created;
   a group has at most 20 members.
 - **Unchanged:** a member's own other groups and influencers stay private;
   unsaved searches can't be put in a shared group (they aren't in groups).
