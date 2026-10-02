@@ -118,7 +118,12 @@ owner's.
   app-owned Helius "raw" webhook (`webhookSync.ts`: created/updated/deleted
   to match `watched_addresses.live`, 100 credits per change; 1 per delivered
   transaction) POSTs to `api/wallet-watch/webhook` (checks the
-  `HELIUS_WEBHOOK_SECRET` Authorization header). `webhookTx.ts` reduces a raw
+  `HELIUS_WEBHOOK_SECRET` Authorization header). Both receivers acknowledge
+  (200) a delivery they can't save — an error makes Helius/Alchemy retry, and
+  during a Supabase outage (2026-10-01) the retries became a storm that burned
+  credits and stalled every page; what isn't saved is found by Refresh
+  activity and the morning read. One live-list read per instance (in flight
+  shared, last list kept on error). `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
   spam that only arrives is dropped before any request (`worthSaving`); a token moved by ≤ 10 base units (a coin the route passed through) is no leg, in both Solana reductions (`isRouteResidue` — as a third leg it left buys unsized); legs
   are appended to `tx_activity` tagged `source: "webhook"` — every write of
