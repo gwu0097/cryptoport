@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { isAdminEmail, requireAdmin } from "@/lib/adminAuth";
+import { solanaTxPerMinute } from "@/lib/adapters/solanaActivityRate";
+import { LIVE_MAX_PER_MIN, monthlyCredits } from "@/lib/liveBudget";
 import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
@@ -564,6 +566,19 @@ export async function setInfluencerLive(influencerId: string, on: boolean): Prom
   if (error) return { ok: false, error: error.message };
   const rows = data as { chain: "SOL" | "ETH"; address: string }[];
   if (rows.length === 0) return { ok: false, error: "Live updates cover Solana and EVM addresses — this influencer has neither." };
+  // A Solana address that's really a bot pays Helius a credit per transaction
+  // (one used ~577K of the 1M monthly credits in hours, 2026-10-02): checked
+  // first on the free public RPC; too busy, or unknown, isn't turned on.
+  if (on) {
+    for (const r of rows.filter((x) => x.chain === "SOL")) {
+      const rate = await solanaTxPerMinute(r.address).catch(() => undefined);
+      if (rate === undefined) return { ok: false, error: `Couldn't check how busy ${r.address.slice(0, 6)}… is — try again in a minute.` };
+      if (rate !== null && rate > LIVE_MAX_PER_MIN) {
+        const perMin = rate === Infinity ? "hundreds" : Math.round(rate).toLocaleString();
+        return { ok: false, error: `${r.address.slice(0, 6)}… has ${perMin} transactions a minute — a bot or exchange, not a trader. Live would cost ~${rate === Infinity ? "millions of" : monthlyCredits(rate).toLocaleString()} Helius credits a month; left off.` };
+      }
+    }
+  }
   const svc = serviceDb();
   const errors: string[] = [];
   for (const chain of ["SOL", "ETH"] as const) {

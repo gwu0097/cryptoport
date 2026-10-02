@@ -126,7 +126,13 @@ owner's.
   shared, last list kept on error). A circuit breaker (`dbBreaker.ts`): 3
   database failures in a minute and the receivers skip the database for a
   minute, just acknowledging. Helius charges 1 credit per transaction sent
-  (retries free); a raw webhook can't filter to swaps (only enhanced ones can). `webhookTx.ts` reduces a raw
+  (retries free); a raw webhook can't filter to swaps (only enhanced ones can).
+  **Before a Solana address goes live** its rate is checked on the free
+  public RPC (`adapters/solanaActivityRate.ts`, newest 1,000 signatures,
+  pure `liveBudget.ts`): over `LIVE_MAX_PER_MIN` (10 a minute, ~430K credits
+  a month) it stays off, and an unknown rate keeps it off — 2026-10-02, a bot
+  address (~2,900/min, no trades kept) used ~577K of the 1M monthly credits
+  in hours (Notdecu). The busiest real trader, Risk, is ~6/min. `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
   spam that only arrives is dropped before any request (`worthSaving`); a token moved by ≤ 10 base units (a coin the route passed through) is no leg, in both Solana reductions (`isRouteResidue` — as a third leg it left buys unsized); legs
   are appended to `tx_activity` tagged `source: "webhook"` — every write of
