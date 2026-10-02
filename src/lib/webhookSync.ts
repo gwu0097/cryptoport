@@ -42,14 +42,22 @@ export async function syncLiveWebhook(): Promise<{ addresses: number; action: "c
 
   if (addresses.length === 0) {
     if (!id) return { addresses: 0, action: "none" };
-    await heliusCall("DELETE", `/${id}`);
+    await heliusCall("DELETE", `/${id}`).catch((e: Error) => {
+      if (!/HTTP (404|400|401|403)/.test(e.message)) throw e; // already gone (another account, or deleted by hand)
+    });
     await db.from("app_settings").delete().eq("key", SETTING);
     return { addresses: 0, action: "deleted" };
   }
   const body = { webhookURL: `${site.replace(/\/$/, "")}/api/wallet-watch/webhook`, transactionTypes: ["ANY"], accountAddresses: addresses, webhookType: "raw", authHeader: secret };
   if (id) {
-    await heliusCall("PUT", `/${id}`, body);
-    return { addresses: addresses.length, action: "updated" };
+    try {
+      await heliusCall("PUT", `/${id}`, body);
+      return { addresses: addresses.length, action: "updated" };
+    } catch (e) {
+      // A webhook of another Helius account (the API key was changed,
+      // 2026-10-02) or one deleted in Helius's dashboard: make a new one.
+      if (!/HTTP (404|400|401|403)/.test((e as Error).message)) throw e;
+    }
   }
   const created = (await heliusCall("POST", "", body)) as { webhookID?: string };
   if (!created.webhookID) throw new Error("Helius didn't return a webhook id");
