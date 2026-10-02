@@ -13,6 +13,7 @@ import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
 import { releaseUnwatched } from "@/lib/liveBotGuard";
+import { guardUser } from "@/lib/abuseGuard";
 import { syncCopies } from "@/lib/watchCopySync";
 import { summarizeLinks, type LinkEvidence } from "@/lib/walletLinks";
 import { evmLinkTransfers, solanaLinkTransfers } from "@/lib/adapters/walletLinkReads";
@@ -166,6 +167,8 @@ const UNSAVED_MAX = 10;
  */
 export async function searchWallet(form: FormData): Promise<void> {
   const user = await requireUser();
+  const guard = await guardUser("search", user);
+  if (!guard.ok) redirect(`/wallet-watch?searchError=${encodeURIComponent(guard.error)}`);
   const parsed = parseAddress(String(form.get("address") ?? ""));
   if ("error" in parsed) redirect(`/wallet-watch?searchError=${encodeURIComponent(parsed.error)}`);
   const db = await userDb();

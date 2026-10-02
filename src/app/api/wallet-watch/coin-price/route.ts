@@ -1,4 +1,5 @@
 import { getUser } from "@/lib/auth";
+import { guardUser } from "@/lib/abuseGuard";
 import { ensureAssetPrices } from "@/lib/adapters/assetPrices";
 import { getMarketFor } from "@/lib/queries";
 
@@ -13,7 +14,10 @@ export const dynamic = "force-dynamic";
  * like any price, so every page shows it after.
  */
 export async function POST(request: Request): Promise<Response> {
-  if (!(await getUser())) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const user = await getUser();
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const guard = await guardUser("coinPrice", user);
+  if (!guard.ok) return Response.json({ error: guard.error }, { status: 429 });
   const { priceKey } = (await request.json().catch(() => ({}))) as { priceKey?: unknown };
   if (typeof priceKey !== "string" || priceKey.length > 120 || !/^[A-Za-z0-9:._-]+$/.test(priceKey)) {
     return Response.json({ error: "Unknown coin" }, { status: 400 });

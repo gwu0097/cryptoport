@@ -1,4 +1,5 @@
 import { getUser } from "@/lib/auth";
+import { guardUser } from "@/lib/abuseGuard";
 import { isAdminEmail } from "@/lib/adminAuth";
 import { backfillActivity } from "@/lib/watchHistoryLoad";
 import { HISTORY_DAYS, type HistoryDays } from "@/lib/watchHistory";
@@ -12,6 +13,8 @@ export const maxDuration = 300;
 export async function POST(request: Request): Promise<Response> {
   const user = await getUser();
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const guard = await guardUser("backfill", user);
+  if (!guard.ok) return Response.json({ error: guard.error }, { status: 429 });
   const body = (await request.json().catch(() => null)) as { influencerId?: string; days?: number } | null;
   const days = HISTORY_DAYS.find((d) => d === body?.days) as HistoryDays | undefined;
   if (!body?.influencerId || !days) return Response.json({ error: "Expected an influencer and 7 or 30 days" }, { status: 400 });

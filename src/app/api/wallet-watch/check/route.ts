@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { getUser } from "@/lib/auth";
+import { guardUser } from "@/lib/abuseGuard";
 import { userDb } from "@/lib/supabase";
 import { getAssetStatsMap } from "@/lib/queries";
 import { runActivityCheck } from "@/lib/watchActivityCheck";
@@ -22,6 +23,8 @@ export const maxDuration = 60;
 export async function POST(request: Request): Promise<Response> {
   const user = await getUser();
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const guard = await guardUser("check", user);
+  if (!guard.ok) return Response.json({ error: guard.error }, { status: 429 });
   const body = (await request.json().catch(() => ({}))) as { influencerIds?: string[] };
   const db = await userDb();
   let query = db.from("watch_influencer_addresses").select("chain, address");

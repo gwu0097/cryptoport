@@ -2,6 +2,9 @@ import Link from "next/link";
 import { getChainIconMap } from "@/lib/queries";
 import { ExternalLink, Eye } from "lucide-react";
 import { getUser } from "@/lib/auth";
+import { headers } from "next/headers";
+import { guardUse, guardUser } from "@/lib/abuseGuard";
+import { createTtlCache } from "@/lib/ttlCache";
 import { getWatchFeedTargets } from "@/lib/watchQuery";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
 import { WatchAddressForm } from "@/components/walletWatch/WatchAddressForm";
@@ -18,6 +21,9 @@ export const dynamic = "force-dynamic";
 // the identical on-chain adapters, just for an address with no wallet row.
 export const maxDuration = 300;
 export const metadata = { title: "Wallet lookup · CryptoPort" };
+
+/** One address read at most every 5 minutes per server instance. */
+const lookupCache = createTtlCache<Awaited<ReturnType<typeof lookupWallet>>>(5 * 60_000, 200);
 
 export default async function LookupPage({
   searchParams,
@@ -71,9 +77,22 @@ async function LookupResults({
   hideUnpriced: boolean;
   hideLow: boolean;
 }) {
+  // Safeguards, not a wall (owner 2026-10-02): anyone can look up; a
+  // script hammering it is locked out (abuseGuard.ts), and one address is
+  // read at most every 5 minutes per server (the adapters spend paid calls).
+  const viewer = await getUser();
+  const ip = ((await headers()).get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
+  const guard = viewer ? await guardUser("lookup", viewer) : await guardUse("lookup", `ip:${ip}`, `visitor ${ip}`, false);
+  if (!guard.ok) {
+    return (
+      <Panel className="text-center">
+        <p className="text-sm text-negative">{guard.error}</p>
+      </Panel>
+    );
+  }
   let result;
   try {
-    result = await lookupWallet(address);
+    result = (await lookupCache.get(address.trim(), () => lookupWallet(address))).value;
   } catch (e) {
     return (
       <Panel className="text-center">
@@ -86,7 +105,7 @@ async function LookupResults({
   // Wallet Watch: offer to watch this address, or say who it's watched as —
   // names and addresses only (no snapshots or prices: those read every price).
   // The holdings table's chain icons load alongside (cached per request).
-  const [watch] = await Promise.all([(await getUser()) ? getWatchFeedTargets() : null, getChainIconMap()]);
+  const [watch] = await Promise.all([viewer ? getWatchFeedTargets() : null, getChainIconMap()]);
   const normalized = normalizeWatchAddress(result.address);
   // Your own (a shared group's wallet from another member doesn't count).
   const watchedAs = watch?.influencers.find((i) => i.mine && i.addresses.some((a) => a.address === normalized));

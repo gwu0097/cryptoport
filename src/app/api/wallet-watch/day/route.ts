@@ -1,4 +1,5 @@
 import { getUser } from "@/lib/auth";
+import { guardUser } from "@/lib/abuseGuard";
 import { userDb } from "@/lib/supabase";
 import { getWatchDayActivity, type WatchFeedInfluencer } from "@/lib/watchQuery";
 
@@ -12,7 +13,10 @@ export const dynamic = "force-dynamic";
  * by liveWatching.ts. A route handler, so it doesn't wait in the action queue.
  */
 export async function GET(request: Request): Promise<Response> {
-  if (!(await getUser())) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const user = await getUser();
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const guard = await guardUser("day", user);
+  if (!guard.ok) return Response.json({ error: guard.error }, { status: 429 });
   // Every influencer a panel can show (40 of your own, plus shared groups').
   const ids = (new URL(request.url).searchParams.get("ids") ?? "").split(",").filter(Boolean).slice(0, 100);
   if (ids.length === 0) return Response.json({ coins: [], checkedAt: {}, issues: [], liveIds: [] });

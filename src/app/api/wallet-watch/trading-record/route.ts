@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { getUser } from "@/lib/auth";
+import { guardUser } from "@/lib/abuseGuard";
 import { userDb } from "@/lib/supabase";
 import { loadTradingRecords } from "@/lib/tradingRecordLoad";
 
@@ -17,6 +18,8 @@ export const maxDuration = 120;
 export async function POST(request: Request): Promise<Response> {
   const user = await getUser();
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const guard = await guardUser("tradingRecord", user);
+  if (!guard.ok) return Response.json({ error: guard.error }, { status: 429 });
   const { influencerId } = (await request.json().catch(() => ({}))) as { influencerId?: string };
   if (!influencerId) return Response.json({ error: "No influencer" }, { status: 400 });
   const db = await userDb();

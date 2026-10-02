@@ -806,6 +806,18 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
    finishes. If a Next upgrade narrows `revalidatePath`, re-check this.
    (DECISIONS: before 2026-09-22 Router Cache)
 
+- **Safeguards, not caps** (owner 2026-10-02, after the bot incident): every
+  feature stays open to every user; bot-like use locks that user out.
+  `abuseGuard.ts` `guardUser` / `guardUse` count each costly feature's uses
+  per user (per IP for a signed-out visitor) against thresholds no person
+  reaches — lookups 30/min, Refresh activity 30/h, the day endpoint 1,200/h,
+  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h
+  — and crossing one locks the user out of the costly features for 24 h
+  (`app_settings` `user_lock:<key>`, honoured by every instance; read at most
+  once a minute per user per instance) with a 🚨 Discord line. The owner is
+  never locked. The public lookup also caches each address for 5 minutes.
+  A new costly route adds a `guardUser` call and a threshold.
+
 ## 6. Background work and loading feedback
 
 - **A Server Action doing more than a couple of seconds of work returns at once
