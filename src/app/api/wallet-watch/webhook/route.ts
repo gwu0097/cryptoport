@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
-import { saveDelivery } from "@/lib/liveActivity";
+import { liveBreaker, saveDelivery } from "@/lib/liveActivity";
+import { isOpen, recordFailure, recordSuccess } from "@/lib/dbBreaker";
 import type { RawWebhookTx } from "@/lib/webhookTx";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +23,14 @@ export async function POST(request: Request): Promise<Response> {
   }
   const body = (await request.json().catch(() => null)) as RawWebhookTx[] | null;
   if (!Array.isArray(body)) return Response.json({ error: "Expected an array of transactions" }, { status: 400 });
+  // The database failing repeatedly: don't touch it for a minute (dbBreaker.ts).
+  if (isOpen(liveBreaker, Date.now())) return Response.json({ saved: 0, deferred: true, breaker: true });
   try {
-    return Response.json(await saveDelivery(body));
+    const outcome = await saveDelivery(body);
+    recordSuccess(liveBreaker);
+    return Response.json(outcome);
   } catch (e) {
+    recordFailure(liveBreaker, Date.now());
     console.error(`[webhook] delivery of ${body.length} not saved (acknowledged anyway): ${(e as Error).message}`);
     return Response.json({ saved: 0, deferred: true });
   }

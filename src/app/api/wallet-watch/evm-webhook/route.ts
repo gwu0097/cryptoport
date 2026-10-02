@@ -1,4 +1,5 @@
-import { alchemyWebhooks, saveEvmDelivery } from "@/lib/liveActivity";
+import { alchemyWebhooks, liveBreaker, saveEvmDelivery } from "@/lib/liveActivity";
+import { isOpen, recordFailure, recordSuccess } from "@/lib/dbBreaker";
 import { validAlchemySignature, type AlchemyDelivery } from "@/lib/alchemyWebhookTx";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Expected JSON" }, { status: 400 });
   }
   const signature = request.headers.get("x-alchemy-signature") ?? "";
+  // The database failing repeatedly: don't touch it for a minute (dbBreaker.ts).
+  if (isOpen(liveBreaker, Date.now())) return Response.json({ saved: 0, deferred: true, breaker: true });
   try {
     // A webhook created in the last minute isn't in this instance's cache yet.
     const find = (all: Awaited<ReturnType<typeof alchemyWebhooks>>) => Object.values(all).find((w) => w.id === body.webhookId);
@@ -30,8 +33,11 @@ export async function POST(request: Request): Promise<Response> {
     if (!webhook || !validAlchemySignature(raw, signature, webhook.signingKey)) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-    return Response.json(await saveEvmDelivery(body));
+    const outcome = await saveEvmDelivery(body);
+    recordSuccess(liveBreaker);
+    return Response.json(outcome);
   } catch (e) {
+    recordFailure(liveBreaker, Date.now());
     console.error(`[evm-webhook] delivery not saved (acknowledged anyway): ${(e as Error).message}`);
     return Response.json({ saved: 0, deferred: true });
   }

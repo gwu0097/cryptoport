@@ -123,7 +123,10 @@ owner's.
   during a Supabase outage (2026-10-01) the retries became a storm that burned
   credits and stalled every page; what isn't saved is found by Refresh
   activity and the morning read. One live-list read per instance (in flight
-  shared, last list kept on error). `webhookTx.ts` reduces a raw
+  shared, last list kept on error). A circuit breaker (`dbBreaker.ts`): 3
+  database failures in a minute and the receivers skip the database for a
+  minute, just acknowledging. Helius charges 1 credit per transaction sent
+  (retries free); a raw webhook can't filter to swaps (only enhanced ones can). `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
   spam that only arrives is dropped before any request (`worthSaving`); a token moved by ≤ 10 base units (a coin the route passed through) is no leg, in both Solana reductions (`isRouteResidue` — as a third leg it left buys unsized); legs
   are appended to `tx_activity` tagged `source: "webhook"` — every write of

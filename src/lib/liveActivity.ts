@@ -12,6 +12,7 @@ import { loadAlchemyWebhooks, type AlchemyWebhooks } from "./alchemyWebhookSync"
 import { assetStates } from "./watchDiff";
 import type { WatchSnapshot } from "./watchSnapshot";
 import { openingLegs } from "./entryLiquidity";
+import { newBreaker } from "./dbBreaker";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { fetchTokenMarkets } from "./adapters/geckoTerminal";
 import type { ActivityLeg } from "./watchActivity";
@@ -60,6 +61,9 @@ async function entryMarkets(opening: readonly ActivityLeg[]): Promise<Map<string
 const CACHE_MS = 60_000;
 const liveCache = new Map<"SOL" | "ETH", { at: number; addresses: Set<string> }>();
 let webhookCache: { at: number; webhooks: AlchemyWebhooks } | null = null;
+
+/** This instance's breaker for the live receivers (dbBreaker.ts). */
+export const liveBreaker = newBreaker();
 
 /** One read in flight per chain per instance: a burst of deliveries shares
  * it (2026-10-01: dozens a second each asked, during a Supabase outage). */
