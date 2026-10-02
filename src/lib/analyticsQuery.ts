@@ -2,7 +2,7 @@ import "server-only";
 import { getActiveWalletsWithHoldings, getAssetsGroupedByTicker, getAssetStatsMap, getPriceMap, getValueHistory } from "./queries";
 import { getPriceHistoryMap } from "./priceHistory";
 import { requestNowSec } from "./requestClock";
-import { attribute, attributeByWallet, daysBefore, mergeByTicker, WINDOW_DAYS, type Attribution, type AttributionWindow, type WalletAttribution, type WalletAttributionInput } from "./analytics/attribution.ts";
+import { attribute, attributeByWallet, changeSinceClose, daysBefore, mergeByTicker, WINDOW_DAYS, type Attribution, type AttributionWindow, type WalletAttribution, type WalletAttributionInput } from "./analytics/attribution.ts";
 import { userDb } from "./supabase";
 import { parseNumeric, valueHolding } from "./valuation";
 import { riskProfile, type RiskProfile } from "./analytics/risk.ts";
@@ -58,11 +58,16 @@ export async function getAnalytics(): Promise<AnalyticsView> {
   const others = groups.filter((g) => !assets.includes(g) && g.total > 0);
   const positions = { usd: others.reduce((s, g) => s + g.total, 0), tickers: others.map((g) => g.ticker) };
 
+  // Each window's change from the coin's own close on the snapshot day where
+  // we have one (same moment as the snapshot), else the source's rolling
+  // change (changeSinceClose).
+  const aligned = (key: string, priceNow: number | null, fallback: Record<AttributionWindow, number | null>): Record<AttributionWindow, number | null> =>
+    Object.fromEntries(windows.map((w, i) => [w, changeSinceClose(history.get(key), baseDates[i], priceNow) ?? fallback[w]])) as Record<AttributionWindow, number | null>;
   const attributionInput = assets.map((g) => ({
     key: g.tickerKey,
     ticker: g.ticker,
     valueUsd: g.total,
-    change: { "24h": g.change24h, "7d": g.change7d, "30d": g.change30d },
+    change: aligned(g.tickerKey, g.price, { "24h": g.change24h, "7d": g.change7d, "30d": g.change30d }),
   }));
   // Per wallet, for "where did everything else come from": each wallet's
   // coins (with the asset's change) and its value held outside a priced coin.
@@ -77,7 +82,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
       live += v.usd;
       const st = h.price_key ? stats.get(h.price_key) : undefined;
       if (h.price_key && st && st.usd !== null && h.usd_override == null) {
-        const a = assets.get(h.price_key) ?? { key: h.price_key, ticker: h.ticker, valueUsd: 0, change: { "24h": st.change24h, "7d": st.change7d, "30d": st.change30d } };
+        const a = assets.get(h.price_key) ?? { key: h.price_key, ticker: h.ticker, valueUsd: 0, change: aligned(h.price_key, parseNumeric(st.usd), { "24h": st.change24h, "7d": st.change7d, "30d": st.change30d }) };
         a.valueUsd += v.usd;
         assets.set(h.price_key, a);
       } else {

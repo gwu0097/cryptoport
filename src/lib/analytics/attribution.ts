@@ -73,6 +73,20 @@ export function mergeByTicker(rows: readonly AssetContribution[]): AssetContribu
   return out.sort((a, b) => Math.abs(b.usd) - Math.abs(a.usd));
 }
 
+/**
+ * A coin's price change over a window, aligned with the wallet snapshot it's
+ * compared against: from its own daily close on the base day — recorded by
+ * the same job, at the same moment, as the snapshots — to its price now.
+ * Null without that close (then the source's rolling 24h/7d/30d change is
+ * used, which covers a different stretch of hours: BTC moving in the gap
+ * read as −$678 "everything else" on an untouched $128K wallet, 2026-10-02).
+ */
+export function changeSinceClose(closes: ReadonlyMap<string, number> | undefined, baseDate: string, priceNow: number | null): number | null {
+  const close = closes?.get(baseDate);
+  if (!close || !priceNow || close <= 0) return null;
+  return (priceNow / close - 1) * 100;
+}
+
 export function daysBefore(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - days);

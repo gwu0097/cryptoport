@@ -35,8 +35,11 @@ owner's.
   `wallet_snapshots` rows carry `assets` — each coin's quantity and price at
   that snapshot, written by `snapshots.ts` via `exactAttribution.ts`
   `walletComposition` — so price effect = quantity then × (price now − price
-  then) and the rest is named per coin; otherwise estimated from
-  `asset_prices` 24h/7d/30d changes and labeled so; one row per ticker —
+  then) and the rest is named per coin; otherwise estimated —
+  each coin's change from its own daily close on the window's start day
+  (`asset_price_daily`, recorded with the snapshot; `changeSinceClose`), else
+  `asset_prices` 24h/7d/30d changes (a different stretch of hours: BTC's
+  move in the gap read as −$678 on an untouched wallet) — and labeled so; one row per ticker —
   the same token on several chains summed, `mergeByTicker` — with the top 6
   each way and the rest behind a toggle, so the lists add up to the price
   figure), its risk (`risk.ts`: today's holdings over the last 90 days with

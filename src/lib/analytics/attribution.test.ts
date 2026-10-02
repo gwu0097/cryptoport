@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeByTicker } from "./attribution.ts";
+import { changeSinceClose, mergeByTicker } from "./attribution.ts";
 
 test("the same token on several chains is one row, its change combined", () => {
   const rows = mergeByTicker([
@@ -10,4 +10,12 @@ test("the same token on several chains is one row, its change combined", () => {
   ]);
   assert.deepEqual(rows.map((r) => [r.ticker, Math.round(r.usd)]), [["weETH", 90], ["WETH", 5]]);
   assert.ok(Math.abs(rows[0].changePct - (90 / 15_000) * 100) < 1e-9);
+});
+
+test("a window's change runs from the coin's own close on the snapshot day, when there is one", () => {
+  const closes = new Map([["2026-09-25", 100]]);
+  assert.ok(Math.abs(changeSinceClose(closes, "2026-09-25", 105)! - 5) < 1e-9);
+  assert.equal(changeSinceClose(closes, "2026-09-24", 105), null); // no close that day: the source's 7d change instead
+  assert.equal(changeSinceClose(undefined, "2026-09-25", 105), null);
+  assert.equal(changeSinceClose(closes, "2026-09-25", null), null);
 });

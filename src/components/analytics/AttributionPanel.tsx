@@ -56,7 +56,7 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: Wallet
         perp profit and funding, rewards — or a wallet added since.{" "}
         {exact
           ? "Measured from what each wallet held at the snapshot, coin by coin."
-          : "Estimated: this window's snapshot predates coin-by-coin records, so price moves come from each coin's 24h/7d/30d change and small amounts can be timing."}
+          : "Estimated: this window's snapshot predates coin-by-coin records, so price moves come from each coin's own close on the snapshot day (or, without one, its 24h/7d/30d change) on what's held now."}
       </p>
       <ul className="divide-y divide-border/60">
         {shown.map((w) => (
