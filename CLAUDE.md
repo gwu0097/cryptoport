@@ -126,7 +126,11 @@ owner's.
   shared, last list kept on error). A circuit breaker (`dbBreaker.ts`): 3
   database failures in a minute and the receivers skip the database for a
   minute, just acknowledging. Helius charges 1 credit per transaction sent
-  (retries free); a raw webhook can't filter to swaps (only enhanced ones can).
+  (retries free); a raw webhook can't filter to swaps (only enhanced ones can),
+  and an enhanced SWAP-only filter was measured and rejected (2026-10-02, 2,759
+  transactions of the 14 live wallets): 34% are trades, but Helius labels only
+  63% of those SWAP — bot and router trades come as TRANSFER/UNKNOWN, the same
+  labels as the spam, so no type filter separates them.
   **Bot guard** (owner 2026-10-02 — a bot address, Notdecu, ~2,900
   transactions a minute and none a trade we keep, used ~577K of Helius's 1M
   monthly credits in hours). Judged on a day, never a minute (owner: traders
@@ -948,6 +952,25 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   appears ("a 7/30-day tab on the Activity table", not "a Recent trades
   view") and which existing feature it extends. (DECISIONS: 2026-09-29
   Extend before adding)
+- **Build with bot protection from the start** (owner 2026-10-02, after a
+  bot wallet paused the site and emptied Helius in one night). Every
+  feature that spends anything per use — a paid or rate-limited API, a
+  webhook, a function run per event, a sizeable Supabase read — ships with
+  its safeguard in the same change, not later:
+  - **Never block normal use; lock out bot-like use.** Thresholds sit far
+    above what a person does by clicking; crossing one locks that user (or
+    IP) out of the costly features and says so on Discord (`abuseGuard.ts`
+    `guardUser`, a threshold per feature). The owner is never locked.
+  - **Anything a third party can trigger** (webhooks, public pages) is
+    judged by volume over a day, not a burst, before it's switched on, and
+    switched off automatically when it turns bot-like (`liveBudget.ts`,
+    `liveBotGuard.ts`): count, confirm, disable, alert.
+  - **Fail closed and quietly:** acknowledge what can't be processed (no
+    retry storms), stop calling a failing dependency (`dbBreaker.ts`), cap
+    pages and retries, and never let a removed or failed item keep costing
+    (`releaseUnwatched`, the daily `sweepLive`).
+  - State the worst case in the change's cost note (§5): what one user, one
+    bot or one busy address could spend in an hour.
 - **Reuse UI primitives** before building one-offs: `Panel`, `PageHeader`,
   `GuestBanner`, `SignInPrompt`, `AuthButtons`, `ui/table.ts` classes,
   `buttonClass`, `SubmitButton`. Small presentational duplication beats a shared
