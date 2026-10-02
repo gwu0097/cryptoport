@@ -6,8 +6,9 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { serviceDb, userDb } from "@/lib/supabase";
 import { isAdminEmail, requireAdmin } from "@/lib/adminAuth";
-import { solanaTxPerMinute } from "@/lib/adapters/solanaActivityRate";
-import { LIVE_MAX_PER_MIN, monthlyCredits } from "@/lib/liveBudget";
+import { solanaDayCount } from "@/lib/adapters/solanaActivityRate";
+import { evmDayCount } from "@/lib/adapters/evmActivityRate";
+import { LIVE_DAY_MAX, monthlyCredits } from "@/lib/liveBudget";
 import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
@@ -566,16 +567,16 @@ export async function setInfluencerLive(influencerId: string, on: boolean): Prom
   if (error) return { ok: false, error: error.message };
   const rows = data as { chain: "SOL" | "ETH"; address: string }[];
   if (rows.length === 0) return { ok: false, error: "Live updates cover Solana and EVM addresses — this influencer has neither." };
-  // A Solana address that's really a bot pays Helius a credit per transaction
-  // (one used ~577K of the 1M monthly credits in hours, 2026-10-02): checked
-  // first on the free public RPC; too busy, or unknown, isn't turned on.
+  // An address that's really a bot pays a credit per transaction (one used
+  // ~577K of Helius's 1M monthly credits in hours, 2026-10-02): its last 24
+  // hours are counted first (liveBudget.ts — a day, not a minute: traders
+  // trade in bursts). Too busy, or unknown, isn't turned on.
   if (on) {
-    for (const r of rows.filter((x) => x.chain === "SOL")) {
-      const rate = await solanaTxPerMinute(r.address).catch(() => undefined);
-      if (rate === undefined) return { ok: false, error: `Couldn't check how busy ${r.address.slice(0, 6)}… is — try again in a minute.` };
-      if (rate !== null && rate > LIVE_MAX_PER_MIN) {
-        const perMin = rate === Infinity ? "hundreds" : Math.round(rate).toLocaleString();
-        return { ok: false, error: `${r.address.slice(0, 6)}… has ${perMin} transactions a minute — a bot or exchange, not a trader. Live would cost ~${rate === Infinity ? "millions of" : monthlyCredits(rate).toLocaleString()} Helius credits a month; left off.` };
+    for (const r of rows) {
+      const day = await (r.chain === "SOL" ? solanaDayCount(r.address) : evmDayCount(r.address)).catch(() => undefined);
+      if (!day) return { ok: false, error: `Couldn't check how busy ${r.address.slice(0, 6)}… is — try again in a minute.` };
+      if (day.overLimit) {
+        return { ok: false, error: `${r.address.slice(0, 6)}… made over ${LIVE_DAY_MAX.toLocaleString()} transactions in the last 24 hours — a bot or exchange, not a trader. Live would cost ${day.count >= LIVE_DAY_MAX ? "hundreds of thousands of" : `~${monthlyCredits(day.count).toLocaleString()}`} credits a month; left off.` };
       }
     }
   }

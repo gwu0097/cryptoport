@@ -16,6 +16,33 @@ import { newBreaker } from "./dbBreaker";
 import { fetchTokenInfo } from "./adapters/jupiter";
 import { fetchTokenMarkets } from "./adapters/geckoTerminal";
 import type { ActivityLeg } from "./watchActivity";
+import { after } from "next/server";
+import { countDeliveries, type DeliveryCounter } from "./deliveryCounter";
+import { STOP_TRADES_PER_MIN, STOP_TX_PER_MIN, SUSPECT_PER_HOUR } from "./liveBudget";
+import { checkSuspect, turnLiveOff } from "./liveBotGuard";
+
+/** Deliveries and trades per live address, this instance (bot watch). */
+const delivered: DeliveryCounter = new Map();
+const deliveredMin: DeliveryCounter = new Map();
+const tradedMin: DeliveryCounter = new Map();
+
+/** Counts a delivery's transactions (and trades) per live address, after the
+ * response: 60 trades or 600 transactions in a minute stop it at once; 2,000
+ * transactions in an hour have its day checked (liveBotGuard.ts). */
+function watchForBots(chain: "SOL" | "ETH", perAddress: ReadonlyMap<string, number>, tradesPer: ReadonlyMap<string, number>): void {
+  const now = Date.now();
+  for (const [address, n] of perAddress) {
+    const hour = countDeliveries(delivered, address, now, n);
+    const minute = countDeliveries(deliveredMin, address, now, n, 60_000);
+    const trades = countDeliveries(tradedMin, address, now, tradesPer.get(address) ?? 0, 60_000);
+    if (trades >= STOP_TRADES_PER_MIN) after(() => turnLiveOff(chain, address, `${trades} trades in a minute`, clearLiveCache));
+    else if (minute >= STOP_TX_PER_MIN) after(() => turnLiveOff(chain, address, `${minute} transactions in a minute`, clearLiveCache));
+    else if (hour >= SUSPECT_PER_HOUR) after(() => checkSuspect(chain, address, clearLiveCache));
+  }
+}
+
+/** Whether a transaction's changes are a trade (a coin out and another in). */
+const isTrade = (changes: readonly RawChange[]) => changes.some((c) => c.qty > 0) && changes.some((c) => c.qty < 0);
 
 /** For the coins a delivery opens: liquidity then, and circulating supply
  * (the alert's market cap), by asset key — Solana from Jupiter (the call
@@ -156,13 +183,17 @@ async function saveChanges(chain: "SOL" | "ETH", perOwner: Map<string, RawChange
 export async function saveDelivery(txs: readonly RawWebhookTx[]): Promise<DeliveryOutcome> {
   const live = await liveAddresses("SOL");
   const perOwner = new Map<string, RawChange[]>();
+  const touched = new Map<string, number>(); // every delivered transaction is billed, saved or not
+  const trades = new Map<string, number>();
   let skipped = 0;
   for (const tx of txs) {
     if (!tx || typeof tx !== "object" || !tx.transaction) continue; // not a transaction: nothing to read
     const owners = new Set(accountKeys(tx).filter((k) => live.has(k)));
     for (const b of [...(tx.meta?.preTokenBalances ?? []), ...(tx.meta?.postTokenBalances ?? [])]) if (b.owner && live.has(b.owner)) owners.add(b.owner);
+    for (const owner of owners) touched.set(owner, (touched.get(owner) ?? 0) + 1);
     for (const owner of owners) {
       const changes = rawTxChanges(tx, owner);
+      if (isTrade(changes)) trades.set(owner, (trades.get(owner) ?? 0) + 1);
       if (!worthSaving(changes)) {
         skipped++;
         continue;
@@ -170,6 +201,7 @@ export async function saveDelivery(txs: readonly RawWebhookTx[]): Promise<Delive
       perOwner.set(owner, [...(perOwner.get(owner) ?? []), ...changes]);
     }
   }
+  watchForBots("SOL", touched, trades);
   if (perOwner.size === 0) return { transactions: txs.length, saved: 0, skipped };
   return { transactions: txs.length, saved: await saveChanges("SOL", perOwner), skipped };
 }
@@ -184,9 +216,13 @@ export async function saveEvmDelivery(delivery: AlchemyDelivery): Promise<Delive
   const perOwner = new Map<string, RawChange[]>();
   let transactions = 0;
   let skipped = 0;
+  const touched = new Map<string, number>();
+  const trades = new Map<string, number>();
   for (const [owner, changes] of alchemyChanges(delivery, live)) {
     const byTx = new Map<string, RawChange[]>();
     for (const c of changes) byTx.set(c.txId, [...(byTx.get(c.txId) ?? []), c]);
+    touched.set(owner, (touched.get(owner) ?? 0) + byTx.size);
+    trades.set(owner, [...byTx.values()].filter(isTrade).length);
     for (const tx of byTx.values()) {
       transactions++;
       if (!worthSaving(tx)) {
@@ -196,6 +232,7 @@ export async function saveEvmDelivery(delivery: AlchemyDelivery): Promise<Delive
       perOwner.set(owner, [...(perOwner.get(owner) ?? []), ...tx]);
     }
   }
+  watchForBots("ETH", touched, trades);
   if (perOwner.size === 0) return { transactions, saved: 0, skipped };
   return { transactions, saved: await saveChanges("ETH", perOwner, ALL_NATIVE_LEGS), skipped };
 }

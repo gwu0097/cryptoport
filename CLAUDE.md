@@ -127,12 +127,19 @@ owner's.
   database failures in a minute and the receivers skip the database for a
   minute, just acknowledging. Helius charges 1 credit per transaction sent
   (retries free); a raw webhook can't filter to swaps (only enhanced ones can).
-  **Before a Solana address goes live** its rate is checked on the free
-  public RPC (`adapters/solanaActivityRate.ts`, newest 1,000 signatures,
-  pure `liveBudget.ts`): over `LIVE_MAX_PER_MIN` (10 a minute, ~430K credits
-  a month) it stays off, and an unknown rate keeps it off — 2026-10-02, a bot
-  address (~2,900/min, no trades kept) used ~577K of the 1M monthly credits
-  in hours (Notdecu). The busiest real trader, Risk, is ~6/min. `webhookTx.ts` reduces a raw
+  **Bot guard** (owner 2026-10-02 — a bot address, Notdecu, ~2,900
+  transactions a minute and none a trade we keep, used ~577K of Helius's 1M
+  monthly credits in hours). Judged on a day, never a minute (owner: traders
+  burst, then stop; measured, Risk made 3,577 in 24 h, busiest hour 646):
+  - Going live: the address's last 24 hours are counted — Solana on the free
+    public RPC (`adapters/solanaActivityRate.ts`), EVM on Alchemy
+    (`adapters/evmActivityRate.ts`) — over `LIVE_DAY_MAX` (10,000) or
+    unknown, it stays off (`liveBudget.ts`).
+  - While live, each receiver counts deliveries per address
+    (`deliveryCounter.ts`, per instance): 60 trades or 600 transactions in a
+    minute stop it at once; 2,000 in an hour has its day checked
+    (`liveBotGuard.ts` `turnLiveOff` / `checkSuspect`) — off the database and
+    the provider's webhook, with a Discord message. `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
   spam that only arrives is dropped before any request (`worthSaving`); a token moved by ≤ 10 base units (a coin the route passed through) is no leg, in both Solana reductions (`isRouteResidue` — as a third leg it left buys unsized); legs
   are appended to `tx_activity` tagged `source: "webhook"` — every write of
