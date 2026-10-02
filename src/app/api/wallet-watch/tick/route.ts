@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { serviceDb } from "@/lib/supabase";
 import { ensureAssetPrices } from "@/lib/adapters/assetPrices";
 import { freeSlots, startReadWorker, type ReadLane } from "@/lib/watchReadQueue";
+import { releaseUnwatched, sweepLive } from "@/lib/liveBotGuard";
 import type { WatchSnapshot } from "@/lib/watchSnapshot";
 
 export const dynamic = "force-dynamic";
@@ -40,11 +41,18 @@ export async function POST(request: Request): Promise<Response> {
       const keys = ((due ?? []) as { snapshot: WatchSnapshot | null }[]).flatMap((r) => (r.snapshot?.rows ?? []).map((x) => x.price_key));
       await ensureAssetPrices(keys, "watch-cron").catch(() => {});
       const cutoff = new Date(now - RETENTION_DAYS * 86_400_000);
+      // Unsaved searches past 10 days, and their addresses released from live.
+      const { data: expired } = await db.from("watch_influencers").select("id, watch_influencer_addresses(chain, address)").lt("unsaved_since", new Date(now - UNSAVED_DAYS * 86_400_000).toISOString());
+      const expiredRows = (expired ?? []) as { id: string; watch_influencer_addresses: { chain: string; address: string }[] }[];
       await Promise.all([
         db.from("watched_movements").delete().lt("snapshot_at", cutoff.toISOString()),
         db.from("watched_address_daily").delete().lt("day", cutoff.toISOString().slice(0, 10)),
-        db.from("watch_influencers").delete().lt("unsaved_since", new Date(now - UNSAVED_DAYS * 86_400_000).toISOString()),
+        expiredRows.length ? db.from("watch_influencers").delete().in("id", expiredRows.map((r) => r.id)) : Promise.resolve(),
       ]);
+      // The live set, once a day: unwatched or bot-busy addresses off, the
+      // providers' webhooks synced to the database, a Discord line (liveBotGuard.ts).
+      await releaseUnwatched(expiredRows.flatMap((r) => r.watch_influencer_addresses)).catch((e: Error) => console.error(`[watch-tick] release: ${e.message}`));
+      await sweepLive().catch((e: Error) => console.error(`[watch-tick] live sweep: ${e.message}`));
     }
     const slots = await freeSlots().catch((e: Error) => {
       console.error(`[watch-tick] slots: ${e.message}`);

@@ -1,5 +1,6 @@
 "use client";
 
+import { JOB_STALE_MS } from "@/lib/jobStatus";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
@@ -49,6 +50,9 @@ export function TrendExplanationRefresh({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isRefreshing = row.status === "refreshing";
+  // A claim older than a job can run is dead: no polling it (it polled
+  // forever, audit 2026-10-02). Read in the effect, not during render.
+  const startedAt = row.startedAt ?? null;
 
   useEffect(() => {
     if (!isRefreshing) {
@@ -59,7 +63,10 @@ export function TrendExplanationRefresh({
       return;
     }
     if (pollRef.current) return; // already polling
+    if (startedAt && Date.now() - Date.parse(startedAt) > JOB_STALE_MS) return;
     pollRef.current = setInterval(async () => {
+      // A hidden tab doesn't poll (it catches up when shown again).
+      if (document.hidden) return;
       try {
         const fresh = await getTrendExplanationAction(seedId);
         setRow(fresh);
@@ -79,7 +86,7 @@ export function TrendExplanationRefresh({
         pollRef.current = null;
       }
     };
-  }, [isRefreshing, seedId, router]);
+  }, [isRefreshing, startedAt, seedId, router]);
 
   async function handleRefresh() {
     setError(null);

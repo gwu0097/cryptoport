@@ -173,9 +173,15 @@ async function saveChanges(chain: "SOL" | "ETH", perOwner: Map<string, RawChange
     if (!appended || appended.added === 0) continue;
     saved += appended.added;
     const known = new Map([...markets].flatMap(([k, m]) => (m.supply !== null ? [[k, m.supply] as [string, number]] : [])));
-    await sendWatchAlerts(chain, row.address, appended.before, appended.after, new Set(legs.map((l) => l.txId)), known);
+    // After the response (audit 2026-10-02): the alert's Jupiter call, image
+    // and Discord post made a slow delivery look like a failure, and the
+    // provider re-sent it — another invocation and credit.
+    const before = appended.before;
+    const after_ = appended.after;
+    const txIds = new Set(legs.map((l) => l.txId));
+    after(() => sendWatchAlerts(chain, row.address, before, after_, txIds, known));
   }
-  if (saved > 0) await broadcastActivity(); // new lines: open pages fetch theirs (one request)
+  if (saved > 0) after(() => broadcastActivity()); // new lines: open pages fetch theirs (one request), after the response
   return saved;
 }
 

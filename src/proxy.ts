@@ -8,7 +8,10 @@ import { isAdminEmail } from "./lib/adminEmail";
 // defaults to the Node.js runtime rather than Edge.
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Not the webhook receivers, the morning read's tick/read or the crons:
+  // they check their own secret and need no session, and each delivery
+  // paid a second invocation here (audit 2026-10-02).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/wallet-watch/webhook|api/wallet-watch/evm-webhook|api/wallet-watch/tick|api/wallet-watch/read|api/cron/).*)"],
 };
 
 // Every page in the app is viewable without a session — only saving

@@ -12,6 +12,7 @@ import { LIVE_DAY_MAX, monthlyCredits } from "@/lib/liveBudget";
 import { syncLiveWebhook } from "@/lib/webhookSync";
 import { syncAlchemyWebhooks } from "@/lib/alchemyWebhookSync";
 import { clearLiveCache } from "@/lib/liveActivity";
+import { releaseUnwatched } from "@/lib/liveBotGuard";
 import { syncCopies } from "@/lib/watchCopySync";
 import { summarizeLinks, type LinkEvidence } from "@/lib/walletLinks";
 import { evmLinkTransfers, solanaLinkTransfers } from "@/lib/adapters/walletLinkReads";
@@ -142,6 +143,14 @@ export async function watchAddress(input: {
   return { ok: true, influencerId };
 }
 
+/** After the response: addresses nobody watches any more come off live and
+ * the providers' webhooks (liveBotGuard.ts) — a removed address used to
+ * stay live, paying per delivery with no switch left (audit 2026-10-02). */
+function releaseLater(keys: readonly WatchedKey[]): void {
+  if (keys.length === 0) return;
+  after(() => releaseUnwatched(keys, clearLiveCache).then(() => undefined).catch((e: Error) => console.error(`[watch] release: ${e.message}`)));
+}
+
 /** How many unsaved Wallet searches a user keeps; a new one past this
  * replaces the oldest — never blocked. The owner keeps every search until
  * it's 10 days old (owner 2026-09-30); the database's backstop is 200. */
@@ -168,7 +177,11 @@ export async function searchWallet(form: FormData): Promise<void> {
   if (!isAdminEmail(user.email, process.env.ADMIN_EMAIL)) {
     const { data: unsaved } = await db.from("watch_influencers").select("id").eq("user_id", user.id).not("unsaved_since", "is", null).order("unsaved_since");
     const over = ((unsaved ?? []) as { id: string }[]).slice(0, Math.max(0, (unsaved?.length ?? 0) - (UNSAVED_MAX - 1)));
-    if (over.length > 0) await db.from("watch_influencers").delete().in("id", over.map((u) => u.id));
+    if (over.length > 0) {
+    const { data: gone } = await db.from("watch_influencer_addresses").select("chain, address").in("influencer_id", over.map((u) => u.id));
+    await db.from("watch_influencers").delete().in("id", over.map((u) => u.id));
+    releaseLater((gone ?? []) as WatchedKey[]);
+  }
   }
   const short = parsed.address.length > 12 ? `${parsed.address.slice(0, 6)}…${parsed.address.slice(-4)}` : parsed.address;
   const r = await watchAddress({ address: parsed.address, name: short, unsaved: true });
@@ -217,9 +230,11 @@ export async function renameInfluencer(id: string, name: string): Promise<WatchA
 export async function removeInfluencer(id: string): Promise<WatchActionResult> {
   const user = await requireUser();
   const db = await userDb();
+  const { data: gone } = await db.from("watch_influencer_addresses").select("chain, address").eq("influencer_id", id);
   const { data, error } = await db.from("watch_influencers").delete().eq("id", id).eq("user_id", user.id).select("id");
   if (error) return { ok: false, error: error.message };
   if (!data?.length) return { ok: false, error: NOT_YOURS };
+  releaseLater((gone ?? []) as WatchedKey[]);
   revalidate();
   return { ok: true };
 }
@@ -229,8 +244,10 @@ export async function removeInfluencers(ids: string[]): Promise<WatchActionResul
   const user = await requireUser();
   if (ids.length === 0) return { ok: true };
   const db = await userDb();
+  const { data: gone } = await db.from("watch_influencer_addresses").select("chain, address").in("influencer_id", ids).eq("user_id", user.id);
   const { data, error } = await db.from("watch_influencers").delete().in("id", ids).eq("user_id", user.id).select("id");
   if (error) return { ok: false, error: error.message };
+  releaseLater((gone ?? []) as WatchedKey[]);
   revalidate();
   const skipped = ids.length - (data?.length ?? 0);
   if (skipped > 0) return { ok: false, error: `${skipped} shared with you ${skipped === 1 ? "wasn't" : "weren't"} removed — only whoever added them can.` };
@@ -244,6 +261,7 @@ export async function removeWatchedAddress(addressId: string, influencerId: stri
   if (error) return { ok: false, error: error.message };
   if (!data?.length) return { ok: false, error: NOT_YOURS };
   const removed = (data as { chain: string; address: string }[] | null)?.[0];
+  if (removed) releaseLater([removed]);
   // Copies of this influencer made from its share link lose it too.
   if (removed) await syncCopies(influencerId, { kind: "remove", ...removed }).catch((e) => console.error(`Copies not updated: ${(e as Error).message}`));
   revalidate(influencerId);

@@ -278,7 +278,10 @@ export async function refreshWatchedAddress({ chain, address }: WatchedKey): Pro
     }
   } catch (e) {
     const statusText = `error: ${(e as Error).message}`;
-    await done({ last_refresh_status: statusText, refresh_status: statusText });
+    // Tried again tomorrow, not on the next tick: a read that fails (a dead
+    // RPC, exhausted credits) was re-claimed every minute of the morning,
+    // spending its sources each time (audit 2026-10-02). Refresh still works.
+    await done({ last_refresh_status: statusText, refresh_status: statusText, next_refresh_at: new Date(Date.now() + 20 * 60 * 60_000).toISOString() });
     marks.error = Date.now() - t0;
   }
   console.log(`[watch-read] ${JSON.stringify({ chain, address, ms: Date.now() - t0, steps: marks, slowestChains: slowest })}`);

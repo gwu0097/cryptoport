@@ -1,5 +1,6 @@
 "use client";
 
+import { JOB_STALE_MS } from "@/lib/jobStatus";
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, RefreshCw, TrendingUp, TrendingDown, Minus, ChevronDown } from "lucide-react";
 import type { TokenAnalysisRow } from "@/lib/tokenAnalysis";
@@ -106,6 +107,9 @@ export function TokenAnalysisPanel({
   }, [coingeckoId]);
 
   const isRefreshing = row?.status === "refreshing";
+  // A claim older than a job can run is dead: no polling it (it polled
+  // forever, audit 2026-10-02). Read in the effect, not during render.
+  const startedAt = row?.startedAt ?? null;
 
   useEffect(() => {
     if (!isRefreshing) {
@@ -116,7 +120,10 @@ export function TokenAnalysisPanel({
       return;
     }
     if (pollRef.current) return; // already polling
+    if (startedAt && Date.now() - Date.parse(startedAt) > JOB_STALE_MS) return;
     pollRef.current = setInterval(async () => {
+      // A hidden tab doesn't poll (it catches up when shown again).
+      if (document.hidden) return;
       try {
         const fresh = await getTokenAnalysisAction(coingeckoId);
         setRow(fresh);
@@ -130,7 +137,7 @@ export function TokenAnalysisPanel({
         pollRef.current = null;
       }
     };
-  }, [isRefreshing, coingeckoId]);
+  }, [isRefreshing, startedAt, coingeckoId]);
 
   async function handleRefresh() {
     setError(null);

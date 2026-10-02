@@ -140,6 +140,19 @@ owner's.
     minute stop it at once; 2,000 in an hour has its day checked
     (`liveBotGuard.ts` `turnLiveOff` / `checkSuspect`) — off the database and
     the provider's webhook, with a Discord message.
+  - Removing an address or influencer (and the tick's unsaved-search
+    expiry, and Wallet search's trim) releases addresses nobody watches any
+    more from live and the providers' webhooks (`releaseUnwatched`) — a
+    removed address used to stay live with no switch left (audit 2026-10-02).
+  - The morning tick's first run sweeps the live set (`sweepLive`): unwatched
+    or over-the-day-limit addresses off, both providers' webhooks synced to
+    the database (100 Helius credits), one Discord line with each live
+    address's 24-hour count. A failed turn-off posts a 🚨 alarm.
+  - The webhook, tick, read and cron routes skip `proxy.ts` (they check
+    their own secret) — each delivery paid a second invocation there. A
+    failed morning read waits until tomorrow (`next_refresh_at` + 20 h), not
+    the next tick. Alerts and the live broadcast run after the receiver's
+    response. Delivery counters are 10-second buckets.
   - Each trading record load counts the address's day too
     (`activity24h` on the record): over the limit, the influencer page opens
     with a red "This looks like a bot" banner (owner 2026-10-02). Trade
