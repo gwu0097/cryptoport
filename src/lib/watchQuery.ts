@@ -624,11 +624,13 @@ export async function getTradingRecord(influencer: WatchFeedInfluencer, today: s
   solanaAddresses: number;
   otherAddresses: number;
   errors: string[];
+  /** Addresses whose last load counted a bot's day (activity24h). */
+  bots: { address: string; count: number }[];
 }> {
   // Solana (Solana Tracker) and EVM (Zerion) addresses alike.
   const sol = influencer.addresses.filter((a) => a.chain === "SOL" || a.chain === "ETH").map((a) => a.address);
   const otherAddresses = influencer.addresses.length - sol.length;
-  if (sol.length === 0) return { summary: null, loadedAt: null, solanaAddresses: 0, otherAddresses, errors: [] };
+  if (sol.length === 0) return { summary: null, loadedAt: null, solanaAddresses: 0, otherAddresses, errors: [], bots: [] };
   const db = await userDb();
   const { data, error } = await db.from("watched_addresses").select("address, trading_record, trading_record_at, trading_record_status").in("chain", ["SOL", "ETH"]).in("address", sol);
   if (error) throw new Error(`Failed to load the trading record: ${error.message}`);
@@ -640,6 +642,7 @@ export async function getTradingRecord(influencer: WatchFeedInfluencer, today: s
     solanaAddresses: sol.length,
     otherAddresses,
     errors: rows.filter((r) => r.trading_record_status?.startsWith("error")).map((r) => `${r.address.slice(0, 6)}…: ${r.trading_record_status}`),
+    bots: rows.filter((r) => r.trading_record?.activity24h?.overLimit).map((r) => ({ address: r.address, count: r.trading_record!.activity24h!.count })),
   };
 }
 

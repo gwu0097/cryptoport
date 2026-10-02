@@ -45,6 +45,10 @@ export interface StoredTradingRecord {
   feesUsd?: number | null;
   closedReturnPct?: number | null;
   closedCostUsd?: number | null;
+  /** The address's last 24 hours of transactions, counted with each load
+   * (liveBudget.ts): over the limit, the page says it's a bot (owner
+   * 2026-10-02). */
+  activity24h?: { count: number; overLimit: boolean; at: string };
 }
 
 /** A coin's result: [month it was last sold (YYYY-MM), realized USD, return %,

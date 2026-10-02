@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { GroupChips } from "@/components/walletWatch/GroupChips";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { LIVE_DAY_MAX } from "@/lib/liveBudget";
 import { getChainIconMap, scopePricesToUser } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -61,6 +62,16 @@ export default async function InfluencerPage({ params, searchParams }: { params:
       <Link href="/wallet-watch" className="mb-3 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg">
         <ArrowLeft className="size-3.5" aria-hidden="true" /> Wallet Watch
       </Link>
+      {record.bots.length > 0 && (
+        // Owner 2026-10-02: say it plainly, at the top. Counted with the last
+        // trading record load (liveBudget.ts); live updates refuse it too.
+        <div role="alert" className="mb-4 rounded-xl border-2 border-negative bg-negative/10 px-4 py-3">
+          <p className="text-lg font-bold uppercase tracking-wide text-negative">⚠ This looks like a bot</p>
+          <p className="mt-1 text-sm text-negative">
+            {record.bots.map((b) => `${b.address.slice(0, 6)}…${b.address.slice(-4)}: ${b.count >= LIVE_DAY_MAX ? "over " : ""}${b.count.toLocaleString()} transactions in 24 hours`).join(" · ")} — no person trades like this. Its trading record isn&apos;t a trader&apos;s, and live updates would burn through webhook credits, so they won&apos;t turn on.
+          </p>
+        </div>
+      )}
       <PageHeader
         title={<InfluencerTitle influencer={influencer} name={influencer.mine ? <InfluencerName id={influencer.id} name={influencer.name} /> : undefined} />}
         subtitle={

@@ -139,7 +139,11 @@ owner's.
     (`deliveryCounter.ts`, per instance): 60 trades or 600 transactions in a
     minute stop it at once; 2,000 in an hour has its day checked
     (`liveBotGuard.ts` `turnLiveOff` / `checkSuspect`) — off the database and
-    the provider's webhook, with a Discord message. `webhookTx.ts` reduces a raw
+    the provider's webhook, with a Discord message.
+  - Each trading record load counts the address's day too
+    (`activity24h` on the record): over the limit, the influencer page opens
+    with a red "This looks like a bot" banner (owner 2026-10-02). Trade
+    counts alone don't separate (Risk ~240 trades a day, Notdecu ~480). `webhookTx.ts` reduces a raw
   transaction exactly as `readSolana` does (checked on 4 real trades);
   spam that only arrives is dropped before any request (`worthSaving`); a token moved by ≤ 10 base units (a coin the route passed through) is no leg, in both Solana reductions (`isRouteResidue` — as a third leg it left buys unsized); legs
   are appended to `tx_activity` tagged `source: "webhook"` — every write of

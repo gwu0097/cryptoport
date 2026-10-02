@@ -3,6 +3,8 @@ import { serviceDb } from "./supabase";
 import { fetchTradingRecord } from "./adapters/solanaTracker";
 import { fetchZerionPnl, ZERION_PREPARING, type ZerionPnl } from "./adapters/zerionDefi";
 import { zerionRecord, zerionWindows } from "./zerionRecord";
+import { solanaDayCount } from "./adapters/solanaActivityRate";
+import { evmDayCount } from "./adapters/evmActivityRate";
 import type { StoredTradingRecord } from "./tradingRecord";
 
 // Loads influencers' trading records on demand (tradingRecord.ts), saved on
@@ -87,6 +89,11 @@ export async function loadTradingRecords(addresses: readonly { chain: string; ad
         const missed = answers.filter((r) => !r.pnl).length;
         console.log(`[trading-record] ${row.address} zerion calls=${calls}${missed ? ` unanswered=${missed}` : ""} realized=${Math.round(record.realizedUsd)} ms=${Date.now() - t0}`);
       }
+      // The day's transaction count with it (free for Solana; Alchemy for
+      // EVM): a bot gets a warning on its page. Unknown keeps the last one.
+      const day = await (row.chain === "SOL" ? solanaDayCount(row.address) : evmDayCount(row.address)).catch(() => null);
+      if (day) record = { ...record, activity24h: { ...day, at: new Date(nowMs).toISOString() } };
+      else if (row.trading_record?.activity24h) record = { ...record, activity24h: row.trading_record.activity24h };
       const { error: saveError } = await db
         .from("watched_addresses")
         .update({ trading_record: record, trading_record_at: new Date(nowMs).toISOString(), trading_record_status: "ok" })
