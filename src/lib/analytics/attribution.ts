@@ -33,6 +33,12 @@ export interface AssetContribution {
 
 export interface Attribution {
   window: AttributionWindow;
+  /** Set when the window couldn't start on its own day: it starts at the
+   * earliest coin-by-coin snapshot instead (`days` long), or — with none —
+   * it's still building and nothing is shown (owner 2026-10-02: no
+   * estimate in place of data). */
+  shortened?: { days: number; fullFrom: string };
+  building?: boolean;
   /** Price effect measured from each wallet's own snapshot composition
    * (exactAttribution.ts) rather than estimated from 24h/7d/30d changes. */
   exact?: boolean;
@@ -105,6 +111,8 @@ export function attribute(
   liveTotalUsd: number,
   snapshots: readonly { date: string; total: number }[],
   today: string,
+  /** The start day when it isn't the window's own (the earliest coin-by-coin snapshot). */
+  baseDateOverride?: string,
 ): Attribution {
   const contributions: AssetContribution[] = [];
   const unattributed = { usd: positions.usd, tickers: [...positions.tickers] };
@@ -121,7 +129,7 @@ export function attribute(
   }
   const priceUsd = contributions.reduce((s, c) => s + c.usd, 0);
 
-  const baseDate = daysBefore(today, WINDOW_DAYS[window]);
+  const baseDate = baseDateOverride ?? daysBefore(today, WINDOW_DAYS[window]);
   const snap = snapshots.find((s) => s.date === baseDate);
   const base = snap ? { date: snap.date, totalUsd: snap.total } : null;
   const actualUsd = base ? liveTotalUsd - base.totalUsd : null;
@@ -176,8 +184,9 @@ export function attributeByWallet(
   wallets: readonly WalletAttributionInput[],
   baseByWallet: ReadonlyMap<string, number>,
   today: string,
+  baseDateOverride?: string,
 ): { wallets: WalletAttribution[]; removedUsd: number } {
-  const baseDate = daysBefore(today, WINDOW_DAYS[window]);
+  const baseDate = baseDateOverride ?? daysBefore(today, WINDOW_DAYS[window]);
   const rows = wallets.map((w): WalletAttribution => {
     const a = attribute(window, w.assets, w.positions, w.liveUsd, [], today);
     const base = baseByWallet.get(w.id);

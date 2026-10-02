@@ -35,21 +35,30 @@ export interface AnalyticsView {
 export async function getAnalytics(): Promise<AnalyticsView> {
   const today = new Date(requestNowSec() * 1000).toISOString().slice(0, 10);
   const windows = Object.keys(WINDOW_DAYS) as AttributionWindow[];
-  const baseDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
-  // Two round trips: these together (the wallet snapshots at each window's
-  // start need only the dates), then the price history of what's held.
-  const [{ groups, grand }, stats, snapshots, wallets, snaps] = await Promise.all([
+  const requestedDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
+  // Two round trips: these together (with the earliest coin-by-coin
+  // snapshot), then the price history of what's held with the wallet
+  // snapshots each window starts from.
+  const [{ groups, grand }, stats, snapshots, wallets, firstExactRes] = await Promise.all([
     getAssetsGroupedByTicker(),
     getAssetStatsMap(),
     getValueHistory(),
     getActiveWalletsWithHoldings(),
-    userDb().then((db) => db.from("wallet_snapshots").select("wallet_id, snapshot_date, total_usd, assets, positions_usd").in("snapshot_date", baseDates)),
+    userDb().then((db) => db.from("wallet_snapshots").select("snapshot_date").not("assets", "is", null).order("snapshot_date").limit(1)),
   ]);
+  // A window starts on its own day, or — while the coin-by-coin snapshots
+  // are newer than that — on the first of them (owner 2026-10-02: show what
+  // can be measured, labeled, not an estimate).
+  const firstExact = ((firstExactRes.data ?? []) as { snapshot_date: string }[])[0]?.snapshot_date ?? null;
+  const baseDates = requestedDates.map((d) => (firstExact && d < firstExact ? firstExact : d));
   const benchmark = { ticker: "BTC", source: "auto", contract: null, chain: null, coingecko_id: BENCHMARK_KEY, price_key: BENCHMARK_KEY } as Pick<
     Holding,
     "ticker" | "source" | "contract" | "chain" | "coingecko_id" | "price_key"
   >;
-  const { history } = await getPriceHistoryMap([...wallets.flatMap((w) => w.holdings), benchmark]);
+  const [{ history }, snaps] = await Promise.all([
+    getPriceHistoryMap([...wallets.flatMap((w) => w.holdings), benchmark]),
+    userDb().then((db) => db.from("wallet_snapshots").select("wallet_id, snapshot_date, total_usd, assets, positions_usd").in("snapshot_date", [...new Set(baseDates)])),
+  ]);
 
   // An asset (a price_key with a price) has a price series; everything else
   // with a value — protocol positions, perp margin, rows priced by their
@@ -100,12 +109,12 @@ export async function getAnalytics(): Promise<AnalyticsView> {
       for (const r of walletSnaps as { wallet_id: string; snapshot_date: string; total_usd: number | string }[]) {
         if (r.snapshot_date === baseDates[i]) base.set(r.wallet_id, parseNumeric(r.total_usd) ?? 0);
       }
-      return [win, attributeByWallet(win, walletInputs, base, today)];
+      return [win, attributeByWallet(win, walletInputs, base, today, baseDates[i])];
     }),
   ) as AnalyticsView["byWallet"];
 
   const attribution = Object.fromEntries(
-    (Object.keys(WINDOW_DAYS) as AttributionWindow[]).map((w) => [w, attribute(w, attributionInput, positions, grand.total, snapshots, today)]),
+    windows.map((w, i) => [w, attribute(w, attributionInput, positions, grand.total, snapshots, today, baseDates[i])]),
   ) as Record<AttributionWindow, Attribution>;
 
   // Exact where the starting snapshot recorded each wallet's composition:
@@ -155,6 +164,18 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     a.contributions = mergeByTicker(
       [...byCoin].map(([key, c]) => ({ key, ticker: tickerOf.get(key) ?? key, valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd })),
     ).filter((c) => Math.abs(c.usd) >= 0.01);
+  });
+
+  // What each window can honestly show: measured (exact) — from a later
+  // start when its own day predates the coin-by-coin snapshots — or nothing
+  // yet (owner 2026-10-02: "if we don't have their data, don't show it").
+  windows.forEach((win, i) => {
+    const a = attribution[win];
+    if (!a.exact) a.building = true;
+    else if (baseDates[i] !== requestedDates[i]) {
+      const days = Math.round((Date.parse(today) - Date.parse(baseDates[i])) / 86_400_000);
+      a.shortened = { days, fullFrom: daysBefore(baseDates[i], -WINDOW_DAYS[win]) };
+    }
   });
 
   const risk = riskProfile(

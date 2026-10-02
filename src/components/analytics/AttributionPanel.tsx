@@ -21,6 +21,8 @@ const TOP = 6;
 const tone = (n: number | null) => (n === null ? "text-fg-muted" : n > 0 ? "text-positive" : n < 0 ? "text-negative" : "text-fg");
 const signed = (n: number | null) => (n === null ? "—" : formatUsdSigned(n));
 
+const SHORT_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
 function Figure({ label, value, caption, onClick }: { label: string; value: number | null; caption: string; onClick?: () => void }) {
   const body = (
     <>
@@ -226,6 +228,22 @@ export function AttributionPanel({
       }
       className="mb-4"
     >
+      {a.building ? (
+        // No coin-by-coin snapshot covers this window yet: nothing shown
+        // rather than an estimate (owner 2026-10-02).
+        <p className="text-sm text-fg-muted">
+          Still building — this needs a daily snapshot that records each coin, and none covers this window yet. The first is taken at the
+          next daily snapshot (06:00 UTC); check back tomorrow.
+        </p>
+      ) : (
+      <>
+      {a.shortened && (
+        <p className="mb-3 rounded-lg border border-border bg-surface-raised/40 px-3 py-2 text-xs text-fg-muted">
+          Showing the last <span className="font-medium text-fg">{a.shortened.days} day{a.shortened.days === 1 ? "" : "s"}</span> (since{" "}
+          {SHORT_DATE.format(new Date(`${a.base?.date}T00:00:00Z`))}) — the coin-by-coin snapshots this needs start then. The full{" "}
+          {WINDOWS.find((x) => x.key === window)?.label} view starts {SHORT_DATE.format(new Date(`${a.shortened.fullFrom}T00:00:00Z`))}.
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-3">
         <Figure
           label="Total change"
@@ -235,12 +253,12 @@ export function AttributionPanel({
         <Figure
           label="From price moves"
           value={a.priceUsd}
-          caption={a.exact ? "What was held at the snapshot gained or lost from price alone" : "Estimated from each coin's change over the window — exact once a snapshot records coin by coin"}
+          caption="What was held at the snapshot gained or lost from price alone"
         />
         <Figure
           label="From everything else"
           value={a.otherUsd}
-          caption="Deposits, withdrawals, wallets added, trades, positions opened or closed, rewards"
+          caption="Coins bought, sold, sent or received, wallets added, positions opened or closed, rewards — never a price move"
           onClick={openDialog}
         />
       </div>
@@ -258,6 +276,8 @@ export function AttributionPanel({
           {a.unattributed.tickers.length} holdings have no {window} price change to split out (protocol positions, perp margin, tokens
           whose price source gives no {window} change); their moves land in &ldquo;everything else&rdquo;.
         </p>
+      )}
+      </>
       )}
       <Dialog ref={dialogRef} title={`Everything else, by wallet · ${WINDOWS.find((x) => x.key === window)?.label}`}>
         {open && <ByWalletList rows={(byWallet[window] ?? byWallet["7d"]).wallets} removedUsd={(byWallet[window] ?? byWallet["7d"]).removedUsd} totalOtherUsd={a.otherUsd} exact={!!a.exact} />}
