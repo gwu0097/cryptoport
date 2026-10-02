@@ -61,14 +61,32 @@ const CACHE_MS = 60_000;
 const liveCache = new Map<"SOL" | "ETH", { at: number; addresses: Set<string> }>();
 let webhookCache: { at: number; webhooks: AlchemyWebhooks } | null = null;
 
+/** One read in flight per chain per instance: a burst of deliveries shares
+ * it (2026-10-01: dozens a second each asked, during a Supabase outage). */
+const liveInFlight = new Map<"SOL" | "ETH", Promise<Set<string>>>();
+
 async function liveAddresses(chain: "SOL" | "ETH"): Promise<Set<string>> {
   const hit = liveCache.get(chain);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.addresses;
-  const { data, error } = await serviceDb().from("watched_addresses").select("address").eq("chain", chain).eq("live", true);
-  if (error) throw new Error(`Failed to load live addresses: ${error.message}`);
-  const addresses = new Set((data as { address: string }[]).map((r) => (chain === "ETH" ? r.address.toLowerCase() : r.address)));
-  liveCache.set(chain, { at: Date.now(), addresses });
-  return addresses;
+  const pending = liveInFlight.get(chain);
+  if (pending) return pending;
+  const read = (async () => {
+    const { data, error } = await serviceDb().from("watched_addresses").select("address").eq("chain", chain).eq("live", true);
+    if (error) {
+      // Supabase refusing: the last list this instance had, if any.
+      if (hit) return hit.addresses;
+      throw new Error(`Failed to load live addresses: ${error.message}`);
+    }
+    const addresses = new Set((data as { address: string }[]).map((r) => (chain === "ETH" ? r.address.toLowerCase() : r.address)));
+    liveCache.set(chain, { at: Date.now(), addresses });
+    return addresses;
+  })();
+  liveInFlight.set(chain, read);
+  try {
+    return await read;
+  } finally {
+    liveInFlight.delete(chain);
+  }
 }
 
 /** The Alchemy webhooks' signing keys (the delivery route checks each body).

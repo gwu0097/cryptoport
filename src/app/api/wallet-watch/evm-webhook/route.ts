@@ -9,8 +9,10 @@ export const maxDuration = 60;
  * chains (docs/wallet-watch/PLAN.md, phase 6). Each delivery is signed with
  * its webhook's signing key (X-Alchemy-Signature, HMAC-SHA256 of the raw
  * body); an unknown webhook or a bad signature is refused before anything is
- * read. A 500 makes Alchemy retry — safe, since legs are deduped by
- * transaction.
+ * read. A delivery that can't be checked or saved is still acknowledged
+ * (200) — an error makes Alchemy retry, and retries during a Supabase outage
+ * pile onto it (the Helius receiver's storm, 2026-10-01); Refresh activity
+ * and the morning read find what wasn't saved.
  */
 export async function POST(request: Request): Promise<Response> {
   const raw = await request.text();
@@ -30,6 +32,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json(await saveEvmDelivery(body));
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 500 });
+    console.error(`[evm-webhook] delivery not saved (acknowledged anyway): ${(e as Error).message}`);
+    return Response.json({ saved: 0, deferred: true });
   }
 }

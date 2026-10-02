@@ -8,8 +8,11 @@ export const maxDuration = 60;
 /**
  * Helius's webhook for live Wallet Watch activity (docs/wallet-watch/PLAN.md,
  * phase 5). Helius sends the secret we set on the webhook as the
- * Authorization header; anything else is refused. A 500 makes Helius retry —
- * safe, since legs are deduped by transaction.
+ * Authorization header; anything else is refused. A delivery that can't be
+ * saved is still acknowledged (200): an error makes Helius retry, and while
+ * Supabase refused requests (2026-10-01) the retries became a storm of
+ * requests that kept every page waiting. A trade not saved here is found by
+ * Refresh activity and the morning read (the cursor isn't moved by deliveries).
  */
 export async function POST(request: Request): Promise<Response> {
   const secret = process.env.HELIUS_WEBHOOK_SECRET;
@@ -22,6 +25,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     return Response.json(await saveDelivery(body));
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 500 });
+    console.error(`[webhook] delivery of ${body.length} not saved (acknowledged anyway): ${(e as Error).message}`);
+    return Response.json({ saved: 0, deferred: true });
   }
 }
