@@ -83,6 +83,18 @@ Zerion's +$160K. Alchemy can't return internal transfers on Robinhood Chain;
 Blockscout's index of them was incomplete (18 in his whole history). Only
 revisit for per-coin detail on EVM, with a source that prices each swap.
 
+### Daily sync of every wallet — designed, BACKLOGGED (owner 2026-10-02)
+Why: Analytics' exact attribution needs each wallet's coins as of each day,
+and a wallet nobody syncs keeps yesterday's quantities. Two options:
+- **The designed one** (`docs/sync/DAILY_SYNC.md`, Fable-reviewed): a cheap
+  change signal per wallet each morning, a full sync only for wallets that
+  changed; pg_cron claims, service-role SQL, safeguards.
+- **The simpler one** (proposed after the cost correction): sync every
+  wallet once a day, no change detection. CPU is far below the first estimate
+  (that one counted wall time as CPU); costs are re-checked before building.
+Start with phase 0 either way: Analytics names a wallet not synced since the
+window's start instead of treating its holdings as unchanged.
+
 ### A Solana sync overwrites the wallet's own note — small, open (found 2026-09-30)
 Every Solana sync writes `SOL_SYNC_NOTE` (`src/lib/syncNotes.ts`) into
 `wallets.notes` (`wallets/actions.ts`), replacing whatever the user wrote.
