@@ -3,7 +3,8 @@ import { serviceDb } from "./supabase";
 import { solanaDayCount } from "./adapters/solanaActivityRate";
 import { evmDayCount } from "./adapters/evmActivityRate";
 import { syncLiveWebhook } from "./webhookSync";
-import { syncAlchemyWebhooks } from "./alchemyWebhookSync";
+import { alchemyWebhookStates, syncAlchemyWebhooks } from "./alchemyWebhookSync";
+import { webhookProblems, type WebhookState } from "./webhookHealth";
 import { postDiscord } from "./adapters/discordWebhook";
 import { LIVE_DAY_MAX } from "./liveBudget";
 
@@ -106,8 +107,20 @@ export async function sweepLive(budgetMs = 80_000): Promise<void> {
     }
   }
   const synced: string[] = [];
-  await syncLiveWebhook().then((r) => synced.push(`Helius ${r.addresses}`)).catch((e: Error) => alarm(`🚨 Daily sweep couldn't sync the Helius webhook: ${e.message.slice(0, 160)}`));
+  // Whether each provider still delivers: Helius's state comes back with the
+  // update it gets anyway (no extra credit), Alchemy's from one free list call.
+  const states: WebhookState[] = [];
+  await syncLiveWebhook()
+    .then((r) => {
+      synced.push(`Helius ${r.addresses}`);
+      if (r.state) states.push({ provider: "Helius", active: r.state.active, reason: r.state.disabledReason });
+    })
+    .catch((e: Error) => alarm(`🚨 Daily sweep couldn't sync the Helius webhook: ${e.message.slice(0, 160)}`));
   await syncAlchemyWebhooks().then((r) => synced.push(`Alchemy ${r.addresses}`)).catch((e: Error) => alarm(`🚨 Daily sweep couldn't sync the Alchemy webhooks: ${e.message.slice(0, 160)}`));
+  await alchemyWebhookStates()
+    .then((list) => states.push(...list.map((w) => ({ provider: "Alchemy" as const, network: w.network, active: w.active, reason: w.reason }))))
+    .catch((e: Error) => console.error(`[live-sweep] Alchemy webhook states: ${e.message}`));
+  for (const problem of webhookProblems(states)) await alarm(`🚨 ${problem}`);
   const line = `🧹 Live sweep: ${live.length - orphans - offs.length} live (${synced.join(", ") || "webhooks not synced"})${orphans ? ` · ${orphans} unwatched turned off` : ""}${offs.length ? ` · bots turned off: ${offs.join(", ")}` : ""} · 24h transactions: ${counts.join(" · ") || "—"}`;
   console.log(`[live-sweep] ${line}`);
   const url = process.env.DISCORD_WATCH_WEBHOOK_URL;

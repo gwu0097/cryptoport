@@ -22,7 +22,7 @@ export interface AlchemyWebhook {
 /** Per network (our chain id). */
 export type AlchemyWebhooks = Record<string, AlchemyWebhook>;
 
-async function notifyCall(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<unknown> {
+async function notifyCall(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<unknown> {
   const token = process.env.ALCHEMY_NOTIFY_TOKEN;
   if (!token) throw new Error("ALCHEMY_NOTIFY_TOKEN isn't set");
   const res = await fetchWithRetry(`${API}${path}`, {
@@ -91,4 +91,20 @@ export async function syncAlchemyWebhooks(): Promise<{ addresses: number; action
     await save();
   }
   return { addresses: addresses.length, actions };
+}
+
+/** Each of our webhooks as Alchemy has it now (one free Notify call):
+ * Alchemy deactivates a webhook on its own after repeated failed deliveries
+ * (Robinhood Chain, 2026-10-02, while Vercel had paused the site). */
+export async function alchemyWebhookStates(): Promise<{ network: string; active: boolean; reason: string | null }[]> {
+  const stored = await loadAlchemyWebhooks();
+  const ours = new Map(Object.entries(stored).map(([chain, w]) => [w.id, WEBHOOK_NETWORKS[chain as keyof typeof WEBHOOK_NETWORKS] ?? chain]));
+  if (ours.size === 0) return [];
+  const list = (await notifyCall("GET", "/team-webhooks")) as { data?: { id: string; is_active: boolean; deactivation_reason?: string | null }[] } | null;
+  if (!list?.data) throw new Error("Alchemy didn't list its webhooks");
+  const seen = new Map(list.data.map((w) => [w.id, w]));
+  return [...ours].map(([id, network]) => {
+    const w = seen.get(id);
+    return w ? { network, active: w.is_active, reason: w.deactivation_reason ?? null } : { network, active: false, reason: "not found" };
+  });
 }

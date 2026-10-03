@@ -155,7 +155,13 @@ owner's.
   - The morning tick's first run sweeps the live set (`sweepLive`): unwatched
     or over-the-day-limit addresses off, both providers' webhooks synced to
     the database (100 Helius credits), one Discord line with each live
-    address's 24-hour count. A failed turn-off posts a 🚨 alarm.
+    address's 24-hour count. A failed turn-off posts a 🚨 alarm. It also checks that
+    each provider still delivers (`webhookHealth.ts`): Helius and Alchemy
+    switch a webhook off on their own after a day of failed deliveries — both
+    did while Vercel had paused the site (2026-10-02) and the alerts went
+    quiet unnoticed — so a webhook found off posts a 🚨 line (Helius's state
+    comes back with the update it gets anyway; Alchemy's from one free
+    `team-webhooks` call). Re-enabling is a click in that provider's dashboard.
   - The webhook, tick, read and cron routes skip `proxy.ts` (they check
     their own secret) — each delivery paid a second invocation there. A
     failed morning read waits until tomorrow (`next_refresh_at` + 20 h), not

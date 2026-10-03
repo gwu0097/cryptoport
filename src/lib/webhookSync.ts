@@ -8,6 +8,12 @@ import { fetchWithRetry } from "./adapters/http";
 // edit or delete costs 100 Helius credits; each delivered transaction 1.
 
 const API = "https://api-mainnet.helius-rpc.com/v0/webhooks";
+
+/** What Helius says of the webhook on an update. */
+export interface HeliusWebhookState {
+  active?: boolean;
+  disabledReason?: string;
+}
 const SETTING = "helius_webhook";
 
 async function heliusCall(method: "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<unknown> {
@@ -24,7 +30,7 @@ async function heliusCall(method: "POST" | "PUT" | "DELETE", path: string, body?
 }
 
 /** The live addresses' webhook, created, updated or removed to match. */
-export async function syncLiveWebhook(): Promise<{ addresses: number; action: "created" | "updated" | "deleted" | "none" }> {
+export async function syncLiveWebhook(): Promise<{ addresses: number; action: "created" | "updated" | "deleted" | "none"; state?: HeliusWebhookState }> {
   const site = process.env.NEXT_PUBLIC_SITE_URL ?? "";
   if (!site.startsWith("https://") || site.includes("localhost")) {
     throw new Error("Live updates need the deployed site: Helius can't deliver to this address. Turn it on from the live site.");
@@ -51,8 +57,10 @@ export async function syncLiveWebhook(): Promise<{ addresses: number; action: "c
   const body = { webhookURL: `${site.replace(/\/$/, "")}/api/wallet-watch/webhook`, transactionTypes: ["ANY"], accountAddresses: addresses, webhookType: "raw", authHeader: secret };
   if (id) {
     try {
-      await heliusCall("PUT", `/${id}`, body);
-      return { addresses: addresses.length, action: "updated" };
+      // The answer is the webhook itself: whether Helius still delivers
+      // (it disables one on its own after a day of failed deliveries).
+      const updated = (await heliusCall("PUT", `/${id}`, body)) as HeliusWebhookState | null;
+      return { addresses: addresses.length, action: "updated", state: updated ?? undefined };
     } catch (e) {
       // A webhook of another Helius account (the API key was changed,
       // 2026-10-02) or one deleted in Helius's dashboard: make a new one.
