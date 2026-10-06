@@ -3173,3 +3173,10 @@ create policy "watched_positions: watchers only" on cryptoport.watched_positions
     where w.chain = watched_positions.chain and w.address = watched_positions.address
       and w.influencer_id in (select cryptoport.watch_visible_influencers())
   ));
+
+-- 2026-10-06: copy-contract buttons on coin rows (Watchlist, Encyclopedia,
+-- coinContractsQuery.ts): a coin's contracts looked up by coin id, and
+-- Solana/Sui addresses kept as written (the lowercase `contract` stays the
+-- lookup key; a lowercased mint or coin type is a different address).
+create index if not exists token_registry_coingecko_id_idx on cryptoport.token_registry (coingecko_id);
+alter table cryptoport.token_registry add column if not exists contract_exact text;
