@@ -227,7 +227,7 @@ export const UNLISTED_HOSTS: { reason: string; hosts: string[] }[] = [
   {
     reason: "A chain's or protocol's own free public API (no key, no plan to outgrow)",
     hosts: [
-      "api.hyperliquid.xyz", "mainnet.zklighter.elliot.ai", "fapi.asterdex.com", "tapi.asterdex.com", "gamma-api.polymarket.com", "data-api.polymarket.com",
+      "api.hyperliquid.xyz", "stats-data.hyperliquid.xyz", "mainnet.zklighter.elliot.ai", "fapi.asterdex.com", "tapi.asterdex.com", "gamma-api.polymarket.com", "data-api.polymarket.com",
       "api.kamino.finance", "api.lulo.fi", "*.datapi.meteora.ag", "api.stakewiz.com", "kobe.mainnet.jito.network", "api.roninchain.com",
       "api.mainnet-beta.solana.com", "api.koios.rest", "rest.cosmos.directory", "chains.cosmos.directory", "status.cosmos.directory", "rest-lb.neutron.org",
       "sentry.exchange.grpc-web.injective.network", "rest.sei-apis.com", "evm-rpc.sei-apis.com", "xrplcluster.com", "s1.ripple.com", "rpc.mainnet.near.org",

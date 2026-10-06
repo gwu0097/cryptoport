@@ -21,6 +21,7 @@ import {
   BookOpen,
   Activity,
   ListFilter,
+  Crosshair,
   type LucideIcon,
 } from "lucide-react";
 import { CollapsibleNavItem } from "./RecentWalletsNav";
@@ -76,6 +77,7 @@ export const NAV_GROUPS: { label: string; items: NavItemData[] }[] = [
       { href: "/wallet-watch", label: "Wallet Watch", icon: Eye },
       { href: "/watch-insights", label: "Watch Insights", icon: Radar },
       { href: "/wallet-watch/directory", label: "KOL directory", icon: BookUser },
+      { href: "/perp-scout", label: "Perp Scout", icon: Crosshair },
     ],
   },
 ];

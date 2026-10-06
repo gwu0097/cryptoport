@@ -1,0 +1,102 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, Radar } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { AgeText } from "@/components/AgeText";
+
+type Line =
+  | { type: "progress"; stage: "leaderboard" | "saving" }
+  | { type: "progress"; stage: "screen" | "positions"; done: number; total: number }
+  | { type: "end"; status?: "done" | "fresh" | "busy"; failed?: number; error?: string };
+
+function describe(line: Extract<Line, { type: "progress" }>): string {
+  switch (line.stage) {
+    case "leaderboard":
+      return "Reading the Hyperliquid leaderboard…";
+    case "screen":
+      return `Checking traders' history ${line.done}/${line.total}…`;
+    case "positions":
+      return `Reading positions ${line.done}/${line.total}…`;
+    case "saving":
+      return "Saving…";
+  }
+}
+
+/** Scan: streams the scan's steps (api/perp-scout/scan), then re-renders the
+ * page. Owns its status line (scanned / screened ages, errors). */
+export function ScanButton({ signedIn, scannedAt, screenedAt, serverNowSec }: { signedIn: boolean; scannedAt: string | null; screenedAt: string | null; serverNowSec: number }) {
+  const router = useRouter();
+  const [status, setStatus] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const busy = status !== null;
+
+  async function scan(rescreen: boolean) {
+    setNote(null);
+    setStatus(rescreen ? "Re-screening traders…" : "Starting…");
+    try {
+      const res = await fetch(`/api/perp-scout/scan${rescreen ? "?rescreen=1" : ""}`, { method: "POST", cache: "no-store" });
+      if (!res.ok || !res.body) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      let end: Extract<Line, { type: "end" }> | null = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (value) buffer += value;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const text of lines) {
+          if (!text.trim()) continue;
+          const line = JSON.parse(text) as Line;
+          if (line.type === "progress") setStatus(describe(line));
+          else end = line;
+        }
+        if (done) break;
+      }
+      if (!end) throw new Error("The scan stopped without finishing — try again");
+      if (end.error) throw new Error(end.error);
+      if (end.status === "busy") setNote("A scan is already running — its results will show when it finishes.");
+      else if (end.status === "fresh") setNote("Scanned under 2 minutes ago — showing that.");
+      else if (end.failed) setNote(`${end.failed} trader${end.failed === 1 ? "" : "s"} couldn't be read; their last entries are kept.`);
+      router.refresh();
+    } catch (e) {
+      setNote(`Scan failed: ${(e as Error).message}`);
+    } finally {
+      setStatus(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1 text-right">
+      <div className="flex items-center gap-2">
+        {signedIn && screenedAt && (
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => scan(true)} title="Re-run the trader screen now instead of reusing today's">
+            Re-screen traders
+          </Button>
+        )}
+        <Button disabled={busy || !signedIn} onClick={() => scan(false)} title={signedIn ? undefined : "Sign in to scan"}>
+          {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Radar className="size-4" aria-hidden="true" />}
+          {busy ? "Scanning…" : "Scan"}
+        </Button>
+      </div>
+      <p className="text-xs text-fg-muted">
+        {status ??
+          (scannedAt ? (
+            <>
+              <AgeText at={scannedAt} serverNowSec={serverNowSec} prefix="Positions read " />
+              {screenedAt && <AgeText at={screenedAt} serverNowSec={serverNowSec} prefix=" · traders screened " />}
+            </>
+          ) : signedIn ? (
+            "Never scanned — a first scan takes 2–4 minutes"
+          ) : (
+            "Sign in to scan"
+          ))}
+      </p>
+      {note && <p className="max-w-xs text-xs text-warning">{note}</p>}
+    </div>
+  );
+}

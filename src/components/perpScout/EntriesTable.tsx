@@ -1,0 +1,175 @@
+"use client";
+
+import { useMemo } from "react";
+import { SortableHeader } from "@/components/ui/SortableHeader";
+import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { chipClass } from "@/components/ui/chip";
+import { usePersistedState } from "@/components/usePersistedState";
+import { useNowSec } from "@/components/useServerNow";
+import { formatCompactUsd, formatPrice, formatUsdSigned } from "@/lib/format";
+import { liveFigures, type ScoutEntry } from "@/lib/perpScout/entries";
+import { ago, compareNullable, explorerUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
+
+type SortKey = "trader" | "coin" | "side" | "opened" | "notional" | "share" | "leverage" | "entry" | "open" | "mark" | "vsEntry" | "vsOpen" | "pnl" | "tp" | "sl" | "liq";
+type Window = "24h" | "7d" | "30d" | "any";
+const WINDOW_MS: Record<Window, number> = { "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000, any: Infinity };
+
+interface Row {
+  e: ScoutEntry;
+  name: string;
+  live: ReturnType<typeof liveFigures>;
+}
+
+function sortValue(r: Row, key: SortKey): number | string | null {
+  switch (key) {
+    case "trader": return r.name.toLowerCase();
+    case "coin": return r.e.coin.toLowerCase();
+    case "side": return r.e.side;
+    // Opened before the fills read sorts as just before that bound.
+    case "opened": return r.e.openedAt ?? (r.e.openedBefore !== null ? r.e.openedBefore - 1 : null);
+    case "notional": return r.live.notionalUsd;
+    case "share": return r.e.equityShare;
+    case "leverage": return r.e.leverage;
+    case "entry": return r.e.entryPx;
+    case "open": return r.e.openPx;
+    case "mark": return r.live.mark;
+    case "vsEntry": return r.live.vsEntry;
+    case "vsOpen": return r.live.vsOpen;
+    case "pnl": return r.live.pnlUsd;
+    case "tp": return r.e.tp;
+    case "sl": return r.e.sl;
+    case "liq": return r.e.liquidationPx;
+  }
+}
+
+const price = (x: number | null) => (x === null ? "—" : formatPrice(x));
+
+/**
+ * Every open position of the followed traders. Prices are the scan's marks
+ * until Refresh prices swaps in current mids (`mids`). "vs entry" is the move
+ * since their average entry in their direction: negative means they're down
+ * and the price now is better than theirs.
+ */
+export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: ScoutEntry[]; names: Record<string, string>; mids: Record<string, number> | null; serverNowSec: number }) {
+  const nowMs = useNowSec(serverNowSec) * 1000;
+  const [sortKey, setSortKey] = usePersistedState<SortKey>("cryptoport:perpScoutEntriesSort", "opened");
+  const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">("cryptoport:perpScoutEntriesSortDir", "desc");
+  const [window, setWindow] = usePersistedState<Window>("cryptoport:perpScoutWindow", "any");
+  const [betterOnly, setBetterOnly] = usePersistedState("cryptoport:perpScoutBetterOnly", false);
+  const [side, setSide] = usePersistedState<"both" | "long" | "short">("cryptoport:perpScoutSide", "both");
+  const [trader, setTrader] = usePersistedState<string>("cryptoport:perpScoutTrader", "");
+
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const rows = useMemo(() => {
+    const all: Row[] = entries.map((e) => ({ e, name: names[e.address] ?? shortAddress(e.address), live: liveFigures(e, mids?.[e.coin]) }));
+    return all
+      .filter((r) => window === "any" || (r.e.openedAt !== null && nowMs - r.e.openedAt <= WINDOW_MS[window]))
+      .filter((r) => !betterOnly || (r.live.vsEntry !== null && r.live.vsEntry < 0))
+      .filter((r) => side === "both" || r.e.side === side)
+      .filter((r) => !trader || r.e.address === trader)
+      .sort((a, b) => compareNullable(sortValue(a, sortKey), sortValue(b, sortKey), sortDir));
+  }, [entries, names, mids, window, betterOnly, side, trader, sortKey, sortDir, nowMs]);
+
+  const traders = useMemo(() => [...new Set(entries.map((e) => e.address))].sort((a, b) => (names[a] ?? a).localeCompare(names[b] ?? b)), [entries, names]);
+  const h = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
+
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {(["24h", "7d", "30d", "any"] as const).map((w) => (
+          <button key={w} type="button" className={chipClass(window === w, true)} onClick={() => setWindow(w)}>
+            {w === "any" ? "Any time" : `Opened ${w}`}
+          </button>
+        ))}
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+        {(["both", "long", "short"] as const).map((s) => (
+          <button key={s} type="button" className={chipClass(side === s, true)} onClick={() => setSide(s)}>
+            {s === "both" ? "Long & short" : s === "long" ? "Longs" : "Shorts"}
+          </button>
+        ))}
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+        <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+          <input type="checkbox" checked={betterOnly} onChange={(e) => setBetterOnly(e.target.checked)} />
+          Only below their entry (above, for shorts)
+        </label>
+        {traders.length > 1 && (
+          <select value={trader} onChange={(e) => setTrader(e.target.value)} className="ml-auto rounded-lg border border-border bg-surface px-2 py-1 text-xs text-fg">
+            <option value="">All traders</option>
+            {traders.map((a) => (
+              <option key={a} value={a}>
+                {names[a] ?? shortAddress(a)}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className={tableClass}>
+          <thead>
+            <tr className={`${theadRowClass} whitespace-nowrap`}>
+              {h("Trader", "trader")}
+              {h("Coin", "coin")}
+              {h("Side", "side", hideOnMobileClass)}
+              {h("Opened", "opened")}
+              {h("Size", "notional", hideOnMobileClass)}
+              {h("% equity", "share", hideOnMobileClass)}
+              {h("Lev", "leverage", hideOnMobileClass)}
+              {h("Their entry", "entry")}
+              {h("First fill", "open", hideOnMobileClass)}
+              {h("Price now", "mark")}
+              {h("vs entry", "vsEntry")}
+              {h("vs first fill", "vsOpen", hideOnMobileClass)}
+              {h("Their PnL", "pnl")}
+              {h("TP", "tp", hideOnMobileClass)}
+              {h("SL", "sl", hideOnMobileClass)}
+              {h("Liq.", "liq", hideOnMobileClass)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ e, name, live }) => (
+              <tr key={`${e.address}:${e.coin}`} className={trClass}>
+                <td className={tdClass}>
+                  <a href={explorerUrl(e.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={e.address}>
+                    {name}
+                  </a>
+                </td>
+                <td className={`${tdClass} font-medium`}>
+                  {e.coin}
+                  <span className={`ml-1.5 text-xs sm:hidden ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "L" : "S"}</span>
+                </td>
+                <td className={`${tdClass} ${hideOnMobileClass} ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</td>
+                <td className={`${tdClass} whitespace-nowrap`} title={e.lastAddAt ? `Last added ${ago(e.lastAddAt, nowMs)}` : undefined}>
+                  {e.openedAt !== null ? ago(e.openedAt, nowMs) : e.openedBefore !== null ? <span className="text-fg-muted">over {ago(e.openedBefore, nowMs).replace(" ago", "")}</span> : "—"}
+                  {e.lastAddAt !== null && <span className="ml-1 text-xs text-fg-muted">+adds</span>}
+                </td>
+                <td className={`${tdClass} ${hideOnMobileClass}`}>{formatCompactUsd(live.notionalUsd)}</td>
+                <td className={`${tdClass} ${hideOnMobileClass}`}>{sharePct(e.equityShare)}</td>
+                <td className={`${tdClass} ${hideOnMobileClass}`} title={e.marginMode ?? undefined}>{e.leverage === null ? "—" : `${e.leverage}×`}</td>
+                <td className={tdClass}>{price(e.entryPx)}</td>
+                <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.openPx)}</td>
+                <td className={tdClass}>{price(live.mark)}</td>
+                <td className={`${tdClass} font-medium ${toneOf(live.vsEntry)}`}>{signedPct(live.vsEntry)}</td>
+                <td className={`${tdClass} ${hideOnMobileClass} ${toneOf(live.vsOpen)}`}>{signedPct(live.vsOpen)}</td>
+                <td className={`${tdClass} ${toneOf(live.pnlUsd)}`}>{live.pnlUsd === null ? "—" : formatUsdSigned(Math.round(live.pnlUsd))}</td>
+                <td className={`${tdClass} ${hideOnMobileClass}`}>{e.tpslKnown ? price(e.tp) : "?"}</td>
+                <td className={`${tdClass} ${hideOnMobileClass}`} title={e.tpslMore ? `${e.tpslMore} more TP/SL orders` : undefined}>
+                  {e.tpslKnown ? (e.sl === null ? <span className="text-fg-muted">none</span> : price(e.sl)) : "?"}
+                  {e.tpslMore > 0 && <span className="ml-1 text-xs text-fg-muted">+{e.tpslMore}</span>}
+                </td>
+                <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.liquidationPx)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && <p className="py-6 text-center text-sm text-fg-muted">{entries.length === 0 ? "No open positions from the followed traders yet." : "No entry matches these filters."}</p>}
+      </div>
+    </>
+  );
+}
