@@ -167,6 +167,12 @@ the same pure screen code as the tests (`perpScout/screen.ts`,
 - **From the screen (7):** 13 of 150 passed. Skipped among those: traders
   turning their account over 48–84× a month (too fast to follow at a lag)
   and one at 96% drawdown.
+- **Swing screen (11 more, the same day):** `--swing` over 500 accounts in
+  two batches of 250 (`--skip 250`): 21 + 20 passed the record screen, and
+  12 + 9 of those were swing traders. 11 new ones were added with 12-month
+  returns of +61% to +372% and positive 30 days, holding 5 h–7 d at 6–88
+  orders a week. Not swing: #2 and 0x8bae (no position opened and closed
+  in 30 days) and 0x5cbd (325 orders a week); the owner decides on those.
 - **Leaderboard counts that day:** 47,466 accounts, 5,855 passed stage 1,
   1,344 passed stage 1b.
 
