@@ -1,6 +1,7 @@
 import "server-only";
 import { serviceDb } from "./supabase";
 import { mapWithConcurrency } from "./adapters/http";
+import { resolveTickerIcons } from "./adapters/coingecko";
 import { fetchAccountState, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
 import { traderStats, type TraderStats } from "./perpScout/portfolio";
 import { accountLeverage, buildEntries, netBias, type ScoutEntry } from "./perpScout/entries";
@@ -82,6 +83,10 @@ async function claimRun(): Promise<{ ok: true; release: () => Promise<void> } | 
   };
 }
 
+/** The symbol a perp's logo is looked up by: Hyperliquid quotes some coins
+ * per thousand ("kPEPE" is 1,000 PEPE). */
+const iconTicker = (coin: string) => (/^k[A-Z]/.test(coin) ? coin.slice(1) : coin);
+
 /** One account's book: its record and whole-account value (portfolio, a
  * failure leaves them unknown), positions, and — only with a position — its
  * fills and orders. */
@@ -135,7 +140,12 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
       }
     });
     progress({ stage: "saving" });
-    const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries: results.flatMap((r) => r.entries) };
+    const entries = results.flatMap((r) => r.entries);
+    // Logos through the app's icon cache (ticker_icons; CoinGecko only for a
+    // ticker never seen) — cosmetic, so a failure just leaves letter badges.
+    const icons = await resolveTickerIcons(entries.map((e) => iconTicker(e.coin))).catch(() => new Map<string, string>());
+    for (const e of entries) e.iconUrl = icons.get(iconTicker(e.coin).toUpperCase()) ?? null;
+    const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries };
     const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value: { scan }, updated_at: new Date().toISOString() });
     if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
     const failed = results.filter((r) => r.book.error).length;

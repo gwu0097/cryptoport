@@ -48,6 +48,8 @@ export interface Opening {
   openPx: number | null;
   /** The last fill that added to it (after opening, when that's known). */
   lastAddAt: number | null;
+  /** The last fill that cut it without closing or flipping it. */
+  lastTrimAt: number | null;
   /** With openedAt null: the oldest fill read (opened before this). */
   openedBefore: number | null;
 }
@@ -72,17 +74,26 @@ export function positionOpening(fills: readonly Fill[], coin: string, size: numb
     }
     return at;
   };
+  const lastTrim = (from: readonly Fill[]) => {
+    let at: number | null = null;
+    for (const f of from) {
+      const after = f.startPosition + (f.side === "B" ? f.sz : -f.sz);
+      if (Math.sign(f.startPosition) === side && Math.sign(after) === side && Math.abs(after) < Math.abs(f.startPosition)) at = f.time;
+    }
+    return at;
+  };
   if (opener < 0) {
     // Opened before the fills read: when it was opened is unknown, but adds
     // within them are still seen.
     const oldest = fills.reduce((m, f) => Math.min(m, f.time), Infinity);
-    return { openedAt: null, openPx: null, lastAddAt: lastAdd(mine, null), openedBefore: Number.isFinite(oldest) ? oldest : null };
+    return { openedAt: null, openPx: null, lastAddAt: lastAdd(mine, null), lastTrimAt: lastTrim(mine), openedBefore: Number.isFinite(oldest) ? oldest : null };
   }
   const first = mine[opener];
   const sameOrder = first.oid === null ? [first] : mine.filter((f) => f.oid === first.oid);
   const qty = sameOrder.reduce((s, f) => s + f.sz, 0);
   const openPx = qty > 0 ? sameOrder.reduce((s, f) => s + f.px * f.sz, 0) / qty : first.px;
-  return { openedAt: first.time, openPx, lastAddAt: lastAdd(mine.slice(opener + 1), first.oid), openedBefore: null };
+  const after = mine.slice(opener + 1);
+  return { openedAt: first.time, openPx, lastAddAt: lastAdd(after, first.oid), lastTrimAt: lastTrim(after), openedBefore: null };
 }
 
 export interface ScoutEntry {
@@ -98,6 +109,10 @@ export interface ScoutEntry {
   openedAt: number | null;
   openedBefore: number | null;
   lastAddAt: number | null;
+  /** Absent on scans saved before trims were read. */
+  lastTrimAt?: number | null;
+  /** The coin's logo, set by the scan (icon cache); absent = none. */
+  iconUrl?: string | null;
   /** The mark when the account was read. */
   markPx: number | null;
   unrealizedPnl: number | null;
@@ -150,6 +165,7 @@ export function buildEntries(address: string, state: ScoutAccountState, fills: r
       openedAt: opening.openedAt,
       openedBefore: opening.openedBefore,
       lastAddAt: opening.lastAddAt,
+      lastTrimAt: opening.lastTrimAt,
       markPx: notional !== null ? notional / size : null,
       unrealizedPnl: finite(p.unrealizedPnl),
       roe: finite(p.returnOnEquity),
@@ -258,4 +274,20 @@ export function positionRole(e: ScoutEntry, book: readonly ScoutEntry[]): { role
   if (Math.abs(bias) < BALANCED) return { role: "book", why: `One leg of a balanced long/short book (net ${pct} ${lean})` };
   if (Math.abs(bias) >= LEAN && lean !== e.side) return { role: "hedge", why: `Against a book that's net ${pct} ${lean}` };
   return { role: lean === e.side ? "directional" : "book", why: lean === e.side ? `With the book's lean (net ${pct} ${lean})` : `Against a mildly ${lean} book (net ${pct})` };
+}
+
+export type MoveKind = "new" | "add" | "trim";
+
+/** A position's most recent move seen in the fills read: opened, added to,
+ * or trimmed; null when none of them is (opened before the fills, untouched
+ * since). */
+export function latestMove(e: Pick<ScoutEntry, "openedAt" | "lastAddAt" | "lastTrimAt">): { kind: MoveKind; at: number } | null {
+  const moves: { kind: MoveKind; at: number | null | undefined }[] = [
+    { kind: "new", at: e.openedAt },
+    { kind: "add", at: e.lastAddAt },
+    { kind: "trim", at: e.lastTrimAt },
+  ];
+  let best: { kind: MoveKind; at: number } | null = null;
+  for (const m of moves) if (m.at != null && (best === null || m.at >= best.at)) best = { kind: m.kind, at: m.at };
+  return best;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseFills, positionOpening, buildEntries, moveInFavour, accountLeverage, netBias, liveFigures, positionRole, type Fill, type ScoutAccountState, type ScoutEntry } from "./entries.ts";
+import { parseFills, positionOpening, buildEntries, moveInFavour, accountLeverage, netBias, liveFigures, positionRole, latestMove, type Fill, type ScoutAccountState, type ScoutEntry } from "./entries.ts";
 
 const fill = (time: number, side: "A" | "B", sz: number, start: number, px: number, oid = time, coin = "ADA"): Fill => ({ coin, px, sz, side, time, startPosition: start, oid });
 
@@ -23,6 +23,7 @@ test("opening of a short: the fill that took it from flat, its order's average p
   assert.equal(o.openedAt, 3);
   assert.ok(Math.abs((o.openPx ?? 0) - (4 * 0.9 + 6 * 0.8) / 10) < 1e-12);
   assert.equal(o.lastAddAt, 9);
+  assert.equal(o.lastTrimAt, 10);
   assert.equal(o.openedBefore, null);
 });
 
@@ -34,8 +35,10 @@ test("a flip opens the new side", () => {
 
 test("opened before the fills read: unknown, with the oldest fill as the bound; adds still seen", () => {
   const o = positionOpening([fill(50, "B", 1, 3, 1), fill(40, "A", 1, 1, 1, 40, "BTC")], "ADA", 4);
-  assert.deepEqual(o, { openedAt: null, openPx: null, lastAddAt: 50, openedBefore: 40 });
-  assert.equal(positionOpening([fill(50, "A", 1, 3, 1)], "ADA", 2).lastAddAt, null, "a trim isn't an add");
+  assert.deepEqual(o, { openedAt: null, openPx: null, lastAddAt: 50, lastTrimAt: null, openedBefore: 40 });
+  const trimmed = positionOpening([fill(50, "A", 1, 3, 1)], "ADA", 2);
+  assert.equal(trimmed.lastAddAt, null, "a trim isn't an add");
+  assert.equal(trimmed.lastTrimAt, 50);
   assert.equal(positionOpening([], "ADA", 1).openedBefore, null);
 });
 
@@ -119,4 +122,11 @@ test("positionRole: pair, hedge, book leg, directional", () => {
   // Opened far apart: not a pair.
   const a = e("A", "long", 100, 0), b = e("B", "short", 100, 5 * H);
   assert.equal(positionRole(a, [a, b]).role, "book");
+});
+
+test("latestMove: the newest of opened, added, trimmed", () => {
+  assert.deepEqual(latestMove({ openedAt: 1, lastAddAt: 5, lastTrimAt: 3 }), { kind: "add", at: 5 });
+  assert.deepEqual(latestMove({ openedAt: 9, lastAddAt: null, lastTrimAt: undefined }), { kind: "new", at: 9 });
+  assert.deepEqual(latestMove({ openedAt: null, lastAddAt: 2, lastTrimAt: 7 }), { kind: "trim", at: 7 });
+  assert.equal(latestMove({ openedAt: null, lastAddAt: null, lastTrimAt: null }), null);
 });
