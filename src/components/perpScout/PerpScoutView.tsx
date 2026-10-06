@@ -7,18 +7,19 @@ import { CollapsiblePanel } from "@/components/ui/CollapsiblePanel";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Button } from "@/components/ui/Button";
 import { AgeText } from "@/components/AgeText";
-import type { ScoutScan } from "@/lib/perpScoutScan";
-import { FOLLOWED } from "@/lib/perpScout/followed";
+import type { PerpScoutState } from "@/lib/perpScoutScan";
 import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
+import { AddTraderForm } from "./AddTraderForm";
 
 /** Perp Scout's two sections: the followed traders' open entries (with
  * Refresh prices, current mids swapped in without a scan) and the traders. */
-export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutScan | null; signedIn: boolean; serverNowSec: number }) {
+export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { state: PerpScoutState; signedIn: boolean; isOwner: boolean; serverNowSec: number }) {
+  const { scan, traders } = state;
   const [mids, setMids] = useState<{ at: number; mids: Record<string, number> } | null>(null);
   const [pricing, setPricing] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
-  const names = Object.fromEntries(FOLLOWED.map((f) => [f.address, f.name]));
+  const names = Object.fromEntries(traders.map((f) => [f.address, f.name]));
   const entries = scan?.entries ?? [];
 
   async function refreshPrices() {
@@ -73,13 +74,14 @@ export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutSca
           <span className="inline-flex items-center gap-1.5">
             Traders
             <InfoTooltip>
-              The traders Perp Scout follows, picked in chat with Claude (src/lib/perpScout/followed.ts) — ask there to add or drop one. Perps record (all-time and 30-day PnL, winning weeks, max drawdown of the PnL curve ÷ the account&apos;s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader&apos;s first scan, the figures they were picked on.
+              The traders Perp Scout follows: picked in chat with Claude (src/lib/perpScout/followed.ts), plus any the owner added by address below (those can be removed here; positions show after the next Scan). Perps record (all-time PnL with its % of the account&apos;s typical value, 30-day PnL with its % of the account now, winning weeks, max drawdown of the PnL curve ÷ the account&apos;s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader&apos;s first scan, the figures they were picked on.
             </InfoTooltip>
           </span>
         }
-        summary={<span className="text-xs text-fg-muted">{FOLLOWED.length} followed</span>}
+        summary={<span className="text-xs text-fg-muted">{traders.length} followed</span>}
       >
-        {FOLLOWED.length ? <TradersTable followed={FOLLOWED} books={scan?.books ?? []} /> : <p className="text-sm text-fg-muted">No traders on the list yet.</p>}
+        {traders.length ? <TradersTable followed={traders} books={scan?.books ?? []} removable={isOwner ? state.added : []} /> : <p className="text-sm text-fg-muted">No traders on the list yet.</p>}
+        {isOwner && <AddTraderForm />}
       </CollapsiblePanel>
     </div>
   );
