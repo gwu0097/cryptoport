@@ -20,8 +20,15 @@ export interface Fill {
   closedPnl?: number;
 }
 
-/** userFills / userFillsByTime answer. Unparseable fills are skipped; an
- * answer that isn't a list is an error. */
+/** userFills / userFillsByTime answer, oldest first. Unparseable fills are
+ * skipped, and so are spot trades ("@107", "PURR/USDC": not perp positions).
+ * userFills lists newest first, and the pieces of one order filled in the
+ * same millisecond in that reverse order too — re-sorting by time kept them
+ * backwards, so the position seemed to go flat and reopen between pieces
+ * (0xf97a's one HYPE trade read as 8 closes, 2026-10-06). The list is
+ * reversed instead, which keeps each order's pieces in sequence; an answer
+ * already oldest first (userFillsByTime) is kept as it is. An answer that
+ * isn't a list is an error. */
 export function parseFills(json: unknown): Fill[] {
   if (!Array.isArray(json)) throw new Error("Hyperliquid fills: not a list");
   const out: Fill[] = [];
@@ -37,9 +44,10 @@ export function parseFills(json: unknown): Fill[] {
       ...(Number.isFinite(Number(f?.closedPnl)) && f?.closedPnl !== undefined ? { closedPnl: Number(f.closedPnl) } : {}),
     };
     if (!fill.coin || !fill.side || ![fill.px, fill.sz, fill.time, fill.startPosition].every(Number.isFinite)) continue;
+    if (fill.coin.startsWith("@") || fill.coin.includes("/")) continue;
     out.push(fill as Fill);
   }
-  return out;
+  return out.length > 1 && out[0].time > out[out.length - 1].time ? out.reverse() : out;
 }
 
 const signOf = (x: number, scale: number) => (Math.abs(x) <= 1e-9 * Math.max(1, scale) ? 0 : Math.sign(x));

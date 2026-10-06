@@ -10,7 +10,7 @@ import { useNowSec } from "@/components/useServerNow";
 import { formatCompactUsd, formatPrice, formatUsdSigned } from "@/lib/format";
 import { latestMove, liveFigures, positionRole, type MoveKind, type PositionRole, type ScoutEntry } from "@/lib/perpScout/entries";
 import type { ScoutBook } from "@/lib/perpScoutScan";
-import type { ScoutClose } from "@/lib/perpScout/closes";
+import { summarizeCloses, type CloseSummary, type ScoutClose } from "@/lib/perpScout/closes";
 import { groupByCoin } from "@/lib/perpScout/groups";
 import { TokenIcon } from "@/components/TokenIcon";
 import { ago, compareNullable, explorerUrl, hyperdashUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
@@ -32,10 +32,11 @@ interface OpenRow {
   month: { usd: number | null; share: number | null };
 }
 
-/** A position the trader closed in the last days (closes.ts). */
+/** A trader's closes of one coin on one side in the window, summed
+ * (closes.ts `summarizeCloses`). */
 interface ClosedRow {
   kind: "closed";
-  c: Close;
+  c: Omit<CloseSummary, "closes"> & { closes: Close[] };
   name: string;
   month: { usd: number | null; share: number | null };
 }
@@ -45,9 +46,9 @@ type Row = OpenRow | ClosedRow;
 const coinOf = (r: Row) => (r.kind === "open" ? r.e.coin : r.c.coin);
 const addressOf = (r: Row) => (r.kind === "open" ? r.e.address : r.c.address);
 const sideOf = (r: Row) => (r.kind === "open" ? r.e.side : r.c.side);
-const iconOf = (r: Row) => (r.kind === "open" ? r.e.iconUrl : r.c.iconUrl) ?? null;
+const iconOf = (r: Row) => (r.kind === "open" ? r.e.iconUrl : r.c.closes.map((x) => x.iconUrl).find(Boolean)) ?? null;
 /** A row's latest move: an open position's newest open/add/trim, a closed one's close. */
-const moveOf = (r: Row): { kind: MoveKind | "close"; at: number } | null => (r.kind === "open" ? latestMove(r.e) : { kind: "close", at: r.c.closedAt });
+const moveOf = (r: Row): { kind: MoveKind | "close"; at: number } | null => (r.kind === "open" ? latestMove(r.e) : { kind: "close", at: r.c.lastClosedAt });
 
 const ROLE_LABEL: Record<PositionRole, string> = { directional: "Directional", hedge: "Hedge", pair: "Paired", book: "Book leg" };
 const ROLE_ORDER: Record<PositionRole, number> = { directional: 0, pair: 1, book: 2, hedge: 3 };
@@ -68,7 +69,7 @@ function sortValue(r: Row, key: SortKey): number | string | null {
   if (r.kind === "closed") {
     const c = r.c;
     switch (key) {
-      case "opened": return c.openedAt;
+      case "opened": return c.firstOpenedAt;
       case "notional": return c.size * c.exitPx;
       case "entry": return c.entryPx;
       case "mark": return c.exitPx;
@@ -180,7 +181,9 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
       role: positionRole(e, byTrader.get(e.address) ?? [e]),
       month: monthOf(e.address),
     }));
-    const closed: Row[] = closes.map((c) => ({ kind: "closed", c, name: names[c.address] ?? shortAddress(c.address), month: monthOf(c.address) }));
+    // Closes in the window, then summed per trader, coin and side.
+    const inWindow = closes.filter((c) => window === "any" || nowMs - c.closedAt <= WINDOW_MS[window]);
+    const closed: Row[] = summarizeCloses(inWindow).map((c) => ({ kind: "closed", c, name: names[c.address] ?? shortAddress(c.address), month: monthOf(c.address) }));
     return [...(status === "closed" ? [] : open), ...(status === "open" ? [] : closed)]
       // A role is known only for open positions: closes stay in either way.
       .filter((r) => !directionalOnly || r.kind === "closed" || r.role.role === "directional")
@@ -206,7 +209,7 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
       groupByCoin(rows, (r) =>
         r.kind === "open"
           ? { coin: r.e.coin, address: r.e.address, side: r.e.side, notionalUsd: r.live.notionalUsd, entryPx: r.e.entryPx, size: r.e.size, directional: r.role.role === "directional" }
-          : { coin: r.c.coin, address: r.c.address, side: r.c.side, notionalUsd: null, entryPx: null, size: 0, directional: false, closed: true },
+          : { coin: r.c.coin, address: r.c.address, side: r.c.side, notionalUsd: null, entryPx: null, size: 0, directional: false, closed: true, closes: r.c.count },
       ),
     [rows],
   );
@@ -231,14 +234,17 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
   );
 
   const renderClosed = ({ c, name, month }: ClosedRow) => {
-    const recent = nowMs - c.closedAt <= RECENT_MS;
+    const recent = nowMs - c.lastClosedAt <= RECENT_MS;
+    const each = c.closes
+      .map((x) => `${new Date(x.closedAt).toLocaleString()}: ${signedPct(x.returnPct)}${x.pnlUsd === null ? "" : `, ${formatUsdSigned(Math.round(x.pnlUsd))}`}`)
+      .join("\n");
     const dash = <span className="text-fg-muted">—</span>;
     return (
-      <tr key={`${c.address}:${c.coin}:closed:${c.closedAt}`} className={`${trClass} border-l-2 ${recent ? MOVE_EDGE.close : "border-l-transparent"} bg-surface-raised/30`}>
+      <tr key={`${c.address}:${c.coin}:${c.side}:closed`} className={`${trClass} border-l-2 ${recent ? MOVE_EDGE.close : "border-l-transparent"} bg-surface-raised/30`}>
         {traderCells(c.address, name, month)}
         <td className={`${tdClass} whitespace-nowrap font-medium`}>
           <span className="inline-flex items-center gap-1.5 align-middle">
-            <TokenIcon ticker={c.coin} url={c.iconUrl ?? null} size="sm" />
+            <TokenIcon ticker={c.coin} url={c.closes.map((x) => x.iconUrl).find(Boolean) ?? null} size="sm" />
             {c.coin}
           </span>
           <span className={`ml-1.5 text-xs sm:hidden ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "L" : "S"}</span>
@@ -246,14 +252,14 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
         <td className={`${tdClass} whitespace-nowrap text-fg-muted`}>Closed</td>
         <td className={`${tdClass} ${hideOnMobileClass} ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "Long" : "Short"}</td>
         <td className={`${tdClass} whitespace-nowrap`}>
-          <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${MOVE_BADGE.close}`} title={new Date(c.closedAt).toLocaleString()}>
-            Closed {ago(c.closedAt, nowMs)}
+          <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${MOVE_BADGE.close}`} title={each}>
+            {c.count > 1 ? `Closed ×${c.count} · last ${ago(c.lastClosedAt, nowMs)}` : `Closed ${ago(c.lastClosedAt, nowMs)}`}
           </span>
         </td>
-        <td className={`${tdClass} whitespace-nowrap`} title={c.openedAt === null ? "Opened before their latest fills" : undefined}>
-          {c.openedAt !== null ? ago(c.openedAt, nowMs) : dash}
+        <td className={`${tdClass} whitespace-nowrap`} title={c.firstOpenedAt === null ? "Opened before their latest fills" : c.count > 1 ? "The first of these opened" : undefined}>
+          {c.firstOpenedAt !== null ? ago(c.firstOpenedAt, nowMs) : dash}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass}`} title="Size closed, at the exit price">{formatCompactUsd(c.size * c.exitPx)}</td>
+        <td className={`${tdClass} ${hideOnMobileClass}`} title={c.count > 1 ? `Total closed over ${c.count} trades, at the exit price` : "Size closed, at the exit price"}>{formatCompactUsd(c.size * c.exitPx)}</td>
         <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
         <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
         <td className={tdClass}>{price(c.entryPx)}</td>
@@ -261,11 +267,11 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
         <td className={`${tdClass} whitespace-nowrap`} title="Their average exit">
           {formatPrice(c.exitPx)} <span className="text-xs text-fg-muted">exit</span>
         </td>
-        <td className={`${tdClass} font-medium ${toneOf(c.returnPct)}`} title="Return from their entry to their exit, in their direction (at 1×)">
+        <td className={`${tdClass} font-medium ${toneOf(c.returnPct)}`} title={c.count > 1 ? `Combined return of the ${c.count} closes at 1× (total PnL ÷ the entry value closed):\n${each}` : "Return from their entry to their exit, in their direction (at 1×)"}>
           {signedPct(c.returnPct)}
         </td>
         <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
-        <td className={`${tdClass} whitespace-nowrap`} title="Realized PnL of the close, before fees">
+        <td className={`${tdClass} whitespace-nowrap`} title={c.count > 1 ? `Total realized PnL of ${c.count} closes, before fees` : "Realized PnL of the close, before fees"}>
           <span className={`font-medium ${toneOf(c.pnlUsd)}`}>{c.pnlUsd === null ? "—" : formatUsdSigned(Math.round(c.pnlUsd))}</span>
           <span className="ml-1.5 text-xs text-fg-muted">realized</span>
         </td>

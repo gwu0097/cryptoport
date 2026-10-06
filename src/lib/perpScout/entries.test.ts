@@ -149,3 +149,17 @@ test("carryOver: an unchanged position keeps when it was opened; new adds and tr
   const reopened = { ...fresh, openedAt: 25 };
   assert.equal(carryOver(reopened, prev).openedAt, 25);
 });
+
+test("parseFills: oldest first, an order's same-millisecond pieces kept in sequence, spot dropped", () => {
+  // userFills order: newest first, including within one millisecond.
+  const raw = [
+    { coin: "HYPE", px: "90", sz: "5", side: "B", time: 200, startPosition: "-5", oid: 2 }, // closes the rest
+    { coin: "HYPE", px: "90", sz: "5", side: "B", time: 200, startPosition: "-10", oid: 2 },
+    { coin: "HYPE", px: "80", sz: "10", side: "A", time: 100, startPosition: "0", oid: 1 },
+    { coin: "@107", px: "1", sz: "1", side: "B", time: 150, startPosition: "0", oid: 3 },
+  ];
+  const fills = parseFills(raw);
+  assert.deepEqual(fills.map((f) => f.startPosition), [0, -10, -5]);
+  assert.equal(parseFills([...raw].reverse()).length, 3, "already oldest first: kept as is");
+  assert.deepEqual(parseFills([...raw].reverse()).map((f) => f.startPosition), [0, -10, -5]);
+});

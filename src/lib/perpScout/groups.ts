@@ -15,6 +15,8 @@ export interface GroupInput {
   /** A position closed in the window: counts toward the coin's traders and
    * its `closed` tally, never toward the open figures. */
   closed?: boolean;
+  /** How many closes a closed row sums (1 when absent). */
+  closes?: number;
 }
 
 export interface CoinGroup<T> {
@@ -51,7 +53,7 @@ export function groupByCoin<T>(rows: readonly T[], view: (row: T) => GroupInput)
       coin,
       rows: members,
       traders: new Set(all.map((v) => v.address)).size,
-      closed: all.length - vs.length,
+      closed: all.filter((v) => v.closed).reduce((n, v) => n + (v.closes ?? 1), 0),
       longs: vs.filter((v) => v.side === "long").length,
       shorts: vs.filter((v) => v.side === "short").length,
       directional: vs.filter((v) => v.directional).length,

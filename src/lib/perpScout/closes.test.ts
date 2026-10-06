@@ -54,3 +54,23 @@ test("mergeCloses: no repeats, old ones dropped, opening time from the last scan
   assert.deepEqual(merged.map((x) => x.coin), ["ETH", "BTC"]);
   assert.equal(merged[0].openedAt, 7 * D);
 });
+
+test("summarizeCloses: one row per trader, coin and side; sizes, averages, PnL and return combined", async () => {
+  const { summarizeCloses } = await import("./closes.ts");
+  const c = (coin: string, side: "long" | "short", closedAt: number, size: number, entryPx: number | null, exitPx: number, pnlUsd: number | null, openedAt: number | null = null) => ({ address: "0xa", coin, side, openedAt, closedAt, entryPx, exitPx, size, pnlUsd, returnPct: null });
+  const [hype, eth] = summarizeCloses([
+    c("HYPE", "long", 3 * D, 10, 88, 89, 10, 2 * D),
+    c("HYPE", "long", 5 * D, 30, 90, 91, 30, 4 * D),
+    c("ETH", "long", 1 * D, 1, null, 2000, 50),
+  ]);
+  assert.equal(hype.count, 2);
+  assert.equal(hype.size, 40);
+  assert.equal(hype.entryPx, (10 * 88 + 30 * 90) / 40);
+  assert.equal(hype.exitPx, (10 * 89 + 30 * 91) / 40);
+  assert.equal(hype.pnlUsd, 40);
+  assert.ok(Math.abs((hype.returnPct ?? 0) - 40 / (880 + 2700)) < 1e-12);
+  assert.equal(hype.firstOpenedAt, 2 * D);
+  assert.equal(hype.lastClosedAt, 5 * D);
+  assert.deepEqual(hype.closes.map((x) => x.closedAt), [5 * D, 3 * D], "newest first");
+  assert.equal(eth.returnPct, null, "an unknown entry: no combined return");
+});
