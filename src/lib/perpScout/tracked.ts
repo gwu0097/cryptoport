@@ -52,6 +52,11 @@ export interface TrackedView {
    * then would show (at 1×). */
   sinceTracked: number | null;
   pnlUsd: number | null;
+  /** Their gain in %: on margin (the move × their leverage, Hyperliquid's
+   * ROE) while open; once closed, the return × the leverage it had when
+   * marked, else at 1× (`gainAt1x`). */
+  gainPct: number | null;
+  gainAt1x: boolean;
 }
 
 /** How close an exit must be to a stop or target to count as hitting it. */
@@ -76,6 +81,8 @@ export function resolveTracked(t: TrackedTrade, entries: readonly ScoutEntry[], 
       vsEntry: live.vsEntry,
       sinceTracked: moveInFavour(t.side, t.at.price, live.mark),
       pnlUsd: live.pnlUsd,
+      gainPct: live.roe,
+      gainAt1x: false,
     };
   }
   // The close after it was opened (or after it was marked, when its opening
@@ -94,9 +101,11 @@ export function resolveTracked(t: TrackedTrade, entries: readonly ScoutEntry[], 
       vsEntry: close.returnPct,
       sinceTracked: moveInFavour(t.side, t.at.price, close.exitPx),
       pnlUsd: close.pnlUsd,
+      gainPct: close.returnPct === null ? null : close.returnPct * (t.at.leverage ?? 1),
+      gainAt1x: t.at.leverage === null,
     };
   }
-  return { trade: t, status: { kind: "gone" }, price: null, entryPx: t.at.entryPx, vsEntry: null, sinceTracked: null, pnlUsd: null };
+  return { trade: t, status: { kind: "gone" }, price: null, entryPx: t.at.entryPx, vsEntry: null, sinceTracked: null, pnlUsd: null, gainPct: null, gainAt1x: false };
 }
 
 /** The tracked trade a row of the Activity table is (same matching as

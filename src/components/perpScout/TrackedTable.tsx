@@ -84,7 +84,7 @@ export function TrackedTable({
         case "price": return v.price;
         case "vsEntry": return v.vsEntry;
         case "since": return v.sinceTracked;
-        case "pnl": return v.pnlUsd;
+        case "pnl": return v.gainPct;
       }
     };
     return tracked
@@ -125,7 +125,7 @@ export function TrackedTable({
             {h("Now", "price")}
             {h("vs entry", "vsEntry", wide)}
             {h("Since tracked", "since")}
-            {h("PnL", "pnl", hideOnMobileClass)}
+            {h("Their gain", "pnl")}
             <th className={`${tdClass} ${wide}`}>TP / SL</th>
             {canEdit && <th className={tdClass} aria-label="Untrack" />}
           </tr>
@@ -178,7 +178,13 @@ export function TrackedTable({
                 <td className={`${tdClass} font-medium ${toneOf(v.sinceTracked)}`} title="The move since you tracked it, in their direction (at 1×)">
                   {signedPct(v.sinceTracked)}
                 </td>
-                <td className={`${tdClass} ${hideOnMobileClass} ${toneOf(v.pnlUsd)}`}>{v.pnlUsd === null ? "—" : formatUsdSigned(Math.round(v.pnlUsd))}</td>
+                <td
+                  className={`${tdClass} whitespace-nowrap`}
+                  title={`${v.gainAt1x ? "Their return at 1× (leverage unknown)" : "Their return on margin: the move × their leverage"}${v.pnlUsd === null ? "" : ` · their PnL ${formatUsdSigned(Math.round(v.pnlUsd))}`}`}
+                >
+                  <span className={`font-medium ${toneOf(v.gainPct)}`}>{signedPct(v.gainPct)}</span>
+                  {v.gainAt1x && <span className="ml-1 text-xs text-fg-muted">1×</span>}
+                </td>
                 <td className={`${tdClass} ${wide} whitespace-nowrap text-xs`}>
                   {price(open?.tp ?? t.at.tp)} / {(open?.sl ?? t.at.sl) === null ? <span className="text-fg-muted">none</span> : price(open?.sl ?? t.at.sl)}
                 </td>
