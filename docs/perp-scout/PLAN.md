@@ -147,6 +147,20 @@ columns sort by the %.
   money it usually trades with, so deposits and withdrawals don't move it.
 - **30d %**: the last 30 days' perps profit ÷ the account now.
 
+## Import, export and names
+
+Owner 2026-10-06. **Export** (everyone): the list as CSV — address, name,
+added on, why — built in the browser, no request. **Import** (owner): a
+file or pasted text — that CSV, Perp Scout JSON, or one address per line
+with an optional name after a comma (`perpScout/traderFile.ts`
+`parseTraderImport`); `importTraders` reads each new address's record
+(portfolio, weight 20, one at a time through the pacer, ~1 s each) and
+saves once; already listed or past `MAX_FOLLOWED` are refused and named.
+**Rename** (owner): the pencil beside a name (`renameTrader`); names live in
+`perp_scout_added` `names`, by address, so code-list traders can be
+renamed too (`mergeFollowed` applies them). Cost: an import of 40 is ~800
+weight and 2 Supabase requests; a rename is 2.
+
 ## Finding traders
 
 Run in chat:

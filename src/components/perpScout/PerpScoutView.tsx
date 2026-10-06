@@ -10,6 +10,7 @@ import type { PerpScoutState } from "@/lib/perpScoutScan";
 import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
 import { AddTraderForm } from "./AddTraderForm";
+import { ExportTradersButton, ImportTraders } from "./TraderListFile";
 import { CLOSES_DAYS } from "@/lib/perpScout/closes";
 import { TrackedPanel } from "./TrackedPanel";
 import { useScoutMids } from "./useScoutMids";
@@ -83,9 +84,17 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
           </span>
         }
         summary={<span className="text-xs text-fg-muted">{traders.length} followed</span>}
+        actions={<ExportTradersButton traders={traders} />}
       >
         {traders.length ? <TradersTable followed={traders} books={scan?.books ?? []} entries={entries} mids={mids?.mids ?? null} nowMs={nowMs} removable={isOwner ? traders.map((f) => f.address) : []} /> : <p className="text-sm text-fg-muted">No traders on the list yet.</p>}
-        {isOwner && <AddTraderForm />}
+        {isOwner && (
+          <>
+            <AddTraderForm />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <ImportTraders />
+            </div>
+          </>
+        )}
       </CollapsiblePanel>
     </div>
   );

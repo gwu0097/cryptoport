@@ -18,3 +18,9 @@ test("mergeFollowed: the code list first, page additions after, no repeats", asy
   assert.equal(isTraderAddress("0x" + "A".repeat(40)), false, "lowercase only (callers lowercase first)");
   assert.equal(isTraderAddress("0x123"), false);
 });
+
+test("mergeFollowed: a name given on the page replaces the list's", async () => {
+  const { mergeFollowed } = await import("./followed.ts");
+  const t = (address: string, name: string) => ({ address, name }) as never;
+  assert.deepEqual(mergeFollowed([t("0xa", "code")], [t("0xb", "page")], [], { "0xa": "Renamed" }).map((f: { name: string }) => f.name), ["Renamed", "page"]);
+});

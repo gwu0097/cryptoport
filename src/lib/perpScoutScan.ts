@@ -88,6 +88,8 @@ export interface PerpScoutState {
 interface ListChanges {
   added: FollowedTrader[];
   removed: string[];
+  /** Names the owner gave on the page, by address (code-list traders too). */
+  names: Record<string, string>;
 }
 
 async function readRows(userId: string | null = null): Promise<{ scan: ScoutScan | null; tracked: TrackedTrade[] } & ListChanges> {
@@ -95,11 +97,12 @@ async function readRows(userId: string | null = null): Promise<{ scan: ScoutScan
   const { data, error } = await serviceDb().from("app_settings").select("key, value").in("key", keys);
   if (error) throw new Error(error.message);
   const byKey = new Map((data ?? []).map((r: { key: string; value: unknown }) => [r.key, r.value]));
-  const changes = (byKey.get(ADDED_SETTING) ?? null) as { traders?: FollowedTrader[]; removed?: string[] } | null;
+  const changes = (byKey.get(ADDED_SETTING) ?? null) as { traders?: FollowedTrader[]; removed?: string[]; names?: Record<string, string> } | null;
   return {
     scan: ((byKey.get(SETTING) ?? null) as { scan?: ScoutScan } | null)?.scan ?? null,
     added: changes?.traders ?? [],
     removed: changes?.removed ?? [],
+    names: changes?.names ?? {},
     tracked: userId ? (((byKey.get(trackedKeyFor(userId)) ?? null) as { trades?: TrackedTrade[] } | null)?.trades ?? []) : [],
   };
 }
@@ -107,8 +110,8 @@ async function readRows(userId: string | null = null): Promise<{ scan: ScoutScan
 /** Everything the page shows, in one request (the user's tracked trades
  * included when signed in). */
 export async function readPerpScout(userId: string | null = null): Promise<PerpScoutState> {
-  const { scan, added, removed, tracked } = await readRows(userId);
-  const traders = mergeFollowed(FOLLOWED, added, removed);
+  const { scan, added, removed, names, tracked } = await readRows(userId);
+  const traders = mergeFollowed(FOLLOWED, added, removed, names);
   const listed = new Set(traders.map((f) => f.address));
   return {
     scan: scan && { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)), closes: (scan.closes ?? []).filter((c) => listed.has(c.address)) },
@@ -180,43 +183,91 @@ async function saveTracked(key: string, trades: TrackedTrade[]): Promise<void> {
  * an address with no perps history on Hyperliquid isn't added.
  */
 export async function addTrader(rawAddress: string, rawName: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
-  const address = rawAddress.trim().toLowerCase();
-  if (!isTraderAddress(address)) return { ok: false, error: "Not a Hyperliquid address (0x and 40 hex characters)" };
-  const { added, removed } = await readRows();
-  const traders = mergeFollowed(FOLLOWED, added, removed);
-  if (traders.some((f) => f.address === address)) return { ok: false, error: "Already on the list" };
-  // A code-list trader removed earlier comes back as it was.
-  if (FOLLOWED.some((f) => f.address === address)) {
-    await saveChanges({ added, removed: removed.filter((a) => a !== address) });
-    return { ok: true };
-  }
-  if (traders.length >= MAX_FOLLOWED) return { ok: false, error: `The list is full (${MAX_FOLLOWED}) — remove one first` };
-  let stats: TraderStats;
-  try {
-    stats = traderStats(await fetchPortfolio(address), Date.now());
-  } catch (e) {
-    const msg = (e as Error).message;
-    return { ok: false, error: /no perps history/.test(msg) ? "No perp trading history on Hyperliquid for this address" : `Couldn't read it from Hyperliquid: ${msg}` };
-  }
+  const result = await importTraders([{ address: rawAddress, name: rawName }]);
+  const one = result.results[0];
+  return one.ok ? { ok: true } : { ok: false, error: one.error };
+}
+
+export type ImportResult = { address: string; ok: true; restored: boolean } | { address: string; ok: false; error: string };
+
+/**
+ * Adds traders by address (Add trader, and Import — owner only): each one
+ * not yet listed has its record read (portfolio, weight 20, one at a time
+ * through the pacer); a code-list trader removed earlier comes back as it
+ * was. One save for the lot; past MAX_FOLLOWED the rest are refused.
+ */
+export async function importTraders(list: readonly { address: string; name: string | null }[]): Promise<{ results: ImportResult[] }> {
+  const changes = await readRows();
+  let { added, removed } = changes;
+  const names = { ...changes.names };
+  const results: ImportResult[] = [];
   const today = new Date().toISOString().slice(0, 10);
-  const trader: FollowedTrader = {
-    address,
-    name: rawName?.trim().slice(0, 40) || `${address.slice(0, 6)}…${address.slice(-4)}`,
-    addedOn: today,
-    why: `Added by address on the page, ${today}`,
-    picked: {
-      asOf: today,
-      equity: stats.equityNow,
-      typicalEquity: stats.typicalEquity,
-      allTimePnl: stats.totalPnl,
-      monthPnl: stats.monthPnl,
-      historyMonths: Math.round(stats.historyWeeks / 4.35),
-      winningWeeks: stats.winningWeeksShare,
-      drawdownShare: stats.drawdownShare,
-      bestFourShare: stats.bestFourShare,
-    },
-  };
-  await saveChanges({ added: [...added, trader], removed: removed.filter((a) => a !== address) });
+  for (const item of list) {
+    const address = item.address.trim().toLowerCase();
+    const name = item.name?.trim().slice(0, 40) || null;
+    if (!isTraderAddress(address)) {
+      results.push({ address, ok: false, error: "Not a Hyperliquid address (0x and 40 hex characters)" });
+      continue;
+    }
+    const traders = mergeFollowed(FOLLOWED, added, removed, names);
+    if (traders.some((f) => f.address === address)) {
+      results.push({ address, ok: false, error: "Already on the list" });
+      continue;
+    }
+    if (FOLLOWED.some((f) => f.address === address)) {
+      removed = removed.filter((a) => a !== address);
+      if (name) names[address] = name;
+      results.push({ address, ok: true, restored: true });
+      continue;
+    }
+    if (traders.length >= MAX_FOLLOWED) {
+      results.push({ address, ok: false, error: `The list is full (${MAX_FOLLOWED}) — remove one first` });
+      continue;
+    }
+    let stats: TraderStats;
+    try {
+      stats = traderStats(await fetchPortfolio(address), Date.now());
+    } catch (e) {
+      const msg = (e as Error).message;
+      results.push({ address, ok: false, error: /no perps history/.test(msg) ? "No perp trading history on Hyperliquid for this address" : `Couldn't read it from Hyperliquid: ${msg}` });
+      continue;
+    }
+    added = [
+      ...added,
+      {
+        address,
+        name: name || `${address.slice(0, 6)}…${address.slice(-4)}`,
+        addedOn: today,
+        why: list.length > 1 ? `Imported on the page, ${today}` : `Added by address on the page, ${today}`,
+        picked: {
+          asOf: today,
+          equity: stats.equityNow,
+          typicalEquity: stats.typicalEquity,
+          allTimePnl: stats.totalPnl,
+          monthPnl: stats.monthPnl,
+          historyMonths: Math.round(stats.historyWeeks / 4.35),
+          winningWeeks: stats.winningWeeksShare,
+          drawdownShare: stats.drawdownShare,
+          bestFourShare: stats.bestFourShare,
+        },
+      },
+    ];
+    removed = removed.filter((a) => a !== address);
+    results.push({ address, ok: true, restored: false });
+  }
+  if (results.some((r) => r.ok)) await saveChanges({ added, removed, names });
+  return { results };
+}
+
+/** Renames a listed trader (owner only): kept on the page's row, so it
+ * holds for code-list traders too. */
+export async function renameTrader(rawAddress: string, rawName: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const address = rawAddress.trim().toLowerCase();
+  const name = rawName.trim().slice(0, 40);
+  if (!name) return { ok: false, error: "A name is needed" };
+  const { added, removed, names } = await readRows();
+  if (!mergeFollowed(FOLLOWED, added, removed, names).some((f) => f.address === address)) return { ok: false, error: "Not on the list" };
+  await saveChanges({ added, removed, names: { ...names, [address]: name } });
   return { ok: true };
 }
 
@@ -224,15 +275,16 @@ export async function addTrader(rawAddress: string, rawName: string | null): Pro
  * from followed.ts is hidden (re-adding its address brings it back). */
 export async function removeTrader(rawAddress: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const address = rawAddress.trim().toLowerCase();
-  const { added, removed } = await readRows();
-  if (!mergeFollowed(FOLLOWED, added, removed).some((f) => f.address === address)) return { ok: false, error: "Not on the list" };
+  const { added, removed, names } = await readRows();
+  if (!mergeFollowed(FOLLOWED, added, removed, names).some((f) => f.address === address)) return { ok: false, error: "Not on the list" };
   const inCode = FOLLOWED.some((f) => f.address === address);
-  await saveChanges({ added: added.filter((f) => f.address !== address), removed: inCode ? [...new Set([...removed, address])] : removed });
+  const rest = Object.fromEntries(Object.entries(names).filter(([a]) => a !== address));
+  await saveChanges({ added: added.filter((f) => f.address !== address), removed: inCode ? [...new Set([...removed, address])] : removed, names: rest });
   return { ok: true };
 }
 
-async function saveChanges({ added, removed }: ListChanges): Promise<void> {
-  const { error } = await serviceDb().from("app_settings").upsert({ key: ADDED_SETTING, value: { traders: added, removed }, updated_at: new Date().toISOString() });
+async function saveChanges({ added, removed, names }: ListChanges): Promise<void> {
+  const { error } = await serviceDb().from("app_settings").upsert({ key: ADDED_SETTING, value: { traders: added, removed, names }, updated_at: new Date().toISOString() });
   if (error) throw new Error(`Perp Scout list not saved: ${error.message}`);
 }
 
@@ -357,8 +409,8 @@ async function readBook(address: string, prev: Previous): Promise<{ book: ScoutB
  */
 export async function runScan(progress: (p: ScanProgress) => void, only?: ReadonlySet<string>): Promise<{ status: "done" | "fresh" | "busy" | "none"; failed: number }> {
   const started = Date.now();
-  const { scan: before, added, removed } = await readRows();
-  const following = mergeFollowed(FOLLOWED, added, removed);
+  const { scan: before, added, removed, names } = await readRows();
+  const following = mergeFollowed(FOLLOWED, added, removed, names);
   const reading = only ? following.filter((f) => only.has(f.address)) : following;
   if (reading.length === 0) return { status: "none", failed: 0 };
   const sameList = before && before.books.length === following.length && following.every((f) => before.books.some((b) => b.address === f.address));
