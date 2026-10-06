@@ -19,7 +19,10 @@ const SUBTITLE = "Followed Hyperliquid traders, what they have open, and where p
  * guests see it too; scanning needs an account.
  */
 export default async function PerpScoutPage() {
-  const [user, result] = await Promise.all([getUser(), readPerpScout().then((d): PerpScoutState | Error => d, (e: Error) => e)]);
+  // getUser checks the session token locally (no request), so reading the
+  // user's tracked trades after it costs no extra round trip.
+  const user = await getUser();
+  const result = await readPerpScout(user?.id ?? null).then((d): PerpScoutState | Error => d, (e: Error) => e);
   const nowSec = requestNowSec();
   const scan = result instanceof Error ? null : result.scan;
   return (

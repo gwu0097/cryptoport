@@ -274,6 +274,38 @@ and closes matched a full read exactly. A routine update costs about 22
 weight per trader, against about 150 in full: a few seconds for 22 traders
 instead of 2–3 minutes. Supabase stays at about 5 requests a scan.
 
+## Tracked trades
+
+Owner 2026-10-06: "if I want to track a specific trade, I mark it, and
+another table lists the trades I care about — open, closed or stopped".
+
+- **Marking**: ☆ on any Activity row (open or closed) stores the position
+  — trader, coin, side, when it was opened — with its figures at that
+  moment (entry, price, size, leverage, TP, SL) in the user's own
+  `app_settings` row `perp_scout_tracked:<user id>` (`{ trades }`, at most
+  `MAX_TRACKED` 50; `api/perp-scout/tracked` POST/DELETE). No DDL.
+- **Status** (`perpScout/tracked.ts` `resolveTracked`, pure, from the
+  latest scan): Open (with the trader's latest add or trim), Take-profit
+  hit or Stopped out (the exit within 0.5% of the TP or SL it had when
+  marked), Closed, or Not seen (closed longer ago than the closes kept).
+  A later position in the same coin is another trade (`openedAt`).
+- **Where**: the first section of Perp Scout, and on the Dashboard beside
+  Open positions (Open positions 7 | tracked 5 columns; either alone takes
+  the row). Every Perp Scout section is collapsible.
+- **Two buttons** (owner): *Refresh prices* updates prices only — one
+  `allMids` call, shared with the Activity table's, and the app's own
+  Refresh prices triggers it too (`PRICES_REFRESHED_EVENT`). *Refresh*
+  re-reads only the traders behind the tracked trades (`runScan` with
+  `only`, `api/perp-scout/tracked/refresh`) — the same delta read as a
+  Scan, so a close, add or trim shows; the others keep their last scan.
+- **Cost**: the Dashboard reads one more `app_settings` row set in its
+  first reads (the scan row and the user's list, one request, ~80 KB from
+  the database; only the tracked traders' rows reach the browser). A
+  Refresh is ~4 Supabase requests and, per tracked trader, weight 2 + the
+  new fills (≈ 25); 60 an hour lock the user out (`perpScoutTracked`).
+  Worst case for one user: 60 × 22 traders × ~25 ≈ 33,000 weight an hour,
+  paced to 1,000 a minute.
+
 ## Cost
 
 Hyperliquid's info API allows 1,200 weight a minute per IP. Weights from
@@ -327,6 +359,8 @@ The app's calls go through one pacer per instance held at 1,000 a minute
 
 ## Later (not built)
 
+- Discord feed of tracked trades' changes (owner: set up from the Mac
+  mini later).
 - Discord alerts when a listed trader opens a position. BACKLOG lists perp
   opens for Wallet Watch.
 - HIP-3 markets.

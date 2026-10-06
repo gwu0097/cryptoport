@@ -7,6 +7,7 @@ import { traderStats, type TraderStats } from "./perpScout/portfolio";
 import { accountLeverage, buildEntries, carryOver, keepTpsl, netBias, type Fill, type ScoutEntry } from "./perpScout/entries";
 import { CLOSES_DAYS, mergeCloses, recentCloses, type ScoutClose } from "./perpScout/closes";
 import { FOLLOWED, MAX_FOLLOWED, isTraderAddress, mergeFollowed, type FollowedTrader } from "./perpScout/followed";
+import { MAX_TRACKED, trackedKey, type TrackedTrade } from "./perpScout/tracked";
 
 // Perp Scout's scan (docs/perp-scout/PLAN.md): the open positions, latest
 // fills and TP/SL orders of the traders in followed.ts and those the owner
@@ -21,6 +22,8 @@ const SETTING = "perp_scout";
  * removed there stays in followed.ts but isn't scanned or shown. */
 const ADDED_SETTING = "perp_scout_added";
 const RUN_SETTING = "perp_scout_run";
+/** Each user's tracked trades (`{ trades: TrackedTrade[] }`, perpScout/tracked.ts). */
+const trackedKeyFor = (userId: string) => `perp_scout_tracked:${userId}`;
 /** A scan this recent is reused instead of run again. */
 const FRESH_MS = 60_000;
 /** A claimed run older than this died (the route has 300 s). */
@@ -78,6 +81,8 @@ export interface PerpScoutState {
   scan: ScoutScan | null;
   /** The list: followed.ts, then the traders added on the page. */
   traders: FollowedTrader[];
+  /** The signed-in user's tracked trades; [] for a guest. */
+  tracked: TrackedTrade[];
 }
 
 interface ListChanges {
@@ -85,8 +90,9 @@ interface ListChanges {
   removed: string[];
 }
 
-async function readRows(): Promise<{ scan: ScoutScan | null } & ListChanges> {
-  const { data, error } = await serviceDb().from("app_settings").select("key, value").in("key", [SETTING, ADDED_SETTING]);
+async function readRows(userId: string | null = null): Promise<{ scan: ScoutScan | null; tracked: TrackedTrade[] } & ListChanges> {
+  const keys = userId ? [SETTING, ADDED_SETTING, trackedKeyFor(userId)] : [SETTING, ADDED_SETTING];
+  const { data, error } = await serviceDb().from("app_settings").select("key, value").in("key", keys);
   if (error) throw new Error(error.message);
   const byKey = new Map((data ?? []).map((r: { key: string; value: unknown }) => [r.key, r.value]));
   const changes = (byKey.get(ADDED_SETTING) ?? null) as { traders?: FollowedTrader[]; removed?: string[] } | null;
@@ -94,18 +100,78 @@ async function readRows(): Promise<{ scan: ScoutScan | null } & ListChanges> {
     scan: ((byKey.get(SETTING) ?? null) as { scan?: ScoutScan } | null)?.scan ?? null,
     added: changes?.traders ?? [],
     removed: changes?.removed ?? [],
+    tracked: userId ? (((byKey.get(trackedKeyFor(userId)) ?? null) as { trades?: TrackedTrade[] } | null)?.trades ?? []) : [],
   };
 }
 
-/** Everything the page shows, in one request. */
-export async function readPerpScout(): Promise<PerpScoutState> {
-  const { scan, added, removed } = await readRows();
+/** Everything the page shows, in one request (the user's tracked trades
+ * included when signed in). */
+export async function readPerpScout(userId: string | null = null): Promise<PerpScoutState> {
+  const { scan, added, removed, tracked } = await readRows(userId);
   const traders = mergeFollowed(FOLLOWED, added, removed);
   const listed = new Set(traders.map((f) => f.address));
   return {
     scan: scan && { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)), closes: (scan.closes ?? []).filter((c) => listed.has(c.address)) },
     traders,
+    tracked,
   };
+}
+
+/** The Dashboard's Tracked trades card: the user's tracked trades and only
+ * their traders' positions, closes and books (what the browser is sent);
+ * null when they track none. One request, in the page's first reads. */
+export async function readTrackedTrades(userId: string): Promise<{ tracked: TrackedTrade[]; entries: ScoutEntry[]; closes: ScoutScan["closes"] & {}; books: ScoutBook[]; names: Record<string, string> } | null> {
+  const { scan, traders, tracked } = await readPerpScout(userId);
+  if (tracked.length === 0) return null;
+  const mine = new Set(tracked.map((t) => t.address));
+  return {
+    tracked,
+    entries: (scan?.entries ?? []).filter((e) => mine.has(e.address)),
+    closes: (scan?.closes ?? []).filter((c) => mine.has(c.address)),
+    books: (scan?.books ?? []).filter((b) => mine.has(b.address)),
+    names: Object.fromEntries(traders.filter((f) => mine.has(f.address)).map((f) => [f.address, f.name])),
+  };
+}
+
+const num = (x: unknown): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
+
+/** Marks a trade for a user (its shape checked here: it comes from the
+ * browser), at most MAX_TRACKED; marking one again changes nothing. */
+export async function trackTrade(userId: string, raw: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const at = (r.at ?? {}) as Record<string, unknown>;
+  const address = typeof r.address === "string" ? r.address.toLowerCase() : "";
+  if (!isTraderAddress(address) || typeof r.coin !== "string" || !r.coin || r.coin.length > 40 || (r.side !== "long" && r.side !== "short")) return { ok: false, error: "Not a trade" };
+  const trade: TrackedTrade = {
+    address,
+    coin: r.coin,
+    side: r.side,
+    openedAt: num(r.openedAt),
+    trackedAt: Date.now(),
+    at: { entryPx: num(at.entryPx), price: num(at.price), size: num(at.size), leverage: num(at.leverage), tp: num(at.tp), sl: num(at.sl) },
+  };
+  const key = trackedKeyFor(userId);
+  const { data, error } = await serviceDb().from("app_settings").select("value").eq("key", key).maybeSingle();
+  if (error) throw new Error(error.message);
+  const trades = ((data?.value ?? null) as { trades?: TrackedTrade[] } | null)?.trades ?? [];
+  if (trades.some((t) => trackedKey(t) === trackedKey(trade))) return { ok: true };
+  if (trades.length >= MAX_TRACKED) return { ok: false, error: `You track ${MAX_TRACKED} trades already — untrack one first` };
+  await saveTracked(key, [...trades, trade]);
+  return { ok: true };
+}
+
+/** Untracks the trade with `tradeKey` (trackedKey) for a user. */
+export async function untrackTrade(userId: string, tradeKey: string): Promise<void> {
+  const key = trackedKeyFor(userId);
+  const { data, error } = await serviceDb().from("app_settings").select("value").eq("key", key).maybeSingle();
+  if (error) throw new Error(error.message);
+  const trades = ((data?.value ?? null) as { trades?: TrackedTrade[] } | null)?.trades ?? [];
+  await saveTracked(key, trades.filter((t) => trackedKey(t) !== tradeKey));
+}
+
+async function saveTracked(key: string, trades: TrackedTrade[]): Promise<void> {
+  const { error } = await serviceDb().from("app_settings").upsert({ key, value: { trades }, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Tracked trades not saved: ${error.message}`);
 }
 
 /**
@@ -283,17 +349,20 @@ async function readBook(address: string, prev: Previous): Promise<{ book: ScoutB
 }
 
 /**
- * A scan of every listed trader. One whose positions can't be read (or
+ * A scan of every listed trader — or, with `only`, just those (the Tracked
+ * trades' Refresh: the traders behind them, the rest kept as last scanned
+ * and the scan's time unchanged). One whose positions can't be read (or
  * aren't reached before the deadline) keeps the previous scan's entries,
  * marked with the error — a failed read is never an empty book.
  */
-export async function runScan(progress: (p: ScanProgress) => void): Promise<{ status: "done" | "fresh" | "busy" | "none"; failed: number }> {
+export async function runScan(progress: (p: ScanProgress) => void, only?: ReadonlySet<string>): Promise<{ status: "done" | "fresh" | "busy" | "none"; failed: number }> {
   const started = Date.now();
   const { scan: before, added, removed } = await readRows();
   const following = mergeFollowed(FOLLOWED, added, removed);
-  if (following.length === 0) return { status: "none", failed: 0 };
+  const reading = only ? following.filter((f) => only.has(f.address)) : following;
+  if (reading.length === 0) return { status: "none", failed: 0 };
   const sameList = before && before.books.length === following.length && following.every((f) => before.books.some((b) => b.address === f.address));
-  if (sameList && started - Date.parse(before.scannedAt) < FRESH_MS) return { status: "fresh", failed: 0 };
+  if (!only && sameList && started - Date.parse(before.scannedAt) < FRESH_MS) return { status: "fresh", failed: 0 };
   const claim = await claimRun();
   if (!claim.ok) return { status: "busy", failed: 0 };
   try {
@@ -304,9 +373,13 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
     const prevBooks = new Map((before?.books ?? []).map((b) => [b.address, b]));
     let done = 0;
     const results = await mapWithConcurrency(following, CONCURRENCY, async (f) => {
+      if (!reading.includes(f)) {
+        const book = prevBooks.get(f.address) ?? { address: f.address, readAt: null, error: null, accountValue: null, stats: null, leverage: null, bias: null, positions: 0 };
+        return { book, entries: prevEntries.get(f.address) ?? [], closes: prevCloses.get(f.address) ?? [], delta: false, skipped: true };
+      }
       try {
         if (Date.now() - started > DEADLINE_MS) throw new Error("not reached in this scan (time limit)");
-        return await readBook(f.address, { book: prevBooks.get(f.address), entries: prevEntries.get(f.address) ?? [], closes: prevCloses.get(f.address) ?? [] });
+        return { ...(await readBook(f.address, { book: prevBooks.get(f.address), entries: prevEntries.get(f.address) ?? [], closes: prevCloses.get(f.address) ?? [] })), skipped: false };
       } catch (e) {
         const prev = prevBooks.get(f.address);
         const error = (e as Error).message;
@@ -317,9 +390,10 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
           entries: prevEntries.get(f.address) ?? [],
           closes: prevCloses.get(f.address) ?? [],
           delta: false,
+          skipped: false,
         };
       } finally {
-        progress({ stage: "positions", done: ++done, total: following.length });
+        progress({ stage: "positions", done: ++done, total: reading.length });
       }
     });
     progress({ stage: "saving" });
@@ -330,11 +404,11 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
     const icons = await resolveTickerIcons([...entries, ...closes].map((e) => iconTicker(e.coin))).catch(() => new Map<string, string>());
     for (const e of entries) e.iconUrl = icons.get(iconTicker(e.coin).toUpperCase()) ?? e.iconUrl ?? null;
     const closesWithIcons = closes.map((c) => ({ ...c, iconUrl: icons.get(iconTicker(c.coin).toUpperCase()) ?? (c as { iconUrl?: string | null }).iconUrl ?? null }));
-    const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries, closes: closesWithIcons };
+    const scan: ScoutScan = { scannedAt: only && before ? before.scannedAt : new Date().toISOString(), books: results.map((r) => r.book), entries, closes: closesWithIcons };
     const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value: { scan }, updated_at: new Date().toISOString() });
     if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
-    const failed = results.filter((r) => r.book.error).length;
-    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${following.length} delta=${results.filter((r) => r.delta).length} failed=${failed} entries=${scan.entries.length} closes=${closes.length}`);
+    const failed = results.filter((r) => !r.skipped && r.book.error).length;
+    console.log(`[perp-scout] ${only ? "tracked refresh" : "scan"} ${Math.round((Date.now() - started) / 1000)}s traders=${reading.length} delta=${results.filter((r) => r.delta).length} failed=${failed} entries=${scan.entries.length} closes=${closes.length}`);
     return { status: "done", failed };
   } finally {
     await claim.release().catch(() => {});

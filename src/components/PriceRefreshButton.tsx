@@ -1,5 +1,6 @@
 "use client";
 
+import { PRICES_REFRESHED_EVENT } from "./priceEvents";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -81,6 +82,7 @@ export function PriceRefreshButton({ priceState, walletId, compact = false }: { 
     }
     split.current = { requestMs: Date.now() - t0, serverMs: body.serverMs ?? null, pageFrom: Date.now() };
     if (body.started) router.refresh();
+    window.dispatchEvent(new Event(PRICES_REFRESHED_EVENT));
     return body.started ? { started: true } : { started: false, reason: body.reason ?? "A price refresh is already running." };
   };
   const { busy, submit: start, error } = useJob({ status, start: refresh });
