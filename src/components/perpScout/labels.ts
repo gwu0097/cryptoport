@@ -4,6 +4,9 @@ export const shortAddress = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 export const explorerUrl = (address: string) => `https://app.hyperliquid.xyz/explorer/address/${address}`;
 
+/** The trader's HyperDash profile (positions, fills, PnL calendar). */
+export const hyperdashUrl = (address: string) => `https://hyperdash.com/trader/${address}`;
+
 /** A fraction as a signed percent ("+4.2%"), "—" when unknown. */
 export function signedPct(x: number | null, digits = 1): string {
   if (x === null || !Number.isFinite(x)) return "—";

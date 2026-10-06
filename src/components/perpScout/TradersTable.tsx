@@ -7,7 +7,7 @@ import { usePersistedState } from "@/components/usePersistedState";
 import { formatCompactUsd } from "@/lib/format";
 import type { ScoutBook } from "@/lib/perpScoutScan";
 import type { FollowedTrader } from "@/lib/perpScout/followed";
-import { compareNullable, explorerUrl, sharePct, toneOf } from "./labels";
+import { compareNullable, explorerUrl, hyperdashUrl, sharePct, toneOf } from "./labels";
 
 type SortKey = "name" | "equity" | "allTime" | "month" | "history" | "winWeeks" | "drawdown" | "best4" | "leverage" | "bias" | "positions" | "added";
 
@@ -105,8 +105,11 @@ export function TradersTable({ followed, books }: { followed: readonly FollowedT
           {rows.map(({ f, book, fig }) => (
             <tr key={f.address} className={trClass}>
               <td className={tdClass} title={f.why}>
-                <a href={explorerUrl(f.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent">
+                <a href={explorerUrl(f.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title="Hyperliquid explorer">
                   {f.name}
+                </a>
+                <a href={hyperdashUrl(f.address)} target="_blank" rel="noreferrer" className="ml-2 rounded border border-border px-1.5 py-0.5 text-xs text-fg-muted hover:border-accent hover:text-accent">
+                  HyperDash ↗
                 </a>
                 {book?.error && (
                   <span className="ml-1.5 text-xs text-warning" title={book.error}>

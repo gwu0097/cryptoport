@@ -261,7 +261,7 @@ export const UNLISTED_HOSTS: { reason: string; hosts: string[] }[] = [
       "explorer.injective.network", "explorer.cronos.com", "exchange.gemini.com", "etherscan.io", "eips.ethereum.org", "docs.sei.io", "defillama.com",
       "debank.com", "chiliscan.com", "celoscan.io", "cardanoscan.io", "bscscan.com", "blastscan.io", "berascan.com", "basescan.org", "arbiscan.io",
       "app.parcl.co", "app.naviprotocol.io", "app.meteora.ag", "app.marinade.finance", "app.lulo.fi", "app.lighter.xyz", "app.kamino.finance",
-      "app.init.capital", "app.hyperliquid.xyz",
+      "app.init.capital", "app.hyperliquid.xyz", "hyperdash.com",
     ],
   },
 ];

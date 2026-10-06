@@ -10,7 +10,7 @@ import { formatCompactUsd, formatPrice, formatUsdSigned } from "@/lib/format";
 import { liveFigures, positionRole, type PositionRole, type ScoutEntry } from "@/lib/perpScout/entries";
 import type { ScoutBook } from "@/lib/perpScoutScan";
 import { groupByCoin } from "@/lib/perpScout/groups";
-import { ago, compareNullable, explorerUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
+import { ago, compareNullable, explorerUrl, hyperdashUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
 
 type SortKey = "trader" | "trader30d" | "role" | "coin" | "side" | "opened" | "notional" | "share" | "leverage" | "entry" | "open" | "mark" | "vsEntry" | "vsOpen" | "pnl" | "tp" | "sl" | "liq";
 type Window = "24h" | "7d" | "30d" | "any";
@@ -120,6 +120,9 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
               <td className={tdClass}>
                 <a href={explorerUrl(e.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={e.address}>
                   {name}
+                </a>
+                <a href={hyperdashUrl(e.address)} target="_blank" rel="noreferrer" className="ml-1.5 text-xs text-fg-muted hover:text-accent" title="Open on HyperDash">
+                  ↗
                 </a>
               </td>
               <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap ${toneOf(month.usd)}`} title="The trader's perps PnL over the last 30 days, and as a share of their account">
