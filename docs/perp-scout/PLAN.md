@@ -94,9 +94,11 @@ refuses an address with no perp history.
   read-only.
 - Their positions show after the next Scan.
 
-**Recently closed** (owner 2026-10-06: "missing closed positions"): a
-collapsible table under Entries listing positions the traders closed in the
-last 7 days (`closes.ts` `recentCloses`, `CLOSES_DAYS`). A close is a
+**Closed positions** (owner 2026-10-06: "missing closed positions") are
+rows in the **Activity** table, the table once called Entries (owner: "in
+the same table as entries… rename it activity… under BTC maybe there's 1
+long 1 short and 3 closes"). Each grey "Closed" row is a position closed in
+the last 7 days (`closes.ts` `recentCloses`, `CLOSES_DAYS`). A close is a
 position going back to flat, or flipping; trims along the way are part of
 the same exit. It shows when, how long it was held, the average entry and
 exit, the return in their direction (at 1×) and the realized PnL (before
@@ -108,8 +110,13 @@ fees).
   trader whose fills fail keeps the last scan's closes.
 - On the real scan that day there were 89 closes across 22 traders.
 
-**The time filter is "Moved 24h / 7d / 30d"**: opened, added to or trimmed
-in that window (`latestMove`). "Opened 7d" hid #1's UNI long, which it had
+A status filter shows Open & closed, Open or Closed. Group by coin counts
+closes in the coin's header ("BTC · 8 traders · 2 long / 2 short · 9
+closed"); they count toward its traders but not its size or average entry
+(`groups.ts`).
+
+**The time filter is "Moved 24h / 7d / 30d"**: opened, added to, trimmed or
+closed in that window (`latestMove`). "Opened 7d" hid #1's UNI long, which it had
 added to 2 days earlier.
 
 **A trader's positions**: ▸ beside each name, or a click on its Open
@@ -225,6 +232,31 @@ From those:
   never shown as an empty book.
 - One scan runs at a time (`perp_scout_run`), and a scan under a minute old
   is reused.
+
+## Incremental scans
+
+Owner 2026-10-06: "shouldn't that delta be tiny and super fast?" After a
+trader's first full read, a scan reads only what changed (`perpScoutScan.ts`
+`readBook`):
+- the positions (`clearinghouseState`, weight 2);
+- the fills since the newest one already read (`userFillsByTime`, oldest
+  first, at most 2,000 a call, so read page by page up to 5 pages:
+  `fetchFillsSince`);
+- the record only every 6 h (`STATS_MAX_AGE_MS`);
+- the TP/SL orders only when the trader traded, or every 30 min.
+
+Each book keeps its cursor (`fillsThrough`) and read times. What the new
+fills don't touch is carried from the last scan (`entries.ts` `carryOver`,
+`keepTpsl`; `closes.ts` `mergeCloses`): when a position was opened and at
+what price, earlier adds and trims, and earlier closes. A first read, a gap
+over 7 days, a failed fills read or more new fills than the pages hold
+reads in full.
+
+Checked 2026-10-06 on 5 real traders by replaying the last 72 h and 30 h of
+fills (up to 1,223) as deltas: the opening times, first fills, adds, trims
+and closes matched a full read exactly. A routine update costs about 22
+weight per trader, against about 150 in full: a few seconds for 22 traders
+instead of 2–3 minutes. Supabase stays at about 5 requests a scan.
 
 ## Cost
 

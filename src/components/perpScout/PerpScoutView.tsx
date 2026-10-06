@@ -12,7 +12,6 @@ import type { PerpScoutState } from "@/lib/perpScoutScan";
 import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
 import { AddTraderForm } from "./AddTraderForm";
-import { ClosedTable } from "./ClosedTable";
 import { CLOSES_DAYS } from "@/lib/perpScout/closes";
 
 /** Perp Scout's two sections: the followed traders' open entries (with
@@ -46,9 +45,9 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
       <Panel
         title={
           <span className="inline-flex items-center gap-1.5">
-            Entries
+            Activity
             <InfoTooltip>
-              Every open position of the followed traders. &quot;vs entry&quot; is how far price has moved since their average entry, in their direction: negative means they&apos;re down — the price now is better than theirs (below it on a long, above it on a short). &quot;Role&quot; is read from the rest of the trader&apos;s book (hover it for why): Paired = opened with an opposite position within 2 h; Hedge = against a book that clearly leans the other way; Book leg = one side of a balanced long/short book; Directional = with the book&apos;s lean, or their only position. &quot;Their gain&quot; is their return on margin (the move × their leverage, Hyperliquid&apos;s ROE), with their dollar PnL beside it; &quot;vs entry&quot; is your gain at 1×, whatever your size. &quot;Trader 30d&quot; is their perps PnL over the last 30 days. &quot;Group by coin&quot; shows the coins several traders hold first. &quot;First fill&quot; is the price of the order that opened the position, when it&apos;s within their latest 2,000 fills; &quot;over Nd&quot; means it was opened before those. Observations, not signals.
+              Every open position of the followed traders, and every position they closed in the last {CLOSES_DAYS} days (grey &quot;Closed&quot; rows: entry → exit, the return at 1× and the realized PnL before fees). &quot;Moved&quot; counts opens, adds, trims and closes. &quot;vs entry&quot; is how far price has moved since their average entry, in their direction: negative means they&apos;re down — the price now is better than theirs (below it on a long, above it on a short). &quot;Role&quot; is read from the rest of the trader&apos;s book (hover it for why): Paired = opened with an opposite position within 2 h; Hedge = against a book that clearly leans the other way; Book leg = one side of a balanced long/short book; Directional = with the book&apos;s lean, or their only position. &quot;Their gain&quot; is their return on margin (the move × their leverage, Hyperliquid&apos;s ROE), with their dollar PnL beside it; &quot;vs entry&quot; is your gain at 1×, whatever your size. &quot;Trader 30d&quot; is their perps PnL over the last 30 days. &quot;Group by coin&quot; shows the coins several traders hold first. &quot;First fill&quot; is the price of the order that opened the position, when it&apos;s within their latest 2,000 fills; &quot;over Nd&quot; means it was opened before those. Observations, not signals.
             </InfoTooltip>
           </span>
         }
@@ -65,29 +64,12 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
         }
       >
         {scan ? (
-          <EntriesTable entries={entries} books={scan?.books ?? []} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} />
+          <EntriesTable entries={entries} closes={scan?.closes ?? []} books={scan?.books ?? []} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} />
         ) : (
           <p className="text-sm text-fg-muted">{signedIn ? "Press Scan to read the followed traders\u2019 open positions." : "Log in and press Scan to read the followed traders\u2019 open positions."}</p>
         )}
       </Panel>
 
-      {scan && (
-        <CollapsiblePanel
-          storageKey="cryptoport:perpScoutClosedOpen"
-          density="normal"
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              Recently closed
-              <InfoTooltip>
-                Positions the followed traders closed in the last {CLOSES_DAYS} days, read from their latest fills at each Scan: the whole exit (trims along the way included), their average entry and exit, the return in their direction at 1× and their realized PnL (before fees). Held is &quot;—&quot; when the position was opened before their latest 2,000 fills; its entry is then worked back from the realized PnL.
-              </InfoTooltip>
-            </span>
-          }
-          summary={<span className="text-xs text-fg-muted">{(scan.closes ?? []).length} in {CLOSES_DAYS} days</span>}
-        >
-          {scan.closes ? <ClosedTable closes={scan.closes} names={names} serverNowSec={serverNowSec} /> : <p className="text-sm text-fg-muted">Press Scan to read the traders&apos; recent closes.</p>}
-        </CollapsiblePanel>
-      )}
 
       <CollapsiblePanel
         storageKey="cryptoport:perpScoutTradersOpen"

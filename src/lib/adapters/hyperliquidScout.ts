@@ -49,6 +49,23 @@ export async function fetchRecentFills(address: string): Promise<Fill[]> {
   return parseFills(raw);
 }
 
+/** Fills after `sinceMs`, oldest first (userFillsByTime answers at most
+ * 2,000 a call from its start, so it's read forward page by page). `complete`
+ * is false when `maxPages` weren't enough: the caller reads in full instead. */
+export async function fetchFillsSince(address: string, sinceMs: number, maxPages = 5): Promise<{ fills: Fill[]; complete: boolean }> {
+  const fills: Fill[] = [];
+  let start = sinceMs + 1;
+  for (let page = 0; page < maxPages; page++) {
+    const raw = await info<unknown[]>({ type: "userFillsByTime", user: address, startTime: start }, 20);
+    if (Array.isArray(raw)) pacer.charge(Math.ceil(raw.length / 20));
+    const batch = parseFills(raw);
+    fills.push(...batch);
+    if (!Array.isArray(raw) || raw.length < 2_000) return { fills, complete: true };
+    start = Math.max(...batch.map((f) => f.time)) + 1;
+  }
+  return { fills, complete: false };
+}
+
 /** Every main-market perp's mid price, keyed by coin. One call, weight 2. */
 export async function fetchMids(): Promise<Record<string, number>> {
   const raw = await info<Record<string, string>>({ type: "allMids" }, 2);

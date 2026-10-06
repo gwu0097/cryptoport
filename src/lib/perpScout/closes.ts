@@ -92,3 +92,20 @@ function toClose(address: string, coin: string, p: Open, closedAt: number): Scou
   const returnPct = entryPx !== null && entryPx > 0 ? p.side * (exitPx / entryPx - 1) : null;
   return { address, coin, side: p.side > 0 ? "long" : "short", openedAt: p.openedAt, closedAt, entryPx, exitPx, size: p.exitQty, pnlUsd: pnl, returnPct };
 }
+
+/**
+ * The last scan's closes plus the new ones, without repeats (a close is its
+ * trader, coin and time), within the last `days`, newest first. A new close
+ * of a position opened before the fills read gets its opening time from the
+ * open position the last scan saw (`openedAt`, keyed `address:coin:side`).
+ */
+export function mergeCloses(prev: readonly ScoutClose[], fresh: readonly ScoutClose[], nowMs: number, openedAt: ReadonlyMap<string, number> = new Map(), days = CLOSES_DAYS): ScoutClose[] {
+  const since = nowMs - days * 24 * 60 * 60_000;
+  const byKey = new Map<string, ScoutClose>();
+  for (const c of prev) byKey.set(`${c.address}:${c.coin}:${c.closedAt}`, c);
+  for (const c of fresh) {
+    const known = c.openedAt ?? openedAt.get(`${c.address}:${c.coin}:${c.side}`) ?? null;
+    byKey.set(`${c.address}:${c.coin}:${c.closedAt}`, { ...c, openedAt: known !== null && known <= c.closedAt ? known : null });
+  }
+  return [...byKey.values()].filter((c) => c.closedAt >= since).sort((a, b) => b.closedAt - a.closedAt);
+}

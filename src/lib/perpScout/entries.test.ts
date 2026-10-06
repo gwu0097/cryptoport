@@ -130,3 +130,22 @@ test("latestMove: the newest of opened, added, trimmed", () => {
   assert.deepEqual(latestMove({ openedAt: null, lastAddAt: 2, lastTrimAt: 7 }), { kind: "trim", at: 7 });
   assert.equal(latestMove({ openedAt: null, lastAddAt: null, lastTrimAt: null }), null);
 });
+
+test("carryOver: an unchanged position keeps when it was opened; new adds and trims win", async () => {
+  const { carryOver, keepTpsl } = await import("./entries.ts");
+  const prev = { ...buildEntries("0xa", state, [fill(3, "A", 100, 0, 1.0)], null)[0], lastAddAt: 5, lastTrimAt: 6, tp: 0.5, sl: 1.5, tpslMore: 0, tpslKnown: true };
+  // Only new fills read: one add at t=20, the position was opened before them.
+  const fresh = buildEntries("0xa", state, [fill(20, "A", 10, -90, 0.9)], null)[0];
+  assert.equal(fresh.openedAt, null);
+  const merged = carryOver(fresh, prev);
+  assert.equal(merged.openedAt, 3, "opened at the time the last scan saw");
+  assert.equal(merged.openPx, prev.openPx);
+  assert.equal(merged.openedBefore, null);
+  assert.equal(merged.lastAddAt, 20);
+  assert.equal(merged.lastTrimAt, 6);
+  assert.equal(keepTpsl(merged, prev).sl, 1.5, "orders not read again: last scan's TP/SL");
+  // A flip or a position the new fills opened stands on its own.
+  assert.equal(carryOver(fresh, { ...prev, side: "long" }).openedAt, null);
+  const reopened = { ...fresh, openedAt: 25 };
+  assert.equal(carryOver(reopened, prev).openedAt, 25);
+});

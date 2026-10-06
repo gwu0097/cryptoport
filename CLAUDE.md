@@ -380,10 +380,15 @@ owner's.
   entries. Each entry shows the trader's 30-day perps PnL and its role in
   their book (`entries.ts` `positionRole`: paired / hedge / book leg /
   directional — an inference from the rest of the book, reason on hover).
-  Every trader's fills are read each scan, also for **Recently closed**
+  The table is **Activity**: open positions and grey closed rows together
   (`perpScout/closes.ts` `recentCloses`: positions back to flat in the
   last `CLOSES_DAYS`, entry → exit, return, realized PnL; entry worked
-  back from `closedPnl` when opened before the fills). Calls go through one weight pacer per instance
+  back from `closedPnl` when opened before the fills), grouped by coin
+  with the closes counted (`groups.ts`). Scans are **incremental** after a
+  trader's first full read: positions, fills since the book's
+  `fillsThrough` (`fetchFillsSince`), the record every 6 h, TP/SL when it
+  traded or every 30 min; the rest carried over (`carryOver`, `keepTpsl`,
+  `mergeCloses`). Calls go through one weight pacer per instance
   (`perpScout/pacer.ts`, 1,000 of the IP's 1,200 a minute). Refresh prices
   is one `allMids` call, not stored.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research

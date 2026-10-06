@@ -2,10 +2,10 @@ import "server-only";
 import { serviceDb } from "./supabase";
 import { mapWithConcurrency } from "./adapters/http";
 import { resolveTickerIcons } from "./adapters/coingecko";
-import { fetchAccountState, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
+import { fetchAccountState, fetchFillsSince, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
 import { traderStats, type TraderStats } from "./perpScout/portfolio";
-import { accountLeverage, buildEntries, netBias, type ScoutEntry } from "./perpScout/entries";
-import { CLOSES_DAYS, recentCloses, type ScoutClose } from "./perpScout/closes";
+import { accountLeverage, buildEntries, carryOver, keepTpsl, netBias, type Fill, type ScoutEntry } from "./perpScout/entries";
+import { CLOSES_DAYS, mergeCloses, recentCloses, type ScoutClose } from "./perpScout/closes";
 import { FOLLOWED, MAX_FOLLOWED, isTraderAddress, mergeFollowed, type FollowedTrader } from "./perpScout/followed";
 
 // Perp Scout's scan (docs/perp-scout/PLAN.md): the open positions, latest
@@ -25,6 +25,12 @@ const RUN_SETTING = "perp_scout_run";
 const FRESH_MS = 60_000;
 /** A claimed run older than this died (the route has 300 s). */
 const RUN_STALE_MS = 6 * 60_000;
+/** The record (PnL history) changes slowly: read again after this. */
+const STATS_MAX_AGE_MS = 6 * 60 * 60_000;
+/** TP/SL orders: read again after this even when nothing traded. */
+const ORDERS_MAX_AGE_MS = 30 * 60_000;
+/** A trader last read longer ago than this is read in full again. */
+const DELTA_MAX_GAP_MS = 7 * 24 * 60 * 60_000;
 /** Stop reading accounts after this; the rest keep their last entries. */
 const DEADLINE_MS = 250_000;
 const CONCURRENCY = 4;
@@ -42,6 +48,12 @@ export interface ScoutBook {
   leverage: number | null;
   bias: number | null;
   positions: number;
+  /** The newest fill read so far (ms): the next scan reads only after it.
+   * Absent = never read in full yet. */
+  fillsThrough?: number | null;
+  /** When `stats` (the record) and the TP/SL orders were last read. */
+  statsReadAt?: string | null;
+  ordersReadAt?: string | null;
 }
 
 export interface ScoutScan {
@@ -180,26 +192,86 @@ const iconTicker = (coin: string) => (/^k[A-Z]/.test(coin) ? coin.slice(1) : coi
 /** One account's book: its record and whole-account value (portfolio, a
  * failure leaves them unknown), positions, and — only with a position — its
  * fills and orders. */
-async function readBook(address: string): Promise<{ book: ScoutBook; entries: ScoutEntry[]; closes: ScoutClose[] | null }> {
-  const [state, series, fills] = await Promise.all([
+interface Previous {
+  book: ScoutBook | undefined;
+  entries: ScoutEntry[];
+  closes: ScoutClose[];
+}
+
+/**
+ * One trader's book. After a first full read, a scan reads only what changed
+ * (owner 2026-10-06: "shouldn't that delta be tiny and super fast?"): the
+ * positions (one call, weight 2), the fills since the last scan's newest
+ * (userFillsByTime, usually a handful), the record every STATS_MAX_AGE_MS and
+ * the TP/SL orders when something traded or every ORDERS_MAX_AGE_MS. What
+ * the new fills don't touch — when a position was opened, its first fill,
+ * earlier adds and trims, earlier closes — is carried from the last scan.
+ * A first read, a gap over DELTA_MAX_GAP_MS or more fills than the pages
+ * allow reads in full (the latest 2,000 fills, the record, the orders).
+ */
+async function readBook(address: string, prev: Previous): Promise<{ book: ScoutBook; entries: ScoutEntry[]; closes: ScoutClose[]; delta: boolean }> {
+  const now = Date.now();
+  const since = prev.book?.fillsThrough ?? null;
+  const canDelta = since !== null && !prev.book?.error && now - since < DELTA_MAX_GAP_MS;
+  const statsFresh = canDelta && prev.book?.stats && prev.book.statsReadAt && now - Date.parse(prev.book.statsReadAt) < STATS_MAX_AGE_MS;
+
+  const [state, series, sinceRead] = await Promise.all([
     fetchAccountState(address),
-    fetchPortfolio(address).catch((e: Error) => e),
-    // Read for every trader, open position or not: they're also where the
-    // recent closes come from. A failure keeps the last scan's closes.
-    fetchRecentFills(address).catch((e: Error) => e),
+    statsFresh ? Promise.resolve(null) : fetchPortfolio(address).catch((e: Error) => e),
+    canDelta ? fetchFillsSince(address, since).catch((e: Error) => e) : Promise.resolve(null),
   ]);
-  const stats = series instanceof Error ? null : traderStats(series, Date.now());
+  // Fills: only the new ones when that worked and was complete; else in full.
+  let delta = sinceRead !== null && !(sinceRead instanceof Error) && sinceRead.complete;
+  let fills: Fill[] | Error;
+  if (delta) fills = (sinceRead as { fills: Fill[] }).fills;
+  else fills = await fetchRecentFills(address).catch((e: Error) => e);
+  if (fills instanceof Error) {
+    console.error(`[perp-scout] ${address} fills: ${fills.message}`);
+    delta = false;
+  }
+  const stats = series === null ? (prev.book?.stats ?? null) : series instanceof Error ? (prev.book?.stats ?? null) : traderStats(series, now);
   if (series instanceof Error) console.error(`[perp-scout] ${address} record: ${series.message}`);
-  if (fills instanceof Error) console.error(`[perp-scout] ${address} fills: ${fills.message}`);
+  const statsReadAt = series === null || series instanceof Error ? (prev.book?.statsReadAt ?? null) : new Date(now).toISOString();
+
   const open = state.assetPositions.some(({ position }) => Number(position.szi) !== 0);
-  const orders = open ? await fetchOpenOrders(address).catch(() => null) : null;
+  const traded = !delta || (Array.isArray(fills) && fills.length > 0);
+  const ordersDue = !prev.book?.ordersReadAt || now - Date.parse(prev.book.ordersReadAt) >= ORDERS_MAX_AGE_MS;
+  const orders = open && (traded || ordersDue) ? await fetchOpenOrders(address).catch(() => null) : null;
+
   const perpsValue = Number(state.marginSummary?.accountValue);
   const equity = stats?.equityNow ?? (Number.isFinite(perpsValue) ? perpsValue : null);
-  const entries = buildEntries(address, state, fills instanceof Error ? [] : fills, orders, equity);
+  const newFills = fills instanceof Error ? [] : fills;
+  const prevByKey = new Map(prev.entries.map((e) => [`${e.coin}:${e.side}`, e]));
+  let entries = buildEntries(address, state, newFills, orders, equity);
+  if (delta) entries = entries.map((e) => carryOver(e, prevByKey.get(`${e.coin}:${e.side}`)));
+  if (!orders) entries = entries.map((e) => keepTpsl(e, prevByKey.get(`${e.coin}:${e.side}`)));
+  for (const e of entries) if (e.iconUrl === undefined) e.iconUrl = prevByKey.get(`${e.coin}:${e.side}`)?.iconUrl;
+
+  const openedAt = new Map<string, number>();
+  for (const e of prev.entries) if (e.openedAt !== null) openedAt.set(`${address}:${e.coin}:${e.side}`, e.openedAt);
+  const fresh = fills instanceof Error ? [] : recentCloses(address, newFills, now, CLOSES_DAYS);
+  // A full read sees the whole window itself; a delta adds to what was kept.
+  const closes = fills instanceof Error ? prev.closes : mergeCloses(delta ? prev.closes : [], fresh, now, openedAt);
+
+  const newest = newFills.reduce((m, f) => Math.max(m, f.time), 0);
+  const fillsThrough = fills instanceof Error ? (prev.book?.fillsThrough ?? null) : Math.max(newest, delta ? (since ?? 0) : 0) || (delta ? since : now);
   return {
-    book: { address, readAt: new Date().toISOString(), error: null, accountValue: equity, stats, leverage: accountLeverage(state, equity), bias: netBias(entries), positions: entries.length },
+    book: {
+      address,
+      readAt: new Date(now).toISOString(),
+      error: null,
+      accountValue: equity,
+      stats,
+      leverage: accountLeverage(state, equity),
+      bias: netBias(entries),
+      positions: entries.length,
+      fillsThrough,
+      statsReadAt,
+      ordersReadAt: orders ? new Date(now).toISOString() : (prev.book?.ordersReadAt ?? null),
+    },
     entries,
-    closes: fills instanceof Error ? null : recentCloses(address, fills, Date.now(), CLOSES_DAYS),
+    closes,
+    delta,
   };
 }
 
@@ -220,20 +292,24 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
   try {
     const prevEntries = new Map<string, ScoutEntry[]>();
     for (const e of before?.entries ?? []) prevEntries.set(e.address, [...(prevEntries.get(e.address) ?? []), e]);
+    const prevCloses = new Map<string, ScoutClose[]>();
+    for (const c of before?.closes ?? []) prevCloses.set(c.address, [...(prevCloses.get(c.address) ?? []), c]);
     const prevBooks = new Map((before?.books ?? []).map((b) => [b.address, b]));
     let done = 0;
     const results = await mapWithConcurrency(following, CONCURRENCY, async (f) => {
       try {
         if (Date.now() - started > DEADLINE_MS) throw new Error("not reached in this scan (time limit)");
-        return await readBook(f.address);
+        return await readBook(f.address, { book: prevBooks.get(f.address), entries: prevEntries.get(f.address) ?? [], closes: prevCloses.get(f.address) ?? [] });
       } catch (e) {
         const prev = prevBooks.get(f.address);
         const error = (e as Error).message;
         console.error(`[perp-scout] ${f.address} positions: ${error}`);
         return {
-          book: { address: f.address, readAt: prev?.readAt ?? null, error, accountValue: prev?.accountValue ?? null, stats: prev?.stats ?? null, leverage: prev?.leverage ?? null, bias: prev?.bias ?? null, positions: prev?.positions ?? 0 },
+          // Kept as it was, cursor included: the next scan reads from there.
+          book: { ...(prev ?? { address: f.address, readAt: null, accountValue: null, stats: null, leverage: null, bias: null, positions: 0 }), error },
           entries: prevEntries.get(f.address) ?? [],
-          closes: null,
+          closes: prevCloses.get(f.address) ?? [],
+          delta: false,
         };
       } finally {
         progress({ stage: "positions", done: ++done, total: following.length });
@@ -241,18 +317,17 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
     });
     progress({ stage: "saving" });
     const entries = results.flatMap((r) => r.entries);
-    // A trader whose fills weren't read keeps the last scan's closes.
-    const closes = results.flatMap((r, i) => r.closes ?? (before?.closes ?? []).filter((c) => c.address === following[i].address));
+    const closes = results.flatMap((r) => r.closes);
     // Logos through the app's icon cache (ticker_icons; CoinGecko only for a
     // ticker never seen) — cosmetic, so a failure just leaves letter badges.
     const icons = await resolveTickerIcons([...entries, ...closes].map((e) => iconTicker(e.coin))).catch(() => new Map<string, string>());
-    for (const e of entries) e.iconUrl = icons.get(iconTicker(e.coin).toUpperCase()) ?? null;
-    const closesWithIcons = closes.map((c) => ({ ...c, iconUrl: icons.get(iconTicker(c.coin).toUpperCase()) ?? null }));
+    for (const e of entries) e.iconUrl = icons.get(iconTicker(e.coin).toUpperCase()) ?? e.iconUrl ?? null;
+    const closesWithIcons = closes.map((c) => ({ ...c, iconUrl: icons.get(iconTicker(c.coin).toUpperCase()) ?? (c as { iconUrl?: string | null }).iconUrl ?? null }));
     const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries, closes: closesWithIcons };
     const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value: { scan }, updated_at: new Date().toISOString() });
     if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
     const failed = results.filter((r) => r.book.error).length;
-    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${following.length} failed=${failed} entries=${scan.entries.length}`);
+    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${following.length} delta=${results.filter((r) => r.delta).length} failed=${failed} entries=${scan.entries.length} closes=${closes.length}`);
     return { status: "done", failed };
   } finally {
     await claim.release().catch(() => {});

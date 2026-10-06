@@ -295,3 +295,29 @@ export function latestMove(e: Pick<ScoutEntry, "openedAt" | "lastAddAt" | "lastT
   for (const m of moves) if (m.at != null && (best === null || m.at >= best.at)) best = { kind: m.kind, at: m.at };
   return best;
 }
+
+/**
+ * An entry built from only the fills since the last scan, completed from the
+ * same position in that scan (same coin and side): when it was opened and at
+ * what price come from before unless the new fills opened it; the latest add
+ * and trim are the later of the two. Without a previous entry, or after a
+ * flip, the new entry stands as it is.
+ */
+export function carryOver(fresh: ScoutEntry, prev: ScoutEntry | undefined): ScoutEntry {
+  if (!prev || prev.side !== fresh.side || fresh.openedAt !== null) return fresh;
+  const later = (a: number | null | undefined, b: number | null | undefined) => (a == null ? (b ?? null) : b == null ? a : Math.max(a, b));
+  return {
+    ...fresh,
+    openedAt: prev.openedAt,
+    openPx: prev.openPx,
+    openedBefore: prev.openedAt === null ? prev.openedBefore : null,
+    lastAddAt: later(fresh.lastAddAt, prev.lastAddAt),
+    lastTrimAt: later(fresh.lastTrimAt, prev.lastTrimAt),
+  };
+}
+
+/** TP/SL kept from the last scan when the orders weren't read again. */
+export function keepTpsl(entry: ScoutEntry, prev: ScoutEntry | undefined): ScoutEntry {
+  if (entry.tpslKnown || !prev || prev.side !== entry.side) return entry;
+  return { ...entry, tp: prev.tp, sl: prev.sl, tpslMore: prev.tpslMore, tpslKnown: prev.tpslKnown };
+}

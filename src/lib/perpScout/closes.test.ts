@@ -45,3 +45,12 @@ test("a flip closes one side and opens the other; still-open and old closes aren
   assert.equal(closes[0].size, 5);
   assert.equal(closes[0].exitPx, 55);
 });
+
+test("mergeCloses: no repeats, old ones dropped, opening time from the last scan's open position", async () => {
+  const { mergeCloses } = await import("./closes.ts");
+  const c = (coin: string, closedAt: number, openedAt: number | null = null) => ({ address: "0xa", coin, side: "long" as const, openedAt, closedAt, entryPx: 1, exitPx: 1.1, size: 1, pnlUsd: 0.1, returnPct: 0.1 });
+  const now = 10 * D;
+  const merged = mergeCloses([c("BTC", 9 * D, 8 * D), c("OLD", 1 * D)], [c("BTC", 9 * D, 8 * D), c("ETH", 9.5 * D)], now, new Map([["0xa:ETH:long", 7 * D]]));
+  assert.deepEqual(merged.map((x) => x.coin), ["ETH", "BTC"]);
+  assert.equal(merged[0].openedAt, 7 * D);
+});
