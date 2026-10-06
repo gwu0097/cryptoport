@@ -294,7 +294,7 @@ another table lists the trades I care about — open, closed or stopped".
   return × the leverage it had when marked, else at 1× (labelled); their
   dollar PnL is only in the tooltip. "Since tracked" is the move at 1×.
 - **Where**: the first section of Perp Scout, and on the Dashboard beside
-  Open positions (Open positions 7 | tracked 5 columns; either alone takes
+  Open positions (Open positions 6 | tracked 6 columns; either alone takes
   the row). Every Perp Scout section is collapsible.
 - **Two buttons** (owner): *Refresh prices* updates prices only — one
   `allMids` call, shared with the Activity table's, and the app's own
