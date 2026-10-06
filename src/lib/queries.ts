@@ -1,4 +1,6 @@
 import "server-only";
+import { getCoinContracts } from "./coinContractsQuery";
+import type { CoinContract } from "./coinContracts";
 import { notePriceScope, noteScopeMiss } from "./renderMeter";
 import { GuardedMap, guardRecord } from "./scopedPrices";
 import { MARK_KEY_PREFIXES, POSITION_VENUES, isOpenPosition, markKeyFor, venueOwns, withCurrentPnl, type Mark } from "./perpPositions";
@@ -1071,6 +1073,9 @@ export interface WatchlistRow {
   change7d: number | null;
   change30d: number | null;
   marketCap: number | null;
+  /** Token addresses to copy (coinContracts.ts); only when asked for
+   * (`withContracts`), [] otherwise. */
+  contracts: CoinContract[];
 }
 
 type WatchlistItemRow = { id: string; coingecko_id: string; ticker: string; name: string; image_url: string | null };
@@ -1080,9 +1085,13 @@ type WatchlistItemRow = { id: string; coingecko_id: string; ticker: string; name
  * rest of the app shows (every watchlist coin is priced in each pricing
  * pass, see assetPrices.ts's allHeldKeys). A coin not priced yet shows "—"
  * in every numeric field, never a fabricated number. */
-async function withAssetStats(rows: WatchlistItemRow[]): Promise<WatchlistRow[]> {
+async function withAssetStats(rows: WatchlistItemRow[], withContracts = false): Promise<WatchlistRow[]> {
   if (rows.length === 0) return [];
-  const stats = await getAssetStatsMap();
+  // The contracts read runs beside the prices (same round trip).
+  const [stats, contracts] = await Promise.all([
+    getAssetStatsMap(),
+    withContracts ? getCoinContracts(rows.map((r) => r.coingecko_id)).catch(() => new Map<string, CoinContract[]>()) : Promise.resolve(new Map<string, CoinContract[]>()),
+  ]);
   return rows.map((row) => {
     const s = stats.get(row.coingecko_id);
     return {
@@ -1097,13 +1106,14 @@ async function withAssetStats(rows: WatchlistItemRow[]): Promise<WatchlistRow[]>
       change7d: s?.change7d ?? null,
       change30d: s?.change30d ?? null,
       marketCap: s?.marketCap ?? null,
+      contracts: contracts.get(row.coingecko_id) ?? [],
     };
   });
 }
 
 /** One watchlist's items — RLS on watchlist_items (via the watchlists.user_id
  * subquery) already confirms this list belongs to the caller. */
-export async function getWatchlistItems(watchlistId: string): Promise<WatchlistRow[]> {
+export async function getWatchlistItems(watchlistId: string, { withContracts = false }: { withContracts?: boolean } = {}): Promise<WatchlistRow[]> {
   if (!(await getUser())) return [];
   const db = await userDb();
   const { data: items, error } = await db
@@ -1113,7 +1123,7 @@ export async function getWatchlistItems(watchlistId: string): Promise<WatchlistR
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Failed to load watchlist items: ${error.message}`);
 
-  return withAssetStats(items as WatchlistItemRow[]);
+  return withAssetStats(items as WatchlistItemRow[], withContracts);
 }
 
 /** Every coin *this user* is watching, across every one of their

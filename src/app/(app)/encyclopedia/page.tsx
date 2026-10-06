@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { getCoinContracts } from "@/lib/coinContractsQuery";
+import type { CoinContract } from "@/lib/coinContracts";
+import { CoinContractCopy } from "@/components/CoinContractCopy";
 import { FundamentalsTab } from "@/components/encyclopedia/FundamentalsTab";
 import { AgeText } from "@/components/AgeText";
 import { requestNowSec } from "@/lib/requestClock";
@@ -166,7 +169,8 @@ async function EncyclopediaResults({
   mcapFloor: number;
   matchedFromTicker?: string;
 }) {
-  const seed = await fetchSeedInfo(id);
+  // The coin's copyable contracts read beside its market data (same wait).
+  const [seed, contracts] = await Promise.all([fetchSeedInfo(id), getCoinContracts([id]).catch(() => new Map<string, CoinContract[]>())]);
   if (!seed) {
     return (
       <Panel className="text-center">
@@ -197,6 +201,9 @@ async function EncyclopediaResults({
                   {seed.name}
                 </a>{" "}
                 <span className="text-fg-muted">({seed.symbol})</span>
+                <span className="ml-1 inline-flex align-middle">
+                  <CoinContractCopy ticker={seed.symbol} contracts={contracts.get(id) ?? []} />
+                </span>
               </p>
               <p className="text-xs text-fg-muted">
                 {seed.marketCapRank !== null ? `Rank #${seed.marketCapRank}` : "Unranked"} ·{" "}

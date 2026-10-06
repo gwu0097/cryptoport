@@ -6,6 +6,7 @@ import { Search, X, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
 import type { WatchlistRow } from "@/lib/queries";
 import { formatUsd, formatCompactUsd, formatPercent } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
+import { CoinContractCopy } from "../CoinContractCopy";
 import { TradingViewCompareChart } from "../TradingViewCompareChart";
 import { TokenAnalysisPanel } from "./TokenAnalysisPanel";
 import { ToggleGroup } from "../ui/ToggleGroup";
@@ -230,7 +231,10 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
                           </button>
                           <TokenIcon ticker={row.ticker} url={row.imageUrl} />
                           <div>
-                            <div className="font-medium text-fg">{row.ticker}</div>
+                            <div className="flex items-center gap-1 font-medium text-fg">
+                              {row.ticker}
+                              <CoinContractCopy ticker={row.ticker} contracts={row.contracts} />
+                            </div>
                             <div className="text-xs text-fg-muted">{row.name}</div>
                           </div>
                         </div>
