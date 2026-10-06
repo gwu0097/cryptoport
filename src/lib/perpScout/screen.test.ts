@@ -42,23 +42,31 @@ test("stage 1: size, profit, this month, and turnover", () => {
   assert.equal(passesStage1(lowRoi), false);
 });
 
-test("pickForReview alternates top PnL and top ROI without repeats", () => {
-  const row = (a: string, pnl: number, roi: number) => ({ address: a, allTime: { pnl, roi, vlm: 0 } }) as LeaderboardRow;
-  const rows = [row("whale", 100, 1), row("big", 90, 0.6), row("roi", 1, 9), row("both", 95, 8)];
-  assert.deepEqual(pickForReview(rows, 3).map((r) => r.address), ["whale", "roi", "both"]);
+test("pickForReview alternates top all-time PnL and top 30-day PnL without repeats", () => {
+  const row = (a: string, pnl: number, month: number) => ({ address: a, allTime: { pnl, roi: 1, vlm: 0 }, month: { pnl: month, roi: 0, vlm: 0 } }) as LeaderboardRow;
+  const rows = [row("whale", 100, 1), row("big", 90, 0.6), row("hot", 1, 9), row("both", 95, 8)];
+  assert.deepEqual(pickForReview(rows, 3).map((r) => r.address), ["whale", "hot", "both"]);
   assert.equal(pickForReview(rows, 10).length, 4);
 });
 
 const stats = (o: Partial<TraderStats>): TraderStats => ({
-  historyWeeks: 52, totalPnl: 1e6, typicalEquity: 1e6, maxDrawdownUsd: 2e5, drawdownShare: 0.2, winningWeeksShare: 0.6, bestFourShare: 0.5, yearlyReturn: 1, ...o,
+  historyWeeks: 52, totalPnl: 1e6, typicalEquity: 1e6, maxDrawdownUsd: 2e5, drawdownShare: 0.2, winningWeeksShare: 0.6, bestFourShare: 0.5, yearlyReturn: 1, turnover: 40, monthVolume: 5e6, ...o,
 });
 
 test("stage 3 names each failure", () => {
   assert.deepEqual(stage3Failures(stats({})), []);
-  assert.equal(stage3Failures(stats({ historyWeeks: 10 })).length, 1);
-  assert.match(stage3Failures(stats({ bestFourShare: 0.9 }))[0], /best 4 weeks/);
-  assert.match(stage3Failures(stats({ bestFourShare: null }))[0], /no net profit/);
-  assert.match(stage3Failures(stats({ drawdownShare: 1.5 }))[0], /drawdown 150%/);
+  assert.deepEqual(stage3Failures(stats({ historyWeeks: 10 })), ["short"]);
+  assert.deepEqual(stage3Failures(stats({ bestFourShare: 0.9 })), ["luck"]);
+  assert.deepEqual(stage3Failures(stats({ bestFourShare: null })), ["unprofitable"]);
+  assert.deepEqual(stage3Failures(stats({ drawdownShare: 1.5 })), ["drawdown"]);
+  assert.deepEqual(stage3Failures(stats({ typicalEquity: 2e4 })), ["small"]);
+});
+
+test("stage 3 rejects what isn't directional perp trading (the first live scan's accounts)", () => {
+  // 29 months, every week a win, no drawdown, little perp volume: a farm, vault or rewards.
+  const farm = stats({ historyWeeks: 126, winningWeeksShare: 1, drawdownShare: 0, maxDrawdownUsd: 0, turnover: 0.5, monthVolume: 0 });
+  assert.deepEqual(stage3Failures(farm).sort(), ["inactive", "notPerps", "smooth"]);
+  assert.deepEqual(stage3Failures(stats({ winningWeeksShare: 0.95 })), ["smooth"]);
 });
 
 test("score is yearly return over drawdown, floored at 10%", () => {

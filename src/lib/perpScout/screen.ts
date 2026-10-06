@@ -3,10 +3,14 @@
 //     volume per window): sized, profitable, profitable this month, and not
 //     a market maker or high-frequency account;
 //  2. a review set from those: half the largest all-time earners, half the
-//     best all-time ROI — so the shortlist isn't only whales;
-//  3. each reviewed account's own PnL curve (portfolio.ts): long enough,
-//     drawdown no bigger than its typical equity, not one lucky month.
-// The passers are ranked by return ÷ drawdown and the top N are followed.
+//     largest earners of the last 30 days — so the shortlist isn't only
+//     whales (ROI was tried first: it picked accounts with a tiny first
+//     deposit, ROI +995,700%);
+//  3. each reviewed account's own perps record (portfolio.ts): really
+//     trading perps, long enough, drawdown no bigger than its typical
+//     equity, not one lucky month, and not a curve that never dips.
+// The passers are ranked by return ÷ drawdown and offered as candidates;
+// each user follows the ones they want (perpScoutScan.ts).
 
 import type { TraderStats } from "./portfolio.ts";
 
@@ -37,11 +41,19 @@ export const STAGE1 = {
 } as const;
 
 export const STAGE3 = {
+  /** Median perps account value. */
+  minEquity: 50_000,
+  /** All-time perp volume ÷ typical equity: below it, not trading perps. */
+  minTurnover: 5,
   minWeeks: 26,
   /** Max drawdown of the PnL curve ÷ typical equity. */
   maxDrawdownShare: 1,
   /** Share of all profit made in the best 4 weeks. */
   maxBestFourShare: 0.8,
+  /** Swing traders win 50–65% of weeks; a curve winning nearly every week
+   * is funding farming, a vault or rewards, not directional trading (the
+   * owner's first scan: 100% for 29 months, 0% drawdown). */
+  maxWinningWeeksShare: 0.9,
 } as const;
 
 const num = (x: unknown): number => (typeof x === "number" ? x : typeof x === "string" ? Number(x) : NaN);
@@ -96,10 +108,10 @@ export function passesStage1(r: LeaderboardRow): boolean {
 }
 
 /** Stage 2: `n` accounts to review — the top by all-time PnL and the top by
- * all-time ROI, alternating, without repeats. */
+ * 30-day PnL, alternating, without repeats. */
 export function pickForReview(rows: readonly LeaderboardRow[], n: number): LeaderboardRow[] {
   const byPnl = [...rows].sort((a, b) => b.allTime.pnl - a.allTime.pnl);
-  const byRoi = [...rows].sort((a, b) => b.allTime.roi - a.allTime.roi);
+  const byRoi = [...rows].sort((a, b) => b.month.pnl - a.month.pnl);
   const picked = new Map<string, LeaderboardRow>();
   for (let i = 0; picked.size < n && (i < byPnl.length || i < byRoi.length); i++) {
     for (const r of [byPnl[i], byRoi[i]]) if (r && picked.size < n && !picked.has(r.address)) picked.set(r.address, r);
@@ -107,14 +119,30 @@ export function pickForReview(rows: readonly LeaderboardRow[], n: number): Leade
   return [...picked.values()];
 }
 
-/** Stage 3: why an account's own history fails, or [] when it passes. */
-export function stage3Failures(s: TraderStats): string[] {
-  const why: string[] = [];
-  if (s.historyWeeks < STAGE3.minWeeks) why.push(`${s.historyWeeks} weeks of history (< ${STAGE3.minWeeks})`);
-  if (s.drawdownShare === null) why.push("no typical equity to measure drawdown against");
-  else if (s.drawdownShare > STAGE3.maxDrawdownShare) why.push(`max drawdown ${(s.drawdownShare * 100).toFixed(0)}% of equity`);
-  if (s.bestFourShare === null) why.push("no net profit on its PnL curve");
-  else if (s.bestFourShare > STAGE3.maxBestFourShare) why.push(`${(s.bestFourShare * 100).toFixed(0)}% of profit in its best 4 weeks`);
+export type Stage3Reason = "notPerps" | "inactive" | "small" | "short" | "drawdown" | "luck" | "smooth" | "unprofitable";
+
+export const STAGE3_REASON_LABEL: Record<Stage3Reason, string> = {
+  notPerps: "barely trades perps",
+  inactive: "no perp trades this month",
+  small: "perps account under $50K",
+  short: "under 26 weeks of history",
+  drawdown: "drawdown above typical equity",
+  luck: "most profit in 4 weeks",
+  smooth: "wins nearly every week (not directional trading)",
+  unprofitable: "no net perps profit",
+};
+
+/** Stage 3: why an account's own perps record fails, or [] when it passes. */
+export function stage3Failures(s: TraderStats): Stage3Reason[] {
+  const why: Stage3Reason[] = [];
+  if (s.typicalEquity === null || s.typicalEquity < STAGE3.minEquity) why.push("small");
+  if (s.turnover === null || s.turnover < STAGE3.minTurnover) why.push("notPerps");
+  if (!(s.monthVolume > 0)) why.push("inactive");
+  if (s.historyWeeks < STAGE3.minWeeks) why.push("short");
+  if (s.drawdownShare === null || s.drawdownShare > STAGE3.maxDrawdownShare) why.push("drawdown");
+  if (s.bestFourShare === null) why.push("unprofitable");
+  else if (s.bestFourShare > STAGE3.maxBestFourShare) why.push("luck");
+  if (s.winningWeeksShare === null || s.winningWeeksShare > STAGE3.maxWinningWeeksShare) why.push("smooth");
   return why;
 }
 

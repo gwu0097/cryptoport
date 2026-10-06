@@ -1,21 +1,18 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
-import { parseLeaderboard, type LeaderboardRow } from "../perpScout/screen";
-import { parsePortfolio, type PortfolioSeries } from "../perpScout/portfolio";
 import { parseFills, type Fill, type ScoutAccountState } from "../perpScout/entries";
 import { createPacer } from "../perpScout/pacer";
 import type { HyperliquidOrder } from "../tpsl";
 
 // Perp Scout's reads of Hyperliquid (docs/perp-scout/PLAN.md), all free and
-// keyless: the leaderboard file (the one the official leaderboard page
-// loads, every account's value and PnL per window), and per account the info
-// API's portfolio, clearinghouseState, frontendOpenOrders and userFills.
+// keyless: per followed account the info API's clearinghouseState,
+// frontendOpenOrders and userFills, and allMids for Refresh prices. (The
+// trader screen runs from scripts/diag/perp-scout-screen.mts, not the app.)
 // The info API allows an IP 1,200 weight a minute; every call here goes
 // through one pacer per instance kept under that (pacer.ts), so a scan slows
 // down rather than gets refused.
 
 const INFO_URL = "https://api.hyperliquid.xyz/info";
-const LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
 /** Below Hyperliquid's 1,200 so other features' calls from the same IP fit. */
 const WEIGHT_PER_MINUTE = 1_000;
 
@@ -26,17 +23,6 @@ async function info<T>(body: Record<string, unknown>, weight: number): Promise<T
   const res = await fetchWithRetry(INFO_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, { baseDelayMs: 2_000 });
   if (!res.ok) throw new Error(`Hyperliquid ${body.type}: HTTP ${res.status}`);
   return res.json() as Promise<T>;
-}
-
-/** Every leaderboard account (~47K rows, a few tens of MB: a long timeout). */
-export async function fetchLeaderboard(): Promise<LeaderboardRow[]> {
-  const res = await fetchWithRetry(LEADERBOARD_URL, {}, { timeoutMs: 60_000 });
-  if (!res.ok) throw new Error(`Hyperliquid leaderboard: HTTP ${res.status}`);
-  return parseLeaderboard(await res.json());
-}
-
-export async function fetchPortfolio(address: string): Promise<PortfolioSeries> {
-  return parsePortfolio(await info<unknown>({ type: "portfolio", user: address }, 20));
 }
 
 /** The main perps market's account (HIP-3 markets aren't read). */

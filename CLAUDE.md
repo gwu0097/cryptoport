@@ -353,21 +353,26 @@ owner's.
   lookup (`/lookup`) is
   public; lookup links need no account.
 - **Perp Scout** (Tools → `/perp-scout`, `docs/perp-scout/PLAN.md`; owner
-  2026-10-06): consistent Hyperliquid traders and where price is against
-  their entries — observations, not signals, and nothing is copied or
-  traded. Scan (`api/perp-scout/scan`, streamed → `perpScoutScan.ts`
-  `runScan`): the leaderboard file screened (pure `perpScout/screen.ts`:
-  $50K–$20M, all-time PnL ≥ $100K and ROI ≥ 50%, 30d profitable, monthly
-  volume ≤ 60× equity), 50 reviewed by their own PnL curve
-  (`perpScout/portfolio.ts`: ≥ 26 weeks, drawdown on the PnL curve ≤
-  typical equity, best 4 weeks ≤ 80% of profit), the top 20 by yearly
-  return ÷ drawdown kept a day; then each one's main-market positions,
-  latest 2,000 fills (when each was opened and at what price,
-  `perpScout/entries.ts` `positionOpening`) and TP/SL orders. One shared
-  `app_settings` row (`perp_scout`; one scan at a time, `perp_scout_run`);
-  a trader not read keeps last scan's entries. Every Hyperliquid call goes
-  through one weight pacer per instance (`perpScout/pacer.ts`, 1,000 of
-  the IP's 1,200 a minute). Refresh prices is one `allMids` call, not stored.
+  2026-10-06): followed Hyperliquid traders' open positions and where price
+  is against their entry — observations, not signals; nothing is copied or
+  traded. **The list is curated in chat, not by the app** (owner: "I'm
+  asking you to find them for me, then just add it to the list"):
+  `src/lib/perpScout/followed.ts` `FOLLOWED`, each with why and the figures
+  it was picked on. Candidates come from `scripts/diag/perp-scout-screen.mts`
+  (pure `perpScout/screen.ts` + `portfolio.ts`: leaderboard $50K–$20M,
+  all-time PnL ≥ $100K and ROI ≥ 50%, 30d profitable, monthly volume ≤ 60×
+  equity; then the **perps** record only — ≥ 5× turnover, traded this month,
+  ≥ 26 weeks, drawdown on the PnL curve ≤ typical equity, best 4 weeks ≤
+  80% of profit, ≤ 90% winning weeks; the first live screen's picks had
+  100% winning weeks, no perp positions and ROI +995,700%). Scan
+  (`api/perp-scout/scan`, streamed → `perpScoutScan.ts` `runScan`) reads
+  each listed trader's main-market positions, latest 2,000 fills (when each
+  was opened and at what price, `perpScout/entries.ts` `positionOpening`)
+  and TP/SL orders into one shared `app_settings` row (`perp_scout`; one
+  scan at a time, `perp_scout_run`); a trader not read keeps last scan's
+  entries. Calls go through one weight pacer per instance
+  (`perpScout/pacer.ts`, 1,000 of the IP's 1,200 a minute). Refresh prices
+  is one `allMids` call, not stored.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
