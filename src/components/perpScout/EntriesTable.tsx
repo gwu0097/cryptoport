@@ -4,7 +4,11 @@ import { Fragment, useMemo, useState } from "react";
 import { ChevronRight, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SortableHeader } from "@/components/ui/SortableHeader";
-import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
+import { tableClass, theadRowClass, trClass, hideOnMobileClass } from "@/components/ui/table";
+
+/** Tighter than ui/table's cells: fifteen columns fit a 1600px page
+ * without scrolling (owner 2026-10-06: "stuff being cut off"). */
+const tdClass = "px-2 py-2.5 text-sm";
 import { chipClass } from "@/components/ui/chip";
 import { usePersistedState } from "@/components/usePersistedState";
 import { useNowSec } from "@/components/useServerNow";
@@ -101,7 +105,7 @@ function sortValue(r: Row, key: SortKey): number | string | null {
 }
 
 /** Columns in the table, for a group's header row. */
-const COLUMNS = 20;
+const COLUMNS = 13;
 
 const MOVE_LABEL: Record<MoveKind | "close", string> = { new: "New", add: "Added", trim: "Trimmed", close: "Closed" };
 const MOVE_BADGE: Record<MoveKind | "close", string> = { new: "bg-positive/15 text-positive", add: "bg-accent/15 text-accent", trim: "bg-warning/15 text-warning", close: "bg-border text-fg" };
@@ -280,7 +284,7 @@ export function EntriesTable({
   const traderCells = (address: string, name: string, month: Row["month"]) => (
     <>
       <td className={tdClass}>
-        <a href={explorerUrl(address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={address}>
+        <a href={explorerUrl(address)} target="_blank" rel="noreferrer" className="hover:text-accent" title={address}>
           {name}
         </a>
         <a href={hyperdashUrl(address)} target="_blank" rel="noreferrer" className="ml-1.5 text-xs text-fg-muted hover:text-accent" title="Open on HyperDash">
@@ -309,36 +313,29 @@ export function EntriesTable({
             <TokenIcon ticker={c.coin} url={c.closes.map((x) => x.iconUrl).find(Boolean) ?? null} size="sm" />
             {c.coin}
           </span>
-          <span className={`ml-1.5 text-xs sm:hidden ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "L" : "S"}</span>
+          <span className={`ml-1.5 text-xs ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "Long" : "Short"}</span>
         </td>
         <td className={`${tdClass} whitespace-nowrap text-fg-muted`}>Closed</td>
-        <td className={`${tdClass} ${hideOnMobileClass} ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "Long" : "Short"}</td>
         <td className={`${tdClass} whitespace-nowrap`}>
           <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${MOVE_BADGE.close}`} title={each}>
-            {c.count > 1 ? `Closed ×${c.count} · last ${ago(c.lastClosedAt, nowMs)}` : `Closed ${ago(c.lastClosedAt, nowMs)}`}
+            {c.count > 1 ? `Closed ×${c.count} · ${ago(c.lastClosedAt, nowMs)}` : `Closed ${ago(c.lastClosedAt, nowMs)}`}
           </span>
         </td>
         <td className={`${tdClass} whitespace-nowrap`} title={c.firstOpenedAt === null ? "Opened before their latest fills" : c.count > 1 ? "The first of these opened" : undefined}>
           {c.firstOpenedAt !== null ? ago(c.firstOpenedAt, nowMs) : dash}
         </td>
         <td className={`${tdClass} ${hideOnMobileClass}`} title={c.count > 1 ? `Total closed over ${c.count} trades, at the exit price` : "Size closed, at the exit price"}>{formatCompactUsd(c.size * c.exitPx)}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
         <td className={tdClass}>{price(c.entryPx)}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
-        <td className={`${tdClass} whitespace-nowrap`} title="Their average exit">
-          {formatPrice(c.exitPx)} <span className="text-xs text-fg-muted">exit</span>
+        <td className={tdClass} title="Their average exit">
+          {formatPrice(c.exitPx)}
+          <span className="block text-xs text-fg-muted">exit</span>
         </td>
         <td className={`${tdClass} font-medium ${toneOf(c.returnPct)}`} title={c.count > 1 ? `Combined return of the ${c.count} closes at 1× (total PnL ÷ the entry value closed):\n${each}` : "Return from their entry to their exit, in their direction (at 1×)"}>
           {signedPct(c.returnPct)}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
         <td className={`${tdClass} whitespace-nowrap`} title={c.count > 1 ? `Total realized PnL of ${c.count} closes, before fees` : "Realized PnL of the close, before fees"}>
-          <span className={`font-medium ${toneOf(c.pnlUsd)}`}>{c.pnlUsd === null ? "—" : formatUsdSigned(Math.round(c.pnlUsd))}</span>
-          <span className="ml-1.5 text-xs text-fg-muted">realized</span>
+          <span className={`text-xs ${toneOf(c.pnlUsd)}`}>{c.pnlUsd === null ? "—" : formatUsdSigned(Math.round(c.pnlUsd))}</span>
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
         <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
       </tr>
     );
@@ -356,12 +353,11 @@ export function EntriesTable({
             <TokenIcon ticker={e.coin} url={e.iconUrl ?? null} size="sm" />
             {e.coin}
           </span>
-          <span className={`ml-1.5 text-xs sm:hidden ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "L" : "S"}</span>
+          <span className={`ml-1.5 text-xs ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</span>
         </td>
         <td className={`${tdClass} whitespace-nowrap ${ROLE_CLASS[role.role]}`} title={role.why}>
           {ROLE_LABEL[role.role]}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass} ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</td>
         <td className={`${tdClass} whitespace-nowrap`}>
           {move ? (
             <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${MOVE_BADGE[move.kind]}`} title={new Date(move.at).toLocaleString()}>
@@ -376,26 +372,46 @@ export function EntriesTable({
         <td className={`${tdClass} whitespace-nowrap`}>
           {e.openedAt !== null ? ago(e.openedAt, nowMs) : e.openedBefore !== null ? <span className="text-fg-muted">over {ago(e.openedBefore, nowMs).replace(" ago", "")}</span> : "—"}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{formatCompactUsd(live.notionalUsd)}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{sharePct(e.equityShare)}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`} title={e.marginMode ?? undefined}>
-          {e.leverage === null ? "—" : `${e.leverage}×`}
+        <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap`} title={`Position size; its share of their account and leverage${e.marginMode ? ` (${e.marginMode} margin)` : ""}`}>
+          {formatCompactUsd(live.notionalUsd)}
+          <span className="block text-xs text-fg-muted">
+            {sharePct(e.equityShare)} · {e.leverage === null ? "—" : `${e.leverage}×`}
+          </span>
         </td>
-        <td className={tdClass}>{price(e.entryPx)}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.openPx)}</td>
+        <td className={tdClass}>
+          {price(e.entryPx)}
+          {e.openPx !== null && e.entryPx !== null && Math.abs(e.openPx / e.entryPx - 1) > 0.0005 && (
+            <span className={`block text-xs text-fg-muted ${hideOnMobileClass}`} title="The price of the order that opened the position">
+              first {price(e.openPx)}
+            </span>
+          )}
+        </td>
         <td className={tdClass}>{price(live.mark)}</td>
-        <td className={`${tdClass} font-medium ${toneOf(live.vsEntry)}`}>{signedPct(live.vsEntry)}</td>
-        <td className={`${tdClass} ${hideOnMobileClass} ${toneOf(live.vsOpen)}`}>{signedPct(live.vsOpen)}</td>
+        <td className={tdClass}>
+          <span className={`font-medium ${toneOf(live.vsEntry)}`}>{signedPct(live.vsEntry)}</span>
+          {live.vsOpen !== null && live.vsEntry !== null && Math.abs(live.vsOpen - live.vsEntry) > 0.0005 && (
+            <span className={`block text-xs ${toneOf(live.vsOpen)} ${hideOnMobileClass}`} title="Since their first fill">
+              {signedPct(live.vsOpen)} first
+            </span>
+          )}
+        </td>
         <td className={`${tdClass} whitespace-nowrap`} title="Their return on margin: the move since their entry × their leverage (Hyperliquid's ROE); their PnL in dollars beside it">
           <span className={`font-medium ${toneOf(live.roe)}`}>{signedPct(live.roe)}</span>
-          {live.pnlUsd !== null && <span className="ml-1.5 text-xs text-fg-muted">{formatUsdSigned(Math.round(live.pnlUsd))}</span>}
+          {live.pnlUsd !== null && <span className="block text-xs text-fg-muted">{formatUsdSigned(Math.round(live.pnlUsd))}</span>}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{e.tpslKnown ? price(e.tp) : "?"}</td>
-        <td className={`${tdClass} ${hideOnMobileClass}`} title={e.tpslMore ? `${e.tpslMore} more TP/SL orders` : undefined}>
-          {e.tpslKnown ? e.sl === null ? <span className="text-fg-muted">none</span> : price(e.sl) : "?"}
+        <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap`} title={e.tpslMore ? `${e.tpslMore} more TP/SL orders` : "Take-profit / stop-loss"}>
+          {e.tpslKnown ? (
+            <>
+              {e.tp === null ? <span className="text-fg-muted">—</span> : price(e.tp)}
+              <span className="text-fg-muted"> / </span>
+              {e.sl === null ? <span className="text-fg-muted">none</span> : price(e.sl)}
+            </>
+          ) : (
+            "?"
+          )}
           {e.tpslMore > 0 && <span className="ml-1 text-xs text-fg-muted">+{e.tpslMore}</span>}
+          {e.liquidationPx !== null && <span className="block text-xs text-fg-muted" title="Liquidation price">liq {price(e.liquidationPx)}</span>}
         </td>
-        <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.liquidationPx)}</td>
       </tr>
     );
   };
@@ -458,21 +474,14 @@ export function EntriesTable({
               {h("Trader 30d", "trader30d", hideOnMobileClass)}
               {h("Coin", "coin")}
               {h("Role", "role")}
-              {h("Side", "side", hideOnMobileClass)}
               {h("Last move", "move")}
               {h("Opened", "opened")}
               {h("Size", "notional", hideOnMobileClass)}
-              {h("% equity", "share", hideOnMobileClass)}
-              {h("Lev", "leverage", hideOnMobileClass)}
               {h("Their entry", "entry")}
-              {h("First fill", "open", hideOnMobileClass)}
               {h("Price now", "mark")}
               {h("vs entry", "vsEntry")}
-              {h("vs first fill", "vsOpen", hideOnMobileClass)}
               {h("Their gain", "pnl")}
-              {h("TP", "tp", hideOnMobileClass)}
-              {h("SL", "sl", hideOnMobileClass)}
-              {h("Liq.", "liq", hideOnMobileClass)}
+              {h("TP / SL", "sl", hideOnMobileClass)}
             </tr>
           </thead>
           <tbody>

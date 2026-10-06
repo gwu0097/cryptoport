@@ -289,6 +289,10 @@ another table lists the trades I care about — open, closed or stopped".
   hit or Stopped out (the exit within 0.5% of the TP or SL it had when
   marked), Closed, or Not seen (closed longer ago than the closes kept).
   A later position in the same coin is another trade (`openedAt`).
+- **Figures in %** (owner: dollars mean little at another size): "Their
+  gain" is the return on margin (move × leverage) — once closed, the
+  return × the leverage it had when marked, else at 1× (labelled); their
+  dollar PnL is only in the tooltip. "Since tracked" is the move at 1×.
 - **Where**: the first section of Perp Scout, and on the Dashboard beside
   Open positions (Open positions 7 | tracked 5 columns; either alone takes
   the row). Every Perp Scout section is collapsible.

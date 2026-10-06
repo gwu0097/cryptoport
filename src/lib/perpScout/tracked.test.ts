@@ -55,3 +55,14 @@ test("a row finds its tracked trade; marking keeps the position's figures", () =
   assert.equal(findTracked([c], close()), c);
   assert.equal(resolveTracked(c, [], [close()]).status.kind, "closed");
 });
+
+test("their gain is on margin: the move × leverage, at 1× when unknown", () => {
+  const open = resolveTracked(trade(), [entry()], []);
+  assert.ok(Math.abs((open.gainPct ?? 0) - (95 / 90 - 1) * 5) < 1e-12);
+  const closed = resolveTracked(trade(), [], [close()]);
+  assert.ok(Math.abs((closed.gainPct ?? 0) - 0.5) < 1e-12);
+  assert.equal(closed.gainAt1x, false);
+  const unknown = resolveTracked(trade({ at: { ...trade().at, leverage: null } }), [], [close()]);
+  assert.equal(unknown.gainPct, 0.1);
+  assert.equal(unknown.gainAt1x, true);
+});
