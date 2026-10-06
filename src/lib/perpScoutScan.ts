@@ -1,52 +1,25 @@
 import "server-only";
 import { serviceDb } from "./supabase";
 import { mapWithConcurrency } from "./adapters/http";
-import { fetchAccountState, fetchLeaderboard, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
-import { passesStage1, pickForReview, stage3Failures, traderScore } from "./perpScout/screen";
-import { traderStats, type TraderStats } from "./perpScout/portfolio";
+import { fetchAccountState, fetchOpenOrders, fetchRecentFills } from "./adapters/hyperliquidScout";
 import { accountLeverage, buildEntries, netBias, type ScoutEntry } from "./perpScout/entries";
+import { FOLLOWED } from "./perpScout/followed";
 
-// Perp Scout's scan (docs/perp-scout/PLAN.md): screen the Hyperliquid
-// leaderboard down to the top TOP_N traders (reused for SCREEN_TTL_MS), then
-// read each one's open positions, fills and TP/SL orders. The result is
-// public market data, one shared row in app_settings (SETTING) that every
-// viewer reads; one scan runs at a time (RUN_SETTING, compare-and-set).
+// Perp Scout's scan (docs/perp-scout/PLAN.md): the open positions, latest
+// fills and TP/SL orders of the traders in followed.ts — a list curated in
+// chat, not found by the app (owner 2026-10-06). Public market data, one
+// shared app_settings row (SETTING) every viewer reads; one scan at a time
+// (RUN_SETTING, compare-and-set).
 
 const SETTING = "perp_scout";
 const RUN_SETTING = "perp_scout_run";
-export const TOP_N = 20;
-const REVIEW_N = 50;
-const SCREEN_TTL_MS = 24 * 60 * 60_000;
 /** A scan this recent is reused instead of run again. */
-const FRESH_MS = 2 * 60_000;
+const FRESH_MS = 60_000;
 /** A claimed run older than this died (the route has 300 s). */
 const RUN_STALE_MS = 6 * 60_000;
 /** Stop reading accounts after this; the rest keep their last entries. */
 const DEADLINE_MS = 250_000;
 const CONCURRENCY = 4;
-
-export interface ScoutTrader {
-  address: string;
-  displayName: string | null;
-  accountValue: number;
-  allTimePnl: number;
-  allTimeRoi: number;
-  monthPnl: number;
-  weekPnl: number;
-  stats: TraderStats;
-  score: number;
-}
-
-export interface ScoutScreen {
-  screenedAt: string;
-  leaderboardCount: number;
-  stage1Count: number;
-  reviewedCount: number;
-  /** Reviewed accounts whose history couldn't be read. */
-  failedCount: number;
-  passedCount: number;
-  traders: ScoutTrader[];
-}
 
 export interface ScoutBook {
   address: string;
@@ -65,27 +38,26 @@ export interface ScoutScan {
   entries: ScoutEntry[];
 }
 
-export interface PerpScoutData {
-  screen: ScoutScreen | null;
-  scan: ScoutScan | null;
-}
+export type ScanProgress = { stage: "positions"; done: number; total: number } | { stage: "saving" };
 
-export type ScanProgress = { stage: "leaderboard" } | { stage: "screen" | "positions"; done: number; total: number } | { stage: "saving" };
-
-export async function readPerpScout(): Promise<PerpScoutData> {
+/** The last scan, limited to the traders still on the list. */
+export async function readPerpScout(): Promise<ScoutScan | null> {
   const { data, error } = await serviceDb().from("app_settings").select("value").eq("key", SETTING).maybeSingle();
   if (error) throw new Error(error.message);
-  const v = (data?.value ?? {}) as Partial<PerpScoutData>;
-  return { screen: v.screen ?? null, scan: v.scan ?? null };
+  const scan = ((data?.value ?? null) as { scan?: ScoutScan } | null)?.scan ?? null;
+  if (!scan) return null;
+  const listed = new Set(FOLLOWED.map((f) => f.address));
+  return { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)) };
 }
 
-async function save(value: PerpScoutData): Promise<void> {
-  const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value, updated_at: new Date().toISOString() });
-  if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
+async function readRaw(): Promise<ScoutScan | null> {
+  const { data, error } = await serviceDb().from("app_settings").select("value").eq("key", SETTING).maybeSingle();
+  if (error) throw new Error(error.message);
+  return ((data?.value ?? null) as { scan?: ScoutScan } | null)?.scan ?? null;
 }
 
-/** One scan at a time across instances: claims RUN_SETTING with a
- * compare-and-set on its updated_at. */
+/** One scan at a time across instances: a compare-and-set on RUN_SETTING's
+ * updated_at. */
 async function claimRun(): Promise<{ ok: true; release: () => Promise<void> } | { ok: false }> {
   const db = serviceDb();
   const now = new Date();
@@ -105,60 +77,11 @@ async function claimRun(): Promise<{ ok: true; release: () => Promise<void> } | 
   };
 }
 
-async function screenTraders(progress: (p: ScanProgress) => void): Promise<ScoutScreen> {
-  progress({ stage: "leaderboard" });
-  const board = await fetchLeaderboard();
-  const stage1 = board.filter(passesStage1);
-  const review = pickForReview(stage1, REVIEW_N);
-  const now = Date.now();
-  let done = 0;
-  let failedCount = 0;
-  const reviewed = await mapWithConcurrency(review, CONCURRENCY, async (row) => {
-    try {
-      const stats = traderStats(await fetchPortfolio(row.address), now);
-      return { row, stats };
-    } catch (e) {
-      failedCount++;
-      console.error(`[perp-scout] ${row.address} history: ${(e as Error).message}`);
-      return null;
-    } finally {
-      progress({ stage: "screen", done: ++done, total: review.length });
-    }
-  });
-  const passed = reviewed
-    .filter((r): r is NonNullable<typeof r> => r !== null && stage3Failures(r.stats).length === 0)
-    .map(({ row, stats }) => ({ row, stats, score: traderScore(stats) }))
-    .filter((r): r is typeof r & { score: number } => r.score !== null)
-    .sort((a, b) => b.score - a.score);
-  if (failedCount === review.length && review.length > 0) throw new Error("No trader's history could be read from Hyperliquid");
-  return {
-    screenedAt: new Date(now).toISOString(),
-    leaderboardCount: board.length,
-    stage1Count: stage1.length,
-    reviewedCount: review.length,
-    failedCount,
-    passedCount: passed.length,
-    traders: passed.slice(0, TOP_N).map(({ row, stats, score }) => ({
-      address: row.address,
-      displayName: row.displayName,
-      accountValue: row.accountValue,
-      allTimePnl: row.allTime.pnl,
-      allTimeRoi: row.allTime.roi,
-      monthPnl: row.month.pnl,
-      weekPnl: row.week.pnl,
-      stats,
-      score,
-    })),
-  };
-}
-
 /** One account's book. Orders and fills are read only with a position. */
 async function readBook(address: string): Promise<{ book: ScoutBook; entries: ScoutEntry[] }> {
   const state = await fetchAccountState(address);
   const open = state.assetPositions.some(({ position }) => Number(position.szi) !== 0);
-  const [fills, orders] = open
-    ? await Promise.all([fetchRecentFills(address), fetchOpenOrders(address).catch(() => null)])
-    : [[], null];
+  const [fills, orders] = open ? await Promise.all([fetchRecentFills(address), fetchOpenOrders(address).catch(() => null)]) : [[], null];
   const entries = buildEntries(address, state, fills, orders);
   const accountValue = Number(state.marginSummary?.accountValue);
   return {
@@ -168,49 +91,45 @@ async function readBook(address: string): Promise<{ book: ScoutBook; entries: Sc
 }
 
 /**
- * A scan. `rescreen` re-runs the trader screen even when the last one is
- * under a day old. A trader whose positions can't be read (or aren't reached
- * before the deadline) keeps the previous scan's entries, marked with the
- * error — a failed read is never an empty book.
+ * A scan of every listed trader. One whose positions can't be read (or
+ * aren't reached before the deadline) keeps the previous scan's entries,
+ * marked with the error — a failed read is never an empty book.
  */
-export async function runScan(rescreen: boolean, progress: (p: ScanProgress) => void): Promise<{ status: "done" | "fresh" | "busy"; failed: number }> {
+export async function runScan(progress: (p: ScanProgress) => void): Promise<{ status: "done" | "fresh" | "busy" | "none"; failed: number }> {
   const started = Date.now();
-  const before = await readPerpScout();
-  if (!rescreen && before.scan && started - Date.parse(before.scan.scannedAt) < FRESH_MS && before.screen) return { status: "fresh", failed: 0 };
+  if (FOLLOWED.length === 0) return { status: "none", failed: 0 };
+  const before = await readRaw();
+  const sameList = before && before.books.length === FOLLOWED.length && FOLLOWED.every((f) => before.books.some((b) => b.address === f.address));
+  if (sameList && started - Date.parse(before.scannedAt) < FRESH_MS) return { status: "fresh", failed: 0 };
   const claim = await claimRun();
   if (!claim.ok) return { status: "busy", failed: 0 };
   try {
-    let screen = before.screen;
-    if (rescreen || !screen || started - Date.parse(screen.screenedAt) > SCREEN_TTL_MS) {
-      screen = await screenTraders(progress);
-      await save({ screen, scan: before.scan });
-    }
     const prevEntries = new Map<string, ScoutEntry[]>();
-    for (const e of before.scan?.entries ?? []) prevEntries.set(e.address, [...(prevEntries.get(e.address) ?? []), e]);
-    const prevBooks = new Map((before.scan?.books ?? []).map((b) => [b.address, b]));
-
+    for (const e of before?.entries ?? []) prevEntries.set(e.address, [...(prevEntries.get(e.address) ?? []), e]);
+    const prevBooks = new Map((before?.books ?? []).map((b) => [b.address, b]));
     let done = 0;
-    const traders = screen.traders;
-    const results = await mapWithConcurrency(traders, CONCURRENCY, async (t) => {
+    const results = await mapWithConcurrency([...FOLLOWED], CONCURRENCY, async (f) => {
       try {
         if (Date.now() - started > DEADLINE_MS) throw new Error("not reached in this scan (time limit)");
-        return await readBook(t.address);
+        return await readBook(f.address);
       } catch (e) {
-        const prev = prevBooks.get(t.address);
+        const prev = prevBooks.get(f.address);
         const error = (e as Error).message;
-        console.error(`[perp-scout] ${t.address} positions: ${error}`);
+        console.error(`[perp-scout] ${f.address} positions: ${error}`);
         return {
-          book: { address: t.address, readAt: prev?.readAt ?? null, error, accountValue: prev?.accountValue ?? null, leverage: prev?.leverage ?? null, bias: prev?.bias ?? null, positions: prev?.positions ?? 0 },
-          entries: prevEntries.get(t.address) ?? [],
+          book: { address: f.address, readAt: prev?.readAt ?? null, error, accountValue: prev?.accountValue ?? null, leverage: prev?.leverage ?? null, bias: prev?.bias ?? null, positions: prev?.positions ?? 0 },
+          entries: prevEntries.get(f.address) ?? [],
         };
       } finally {
-        progress({ stage: "positions", done: ++done, total: traders.length });
+        progress({ stage: "positions", done: ++done, total: FOLLOWED.length });
       }
     });
     progress({ stage: "saving" });
-    await save({ screen, scan: { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries: results.flatMap((r) => r.entries) } });
+    const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries: results.flatMap((r) => r.entries) };
+    const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value: { scan }, updated_at: new Date().toISOString() });
+    if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
     const failed = results.filter((r) => r.book.error).length;
-    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${traders.length} failed=${failed} entries=${results.reduce((s, r) => s + r.entries.length, 0)}`);
+    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${FOLLOWED.length} failed=${failed} entries=${scan.entries.length}`);
     return { status: "done", failed };
   } finally {
     await claim.release().catch(() => {});

@@ -11,6 +11,9 @@ export interface PortfolioSeries {
   accountValue: Series;
   /** Cumulative PnL since the window's start. */
   pnl: Series;
+  /** Perp volume all-time and over the last month (0 when not given). */
+  volume: number;
+  monthVolume: number;
 }
 
 export interface TraderStats {
@@ -29,6 +32,9 @@ export interface TraderStats {
   bestFourShare: number | null;
   /** totalPnl ÷ typicalEquity per year of history. */
   yearlyReturn: number | null;
+  /** All-time perp volume ÷ typical equity. */
+  turnover: number | null;
+  monthVolume: number;
 }
 
 const toSeries = (x: unknown): Series | null => {
@@ -43,18 +49,20 @@ const toSeries = (x: unknown): Series | null => {
   return out.sort((a, b) => a[0] - b[0]);
 };
 
-/** The all-time perps window (`perpAllTime`), else all-time (spot included).
- * An answer without either is an error. */
+/** The all-time perps window (`perpAllTime`) and the last month's perp
+ * volume. Perps only: the all-time window counts spot and vault money too, and
+ * accounts with no perp record read as smooth winners through it (owner's
+ * first scan, 2026-10-06). An answer without a perps history is an error. */
 export function parsePortfolio(json: unknown): PortfolioSeries {
   if (!Array.isArray(json)) throw new Error("Hyperliquid portfolio: not a list");
   const windows = new Map((json as unknown[]).filter((w): w is [string, unknown] => Array.isArray(w) && typeof w[0] === "string").map(([k, v]) => [k, v]));
-  for (const name of ["perpAllTime", "allTime"]) {
-    const w = windows.get(name) as { accountValueHistory?: unknown; pnlHistory?: unknown } | undefined;
-    const accountValue = toSeries(w?.accountValueHistory);
-    const pnl = toSeries(w?.pnlHistory);
-    if (accountValue && pnl && pnl.length > 0) return { accountValue, pnl };
-  }
-  throw new Error("Hyperliquid portfolio: no all-time PnL history");
+  const w = windows.get("perpAllTime") as { accountValueHistory?: unknown; pnlHistory?: unknown; vlm?: unknown } | undefined;
+  const accountValue = toSeries(w?.accountValueHistory);
+  const pnl = toSeries(w?.pnlHistory);
+  if (!accountValue || !pnl || pnl.length === 0) throw new Error("Hyperliquid portfolio: no perps history");
+  const month = windows.get("perpMonth") as { vlm?: unknown } | undefined;
+  const vol = (x: unknown) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  return { accountValue, pnl, volume: vol(w?.vlm), monthVolume: vol(month?.vlm) };
 }
 
 function median(xs: number[]): number | null {
@@ -113,5 +121,7 @@ export function traderStats(series: PortfolioSeries, nowMs: number): TraderStats
     winningWeeksShare: weeks.length ? weeks.filter((w) => w > 0).length / weeks.length : null,
     bestFourShare: totalPnl > 0 ? best4 / totalPnl : null,
     yearlyReturn: typicalEquity && years > 0 ? totalPnl / typicalEquity / years : null,
+    turnover: typicalEquity ? series.volume / typicalEquity : null,
+    monthVolume: series.monthVolume,
   };
 }

@@ -7,20 +7,19 @@ import { CollapsiblePanel } from "@/components/ui/CollapsiblePanel";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Button } from "@/components/ui/Button";
 import { AgeText } from "@/components/AgeText";
-import type { PerpScoutData } from "@/lib/perpScoutScan";
+import type { ScoutScan } from "@/lib/perpScoutScan";
+import { FOLLOWED } from "@/lib/perpScout/followed";
 import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
-import { shortAddress } from "./labels";
 
 /** Perp Scout's two sections: the followed traders' open entries (with
  * Refresh prices, current mids swapped in without a scan) and the traders. */
-export function PerpScoutView({ data, signedIn, serverNowSec }: { data: PerpScoutData; signedIn: boolean; serverNowSec: number }) {
+export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutScan | null; signedIn: boolean; serverNowSec: number }) {
   const [mids, setMids] = useState<{ at: number; mids: Record<string, number> } | null>(null);
   const [pricing, setPricing] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
-  const traders = data.screen?.traders ?? [];
-  const names = Object.fromEntries(traders.map((t) => [t.address, t.displayName ?? shortAddress(t.address)]));
-  const entries = data.scan?.entries ?? [];
+  const names = Object.fromEntries(FOLLOWED.map((f) => [f.address, f.name]));
+  const entries = scan?.entries ?? [];
 
   async function refreshPrices() {
     setPricing(true);
@@ -37,7 +36,6 @@ export function PerpScoutView({ data, signedIn, serverNowSec }: { data: PerpScou
     }
   }
 
-  const screen = data.screen;
   return (
     <div className="space-y-6">
       <Panel
@@ -56,35 +54,33 @@ export function PerpScoutView({ data, signedIn, serverNowSec }: { data: PerpScou
               Refresh prices
             </Button>
             <span className="text-xs text-fg-muted">
-              {priceError ? <span className="text-warning">{priceError}</span> : mids ? <AgeText at={mids.at} serverNowSec={serverNowSec} prefix="Prices " /> : data.scan ? <AgeText at={data.scan.scannedAt} serverNowSec={serverNowSec} prefix="Prices from the scan, " /> : null}
+              {priceError ? <span className="text-warning">{priceError}</span> : mids ? <AgeText at={mids.at} serverNowSec={serverNowSec} prefix="Prices " /> : scan ? <AgeText at={scan.scannedAt} serverNowSec={serverNowSec} prefix="Prices from the scan, " /> : null}
             </span>
           </div>
         }
       >
-        {data.scan ? (
+        {scan ? (
           <EntriesTable entries={entries} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} />
         ) : (
-          <p className="text-sm text-fg-muted">{signedIn ? "Press Scan to find the traders and read their open positions." : "Log in and press Scan to find the traders and read their open positions."}</p>
+          <p className="text-sm text-fg-muted">{signedIn ? "Press Scan to read the followed traders\u2019 open positions." : "Log in and press Scan to read the followed traders\u2019 open positions."}</p>
         )}
       </Panel>
 
-      {screen && (
-        <CollapsiblePanel
-          storageKey="cryptoport:perpScoutTradersOpen"
-          density="normal"
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              Traders
-              <InfoTooltip>
-                From Hyperliquid&apos;s leaderboard ({screen.leaderboardCount.toLocaleString()} accounts): $50K–$20M account, all-time PnL ≥ $100K and ROI ≥ 50%, profitable over 30 days, monthly volume ≤ 60× account value ({screen.stage1Count.toLocaleString()} passed). {screen.reviewedCount} of those — the biggest earners and the best ROI — had their PnL history checked: ≥ 26 weeks, max drawdown no larger than typical equity, no more than 80% of profit in the best 4 weeks ({screen.passedCount} passed{screen.failedCount ? `, ${screen.failedCount} unreadable` : ""}). Ranked by yearly return ÷ max drawdown.
-              </InfoTooltip>
-            </span>
-          }
-          summary={<span className="text-xs text-fg-muted">{traders.length} followed</span>}
-        >
-          {traders.length ? <TradersTable traders={traders} books={data.scan?.books ?? []} /> : <p className="text-sm text-fg-muted">No trader passed the screen.</p>}
-        </CollapsiblePanel>
-      )}
+      <CollapsiblePanel
+        storageKey="cryptoport:perpScoutTradersOpen"
+        density="normal"
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            Traders
+            <InfoTooltip>
+              The traders Perp Scout follows, picked in chat with Claude (src/lib/perpScout/followed.ts) — ask there to add or drop one. Win weeks, max drawdown (of the PnL curve, ÷ typical equity) and best-4-weeks share are from the day each was picked; equity, leverage, book and open positions are from the last scan.
+            </InfoTooltip>
+          </span>
+        }
+        summary={<span className="text-xs text-fg-muted">{FOLLOWED.length} followed</span>}
+      >
+        {FOLLOWED.length ? <TradersTable followed={FOLLOWED} books={scan?.books ?? []} /> : <p className="text-sm text-fg-muted">No traders on the list yet.</p>}
+      </CollapsiblePanel>
     </div>
   );
 }

@@ -5,14 +5,17 @@ import { parsePortfolio, traderStats, weeklyChanges, maxDrawdown } from "./portf
 const DAY = 24 * 60 * 60_000;
 const WEEK = 7 * DAY;
 
-test("parsePortfolio prefers the perps all-time window", () => {
+test("parsePortfolio reads the perps all-time window and the month's perp volume", () => {
   const s = parsePortfolio([
-    ["allTime", { accountValueHistory: [[1, "5"]], pnlHistory: [[1, "1"]] }],
-    ["perpAllTime", { accountValueHistory: [[2, "10"], [1, "9"]], pnlHistory: [[1, "0"], [2, "3"]] }],
+    ["allTime", { accountValueHistory: [[1, "5"]], pnlHistory: [[1, "1"]], vlm: "1" }],
+    ["perpAllTime", { accountValueHistory: [[2, "10"], [1, "9"]], pnlHistory: [[1, "0"], [2, "3"]], vlm: "500" }],
+    ["perpMonth", { accountValueHistory: [], pnlHistory: [], vlm: "40" }],
   ]);
   assert.deepEqual(s.accountValue, [[1, 9], [2, 10]], "sorted by time");
   assert.deepEqual(s.pnl, [[1, 0], [2, 3]]);
-  assert.throws(() => parsePortfolio([["day", {}]]));
+  assert.equal(s.volume, 500);
+  assert.equal(s.monthVolume, 40);
+  assert.throws(() => parsePortfolio([["allTime", { accountValueHistory: [[1, "5"]], pnlHistory: [[1, "1"]] }]]), /no perps history/, "never falls back to spot + vaults");
   assert.throws(() => parsePortfolio({}));
 });
 
@@ -37,7 +40,7 @@ test("traderStats: a deposit doesn't count as profit or drawdown; best-4 share a
     v += k === 20 ? 200 : 10;
   }
   const accountValue: [number, number][] = [[0, 1000], [10 * WEEK, 1000], [30 * WEEK, 5000], [40 * WEEK, 1000], [50 * WEEK, 1000]];
-  const s = traderStats({ pnl, accountValue }, now);
+  const s = traderStats({ pnl, accountValue, volume: 50_000, monthVolume: 0 }, now);
   assert.equal(s.historyWeeks, 52);
   assert.equal(s.totalPnl, 51 * 10 + 200);
   assert.equal(s.typicalEquity, 1000);
@@ -45,10 +48,11 @@ test("traderStats: a deposit doesn't count as profit or drawdown; best-4 share a
   assert.equal(s.winningWeeksShare, 1);
   assert.equal(s.bestFourShare, (200 + 30) / 710);
   assert.ok(Math.abs((s.yearlyReturn ?? 0) - 0.71 / (52 / 52.18)) < 1e-9);
+  assert.equal(s.turnover, 50);
 });
 
 test("traderStats: losing curve has no best-4 share", () => {
-  const s = traderStats({ pnl: [[0, 0], [WEEK, -5]], accountValue: [] }, WEEK);
+  const s = traderStats({ pnl: [[0, 0], [WEEK, -5]], accountValue: [], volume: 0, monthVolume: 0 }, WEEK);
   assert.equal(s.bestFourShare, null);
   assert.equal(s.typicalEquity, null);
   assert.equal(s.drawdownShare, null);
