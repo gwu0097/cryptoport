@@ -164,6 +164,41 @@ export const FOLLOWED: readonly FollowedTrader[] = [
     why: "Swing screen 2026-10-06: +79% 12 mo, +14% 30 d; 10 orders a week, median hold 24 h; drawdown 19%",
     picked: { asOf: "2026-10-06", equity: 1254288, typicalEquity: 318526, allTimePnl: 341696, monthPnl: 176005, historyMonths: 29, winningWeeks: 0.57, drawdownShare: 0.19, bestFourShare: 0.53 },
   },
+  {
+    address: "0x6a02aedceac5a6813d960e4dae1910d9c458e77c",
+    name: "Swing 6a02 (17 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06 (batch 2): +160% 12 mo, +18% 30 d; 19 orders a week, median hold 17 h; drawdown 36%",
+    picked: { asOf: "2026-10-06", equity: 1142882, typicalEquity: 867501, allTimePnl: 1391105, monthPnl: 210579, historyMonths: 7, winningWeeks: 0.69, drawdownShare: 0.36, bestFourShare: 0.73 },
+  },
+  {
+    address: "0xcb34e4bd8c63064d94f5d752ceaf9355aa070b1c",
+    name: "Swing cb34 (2 d holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06 (batch 2): +93% 12 mo, +25% 30 d; 12 orders a week, median hold 2 d; drawdown 23%",
+    picked: { asOf: "2026-10-06", equity: 345790, typicalEquity: 182381, allTimePnl: 170099, monthPnl: 85164, historyMonths: 15, winningWeeks: 0.69, drawdownShare: 0.23, bestFourShare: 0.78 },
+  },
+  {
+    address: "0x69b05701f8175c276ecd0138387a197948e240bb",
+    name: "Swing 69b0 (2 d holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06 (batch 2): +79% 12 mo, +9% 30 d; 8 orders a week, median hold 2 d; drawdown 19%",
+    picked: { asOf: "2026-10-06", equity: 761390, typicalEquity: 561987, allTimePnl: 691479, monthPnl: 67783, historyMonths: 16, winningWeeks: 0.56, drawdownShare: 0.19, bestFourShare: 0.55 },
+  },
+  {
+    address: "0x413c7a0a3489563350219bc96965a7da02f0fffc",
+    name: "Swing 413c (5 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06 (batch 2): +61% 12 mo, +17% 30 d; 28 orders a week, median hold 5 h; drawdown 46%",
+    picked: { asOf: "2026-10-06", equity: 878410, typicalEquity: 491552, allTimePnl: 1243840, monthPnl: 150201, historyMonths: 21, winningWeeks: 0.59, drawdownShare: 0.46, bestFourShare: 0.52 },
+  },
+  {
+    address: "0x5b236d19f680ff47e7bf2a9eb88fc5cc03d443a8",
+    name: "Swing 5b23 (12 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06 (batch 2): +309% 12 mo, +6% 30 d; 6 orders a week, median hold 12 h; drawdown 45%",
+    picked: { asOf: "2026-10-06", equity: 118982, typicalEquity: 67506, allTimePnl: 248284, monthPnl: 6714, historyMonths: 29, winningWeeks: 0.65, drawdownShare: 0.45, bestFourShare: 0.69 },
+  },
 ];
 
 /** Most traders a scan reads (the code list and those added on the page). */
