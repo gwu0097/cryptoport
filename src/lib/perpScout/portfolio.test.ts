@@ -54,6 +54,7 @@ test("traderStats: a deposit doesn't count as profit or drawdown; best-4 share a
   assert.ok(Math.abs((s.yearlyReturn ?? 0) - 0.71 / (52 / 52.18)) < 1e-9);
   assert.equal(s.turnover, 50);
   assert.equal(s.equityNow, 1000);
+  assert.equal(s.yearPnl, 710 - 0, "a year-old curve: all of it");
 });
 
 test("traderStats: losing curve has no best-4 share", () => {

@@ -15,7 +15,9 @@ import { FOLLOWED, MAX_FOLLOWED, isTraderAddress, mergeFollowed, type FollowedTr
 // (RUN_SETTING, compare-and-set).
 
 const SETTING = "perp_scout";
-/** Traders the owner added on the page (`{ traders: FollowedTrader[] }`). */
+/** The owner's changes on the page: traders added, and addresses removed
+ * (`{ traders: FollowedTrader[], removed: string[] }`) — a code-list trader
+ * removed there stays in followed.ts but isn't scanned or shown. */
 const ADDED_SETTING = "perp_scout_added";
 const RUN_SETTING = "perp_scout_run";
 /** A scan this recent is reused instead of run again. */
@@ -54,30 +56,33 @@ export interface PerpScoutState {
   scan: ScoutScan | null;
   /** The list: followed.ts, then the traders added on the page. */
   traders: FollowedTrader[];
-  /** Addresses added on the page (only these can be removed there). */
-  added: string[];
 }
 
-async function readRows(): Promise<{ scan: ScoutScan | null; added: FollowedTrader[] }> {
+interface ListChanges {
+  added: FollowedTrader[];
+  removed: string[];
+}
+
+async function readRows(): Promise<{ scan: ScoutScan | null } & ListChanges> {
   const { data, error } = await serviceDb().from("app_settings").select("key, value").in("key", [SETTING, ADDED_SETTING]);
   if (error) throw new Error(error.message);
   const byKey = new Map((data ?? []).map((r: { key: string; value: unknown }) => [r.key, r.value]));
+  const changes = (byKey.get(ADDED_SETTING) ?? null) as { traders?: FollowedTrader[]; removed?: string[] } | null;
   return {
     scan: ((byKey.get(SETTING) ?? null) as { scan?: ScoutScan } | null)?.scan ?? null,
-    added: ((byKey.get(ADDED_SETTING) ?? null) as { traders?: FollowedTrader[] } | null)?.traders ?? [],
+    added: changes?.traders ?? [],
+    removed: changes?.removed ?? [],
   };
 }
 
 /** Everything the page shows, in one request. */
 export async function readPerpScout(): Promise<PerpScoutState> {
-  const { scan, added } = await readRows();
-  const traders = mergeFollowed(FOLLOWED, added);
+  const { scan, added, removed } = await readRows();
+  const traders = mergeFollowed(FOLLOWED, added, removed);
   const listed = new Set(traders.map((f) => f.address));
-  const inCode = new Set(FOLLOWED.map((f) => f.address));
   return {
     scan: scan && { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)) },
     traders,
-    added: added.map((f) => f.address).filter((a) => !inCode.has(a)),
   };
 }
 
@@ -89,9 +94,14 @@ export async function readPerpScout(): Promise<PerpScoutState> {
 export async function addTrader(rawAddress: string, rawName: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
   const address = rawAddress.trim().toLowerCase();
   if (!isTraderAddress(address)) return { ok: false, error: "Not a Hyperliquid address (0x and 40 hex characters)" };
-  const { added } = await readRows();
-  const traders = mergeFollowed(FOLLOWED, added);
+  const { added, removed } = await readRows();
+  const traders = mergeFollowed(FOLLOWED, added, removed);
   if (traders.some((f) => f.address === address)) return { ok: false, error: "Already on the list" };
+  // A code-list trader removed earlier comes back as it was.
+  if (FOLLOWED.some((f) => f.address === address)) {
+    await saveChanges({ added, removed: removed.filter((a) => a !== address) });
+    return { ok: true };
+  }
   if (traders.length >= MAX_FOLLOWED) return { ok: false, error: `The list is full (${MAX_FOLLOWED}) — remove one first` };
   let stats: TraderStats;
   try {
@@ -118,21 +128,23 @@ export async function addTrader(rawAddress: string, rawName: string | null): Pro
       bestFourShare: stats.bestFourShare,
     },
   };
-  await saveAdded([...added, trader]);
+  await saveChanges({ added: [...added, trader], removed: removed.filter((a) => a !== address) });
   return { ok: true };
 }
 
-/** Removes a trader added on the page (the code list is changed in code). */
+/** Removes a trader from the list: one added on the page is deleted; one
+ * from followed.ts is hidden (re-adding its address brings it back). */
 export async function removeTrader(rawAddress: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const address = rawAddress.trim().toLowerCase();
-  const { added } = await readRows();
-  if (!added.some((f) => f.address === address)) return { ok: false, error: "Only traders added on the page can be removed here" };
-  await saveAdded(added.filter((f) => f.address !== address));
+  const { added, removed } = await readRows();
+  if (!mergeFollowed(FOLLOWED, added, removed).some((f) => f.address === address)) return { ok: false, error: "Not on the list" };
+  const inCode = FOLLOWED.some((f) => f.address === address);
+  await saveChanges({ added: added.filter((f) => f.address !== address), removed: inCode ? [...new Set([...removed, address])] : removed });
   return { ok: true };
 }
 
-async function saveAdded(traders: FollowedTrader[]): Promise<void> {
-  const { error } = await serviceDb().from("app_settings").upsert({ key: ADDED_SETTING, value: { traders }, updated_at: new Date().toISOString() });
+async function saveChanges({ added, removed }: ListChanges): Promise<void> {
+  const { error } = await serviceDb().from("app_settings").upsert({ key: ADDED_SETTING, value: { traders: added, removed }, updated_at: new Date().toISOString() });
   if (error) throw new Error(`Perp Scout list not saved: ${error.message}`);
 }
 
@@ -186,8 +198,8 @@ async function readBook(address: string): Promise<{ book: ScoutBook; entries: Sc
  */
 export async function runScan(progress: (p: ScanProgress) => void): Promise<{ status: "done" | "fresh" | "busy" | "none"; failed: number }> {
   const started = Date.now();
-  const { scan: before, added } = await readRows();
-  const following = mergeFollowed(FOLLOWED, added);
+  const { scan: before, added, removed } = await readRows();
+  const following = mergeFollowed(FOLLOWED, added, removed);
   if (following.length === 0) return { status: "none", failed: 0 };
   const sameList = before && before.books.length === following.length && following.every((f) => before.books.some((b) => b.address === f.address));
   if (sameList && started - Date.parse(before.scannedAt) < FRESH_MS) return { status: "fresh", failed: 0 };

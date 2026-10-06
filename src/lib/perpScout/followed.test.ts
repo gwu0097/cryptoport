@@ -13,6 +13,7 @@ test("mergeFollowed: the code list first, page additions after, no repeats", asy
   const t = (address: string, name: string) => ({ address, name, addedOn: "2026-10-06", why: "", picked: { asOf: "2026-10-06", equity: null, allTimePnl: null, monthPnl: null, historyMonths: null, winningWeeks: null, drawdownShare: null, bestFourShare: null } });
   const merged = mergeFollowed([t("0xa", "code")], [t("0xa", "dup"), t("0xb", "page")]);
   assert.deepEqual(merged.map((f) => f.name), ["code", "page"]);
+  assert.deepEqual(mergeFollowed([t("0xa", "code")], [t("0xb", "page")], ["0xa"]).map((f) => f.name), ["page"], "a code trader removed on the page");
   assert.equal(isTraderAddress("0x" + "a".repeat(40)), true);
   assert.equal(isTraderAddress("0x" + "A".repeat(40)), false, "lowercase only (callers lowercase first)");
   assert.equal(isTraderAddress("0x123"), false);

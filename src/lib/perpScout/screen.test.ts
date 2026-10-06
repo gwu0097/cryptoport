@@ -50,7 +50,7 @@ test("pickForReview alternates top all-time PnL and top 30-day PnL without repea
 });
 
 const stats = (o: Partial<TraderStats>): TraderStats => ({
-  historyWeeks: 52, totalPnl: 1e6, typicalEquity: 1e6, maxDrawdownUsd: 2e5, drawdownShare: 0.2, winningWeeksShare: 0.6, bestFourShare: 0.5, yearlyReturn: 1, turnover: 40, monthVolume: 5e6, equityNow: 1e6, monthPnl: 1e5, ...o,
+  historyWeeks: 52, totalPnl: 1e6, typicalEquity: 1e6, maxDrawdownUsd: 2e5, drawdownShare: 0.2, winningWeeksShare: 0.6, bestFourShare: 0.5, yearlyReturn: 1, turnover: 40, monthVolume: 5e6, equityNow: 1e6, monthPnl: 1e5, yearPnl: 5e5, ...o,
 });
 
 test("stage 3 names each failure", () => {

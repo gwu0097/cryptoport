@@ -7,6 +7,7 @@ import { CollapsiblePanel } from "@/components/ui/CollapsiblePanel";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Button } from "@/components/ui/Button";
 import { AgeText } from "@/components/AgeText";
+import { useNowSec } from "@/components/useServerNow";
 import type { PerpScoutState } from "@/lib/perpScoutScan";
 import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
@@ -16,6 +17,7 @@ import { AddTraderForm } from "./AddTraderForm";
  * Refresh prices, current mids swapped in without a scan) and the traders. */
 export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { state: PerpScoutState; signedIn: boolean; isOwner: boolean; serverNowSec: number }) {
   const { scan, traders } = state;
+  const nowMs = useNowSec(serverNowSec) * 1000;
   const [mids, setMids] = useState<{ at: number; mids: Record<string, number> } | null>(null);
   const [pricing, setPricing] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
@@ -74,13 +76,13 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
           <span className="inline-flex items-center gap-1.5">
             Traders
             <InfoTooltip>
-              The traders Perp Scout follows: picked in chat with Claude (src/lib/perpScout/followed.ts), plus any the owner added by address below (those can be removed here; positions show after the next Scan). Perps record (all-time PnL with its % of the account&apos;s typical value, 30-day PnL with its % of the account now, winning weeks, max drawdown of the PnL curve ÷ the account&apos;s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader&apos;s first scan, the figures they were picked on.
+              The traders Perp Scout follows: picked in chat with Claude (src/lib/perpScout/followed.ts), plus any the owner added by address below (positions show after the next Scan). The owner can remove any trader with ✕; a removed one comes back by adding its address again. Perps record (all-time PnL with its % of the account&apos;s typical value, 30-day PnL with its % of the account now, winning weeks, max drawdown of the PnL curve ÷ the account&apos;s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader&apos;s first scan, the figures they were picked on.
             </InfoTooltip>
           </span>
         }
         summary={<span className="text-xs text-fg-muted">{traders.length} followed</span>}
       >
-        {traders.length ? <TradersTable followed={traders} books={scan?.books ?? []} removable={isOwner ? state.added : []} /> : <p className="text-sm text-fg-muted">No traders on the list yet.</p>}
+        {traders.length ? <TradersTable followed={traders} books={scan?.books ?? []} entries={entries} mids={mids?.mids ?? null} nowMs={nowMs} removable={isOwner ? traders.map((f) => f.address) : []} /> : <p className="text-sm text-fg-muted">No traders on the list yet.</p>}
         {isOwner && <AddTraderForm />}
       </CollapsiblePanel>
     </div>

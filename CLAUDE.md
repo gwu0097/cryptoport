@@ -360,8 +360,9 @@ owner's.
   `src/lib/perpScout/followed.ts` `FOLLOWED`, each with why and the figures
   it was picked on. The owner can also add one by address on the page
   (`api/perp-scout/traders` → `addTrader`, one `portfolio` read; stored in
-  `app_settings` `perp_scout_added`, removable there; owner only — the list
-  is shared); a scan reads both (`mergeFollowed`, at most 40). Candidates come from `scripts/diag/perp-scout-screen.mts`
+  `app_settings` `perp_scout_added`; any trader is removable there — a
+  code-list one is hidden through the row's `removed` addresses; owner only
+  — the list is shared); a scan reads both (`mergeFollowed`, at most 40). Candidates come from `scripts/diag/perp-scout-screen.mts`
   (pure `perpScout/screen.ts` + `portfolio.ts`: leaderboard $50K–$20M,
   all-time PnL ≥ $100K and ROI ≥ 50%, 30d profitable, monthly volume ≤ 60×
   equity, then `looksPromising`; then **perps** PnL against the **whole
