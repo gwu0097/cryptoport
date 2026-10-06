@@ -373,7 +373,9 @@ owner's.
   was opened and at what price, `perpScout/entries.ts` `positionOpening`)
   and TP/SL orders into one shared `app_settings` row (`perp_scout`; one
   scan at a time, `perp_scout_run`); a trader not read keeps last scan's
-  entries. Calls go through one weight pacer per instance
+  entries. Each entry shows the trader's 30-day perps PnL and its role in
+  their book (`entries.ts` `positionRole`: paired / hedge / book leg /
+  directional — an inference from the rest of the book, reason on hover). Calls go through one weight pacer per instance
   (`perpScout/pacer.ts`, 1,000 of the IP's 1,200 a minute). Refresh prices
   is one `allMids` call, not stored.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research

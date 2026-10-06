@@ -220,3 +220,37 @@ export function liveFigures(e: ScoutEntry, mid: number | null | undefined): Live
     vsOpen: moveInFavour(e.side, e.openPx, mark),
   };
 }
+
+export type PositionRole = "directional" | "hedge" | "pair" | "book";
+
+/** How long apart two opposite positions can be opened and still count as
+ * one pair trade. */
+const PAIR_WINDOW_MS = 2 * 60 * 60_000;
+/** |net bias| at or above which a book leans one way. */
+const LEAN = 0.5;
+/** |net bias| under which a book is balanced long/short. */
+const BALANCED = 0.3;
+
+/**
+ * What a position is to its trader, read from the rest of their book —
+ * Hyperliquid doesn't say, so this is an inference with its reason:
+ *  - pair: opened within 2 h of an opposite-side position (a pair trade);
+ *  - hedge: against a book that leans clearly the other way;
+ *  - book: one leg of a roughly balanced long/short book;
+ *  - directional: with the book's lean, or the only position.
+ */
+export function positionRole(e: ScoutEntry, book: readonly ScoutEntry[]): { role: PositionRole; why: string } {
+  if (e.openedAt !== null) {
+    const partners = book.filter((o) => o.side !== e.side && o.openedAt !== null && Math.abs(o.openedAt - e.openedAt!) <= PAIR_WINDOW_MS);
+    if (partners.length) return { role: "pair", why: `Opened with ${partners.map((p) => `${p.coin} ${p.side}`).join(", ")} on the other side (within 2 h)` };
+  }
+  const others = book.filter((o) => o !== e);
+  if (others.length === 0) return { role: "directional", why: "Their only open position" };
+  const bias = netBias(book);
+  if (bias === null) return { role: "directional", why: "Book size unknown" };
+  const pct = `${Math.round(Math.abs(bias) * 100)}%`;
+  const lean = bias > 0 ? "long" : "short";
+  if (Math.abs(bias) < BALANCED) return { role: "book", why: `One leg of a balanced long/short book (net ${pct} ${lean})` };
+  if (Math.abs(bias) >= LEAN && lean !== e.side) return { role: "hedge", why: `Against a book that's net ${pct} ${lean}` };
+  return { role: lean === e.side ? "directional" : "book", why: lean === e.side ? `With the book's lean (net ${pct} ${lean})` : `Against a mildly ${lean} book (net ${pct})` };
+}

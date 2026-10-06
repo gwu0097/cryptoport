@@ -7,10 +7,11 @@ import { chipClass } from "@/components/ui/chip";
 import { usePersistedState } from "@/components/usePersistedState";
 import { useNowSec } from "@/components/useServerNow";
 import { formatCompactUsd, formatPrice, formatUsdSigned } from "@/lib/format";
-import { liveFigures, type ScoutEntry } from "@/lib/perpScout/entries";
+import { liveFigures, positionRole, type PositionRole, type ScoutEntry } from "@/lib/perpScout/entries";
+import type { ScoutBook } from "@/lib/perpScoutScan";
 import { ago, compareNullable, explorerUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
 
-type SortKey = "trader" | "coin" | "side" | "opened" | "notional" | "share" | "leverage" | "entry" | "open" | "mark" | "vsEntry" | "vsOpen" | "pnl" | "tp" | "sl" | "liq";
+type SortKey = "trader" | "trader30d" | "role" | "coin" | "side" | "opened" | "notional" | "share" | "leverage" | "entry" | "open" | "mark" | "vsEntry" | "vsOpen" | "pnl" | "tp" | "sl" | "liq";
 type Window = "24h" | "7d" | "30d" | "any";
 const WINDOW_MS: Record<Window, number> = { "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000, any: Infinity };
 
@@ -18,11 +19,20 @@ interface Row {
   e: ScoutEntry;
   name: string;
   live: ReturnType<typeof liveFigures>;
+  role: { role: PositionRole; why: string };
+  /** The trader's perps PnL over the last 30 days, and as a share of their account. */
+  month: { usd: number | null; share: number | null };
 }
+
+const ROLE_LABEL: Record<PositionRole, string> = { directional: "Directional", hedge: "Hedge", pair: "Paired", book: "Book leg" };
+const ROLE_ORDER: Record<PositionRole, number> = { directional: 0, pair: 1, book: 2, hedge: 3 };
+const ROLE_CLASS: Record<PositionRole, string> = { directional: "text-fg", pair: "text-fg-muted", book: "text-fg-muted", hedge: "text-warning" };
 
 function sortValue(r: Row, key: SortKey): number | string | null {
   switch (key) {
     case "trader": return r.name.toLowerCase();
+    case "trader30d": return r.month.usd;
+    case "role": return ROLE_ORDER[r.role.role];
     case "coin": return r.e.coin.toLowerCase();
     case "side": return r.e.side;
     // Opened before the fills read sorts as just before that bound.
@@ -50,7 +60,7 @@ const price = (x: number | null) => (x === null ? "—" : formatPrice(x));
  * since their average entry in their direction: negative means they're down
  * and the price now is better than theirs.
  */
-export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: ScoutEntry[]; names: Record<string, string>; mids: Record<string, number> | null; serverNowSec: number }) {
+export function EntriesTable({ entries, books, names, mids, serverNowSec }: { entries: ScoutEntry[]; books: ScoutBook[]; names: Record<string, string>; mids: Record<string, number> | null; serverNowSec: number }) {
   const nowMs = useNowSec(serverNowSec) * 1000;
   const [sortKey, setSortKey] = usePersistedState<SortKey>("cryptoport:perpScoutEntriesSort", "opened");
   const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">("cryptoport:perpScoutEntriesSortDir", "desc");
@@ -58,6 +68,7 @@ export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: 
   const [betterOnly, setBetterOnly] = usePersistedState("cryptoport:perpScoutBetterOnly", false);
   const [side, setSide] = usePersistedState<"both" | "long" | "short">("cryptoport:perpScoutSide", "both");
   const [trader, setTrader] = usePersistedState<string>("cryptoport:perpScoutTrader", "");
+  const [directionalOnly, setDirectionalOnly] = usePersistedState("cryptoport:perpScoutDirectionalOnly", false);
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -68,14 +79,28 @@ export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: 
   };
 
   const rows = useMemo(() => {
-    const all: Row[] = entries.map((e) => ({ e, name: names[e.address] ?? shortAddress(e.address), live: liveFigures(e, mids?.[e.coin]) }));
+    const byTrader = new Map<string, ScoutEntry[]>();
+    for (const e of entries) byTrader.set(e.address, [...(byTrader.get(e.address) ?? []), e]);
+    const bookOf = new Map(books.map((b) => [b.address, b]));
+    const all: Row[] = entries.map((e) => {
+      const b = bookOf.get(e.address);
+      const usd = b?.stats?.monthPnl ?? null;
+      return {
+        e,
+        name: names[e.address] ?? shortAddress(e.address),
+        live: liveFigures(e, mids?.[e.coin]),
+        role: positionRole(e, byTrader.get(e.address) ?? [e]),
+        month: { usd, share: usd !== null && b?.accountValue ? usd / b.accountValue : null },
+      };
+    });
     return all
+      .filter((r) => !directionalOnly || r.role.role === "directional")
       .filter((r) => window === "any" || (r.e.openedAt !== null && nowMs - r.e.openedAt <= WINDOW_MS[window]))
       .filter((r) => !betterOnly || (r.live.vsEntry !== null && r.live.vsEntry < 0))
       .filter((r) => side === "both" || r.e.side === side)
       .filter((r) => !trader || r.e.address === trader)
       .sort((a, b) => compareNullable(sortValue(a, sortKey), sortValue(b, sortKey), sortDir));
-  }, [entries, names, mids, window, betterOnly, side, trader, sortKey, sortDir, nowMs]);
+  }, [entries, books, names, mids, window, betterOnly, side, trader, directionalOnly, sortKey, sortDir, nowMs]);
 
   const traders = useMemo(() => [...new Set(entries.map((e) => e.address))].sort((a, b) => (names[a] ?? a).localeCompare(names[b] ?? b)), [entries, names]);
   const h = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
@@ -99,6 +124,10 @@ export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: 
           <input type="checkbox" checked={betterOnly} onChange={(e) => setBetterOnly(e.target.checked)} />
           Only below their entry (above, for shorts)
         </label>
+        <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted" title="Hide hedges, pair trades and legs of balanced long/short books">
+          <input type="checkbox" checked={directionalOnly} onChange={(e) => setDirectionalOnly(e.target.checked)} />
+          Directional only
+        </label>
         {traders.length > 1 && (
           <select value={trader} onChange={(e) => setTrader(e.target.value)} className="ml-auto rounded-lg border border-border bg-surface px-2 py-1 text-xs text-fg">
             <option value="">All traders</option>
@@ -115,7 +144,9 @@ export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: 
           <thead>
             <tr className={`${theadRowClass} whitespace-nowrap`}>
               {h("Trader", "trader")}
+              {h("Trader 30d", "trader30d", hideOnMobileClass)}
               {h("Coin", "coin")}
+              {h("Role", "role")}
               {h("Side", "side", hideOnMobileClass)}
               {h("Opened", "opened")}
               {h("Size", "notional", hideOnMobileClass)}
@@ -133,16 +164,23 @@ export function EntriesTable({ entries, names, mids, serverNowSec }: { entries: 
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ e, name, live }) => (
+            {rows.map(({ e, name, live, role, month }) => (
               <tr key={`${e.address}:${e.coin}`} className={trClass}>
                 <td className={tdClass}>
                   <a href={explorerUrl(e.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={e.address}>
                     {name}
                   </a>
                 </td>
+                <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap ${toneOf(month.usd)}`} title="The trader's perps PnL over the last 30 days, and as a share of their account">
+                  {month.usd === null ? "—" : formatCompactUsd(month.usd)}
+                  {month.share !== null && <span className="ml-1 text-xs">{signedPct(month.share, 0)}</span>}
+                </td>
                 <td className={`${tdClass} font-medium`}>
                   {e.coin}
                   <span className={`ml-1.5 text-xs sm:hidden ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "L" : "S"}</span>
+                </td>
+                <td className={`${tdClass} whitespace-nowrap ${ROLE_CLASS[role.role]}`} title={role.why}>
+                  {ROLE_LABEL[role.role]}
                 </td>
                 <td className={`${tdClass} ${hideOnMobileClass} ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</td>
                 <td className={`${tdClass} whitespace-nowrap`} title={e.lastAddAt ? `Last added ${ago(e.lastAddAt, nowMs)}` : undefined}>

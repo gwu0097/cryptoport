@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseFills, positionOpening, buildEntries, moveInFavour, accountLeverage, netBias, liveFigures, type Fill, type ScoutAccountState } from "./entries.ts";
+import { parseFills, positionOpening, buildEntries, moveInFavour, accountLeverage, netBias, liveFigures, positionRole, type Fill, type ScoutAccountState, type ScoutEntry } from "./entries.ts";
 
 const fill = (time: number, side: "A" | "B", sz: number, start: number, px: number, oid = time, coin = "ADA"): Fill => ({ coin, px, sz, side, time, startPosition: start, oid });
 
@@ -95,4 +95,26 @@ test("liveFigures: a newer mid replaces the scan's mark", () => {
   assert.ok(Math.abs((live.notionalUsd ?? 0) - 110) < 1e-9);
   assert.ok((live.vsEntry ?? 0) < 0, "price above a short's entry: better than theirs");
   assert.ok((live.vsOpen ?? 0) > 0, "still below their first fill at 1.2");
+});
+
+test("positionRole: pair, hedge, book leg, directional", () => {
+  const e = (coin: string, side: "long" | "short", notional: number, openedAt: number | null = null) =>
+    ({ address: "0xa", coin, side, notionalUsd: notional, openedAt }) as ScoutEntry;
+  const H = 3_600_000;
+  // Opened together on opposite sides: a pair, whatever the book's lean.
+  const zro = e("ZRO", "long", 100, 10 * H), sui = e("SUI", "short", 100, 11 * H), eth = e("ETH", "long", 1000);
+  assert.equal(positionRole(zro, [zro, sui, eth]).role, "pair");
+  assert.match(positionRole(zro, [zro, sui, eth]).why, /SUI short/);
+  // A BTC short against a page of longs: a hedge; the longs are directional.
+  const btc = e("BTC", "short", 100), sol = e("SOL", "long", 500), avax = e("AVAX", "long", 500);
+  assert.equal(positionRole(btc, [btc, sol, avax]).role, "hedge");
+  assert.equal(positionRole(sol, [btc, sol, avax]).role, "directional");
+  // A balanced long/short book: each is a leg.
+  const ada = e("ADA", "short", 500), jup = e("JUP", "long", 480);
+  assert.equal(positionRole(ada, [ada, jup]).role, "book");
+  // Alone: directional.
+  assert.equal(positionRole(ada, [ada]).role, "directional");
+  // Opened far apart: not a pair.
+  const a = e("A", "long", 100, 0), b = e("B", "short", 100, 5 * H);
+  assert.equal(positionRole(a, [a, b]).role, "book");
 });
