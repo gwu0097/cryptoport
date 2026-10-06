@@ -206,18 +206,23 @@ export interface LiveFigures {
   pnlUsd: number | null;
   vsEntry: number | null;
   vsOpen: number | null;
+  /** Their return on margin: the move since their entry × their leverage
+   * (Hyperliquid's ROE) — a % that doesn't depend on their size. */
+  roe: number | null;
 }
 
 /** An entry's figures at a newer mark (Refresh prices), else at the scan's. */
 export function liveFigures(e: ScoutEntry, mid: number | null | undefined): LiveFigures {
   const mark = mid && mid > 0 ? mid : e.markPx;
   const pnlUsd = mark !== null && e.entryPx !== null ? e.size * (e.side === "long" ? mark - e.entryPx : e.entryPx - mark) : null;
+  const vsEntry = moveInFavour(e.side, e.entryPx, mark);
   return {
     mark,
     notionalUsd: mark !== null ? e.size * mark : e.notionalUsd,
     pnlUsd,
-    vsEntry: moveInFavour(e.side, e.entryPx, mark),
+    vsEntry,
     vsOpen: moveInFavour(e.side, e.openPx, mark),
+    roe: vsEntry !== null && e.leverage !== null && e.leverage > 0 ? vsEntry * e.leverage : null,
   };
 }
 

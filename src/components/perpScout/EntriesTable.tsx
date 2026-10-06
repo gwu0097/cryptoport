@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { chipClass } from "@/components/ui/chip";
@@ -9,6 +9,7 @@ import { useNowSec } from "@/components/useServerNow";
 import { formatCompactUsd, formatPrice, formatUsdSigned } from "@/lib/format";
 import { liveFigures, positionRole, type PositionRole, type ScoutEntry } from "@/lib/perpScout/entries";
 import type { ScoutBook } from "@/lib/perpScoutScan";
+import { groupByCoin } from "@/lib/perpScout/groups";
 import { ago, compareNullable, explorerUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
 
 type SortKey = "trader" | "trader30d" | "role" | "coin" | "side" | "opened" | "notional" | "share" | "leverage" | "entry" | "open" | "mark" | "vsEntry" | "vsOpen" | "pnl" | "tp" | "sl" | "liq";
@@ -45,12 +46,15 @@ function sortValue(r: Row, key: SortKey): number | string | null {
     case "mark": return r.live.mark;
     case "vsEntry": return r.live.vsEntry;
     case "vsOpen": return r.live.vsOpen;
-    case "pnl": return r.live.pnlUsd;
+    case "pnl": return r.live.roe;
     case "tp": return r.e.tp;
     case "sl": return r.e.sl;
     case "liq": return r.e.liquidationPx;
   }
 }
+
+/** Columns in the table, for a group's header row. */
+const COLUMNS = 18;
 
 const price = (x: number | null) => (x === null ? "—" : formatPrice(x));
 
@@ -69,6 +73,7 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
   const [side, setSide] = usePersistedState<"both" | "long" | "short">("cryptoport:perpScoutSide", "both");
   const [trader, setTrader] = usePersistedState<string>("cryptoport:perpScoutTrader", "");
   const [directionalOnly, setDirectionalOnly] = usePersistedState("cryptoport:perpScoutDirectionalOnly", false);
+  const [grouped, setGrouped] = usePersistedState("cryptoport:perpScoutGroupByCoin", false);
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -105,6 +110,55 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
   const traders = useMemo(() => [...new Set(entries.map((e) => e.address))].sort((a, b) => (names[a] ?? a).localeCompare(names[b] ?? b)), [entries, names]);
   const h = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
 
+  const groups = useMemo(
+    () => groupByCoin(rows, (r) => ({ coin: r.e.coin, address: r.e.address, side: r.e.side, notionalUsd: r.live.notionalUsd, entryPx: r.e.entryPx, size: r.e.size, directional: r.role.role === "directional" })),
+    [rows],
+  );
+
+  const renderRow = ({ e, name, live, role, month }: Row) => (
+            <tr key={`${e.address}:${e.coin}`} className={trClass}>
+              <td className={tdClass}>
+                <a href={explorerUrl(e.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={e.address}>
+                  {name}
+                </a>
+              </td>
+              <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap ${toneOf(month.usd)}`} title="The trader's perps PnL over the last 30 days, and as a share of their account">
+                {month.usd === null ? "—" : formatCompactUsd(month.usd)}
+                {month.share !== null && <span className="ml-1 text-xs">{signedPct(month.share, 0)}</span>}
+              </td>
+              <td className={`${tdClass} font-medium`}>
+                {e.coin}
+                <span className={`ml-1.5 text-xs sm:hidden ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "L" : "S"}</span>
+              </td>
+              <td className={`${tdClass} whitespace-nowrap ${ROLE_CLASS[role.role]}`} title={role.why}>
+                {ROLE_LABEL[role.role]}
+              </td>
+              <td className={`${tdClass} ${hideOnMobileClass} ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</td>
+              <td className={`${tdClass} whitespace-nowrap`} title={e.lastAddAt ? `Last added ${ago(e.lastAddAt, nowMs)}` : undefined}>
+                {e.openedAt !== null ? ago(e.openedAt, nowMs) : e.openedBefore !== null ? <span className="text-fg-muted">over {ago(e.openedBefore, nowMs).replace(" ago", "")}</span> : "—"}
+                {e.lastAddAt !== null && <span className="ml-1 text-xs text-fg-muted">+adds</span>}
+              </td>
+              <td className={`${tdClass} ${hideOnMobileClass}`}>{formatCompactUsd(live.notionalUsd)}</td>
+              <td className={`${tdClass} ${hideOnMobileClass}`}>{sharePct(e.equityShare)}</td>
+              <td className={`${tdClass} ${hideOnMobileClass}`} title={e.marginMode ?? undefined}>{e.leverage === null ? "—" : `${e.leverage}×`}</td>
+              <td className={tdClass}>{price(e.entryPx)}</td>
+              <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.openPx)}</td>
+              <td className={tdClass}>{price(live.mark)}</td>
+              <td className={`${tdClass} font-medium ${toneOf(live.vsEntry)}`}>{signedPct(live.vsEntry)}</td>
+              <td className={`${tdClass} ${hideOnMobileClass} ${toneOf(live.vsOpen)}`}>{signedPct(live.vsOpen)}</td>
+              <td className={`${tdClass} whitespace-nowrap`} title="Their return on margin: the move since their entry × their leverage (Hyperliquid's ROE); their PnL in dollars beside it">
+                <span className={`font-medium ${toneOf(live.roe)}`}>{signedPct(live.roe)}</span>
+                {live.pnlUsd !== null && <span className="ml-1.5 text-xs text-fg-muted">{formatUsdSigned(Math.round(live.pnlUsd))}</span>}
+              </td>
+              <td className={`${tdClass} ${hideOnMobileClass}`}>{e.tpslKnown ? price(e.tp) : "?"}</td>
+              <td className={`${tdClass} ${hideOnMobileClass}`} title={e.tpslMore ? `${e.tpslMore} more TP/SL orders` : undefined}>
+                {e.tpslKnown ? (e.sl === null ? <span className="text-fg-muted">none</span> : price(e.sl)) : "?"}
+                {e.tpslMore > 0 && <span className="ml-1 text-xs text-fg-muted">+{e.tpslMore}</span>}
+              </td>
+              <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.liquidationPx)}</td>
+            </tr>
+  );
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -127,6 +181,10 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
         <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted" title="Hide hedges, pair trades and legs of balanced long/short books">
           <input type="checkbox" checked={directionalOnly} onChange={(e) => setDirectionalOnly(e.target.checked)} />
           Directional only
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted" title="One group per coin, the coins most traders hold first">
+          <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} />
+          Group by coin
         </label>
         {traders.length > 1 && (
           <select value={trader} onChange={(e) => setTrader(e.target.value)} className="ml-auto rounded-lg border border-border bg-surface px-2 py-1 text-xs text-fg">
@@ -157,53 +215,34 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
               {h("Price now", "mark")}
               {h("vs entry", "vsEntry")}
               {h("vs first fill", "vsOpen", hideOnMobileClass)}
-              {h("Their PnL", "pnl")}
+              {h("Their gain", "pnl")}
               {h("TP", "tp", hideOnMobileClass)}
               {h("SL", "sl", hideOnMobileClass)}
               {h("Liq.", "liq", hideOnMobileClass)}
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ e, name, live, role, month }) => (
-              <tr key={`${e.address}:${e.coin}`} className={trClass}>
-                <td className={tdClass}>
-                  <a href={explorerUrl(e.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={e.address}>
-                    {name}
-                  </a>
-                </td>
-                <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap ${toneOf(month.usd)}`} title="The trader's perps PnL over the last 30 days, and as a share of their account">
-                  {month.usd === null ? "—" : formatCompactUsd(month.usd)}
-                  {month.share !== null && <span className="ml-1 text-xs">{signedPct(month.share, 0)}</span>}
-                </td>
-                <td className={`${tdClass} font-medium`}>
-                  {e.coin}
-                  <span className={`ml-1.5 text-xs sm:hidden ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "L" : "S"}</span>
-                </td>
-                <td className={`${tdClass} whitespace-nowrap ${ROLE_CLASS[role.role]}`} title={role.why}>
-                  {ROLE_LABEL[role.role]}
-                </td>
-                <td className={`${tdClass} ${hideOnMobileClass} ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</td>
-                <td className={`${tdClass} whitespace-nowrap`} title={e.lastAddAt ? `Last added ${ago(e.lastAddAt, nowMs)}` : undefined}>
-                  {e.openedAt !== null ? ago(e.openedAt, nowMs) : e.openedBefore !== null ? <span className="text-fg-muted">over {ago(e.openedBefore, nowMs).replace(" ago", "")}</span> : "—"}
-                  {e.lastAddAt !== null && <span className="ml-1 text-xs text-fg-muted">+adds</span>}
-                </td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>{formatCompactUsd(live.notionalUsd)}</td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>{sharePct(e.equityShare)}</td>
-                <td className={`${tdClass} ${hideOnMobileClass}`} title={e.marginMode ?? undefined}>{e.leverage === null ? "—" : `${e.leverage}×`}</td>
-                <td className={tdClass}>{price(e.entryPx)}</td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.openPx)}</td>
-                <td className={tdClass}>{price(live.mark)}</td>
-                <td className={`${tdClass} font-medium ${toneOf(live.vsEntry)}`}>{signedPct(live.vsEntry)}</td>
-                <td className={`${tdClass} ${hideOnMobileClass} ${toneOf(live.vsOpen)}`}>{signedPct(live.vsOpen)}</td>
-                <td className={`${tdClass} ${toneOf(live.pnlUsd)}`}>{live.pnlUsd === null ? "—" : formatUsdSigned(Math.round(live.pnlUsd))}</td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>{e.tpslKnown ? price(e.tp) : "?"}</td>
-                <td className={`${tdClass} ${hideOnMobileClass}`} title={e.tpslMore ? `${e.tpslMore} more TP/SL orders` : undefined}>
-                  {e.tpslKnown ? (e.sl === null ? <span className="text-fg-muted">none</span> : price(e.sl)) : "?"}
-                  {e.tpslMore > 0 && <span className="ml-1 text-xs text-fg-muted">+{e.tpslMore}</span>}
-                </td>
-                <td className={`${tdClass} ${hideOnMobileClass}`}>{price(e.liquidationPx)}</td>
-              </tr>
-            ))}
+            {grouped
+              ? groups.map((gr) => (
+                  <Fragment key={gr.coin}>
+                    <tr className="border-b border-border bg-surface-raised/60">
+                      <td colSpan={COLUMNS} className="px-3 py-2 text-sm">
+                        <span className="font-semibold text-fg">{gr.coin}</span>
+                        <span className="ml-3 text-fg-muted">
+                          {gr.traders} trader{gr.traders === 1 ? "" : "s"}
+                          {" · "}
+                          {gr.longs > 0 && <span className="text-positive">{gr.longs} long</span>}
+                          {gr.longs > 0 && gr.shorts > 0 && " / "}
+                          {gr.shorts > 0 && <span className="text-negative">{gr.shorts} short</span>}
+                          {` · ${gr.directional} directional · ${formatCompactUsd(gr.notionalUsd)}`}
+                          {gr.avgEntry !== null && ` · avg entry ${formatPrice(gr.avgEntry)}`}
+                        </span>
+                      </td>
+                    </tr>
+                    {gr.rows.map(renderRow)}
+                  </Fragment>
+                ))
+              : rows.map(renderRow)}
           </tbody>
         </table>
         {rows.length === 0 && <p className="py-6 text-center text-sm text-fg-muted">{entries.length === 0 ? "No open positions from the followed traders yet." : "No entry matches these filters."}</p>}
