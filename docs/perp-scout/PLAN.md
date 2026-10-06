@@ -94,6 +94,24 @@ refuses an address with no perp history.
   read-only.
 - Their positions show after the next Scan.
 
+**Recently closed** (owner 2026-10-06: "missing closed positions"): a
+collapsible table under Entries listing positions the traders closed in the
+last 7 days (`closes.ts` `recentCloses`, `CLOSES_DAYS`). A close is a
+position going back to flat, or flipping; trims along the way are part of
+the same exit. It shows when, how long it was held, the average entry and
+exit, the return in their direction (at 1×) and the realized PnL (before
+fees).
+- For a position opened before the fills read, the entry is worked back
+  from the realized PnL (`closedPnl`), and Held shows "—".
+- Every scan now reads each trader's fills, not only those with a position
+  open: about 22 × up to 120 weight, roughly 1–2 minutes for 22 traders. A
+  trader whose fills fail keeps the last scan's closes.
+- On the real scan that day there were 89 closes across 22 traders.
+
+**The time filter is "Moved 24h / 7d / 30d"**: opened, added to or trimmed
+in that window (`latestMove`). "Opened 7d" hid #1's UNI long, which it had
+added to 2 days earlier.
+
 **A trader's positions**: ▸ beside each name, or a click on its Open
 count, shows that trader's open positions under its row. They start
 collapsed. Each shows coin, side, last move, size, % of equity, leverage,

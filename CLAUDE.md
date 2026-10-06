@@ -379,7 +379,11 @@ owner's.
   scan at a time, `perp_scout_run`); a trader not read keeps last scan's
   entries. Each entry shows the trader's 30-day perps PnL and its role in
   their book (`entries.ts` `positionRole`: paired / hedge / book leg /
-  directional — an inference from the rest of the book, reason on hover). Calls go through one weight pacer per instance
+  directional — an inference from the rest of the book, reason on hover).
+  Every trader's fills are read each scan, also for **Recently closed**
+  (`perpScout/closes.ts` `recentCloses`: positions back to flat in the
+  last `CLOSES_DAYS`, entry → exit, return, realized PnL; entry worked
+  back from `closedPnl` when opened before the fills). Calls go through one weight pacer per instance
   (`perpScout/pacer.ts`, 1,000 of the IP's 1,200 a minute). Refresh prices
   is one `allMids` call, not stored.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
