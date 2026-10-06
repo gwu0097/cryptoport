@@ -5,15 +5,18 @@ import { resolveTickerIcons } from "./adapters/coingecko";
 import { fetchAccountState, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
 import { traderStats, type TraderStats } from "./perpScout/portfolio";
 import { accountLeverage, buildEntries, netBias, type ScoutEntry } from "./perpScout/entries";
-import { FOLLOWED } from "./perpScout/followed";
+import { FOLLOWED, MAX_FOLLOWED, isTraderAddress, mergeFollowed, type FollowedTrader } from "./perpScout/followed";
 
 // Perp Scout's scan (docs/perp-scout/PLAN.md): the open positions, latest
-// fills and TP/SL orders of the traders in followed.ts — a list curated in
+// fills and TP/SL orders of the traders in followed.ts and those the owner
+// added on the page (ADDED_SETTING) — a list curated in
 // chat, not found by the app (owner 2026-10-06). Public market data, one
 // shared app_settings row (SETTING) every viewer reads; one scan at a time
 // (RUN_SETTING, compare-and-set).
 
 const SETTING = "perp_scout";
+/** Traders the owner added on the page (`{ traders: FollowedTrader[] }`). */
+const ADDED_SETTING = "perp_scout_added";
 const RUN_SETTING = "perp_scout_run";
 /** A scan this recent is reused instead of run again. */
 const FRESH_MS = 60_000;
@@ -46,20 +49,91 @@ export interface ScoutScan {
 
 export type ScanProgress = { stage: "positions"; done: number; total: number } | { stage: "saving" };
 
-/** The last scan, limited to the traders still on the list. */
-export async function readPerpScout(): Promise<ScoutScan | null> {
-  const { data, error } = await serviceDb().from("app_settings").select("value").eq("key", SETTING).maybeSingle();
-  if (error) throw new Error(error.message);
-  const scan = ((data?.value ?? null) as { scan?: ScoutScan } | null)?.scan ?? null;
-  if (!scan) return null;
-  const listed = new Set(FOLLOWED.map((f) => f.address));
-  return { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)) };
+export interface PerpScoutState {
+  /** The last scan, limited to the traders still on the list. */
+  scan: ScoutScan | null;
+  /** The list: followed.ts, then the traders added on the page. */
+  traders: FollowedTrader[];
+  /** Addresses added on the page (only these can be removed there). */
+  added: string[];
 }
 
-async function readRaw(): Promise<ScoutScan | null> {
-  const { data, error } = await serviceDb().from("app_settings").select("value").eq("key", SETTING).maybeSingle();
+async function readRows(): Promise<{ scan: ScoutScan | null; added: FollowedTrader[] }> {
+  const { data, error } = await serviceDb().from("app_settings").select("key, value").in("key", [SETTING, ADDED_SETTING]);
   if (error) throw new Error(error.message);
-  return ((data?.value ?? null) as { scan?: ScoutScan } | null)?.scan ?? null;
+  const byKey = new Map((data ?? []).map((r: { key: string; value: unknown }) => [r.key, r.value]));
+  return {
+    scan: ((byKey.get(SETTING) ?? null) as { scan?: ScoutScan } | null)?.scan ?? null,
+    added: ((byKey.get(ADDED_SETTING) ?? null) as { traders?: FollowedTrader[] } | null)?.traders ?? [],
+  };
+}
+
+/** Everything the page shows, in one request. */
+export async function readPerpScout(): Promise<PerpScoutState> {
+  const { scan, added } = await readRows();
+  const traders = mergeFollowed(FOLLOWED, added);
+  const listed = new Set(traders.map((f) => f.address));
+  const inCode = new Set(FOLLOWED.map((f) => f.address));
+  return {
+    scan: scan && { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)) },
+    traders,
+    added: added.map((f) => f.address).filter((a) => !inCode.has(a)),
+  };
+}
+
+/**
+ * Adds a trader by address (owner only — checked by the route): reads its
+ * perps record once (portfolio, weight 20) for the figures it's added on;
+ * an address with no perps history on Hyperliquid isn't added.
+ */
+export async function addTrader(rawAddress: string, rawName: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+  const address = rawAddress.trim().toLowerCase();
+  if (!isTraderAddress(address)) return { ok: false, error: "Not a Hyperliquid address (0x and 40 hex characters)" };
+  const { added } = await readRows();
+  const traders = mergeFollowed(FOLLOWED, added);
+  if (traders.some((f) => f.address === address)) return { ok: false, error: "Already on the list" };
+  if (traders.length >= MAX_FOLLOWED) return { ok: false, error: `The list is full (${MAX_FOLLOWED}) — remove one first` };
+  let stats: TraderStats;
+  try {
+    stats = traderStats(await fetchPortfolio(address), Date.now());
+  } catch (e) {
+    const msg = (e as Error).message;
+    return { ok: false, error: /no perps history/.test(msg) ? "No perp trading history on Hyperliquid for this address" : `Couldn't read it from Hyperliquid: ${msg}` };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const trader: FollowedTrader = {
+    address,
+    name: rawName?.trim().slice(0, 40) || `${address.slice(0, 6)}…${address.slice(-4)}`,
+    addedOn: today,
+    why: `Added by address on the page, ${today}`,
+    picked: {
+      asOf: today,
+      equity: stats.equityNow,
+      typicalEquity: stats.typicalEquity,
+      allTimePnl: stats.totalPnl,
+      monthPnl: stats.monthPnl,
+      historyMonths: Math.round(stats.historyWeeks / 4.35),
+      winningWeeks: stats.winningWeeksShare,
+      drawdownShare: stats.drawdownShare,
+      bestFourShare: stats.bestFourShare,
+    },
+  };
+  await saveAdded([...added, trader]);
+  return { ok: true };
+}
+
+/** Removes a trader added on the page (the code list is changed in code). */
+export async function removeTrader(rawAddress: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const address = rawAddress.trim().toLowerCase();
+  const { added } = await readRows();
+  if (!added.some((f) => f.address === address)) return { ok: false, error: "Only traders added on the page can be removed here" };
+  await saveAdded(added.filter((f) => f.address !== address));
+  return { ok: true };
+}
+
+async function saveAdded(traders: FollowedTrader[]): Promise<void> {
+  const { error } = await serviceDb().from("app_settings").upsert({ key: ADDED_SETTING, value: { traders }, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Perp Scout list not saved: ${error.message}`);
 }
 
 /** One scan at a time across instances: a compare-and-set on RUN_SETTING's
@@ -112,9 +186,10 @@ async function readBook(address: string): Promise<{ book: ScoutBook; entries: Sc
  */
 export async function runScan(progress: (p: ScanProgress) => void): Promise<{ status: "done" | "fresh" | "busy" | "none"; failed: number }> {
   const started = Date.now();
-  if (FOLLOWED.length === 0) return { status: "none", failed: 0 };
-  const before = await readRaw();
-  const sameList = before && before.books.length === FOLLOWED.length && FOLLOWED.every((f) => before.books.some((b) => b.address === f.address));
+  const { scan: before, added } = await readRows();
+  const following = mergeFollowed(FOLLOWED, added);
+  if (following.length === 0) return { status: "none", failed: 0 };
+  const sameList = before && before.books.length === following.length && following.every((f) => before.books.some((b) => b.address === f.address));
   if (sameList && started - Date.parse(before.scannedAt) < FRESH_MS) return { status: "fresh", failed: 0 };
   const claim = await claimRun();
   if (!claim.ok) return { status: "busy", failed: 0 };
@@ -123,7 +198,7 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
     for (const e of before?.entries ?? []) prevEntries.set(e.address, [...(prevEntries.get(e.address) ?? []), e]);
     const prevBooks = new Map((before?.books ?? []).map((b) => [b.address, b]));
     let done = 0;
-    const results = await mapWithConcurrency([...FOLLOWED], CONCURRENCY, async (f) => {
+    const results = await mapWithConcurrency(following, CONCURRENCY, async (f) => {
       try {
         if (Date.now() - started > DEADLINE_MS) throw new Error("not reached in this scan (time limit)");
         return await readBook(f.address);
@@ -136,7 +211,7 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
           entries: prevEntries.get(f.address) ?? [],
         };
       } finally {
-        progress({ stage: "positions", done: ++done, total: FOLLOWED.length });
+        progress({ stage: "positions", done: ++done, total: following.length });
       }
     });
     progress({ stage: "saving" });
@@ -149,7 +224,7 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
     const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value: { scan }, updated_at: new Date().toISOString() });
     if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
     const failed = results.filter((r) => r.book.error).length;
-    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${FOLLOWED.length} failed=${failed} entries=${scan.entries.length}`);
+    console.log(`[perp-scout] scan ${Math.round((Date.now() - started) / 1000)}s traders=${following.length} failed=${failed} entries=${scan.entries.length}`);
     return { status: "done", failed };
   } finally {
     await claim.release().catch(() => {});

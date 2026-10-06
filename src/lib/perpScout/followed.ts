@@ -19,6 +19,9 @@ export interface FollowedTrader {
     /** YYYY-MM-DD the figures are from. */
     asOf: string;
     equity: number | null;
+    /** The account's median value over its history (what all-time % is
+     * measured on); absent on entries picked before it was kept. */
+    typicalEquity?: number | null;
     allTimePnl: number | null;
     monthPnl: number | null;
     historyMonths: number | null;
@@ -118,3 +121,15 @@ export const FOLLOWED: readonly FollowedTrader[] = [
     picked: { asOf: "2026-10-06", equity: 568314, allTimePnl: 1818011, monthPnl: 674142, historyMonths: 11, winningWeeks: 0.73, drawdownShare: 0.74, bestFourShare: 0.68 },
   },
 ];
+
+/** Most traders a scan reads (the code list and those added on the page). */
+export const MAX_FOLLOWED = 40;
+
+export const isTraderAddress = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
+
+/** The list a scan reads: the code list, then traders added on the page that
+ * aren't already on it. */
+export function mergeFollowed(code: readonly FollowedTrader[], added: readonly FollowedTrader[]): FollowedTrader[] {
+  const listed = new Set(code.map((f) => f.address));
+  return [...code, ...added.filter((f) => !listed.has(f.address))];
+}

@@ -76,6 +76,29 @@ to days.
   picked on, plus their equity, leverage, book bias (long, short or hedged)
   and open positions from the last scan.
 
+## Adding traders on the page
+
+The owner can add a trader by address (and an optional name) under the
+Traders table (`AddTraderForm` → `api/perp-scout/traders` →
+`perpScoutScan.ts` `addTrader`; owner 2026-10-06). It reads the address's
+record once (`portfolio`, weight 20) for the figures it's added on, and
+refuses an address with no perp history.
+
+- Added traders live in `app_settings` `perp_scout_added`, beside the code
+  list. Scan reads both (`mergeFollowed`), up to 40.
+- Only traders added on the page can be removed there (✕, with a confirm).
+  The code list is changed in code.
+- Owner only: the list is shared by every viewer. Other users see it
+  read-only.
+- Their positions show after the next Scan.
+
+**Traders table %**: each PnL figure leads with its % gain, with dollars in
+grey (owner: "numbers don't mean anything to me, need % gain"). Both
+columns sort by the %.
+- **All-time %**: perps profit ÷ the account's typical (median) value, the
+  money it usually trades with, so deposits and withdrawals don't move it.
+- **30d %**: the last 30 days' perps profit ÷ the account now.
+
 ## Finding traders
 
 Run in chat:
