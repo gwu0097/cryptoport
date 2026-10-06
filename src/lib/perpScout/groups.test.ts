@@ -36,3 +36,9 @@ test("closed rows count toward traders and the closed tally only", () => {
   const [onlyClosed] = groupByCoin([{ ...g("ETH", "a", "long", 5, 2000, 1), closed: true }], (r) => r);
   assert.equal(onlyClosed.avgEntry, null);
 });
+
+test("order \"rows\": coins follow the rows' order, each by its first row", () => {
+  const rows = [g("BTC", "a", "long", 1, 1, 1), g("HYPE", "a", "long", 1, 1, 1), g("HYPE", "b", "long", 1, 1, 1), g("BTC", "c", "short", 1, 1, 1), g("HYPE", "c", "long", 1, 1, 1)];
+  assert.deepEqual(groupByCoin(rows, (r) => r, "rows").map((x) => x.coin), ["BTC", "HYPE"]);
+  assert.deepEqual(groupByCoin(rows, (r) => r).map((x) => x.coin), ["HYPE", "BTC"], "default: most traders first");
+});

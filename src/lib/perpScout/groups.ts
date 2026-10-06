@@ -34,9 +34,10 @@ export interface CoinGroup<T> {
   avgEntry: number | null;
 }
 
-/** Groups in order of how many traders hold the coin, then combined size;
- * rows keep the order they came in (the table's sort). */
-export function groupByCoin<T>(rows: readonly T[], view: (row: T) => GroupInput): CoinGroup<T>[] {
+/** Groups in order of how many traders hold the coin, then combined size —
+ * or, with `order` "rows", by where each coin's first row came; rows keep the
+ * order they came in (the table's sort). */
+export function groupByCoin<T>(rows: readonly T[], view: (row: T) => GroupInput, order: "traders" | "rows" = "traders"): CoinGroup<T>[] {
   const byCoin = new Map<string, T[]>();
   for (const r of rows) {
     const coin = view(r).coin;
@@ -61,5 +62,10 @@ export function groupByCoin<T>(rows: readonly T[], view: (row: T) => GroupInput)
       avgEntry: oneSide && qty > 0 ? priced.reduce((s, v) => s + v.entryPx! * v.size, 0) / qty : null,
     });
   }
+  // "rows": in the order the rows came (the Map keeps first appearance) — a
+  // sorted table places each coin by its top row, so sorting by Opened puts
+  // the coin opened most recently first (owner 2026-10-06: HYPE stayed above
+  // BTC whatever the sort).
+  if (order === "rows") return groups;
   return groups.sort((a, b) => b.traders - a.traders || b.notionalUsd - a.notionalUsd);
 }

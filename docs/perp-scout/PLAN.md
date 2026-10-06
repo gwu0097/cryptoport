@@ -64,7 +64,7 @@ to days.
 - **Group by coin** (a checkbox): one header row per coin, showing how
   many traders hold it, long vs short, how many are directional, the
   combined size, and the average entry when all are on one side
-  (`groups.ts`). Coins held by the most traders come first. Each coin
+  (`groups.ts`). Coins follow the table's sort, each placed by its top row (owner 2026-10-06: sorting by Opened left HYPE above BTC, because coins had been ordered by trader count). Each coin
   **starts collapsed** to its header, which also shows the coin's latest
   move and how many of its positions moved in 24 h; click it for every
   trader's row (owner: "as we get more addresses it's going to be hard to

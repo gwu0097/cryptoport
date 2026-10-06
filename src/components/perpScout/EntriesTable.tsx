@@ -210,6 +210,8 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
         r.kind === "open"
           ? { coin: r.e.coin, address: r.e.address, side: r.e.side, notionalUsd: r.live.notionalUsd, entryPx: r.e.entryPx, size: r.e.size, directional: r.role.role === "directional" }
           : { coin: r.c.coin, address: r.c.address, side: r.c.side, notionalUsd: null, entryPx: null, size: 0, directional: false, closed: true, closes: r.c.count },
+        // Coins follow the table's sort: each placed by its top row.
+        "rows",
       ),
     [rows],
   );
