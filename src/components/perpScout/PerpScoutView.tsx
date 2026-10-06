@@ -43,7 +43,7 @@ export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutSca
           <span className="inline-flex items-center gap-1.5">
             Entries
             <InfoTooltip>
-              Every open position of the followed traders. &quot;vs entry&quot; is how far price has moved since their average entry, in their direction: negative means they&apos;re down — the price now is better than theirs (below it on a long, above it on a short). &quot;First fill&quot; is the price of the order that opened the position, when it&apos;s within their latest 2,000 fills; &quot;over Nd&quot; means it was opened before those. Observations, not signals.
+              Every open position of the followed traders. &quot;vs entry&quot; is how far price has moved since their average entry, in their direction: negative means they&apos;re down — the price now is better than theirs (below it on a long, above it on a short). &quot;Role&quot; is read from the rest of the trader&apos;s book (hover it for why): Paired = opened with an opposite position within 2 h; Hedge = against a book that clearly leans the other way; Book leg = one side of a balanced long/short book; Directional = with the book&apos;s lean, or their only position. &quot;Trader 30d&quot; is their perps PnL over the last 30 days. &quot;First fill&quot; is the price of the order that opened the position, when it&apos;s within their latest 2,000 fills; &quot;over Nd&quot; means it was opened before those. Observations, not signals.
             </InfoTooltip>
           </span>
         }
@@ -60,7 +60,7 @@ export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutSca
         }
       >
         {scan ? (
-          <EntriesTable entries={entries} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} />
+          <EntriesTable entries={entries} books={scan?.books ?? []} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} />
         ) : (
           <p className="text-sm text-fg-muted">{signedIn ? "Press Scan to read the followed traders\u2019 open positions." : "Log in and press Scan to read the followed traders\u2019 open positions."}</p>
         )}
@@ -73,7 +73,7 @@ export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutSca
           <span className="inline-flex items-center gap-1.5">
             Traders
             <InfoTooltip>
-              The traders Perp Scout follows, picked in chat with Claude (src/lib/perpScout/followed.ts) — ask there to add or drop one. Perps record (all-time and 30-day PnL, winning weeks, max drawdown of the PnL curve ÷ the account\u2019s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader\u2019s first scan, the figures they were picked on.
+              The traders Perp Scout follows, picked in chat with Claude (src/lib/perpScout/followed.ts) — ask there to add or drop one. Perps record (all-time and 30-day PnL, winning weeks, max drawdown of the PnL curve ÷ the account&apos;s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader&apos;s first scan, the figures they were picked on.
             </InfoTooltip>
           </span>
         }

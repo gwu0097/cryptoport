@@ -30,10 +30,25 @@ to days.
   - the price now, the move since their entry and since the first fill in
     their direction, and their PnL;
   - the nearest TP, SL ("none" when they have no stop) and liquidation
-    price.
+    price;
+  - **Trader 30d**: the trader's perps PnL over the last 30 days, in
+    dollars and as a share of their account (owner 2026-10-06: "how well
+    the trader has been doing the last month");
+  - **Role**: what the position is to its trader, inferred from the rest
+    of their book (`entries.ts` `positionRole`; Hyperliquid doesn't say),
+    with the reason on hover:
+    - **Paired**: opened within 2 h of an opposite-side position;
+    - **Hedge**: against a book that's net ≥ 50% the other way;
+    - **Book leg**: in a book under 30% net either way;
+    - **Directional**: with the book's lean, or their only position.
+
+    On 2026-10-06 that read #1's 11 positions as book legs (net 4% short),
+    #6's as directional (100% long), 0x8bae's BTC short + DOGE long as
+    paired, and 0xa5fd's shorts as hedges against a 63%-long book.
 
   Every column sorts. Filters: opened 24h / 7d / 30d / any, longs or
-  shorts, one trader, and "only below their entry (above, for shorts)".
+  shorts, one trader, "only below their entry (above, for shorts)", and
+  "directional only".
 - **Refresh prices**: one `allMids` call swaps in current prices without a
   scan. The prices aren't stored.
 - **Traders** (collapsible) shows the list: the figures each trader was
