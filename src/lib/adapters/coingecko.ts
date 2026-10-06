@@ -109,6 +109,9 @@ export async function refreshTokenRegistry(): Promise<{ chainId: string; count: 
       .map((c) => ({
         chain_id: chainId,
         contract: c.platforms![platform].toLowerCase(),
+        // The address as written (a mint or coin type is case-sensitive),
+        // for the copy buttons on coin rows (coinContracts.ts).
+        contract_exact: c.platforms![platform].trim(),
         symbol: c.symbol.toUpperCase(),
         coingecko_id: c.id,
         updated_at: new Date().toISOString(),
