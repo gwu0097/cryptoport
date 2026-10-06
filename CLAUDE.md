@@ -362,7 +362,10 @@ owner's.
   (`api/perp-scout/traders` → `addTrader`, one `portfolio` read; stored in
   `app_settings` `perp_scout_added`; any trader is removable there — a
   code-list one is hidden through the row's `removed` addresses; owner only
-  — the list is shared); a scan reads both (`mergeFollowed`, at most 40). Candidates come from `scripts/diag/perp-scout-screen.mts`
+  — the list is shared; the owner also renames any trader, names kept in
+  that row's `names`, and imports a CSV/JSON/address list, `importTraders`
+  — anyone exports it as CSV, `perpScout/traderFile.ts`); a scan reads
+  both (`mergeFollowed`, at most 40). Candidates come from `scripts/diag/perp-scout-screen.mts`
   (pure `perpScout/screen.ts` + `portfolio.ts`: leaderboard $50K–$20M,
   all-time PnL ≥ $100K and ROI ≥ 50%, 30d profitable, monthly volume ≤ 60×
   equity, then `looksPromising`; then **perps** PnL against the **whole

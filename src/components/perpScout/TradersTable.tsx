@@ -14,6 +14,7 @@ import type { ScoutBook } from "@/lib/perpScoutScan";
 import type { FollowedTrader } from "@/lib/perpScout/followed";
 import { ago, compareNullable, explorerUrl, hyperdashUrl, sharePct, signedPct, toneOf } from "./labels";
 import { ConfirmActionButton } from "@/components/ui/ConfirmActionButton";
+import { InlineName } from "@/components/ui/InlineName";
 
 type SortKey = "name" | "equity" | "allTime" | "month" | "history" | "winWeeks" | "drawdown" | "best4" | "leverage" | "bias" | "positions" | "added";
 
@@ -162,6 +163,13 @@ export function TradersTable({ followed, books, entries = [], mids = null, nowMs
     if (!res.ok) setRemoveError(body.error ?? `HTTP ${res.status}`);
     else router.refresh();
   }
+  /** Renames a trader (owner); the error, if any, shows beside the field. */
+  async function rename(address: string, name: string): Promise<string | null> {
+    const res = await fetch("/api/perp-scout/traders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, name }) });
+    if (!res.ok) return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`;
+    router.refresh();
+    return null;
+  }
   const [sortKey, setSortKey] = usePersistedState<SortKey>("cryptoport:perpScoutTradersSort", "allTime");
   const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">("cryptoport:perpScoutTradersSortDir", "desc");
   const toggleSort = (key: SortKey) => {
@@ -214,9 +222,17 @@ export function TradersTable({ followed, books, entries = [], mids = null, nowMs
                 ) : (
                   <span className="mr-1 inline-block w-3.5" aria-hidden="true" />
                 )}
-                <a href={explorerUrl(f.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title="Hyperliquid explorer">
-                  {f.name}
-                </a>
+                {removable.includes(f.address) ? (
+                  <InlineName name={f.name} onSave={(name) => rename(f.address, name)} label={`Rename ${f.name}`} maxLength={40}>
+                    <a href={explorerUrl(f.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title="Hyperliquid explorer">
+                      {f.name}
+                    </a>
+                  </InlineName>
+                ) : (
+                  <a href={explorerUrl(f.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title="Hyperliquid explorer">
+                    {f.name}
+                  </a>
+                )}
                 <a href={hyperdashUrl(f.address)} target="_blank" rel="noreferrer" className="ml-2 rounded border border-border px-1.5 py-0.5 text-xs text-fg-muted hover:border-accent hover:text-accent">
                   HyperDash ↗
                 </a>
