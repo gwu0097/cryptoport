@@ -135,7 +135,13 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
     });
     return all
       .filter((r) => !directionalOnly || r.role.role === "directional")
-      .filter((r) => window === "any" || (r.e.openedAt !== null && nowMs - r.e.openedAt <= WINDOW_MS[window]))
+      // Any move counts — opened, added to or trimmed: a position opened
+      // weeks ago that the trader added to yesterday is recent activity.
+      .filter((r) => {
+        if (window === "any") return true;
+        const move = latestMove(r.e);
+        return move !== null && nowMs - move.at <= WINDOW_MS[window];
+      })
       .filter((r) => !betterOnly || (r.live.vsEntry !== null && r.live.vsEntry < 0))
       .filter((r) => side === "both" || r.e.side === side)
       .filter((r) => !trader || r.e.address === trader)
@@ -220,8 +226,8 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {(["24h", "7d", "30d", "any"] as const).map((w) => (
-          <button key={w} type="button" className={chipClass(window === w, true)} onClick={() => setWindow(w)}>
-            {w === "any" ? "Any time" : `Opened ${w}`}
+          <button key={w} type="button" className={chipClass(window === w, true)} onClick={() => setWindow(w)} title={w === "any" ? "Every open position" : `Opened, added to or trimmed in the last ${w}`}>
+            {w === "any" ? "Any time" : `Moved ${w}`}
           </button>
         ))}
         <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />

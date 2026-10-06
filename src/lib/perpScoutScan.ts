@@ -5,6 +5,7 @@ import { resolveTickerIcons } from "./adapters/coingecko";
 import { fetchAccountState, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
 import { traderStats, type TraderStats } from "./perpScout/portfolio";
 import { accountLeverage, buildEntries, netBias, type ScoutEntry } from "./perpScout/entries";
+import { CLOSES_DAYS, recentCloses, type ScoutClose } from "./perpScout/closes";
 import { FOLLOWED, MAX_FOLLOWED, isTraderAddress, mergeFollowed, type FollowedTrader } from "./perpScout/followed";
 
 // Perp Scout's scan (docs/perp-scout/PLAN.md): the open positions, latest
@@ -47,7 +48,10 @@ export interface ScoutScan {
   scannedAt: string;
   books: ScoutBook[];
   entries: ScoutEntry[];
+  /** Positions closed in the last CLOSES_DAYS (absent on older scans). */
+  closes?: (ScoutClose & { iconUrl?: string | null })[];
 }
+
 
 export type ScanProgress = { stage: "positions"; done: number; total: number } | { stage: "saving" };
 
@@ -81,7 +85,7 @@ export async function readPerpScout(): Promise<PerpScoutState> {
   const traders = mergeFollowed(FOLLOWED, added, removed);
   const listed = new Set(traders.map((f) => f.address));
   return {
-    scan: scan && { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)) },
+    scan: scan && { ...scan, books: scan.books.filter((b) => listed.has(b.address)), entries: scan.entries.filter((e) => listed.has(e.address)), closes: (scan.closes ?? []).filter((c) => listed.has(c.address)) },
     traders,
   };
 }
@@ -176,18 +180,26 @@ const iconTicker = (coin: string) => (/^k[A-Z]/.test(coin) ? coin.slice(1) : coi
 /** One account's book: its record and whole-account value (portfolio, a
  * failure leaves them unknown), positions, and — only with a position — its
  * fills and orders. */
-async function readBook(address: string): Promise<{ book: ScoutBook; entries: ScoutEntry[] }> {
-  const [state, series] = await Promise.all([fetchAccountState(address), fetchPortfolio(address).catch((e: Error) => e)]);
+async function readBook(address: string): Promise<{ book: ScoutBook; entries: ScoutEntry[]; closes: ScoutClose[] | null }> {
+  const [state, series, fills] = await Promise.all([
+    fetchAccountState(address),
+    fetchPortfolio(address).catch((e: Error) => e),
+    // Read for every trader, open position or not: they're also where the
+    // recent closes come from. A failure keeps the last scan's closes.
+    fetchRecentFills(address).catch((e: Error) => e),
+  ]);
   const stats = series instanceof Error ? null : traderStats(series, Date.now());
   if (series instanceof Error) console.error(`[perp-scout] ${address} record: ${series.message}`);
+  if (fills instanceof Error) console.error(`[perp-scout] ${address} fills: ${fills.message}`);
   const open = state.assetPositions.some(({ position }) => Number(position.szi) !== 0);
-  const [fills, orders] = open ? await Promise.all([fetchRecentFills(address), fetchOpenOrders(address).catch(() => null)]) : [[], null];
+  const orders = open ? await fetchOpenOrders(address).catch(() => null) : null;
   const perpsValue = Number(state.marginSummary?.accountValue);
   const equity = stats?.equityNow ?? (Number.isFinite(perpsValue) ? perpsValue : null);
-  const entries = buildEntries(address, state, fills, orders, equity);
+  const entries = buildEntries(address, state, fills instanceof Error ? [] : fills, orders, equity);
   return {
     book: { address, readAt: new Date().toISOString(), error: null, accountValue: equity, stats, leverage: accountLeverage(state, equity), bias: netBias(entries), positions: entries.length },
     entries,
+    closes: fills instanceof Error ? null : recentCloses(address, fills, Date.now(), CLOSES_DAYS),
   };
 }
 
@@ -221,6 +233,7 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
         return {
           book: { address: f.address, readAt: prev?.readAt ?? null, error, accountValue: prev?.accountValue ?? null, stats: prev?.stats ?? null, leverage: prev?.leverage ?? null, bias: prev?.bias ?? null, positions: prev?.positions ?? 0 },
           entries: prevEntries.get(f.address) ?? [],
+          closes: null,
         };
       } finally {
         progress({ stage: "positions", done: ++done, total: following.length });
@@ -228,11 +241,14 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
     });
     progress({ stage: "saving" });
     const entries = results.flatMap((r) => r.entries);
+    // A trader whose fills weren't read keeps the last scan's closes.
+    const closes = results.flatMap((r, i) => r.closes ?? (before?.closes ?? []).filter((c) => c.address === following[i].address));
     // Logos through the app's icon cache (ticker_icons; CoinGecko only for a
     // ticker never seen) — cosmetic, so a failure just leaves letter badges.
-    const icons = await resolveTickerIcons(entries.map((e) => iconTicker(e.coin))).catch(() => new Map<string, string>());
+    const icons = await resolveTickerIcons([...entries, ...closes].map((e) => iconTicker(e.coin))).catch(() => new Map<string, string>());
     for (const e of entries) e.iconUrl = icons.get(iconTicker(e.coin).toUpperCase()) ?? null;
-    const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries };
+    const closesWithIcons = closes.map((c) => ({ ...c, iconUrl: icons.get(iconTicker(c.coin).toUpperCase()) ?? null }));
+    const scan: ScoutScan = { scannedAt: new Date().toISOString(), books: results.map((r) => r.book), entries, closes: closesWithIcons };
     const { error } = await serviceDb().from("app_settings").upsert({ key: SETTING, value: { scan }, updated_at: new Date().toISOString() });
     if (error) throw new Error(`Perp Scout not saved: ${error.message}`);
     const failed = results.filter((r) => r.book.error).length;

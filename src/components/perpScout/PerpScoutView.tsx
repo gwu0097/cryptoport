@@ -12,6 +12,8 @@ import type { PerpScoutState } from "@/lib/perpScoutScan";
 import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
 import { AddTraderForm } from "./AddTraderForm";
+import { ClosedTable } from "./ClosedTable";
+import { CLOSES_DAYS } from "@/lib/perpScout/closes";
 
 /** Perp Scout's two sections: the followed traders' open entries (with
  * Refresh prices, current mids swapped in without a scan) and the traders. */
@@ -68,6 +70,24 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
           <p className="text-sm text-fg-muted">{signedIn ? "Press Scan to read the followed traders\u2019 open positions." : "Log in and press Scan to read the followed traders\u2019 open positions."}</p>
         )}
       </Panel>
+
+      {scan && (
+        <CollapsiblePanel
+          storageKey="cryptoport:perpScoutClosedOpen"
+          density="normal"
+          title={
+            <span className="inline-flex items-center gap-1.5">
+              Recently closed
+              <InfoTooltip>
+                Positions the followed traders closed in the last {CLOSES_DAYS} days, read from their latest fills at each Scan: the whole exit (trims along the way included), their average entry and exit, the return in their direction at 1× and their realized PnL (before fees). Held is &quot;—&quot; when the position was opened before their latest 2,000 fills; its entry is then worked back from the realized PnL.
+              </InfoTooltip>
+            </span>
+          }
+          summary={<span className="text-xs text-fg-muted">{(scan.closes ?? []).length} in {CLOSES_DAYS} days</span>}
+        >
+          {scan.closes ? <ClosedTable closes={scan.closes} names={names} serverNowSec={serverNowSec} /> : <p className="text-sm text-fg-muted">Press Scan to read the traders&apos; recent closes.</p>}
+        </CollapsiblePanel>
+      )}
 
       <CollapsiblePanel
         storageKey="cryptoport:perpScoutTradersOpen"

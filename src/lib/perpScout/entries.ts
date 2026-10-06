@@ -15,6 +15,9 @@ export interface Fill {
   /** Signed position size before this fill. */
   startPosition: number;
   oid: number | null;
+  /** Realized PnL of a reducing fill, in USDC (fees not included); 0 on an
+   * opening one, absent when not given. */
+  closedPnl?: number;
 }
 
 /** userFills / userFillsByTime answer. Unparseable fills are skipped; an
@@ -31,6 +34,7 @@ export function parseFills(json: unknown): Fill[] {
       time: Number(f?.time),
       startPosition: Number(f?.startPosition),
       oid: Number.isFinite(Number(f?.oid)) ? Number(f?.oid) : null,
+      ...(Number.isFinite(Number(f?.closedPnl)) && f?.closedPnl !== undefined ? { closedPnl: Number(f.closedPnl) } : {}),
     };
     if (!fill.coin || !fill.side || ![fill.px, fill.sz, fill.time, fill.startPosition].every(Number.isFinite)) continue;
     out.push(fill as Fill);
