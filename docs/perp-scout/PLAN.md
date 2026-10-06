@@ -54,10 +54,21 @@ to days.
   Every column sorts. Filters: opened 24h / 7d / 30d / any, longs or
   shorts, one trader, "only below their entry (above, for shorts)", and
   "directional only".
+- **Last move**: each position's latest move within the fills read, as a
+  colored badge with its age: **New** (green), **Added** (blue),
+  **Trimmed** (amber; cut without closing or flipping). Rows that moved in
+  the last 24 h get a matching colored left edge (`entries.ts`
+  `latestMove`). Coin logos come from the app's icon cache
+  (`resolveTickerIcons`, stored on each entry by the scan; CoinGecko only
+  for a ticker never seen).
 - **Group by coin** (a checkbox): one header row per coin, showing how
   many traders hold it, long vs short, how many are directional, the
   combined size, and the average entry when all are on one side
-  (`groups.ts`). Coins held by the most traders come first. On 2026-10-06's
+  (`groups.ts`). Coins held by the most traders come first. Each coin
+  **starts collapsed** to its header, which also shows the coin's latest
+  move and how many of its positions moved in 24 h; click it for every
+  trader's row (owner: "as we get more addresses it's going to be hard to
+  read"). There's an Expand / Collapse all toggle. On 2026-10-06's
   real scan (78 positions) ZEC was held by 4 of the 11.
 - **Refresh prices**: one `allMids` call swaps in current prices without a
   scan. The prices aren't stored.
