@@ -7,6 +7,8 @@ import type { AssetRowGroup as AssetGroup } from "@/lib/holdingRows";
 import { formatUsd, formatCompactUsd, formatQty, formatPercent, formatShare, formatStaleness } from "@/lib/format";
 import { isStalePrice } from "@/lib/pricesAsOf";
 import { TokenIcon } from "./TokenIcon";
+import { CopyButton } from "./CopyButton";
+import { assetContract, isTokenAddress } from "@/lib/assetContract";
 import { inputClass } from "./ui/Field";
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "./ui/table";
 import { SortableHeader as Header } from "./ui/SortableHeader";
@@ -69,6 +71,15 @@ function sortValue(group: AssetGroup, key: SortKey): number | string {
 function groupQty(group: AssetGroup): string {
   if (group.totalQty === null) return "—";
   return `${group.combinedTickers ? "≈ " : ""}${formatQty(group.totalQty)}`;
+}
+
+/** The row's token address (the largest holding's when it's on several
+ * chains — each chain's is in the expanded rows). Nothing for a native coin. */
+function GroupCopy({ group }: { group: AssetGroup }) {
+  const pick = assetContract(group.holdings);
+  if (!pick) return null;
+  const more = pick.distinct > 1 ? ` — on ${pick.distinct} chains, expand for each` : "";
+  return <CopyButton value={pick.contract} label={`Copy ${group.ticker}'s contract`} title={`Copy ${group.ticker}'s contract on ${pick.chainName}: ${pick.contract}${more}`} />;
 }
 
 function ChangeCell({ value }: { value: number | null }) {
@@ -326,7 +337,10 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                       <div className="flex items-center gap-2">
                         <TokenIcon ticker={group.ticker} url={group.iconUrl} />
                         <div>
-                          <div className="font-medium text-fg">{group.ticker}</div>
+                          <div className="flex items-center gap-1.5 font-medium text-fg">
+                            {group.ticker}
+                            <GroupCopy group={group} />
+                          </div>
                           {group.combinedTickers && (
                             <div className="max-w-48 truncate text-xs text-fg-muted" title={`Includes ${group.combinedTickers.join(", ")}`}>
                               incl. {group.combinedTickers.join(", ")}
@@ -454,6 +468,11 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                                   <span className="rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted">
                                     {holding.chainName}
                                   </span>
+                                  {isTokenAddress(holding.contract) && (
+                                    <span className="ml-1.5 inline-flex align-middle">
+                                      <CopyButton value={holding.contract} label={`Copy ${holding.ticker}'s contract on ${holding.chainName}`} title={`Copy ${holding.ticker}'s contract on ${holding.chainName}: ${holding.contract}`} />
+                                    </span>
+                                  )}
                                   {group.combinedTickers && holding.ticker.toUpperCase() !== group.ticker.toUpperCase() && (
                                     <span className="ml-1 rounded-md bg-surface-raised px-2 py-0.5 text-xs text-fg-muted sm:hidden">
                                       {holding.ticker}

@@ -25,5 +25,5 @@ test("an asset group keeps its own fields; its holdings keep the expanded row's"
   const group = { tickerKey: "ethereum", ticker: "ETH", total: 5000, holdings: [{ ...holding, walletId: "w1", walletName: "Main", chainId: "eth", chainName: "Ethereum" }] } as unknown as AssetGroup;
   const [g] = toAssetRowGroups([group]);
   assert.equal(g.total, 5000);
-  assert.deepEqual(Object.keys(g.holdings[0]).sort(), ["chainName", "id", "protocol", "protocol_url", "qty", "ticker", "valuation", "walletId", "walletName"]);
+  assert.deepEqual(Object.keys(g.holdings[0]).sort(), ["chainName", "contract", "id", "protocol", "protocol_url", "qty", "ticker", "valuation", "walletId", "walletName"]);
 });

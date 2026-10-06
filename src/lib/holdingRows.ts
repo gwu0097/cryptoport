@@ -36,7 +36,7 @@ export function toHoldingRows(holdings: readonly HoldingWithValuation[]): Holdin
   return holdings.map((h) => pick(h, HOLDING_ROW_FIELDS));
 }
 
-const ASSET_HOLDING_FIELDS = ["id", "walletId", "walletName", "chainName", "ticker", "protocol", "protocol_url", "qty", "valuation"] as const satisfies readonly (keyof AssetHoldingEntry)[];
+const ASSET_HOLDING_FIELDS = ["id", "walletId", "walletName", "chainName", "ticker", "contract", "protocol", "protocol_url", "qty", "valuation"] as const satisfies readonly (keyof AssetHoldingEntry)[];
 
 /** One asset's holdings as the Assets table's expanded row shows them. */
 export type AssetHoldingRow = Pick<AssetHoldingEntry, (typeof ASSET_HOLDING_FIELDS)[number]>;
