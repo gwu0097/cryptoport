@@ -95,6 +95,8 @@ test("liveFigures: a newer mid replaces the scan's mark", () => {
   assert.ok(Math.abs((live.notionalUsd ?? 0) - 110) < 1e-9);
   assert.ok((live.vsEntry ?? 0) < 0, "price above a short's entry: better than theirs");
   assert.ok((live.vsOpen ?? 0) > 0, "still below their first fill at 1.2");
+  assert.ok(Math.abs((scan.roe ?? 0) - 0.2 * 10) < 1e-9, "20% move at 10x: +200% on margin");
+  assert.equal(liveFigures({ ...ada, leverage: null }, undefined).roe, null);
 });
 
 test("positionRole: pair, hedge, book leg, directional", () => {

@@ -46,9 +46,19 @@ to days.
     #6's as directional (100% long), 0x8bae's BTC short + DOGE long as
     paired, and 0xa5fd's shorts as hedges against a 63%-long book.
 
+  - **Their gain**: their return on margin, the move since their entry ×
+    their leverage (Hyperliquid's ROE), with their dollar PnL in grey
+    beside it. The owner doesn't trade their size, so the % is what counts.
+    "vs entry" is the gain at 1×.
+
   Every column sorts. Filters: opened 24h / 7d / 30d / any, longs or
   shorts, one trader, "only below their entry (above, for shorts)", and
   "directional only".
+- **Group by coin** (a checkbox): one header row per coin, showing how
+  many traders hold it, long vs short, how many are directional, the
+  combined size, and the average entry when all are on one side
+  (`groups.ts`). Coins held by the most traders come first. On 2026-10-06's
+  real scan (78 positions) ZEC was held by 4 of the 11.
 - **Refresh prices**: one `allMids` call swaps in current prices without a
   scan. The prices aren't stored.
 - **Traders** (collapsible) shows the list: the figures each trader was
