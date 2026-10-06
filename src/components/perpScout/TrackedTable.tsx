@@ -121,7 +121,7 @@ export function TrackedTable({
             {h("Coin", "coin")}
             {h("Status", "status")}
             {h("Tracked", "tracked", hideOnMobileClass)}
-            {h("Their entry", "entry", wide)}
+            {h("Their entry", "entry", hideOnMobileClass)}
             {h("Now", "price")}
             {h("vs entry", "vsEntry", wide)}
             {h("Since tracked", "since")}
@@ -169,7 +169,7 @@ export function TrackedTable({
                 <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap text-fg-muted`} title={t.at.price !== null ? `Price then: ${formatPrice(t.at.price)}` : undefined}>
                   {ago(t.trackedAt, nowMs)}
                 </td>
-                <td className={`${tdClass} ${wide}`}>{price(v.entryPx)}</td>
+                <td className={`${tdClass} ${hideOnMobileClass}`}>{price(v.entryPx)}</td>
                 <td className={`${tdClass} whitespace-nowrap`}>
                   {price(v.price)}
                   {v.status.kind !== "open" && v.status.kind !== "gone" && <span className="ml-1 text-xs text-fg-muted">exit</span>}

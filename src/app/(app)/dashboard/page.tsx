@@ -214,7 +214,7 @@ export default async function DashboardPage({
       {/* Open positions left, Perp Scout's tracked trades right (owner
           2026-10-06); either alone takes the full row. */}
       {user && positions.length > 0 && (
-        <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${trackedTrades ? "xl:col-span-7" : "xl:col-span-12"}`}>
+        <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${trackedTrades ? "xl:col-span-6" : "xl:col-span-12"}`}>
           <OpenPositionsPanel
             positions={positions}
             asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
@@ -223,7 +223,7 @@ export default async function DashboardPage({
       )}
 
       {trackedTrades && (
-        <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${positions.length > 0 ? "xl:col-span-5" : "xl:col-span-12"}`}>
+        <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${positions.length > 0 ? "xl:col-span-6" : "xl:col-span-12"}`}>
           <DashboardTrackedTrades {...trackedTrades} serverNowSec={requestNowSec()} />
         </div>
       )}
