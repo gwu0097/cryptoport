@@ -1,5 +1,6 @@
-// Perp Scout's "Group by coin": the entries shown, one group per coin, so
-// several traders in the same coin read at a glance. Pure.
+// Perp Scout's "Group by coin": the activity shown — open positions and
+// recent closes — one group per coin, so several traders in the same coin
+// read at a glance. Pure.
 
 export interface GroupInput {
   coin: string;
@@ -11,12 +12,17 @@ export interface GroupInput {
   /** Size in the coin. */
   size: number;
   directional: boolean;
+  /** A position closed in the window: counts toward the coin's traders and
+   * its `closed` tally, never toward the open figures. */
+  closed?: boolean;
 }
 
 export interface CoinGroup<T> {
   coin: string;
   rows: T[];
+  /** Traders with a position open or closed in the coin. */
   traders: number;
+  closed: number;
   longs: number;
   shorts: number;
   directional: number;
@@ -36,14 +42,16 @@ export function groupByCoin<T>(rows: readonly T[], view: (row: T) => GroupInput)
   }
   const groups: CoinGroup<T>[] = [];
   for (const [coin, members] of byCoin) {
-    const vs = members.map(view);
-    const oneSide = vs.every((v) => v.side === vs[0].side);
+    const all = members.map(view);
+    const vs = all.filter((v) => !v.closed);
+    const oneSide = vs.length > 0 && vs.every((v) => v.side === vs[0].side);
     const priced = vs.filter((v) => v.entryPx !== null && v.size > 0);
     const qty = priced.reduce((s, v) => s + v.size, 0);
     groups.push({
       coin,
       rows: members,
-      traders: new Set(vs.map((v) => v.address)).size,
+      traders: new Set(all.map((v) => v.address)).size,
+      closed: all.length - vs.length,
       longs: vs.filter((v) => v.side === "long").length,
       shorts: vs.filter((v) => v.side === "short").length,
       directional: vs.filter((v) => v.directional).length,

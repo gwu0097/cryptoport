@@ -23,3 +23,16 @@ test("one-sided group: size-weighted average entry; ties broken by size", () => 
   assert.deepEqual(groups.map((x) => x.coin), ["AVAX", "SOL"], "same trader count: bigger first");
   assert.equal(groups[1].avgEntry, (100 + 360) / 4);
 });
+
+test("closed rows count toward traders and the closed tally only", () => {
+  const rows = [g("BTC", "a", "long", 100, 80_000, 1), { ...g("BTC", "b", "short", 50, 90_000, 1), closed: true }, { ...g("BTC", "c", "long", 10, 70_000, 1), closed: true }];
+  const [btc] = groupByCoin(rows, (r) => r);
+  assert.equal(btc.traders, 3);
+  assert.equal(btc.closed, 2);
+  assert.equal(btc.longs, 1);
+  assert.equal(btc.shorts, 0);
+  assert.equal(btc.notionalUsd, 100);
+  assert.equal(btc.avgEntry, 80_000);
+  const [onlyClosed] = groupByCoin([{ ...g("ETH", "a", "long", 5, 2000, 1), closed: true }], (r) => r);
+  assert.equal(onlyClosed.avgEntry, null);
+});

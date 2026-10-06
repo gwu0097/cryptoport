@@ -10,6 +10,7 @@ import { useNowSec } from "@/components/useServerNow";
 import { formatCompactUsd, formatPrice, formatUsdSigned } from "@/lib/format";
 import { latestMove, liveFigures, positionRole, type MoveKind, type PositionRole, type ScoutEntry } from "@/lib/perpScout/entries";
 import type { ScoutBook } from "@/lib/perpScoutScan";
+import type { ScoutClose } from "@/lib/perpScout/closes";
 import { groupByCoin } from "@/lib/perpScout/groups";
 import { TokenIcon } from "@/components/TokenIcon";
 import { ago, compareNullable, explorerUrl, hyperdashUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
@@ -18,7 +19,11 @@ type SortKey = "trader" | "trader30d" | "role" | "coin" | "side" | "move" | "ope
 type Window = "24h" | "7d" | "30d" | "any";
 const WINDOW_MS: Record<Window, number> = { "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000, any: Infinity };
 
-interface Row {
+type Close = ScoutClose & { iconUrl?: string | null };
+type Status = "all" | "open" | "closed";
+
+interface OpenRow {
+  kind: "open";
   e: ScoutEntry;
   name: string;
   live: ReturnType<typeof liveFigures>;
@@ -26,6 +31,23 @@ interface Row {
   /** The trader's perps PnL over the last 30 days, and as a share of their account. */
   month: { usd: number | null; share: number | null };
 }
+
+/** A position the trader closed in the last days (closes.ts). */
+interface ClosedRow {
+  kind: "closed";
+  c: Close;
+  name: string;
+  month: { usd: number | null; share: number | null };
+}
+
+type Row = OpenRow | ClosedRow;
+
+const coinOf = (r: Row) => (r.kind === "open" ? r.e.coin : r.c.coin);
+const addressOf = (r: Row) => (r.kind === "open" ? r.e.address : r.c.address);
+const sideOf = (r: Row) => (r.kind === "open" ? r.e.side : r.c.side);
+const iconOf = (r: Row) => (r.kind === "open" ? r.e.iconUrl : r.c.iconUrl) ?? null;
+/** A row's latest move: an open position's newest open/add/trim, a closed one's close. */
+const moveOf = (r: Row): { kind: MoveKind | "close"; at: number } | null => (r.kind === "open" ? latestMove(r.e) : { kind: "close", at: r.c.closedAt });
 
 const ROLE_LABEL: Record<PositionRole, string> = { directional: "Directional", hedge: "Hedge", pair: "Paired", book: "Book leg" };
 const ROLE_ORDER: Record<PositionRole, number> = { directional: 0, pair: 1, book: 2, hedge: 3 };
@@ -35,40 +57,59 @@ function sortValue(r: Row, key: SortKey): number | string | null {
   switch (key) {
     case "trader": return r.name.toLowerCase();
     case "trader30d": return r.month.usd;
-    case "role": return ROLE_ORDER[r.role.role];
-    case "move": return latestMove(r.e)?.at ?? null;
-    case "coin": return r.e.coin.toLowerCase();
-    case "side": return r.e.side;
+    // Closed rows after every open role.
+    case "role": return r.kind === "open" ? ROLE_ORDER[r.role.role] : 9;
+    case "move": return moveOf(r)?.at ?? null;
+    case "coin": return coinOf(r).toLowerCase();
+    case "side": return sideOf(r);
+    default:
+      break;
+  }
+  if (r.kind === "closed") {
+    const c = r.c;
+    switch (key) {
+      case "opened": return c.openedAt;
+      case "notional": return c.size * c.exitPx;
+      case "entry": return c.entryPx;
+      case "mark": return c.exitPx;
+      case "vsEntry": return c.returnPct;
+      case "pnl": return c.returnPct;
+      default: return null;
+    }
+  }
+  const { e, live } = r;
+  switch (key) {
     // Opened before the fills read sorts as just before that bound.
-    case "opened": return r.e.openedAt ?? (r.e.openedBefore !== null ? r.e.openedBefore - 1 : null);
-    case "notional": return r.live.notionalUsd;
-    case "share": return r.e.equityShare;
-    case "leverage": return r.e.leverage;
-    case "entry": return r.e.entryPx;
-    case "open": return r.e.openPx;
-    case "mark": return r.live.mark;
-    case "vsEntry": return r.live.vsEntry;
-    case "vsOpen": return r.live.vsOpen;
-    case "pnl": return r.live.roe;
-    case "tp": return r.e.tp;
-    case "sl": return r.e.sl;
-    case "liq": return r.e.liquidationPx;
+    case "opened": return e.openedAt ?? (e.openedBefore !== null ? e.openedBefore - 1 : null);
+    case "notional": return live.notionalUsd;
+    case "share": return e.equityShare;
+    case "leverage": return e.leverage;
+    case "entry": return e.entryPx;
+    case "open": return e.openPx;
+    case "mark": return live.mark;
+    case "vsEntry": return live.vsEntry;
+    case "vsOpen": return live.vsOpen;
+    case "pnl": return live.roe;
+    case "tp": return e.tp;
+    case "sl": return e.sl;
+    case "liq": return e.liquidationPx;
+    default: return null;
   }
 }
 
 /** Columns in the table, for a group's header row. */
 const COLUMNS = 19;
 
-const MOVE_LABEL: Record<MoveKind, string> = { new: "New", add: "Added", trim: "Trimmed" };
-const MOVE_BADGE: Record<MoveKind, string> = { new: "bg-positive/15 text-positive", add: "bg-accent/15 text-accent", trim: "bg-warning/15 text-warning" };
+const MOVE_LABEL: Record<MoveKind | "close", string> = { new: "New", add: "Added", trim: "Trimmed", close: "Closed" };
+const MOVE_BADGE: Record<MoveKind | "close", string> = { new: "bg-positive/15 text-positive", add: "bg-accent/15 text-accent", trim: "bg-warning/15 text-warning", close: "bg-border text-fg" };
 /** A move this recent marks its row with its colour. */
 const RECENT_MS = 24 * 60 * 60_000;
-const MOVE_EDGE: Record<MoveKind, string> = { new: "border-l-positive", add: "border-l-accent", trim: "border-l-warning" };
+const MOVE_EDGE: Record<MoveKind | "close", string> = { new: "border-l-positive", add: "border-l-accent", trim: "border-l-warning", close: "border-l-fg-muted" };
 
-/** A collapsed coin's activity: its latest move and how many of its
- * positions moved in the last 24 h. */
+/** A collapsed coin's activity: its latest move (a close included) and how
+ * many of its rows moved in the last 24 h. */
 function GroupActivity({ rows, nowMs }: { rows: readonly Row[]; nowMs: number }) {
-  const moves = rows.map((r) => latestMove(r.e)).filter((m): m is NonNullable<typeof m> => m !== null);
+  const moves = rows.map(moveOf).filter((m): m is NonNullable<typeof m> => m !== null);
   if (moves.length === 0) return null;
   const last = moves.reduce((a, b) => (b.at > a.at ? b : a));
   const recent = moves.filter((m) => nowMs - m.at <= RECENT_MS).length;
@@ -85,12 +126,15 @@ function GroupActivity({ rows, nowMs }: { rows: readonly Row[]; nowMs: number })
 const price = (x: number | null) => (x === null ? "—" : formatPrice(x));
 
 /**
- * Every open position of the followed traders. Prices are the scan's marks
- * until Refresh prices swaps in current mids (`mids`). "vs entry" is the move
- * since their average entry in their direction: negative means they're down
- * and the price now is better than theirs.
+ * Perp Scout's Activity: every open position of the followed traders and
+ * every position they closed in the last days, in one table (owner
+ * 2026-10-06: "a holistic view grouped by tokens — under BTC 1 long, 1
+ * short and 3 closes"). Prices are the scan's marks until Refresh prices
+ * swaps in current mids (`mids`). "vs entry" is the move since their average
+ * entry in their direction: negative means they're down and the price now is
+ * better than theirs; on a closed row it's the return from entry to exit.
  */
-export function EntriesTable({ entries, books, names, mids, serverNowSec }: { entries: ScoutEntry[]; books: ScoutBook[]; names: Record<string, string>; mids: Record<string, number> | null; serverNowSec: number }) {
+export function EntriesTable({ entries, closes, books, names, mids, serverNowSec }: { entries: ScoutEntry[]; closes: readonly Close[]; books: ScoutBook[]; names: Record<string, string>; mids: Record<string, number> | null; serverNowSec: number }) {
   const nowMs = useNowSec(serverNowSec) * 1000;
   const [sortKey, setSortKey] = usePersistedState<SortKey>("cryptoport:perpScoutEntriesSort", "opened");
   const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">("cryptoport:perpScoutEntriesSortDir", "desc");
@@ -100,6 +144,7 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
   const [trader, setTrader] = usePersistedState<string>("cryptoport:perpScoutTrader", "");
   const [directionalOnly, setDirectionalOnly] = usePersistedState("cryptoport:perpScoutDirectionalOnly", false);
   const [grouped, setGrouped] = usePersistedState("cryptoport:perpScoutGroupByCoin", false);
+  const [status, setStatus] = usePersistedState<Status>("cryptoport:perpScoutStatus", "all");
   // Coins open in the grouped view: none at first, so many traders stay readable.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const toggleCoin = (coin: string) =>
@@ -122,57 +167,121 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
     const byTrader = new Map<string, ScoutEntry[]>();
     for (const e of entries) byTrader.set(e.address, [...(byTrader.get(e.address) ?? []), e]);
     const bookOf = new Map(books.map((b) => [b.address, b]));
-    const all: Row[] = entries.map((e) => {
-      const b = bookOf.get(e.address);
+    const monthOf = (address: string) => {
+      const b = bookOf.get(address);
       const usd = b?.stats?.monthPnl ?? null;
-      return {
-        e,
-        name: names[e.address] ?? shortAddress(e.address),
-        live: liveFigures(e, mids?.[e.coin]),
-        role: positionRole(e, byTrader.get(e.address) ?? [e]),
-        month: { usd, share: usd !== null && b?.accountValue ? usd / b.accountValue : null },
-      };
-    });
-    return all
-      .filter((r) => !directionalOnly || r.role.role === "directional")
-      // Any move counts — opened, added to or trimmed: a position opened
-      // weeks ago that the trader added to yesterday is recent activity.
+      return { usd, share: usd !== null && b?.accountValue ? usd / b.accountValue : null };
+    };
+    const open: Row[] = entries.map((e) => ({
+      kind: "open",
+      e,
+      name: names[e.address] ?? shortAddress(e.address),
+      live: liveFigures(e, mids?.[e.coin]),
+      role: positionRole(e, byTrader.get(e.address) ?? [e]),
+      month: monthOf(e.address),
+    }));
+    const closed: Row[] = closes.map((c) => ({ kind: "closed", c, name: names[c.address] ?? shortAddress(c.address), month: monthOf(c.address) }));
+    return [...(status === "closed" ? [] : open), ...(status === "open" ? [] : closed)]
+      // A role is known only for open positions: closes stay in either way.
+      .filter((r) => !directionalOnly || r.kind === "closed" || r.role.role === "directional")
+      // Any move counts — opened, added to, trimmed or closed: a position
+      // opened weeks ago that the trader added to yesterday is recent.
       .filter((r) => {
         if (window === "any") return true;
-        const move = latestMove(r.e);
+        const move = moveOf(r);
         return move !== null && nowMs - move.at <= WINDOW_MS[window];
       })
-      .filter((r) => !betterOnly || (r.live.vsEntry !== null && r.live.vsEntry < 0))
-      .filter((r) => side === "both" || r.e.side === side)
-      .filter((r) => !trader || r.e.address === trader)
+      // "Below their entry" is about entering now: closes don't apply.
+      .filter((r) => !betterOnly || (r.kind === "open" && r.live.vsEntry !== null && r.live.vsEntry < 0))
+      .filter((r) => side === "both" || sideOf(r) === side)
+      .filter((r) => !trader || addressOf(r) === trader)
       .sort((a, b) => compareNullable(sortValue(a, sortKey), sortValue(b, sortKey), sortDir));
-  }, [entries, books, names, mids, window, betterOnly, side, trader, directionalOnly, sortKey, sortDir, nowMs]);
+  }, [entries, closes, books, names, mids, window, betterOnly, side, trader, directionalOnly, status, sortKey, sortDir, nowMs]);
 
-  const traders = useMemo(() => [...new Set(entries.map((e) => e.address))].sort((a, b) => (names[a] ?? a).localeCompare(names[b] ?? b)), [entries, names]);
+  const traders = useMemo(() => [...new Set([...entries.map((e) => e.address), ...closes.map((c) => c.address)])].sort((a, b) => (names[a] ?? a).localeCompare(names[b] ?? b)), [entries, closes, names]);
   const h = (label: string, key: SortKey, className = "") => <SortableHeader label={label} sortKeyValue={key} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={className} />;
 
   const groups = useMemo(
-    () => groupByCoin(rows, (r) => ({ coin: r.e.coin, address: r.e.address, side: r.e.side, notionalUsd: r.live.notionalUsd, entryPx: r.e.entryPx, size: r.e.size, directional: r.role.role === "directional" })),
+    () =>
+      groupByCoin(rows, (r) =>
+        r.kind === "open"
+          ? { coin: r.e.coin, address: r.e.address, side: r.e.side, notionalUsd: r.live.notionalUsd, entryPx: r.e.entryPx, size: r.e.size, directional: r.role.role === "directional" }
+          : { coin: r.c.coin, address: r.c.address, side: r.c.side, notionalUsd: null, entryPx: null, size: 0, directional: false, closed: true },
+      ),
     [rows],
   );
 
-  const renderRow = ({ e, name, live, role, month }: Row) => {
+  const renderRow = (r: Row) => (r.kind === "open" ? renderOpen(r) : renderClosed(r));
+
+  const traderCells = (address: string, name: string, month: Row["month"]) => (
+    <>
+      <td className={tdClass}>
+        <a href={explorerUrl(address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={address}>
+          {name}
+        </a>
+        <a href={hyperdashUrl(address)} target="_blank" rel="noreferrer" className="ml-1.5 text-xs text-fg-muted hover:text-accent" title="Open on HyperDash">
+          ↗
+        </a>
+      </td>
+      <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap ${toneOf(month.usd)}`} title="The trader's perps PnL over the last 30 days, and as a share of their account">
+        {month.usd === null ? "—" : formatCompactUsd(month.usd)}
+        {month.share !== null && <span className="ml-1 text-xs">{signedPct(month.share, 0)}</span>}
+      </td>
+    </>
+  );
+
+  const renderClosed = ({ c, name, month }: ClosedRow) => {
+    const recent = nowMs - c.closedAt <= RECENT_MS;
+    const dash = <span className="text-fg-muted">—</span>;
+    return (
+      <tr key={`${c.address}:${c.coin}:closed:${c.closedAt}`} className={`${trClass} border-l-2 ${recent ? MOVE_EDGE.close : "border-l-transparent"} bg-surface-raised/30`}>
+        {traderCells(c.address, name, month)}
+        <td className={`${tdClass} whitespace-nowrap font-medium`}>
+          <span className="inline-flex items-center gap-1.5 align-middle">
+            <TokenIcon ticker={c.coin} url={c.iconUrl ?? null} size="sm" />
+            {c.coin}
+          </span>
+          <span className={`ml-1.5 text-xs sm:hidden ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "L" : "S"}</span>
+        </td>
+        <td className={`${tdClass} whitespace-nowrap text-fg-muted`}>Closed</td>
+        <td className={`${tdClass} ${hideOnMobileClass} ${c.side === "long" ? "text-positive" : "text-negative"}`}>{c.side === "long" ? "Long" : "Short"}</td>
+        <td className={`${tdClass} whitespace-nowrap`}>
+          <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${MOVE_BADGE.close}`} title={new Date(c.closedAt).toLocaleString()}>
+            Closed {ago(c.closedAt, nowMs)}
+          </span>
+        </td>
+        <td className={`${tdClass} whitespace-nowrap`} title={c.openedAt === null ? "Opened before their latest fills" : undefined}>
+          {c.openedAt !== null ? ago(c.openedAt, nowMs) : dash}
+        </td>
+        <td className={`${tdClass} ${hideOnMobileClass}`} title="Size closed, at the exit price">{formatCompactUsd(c.size * c.exitPx)}</td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+        <td className={tdClass}>{price(c.entryPx)}</td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+        <td className={`${tdClass} whitespace-nowrap`} title="Their average exit">
+          {formatPrice(c.exitPx)} <span className="text-xs text-fg-muted">exit</span>
+        </td>
+        <td className={`${tdClass} font-medium ${toneOf(c.returnPct)}`} title="Return from their entry to their exit, in their direction (at 1×)">
+          {signedPct(c.returnPct)}
+        </td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+        <td className={`${tdClass} whitespace-nowrap`} title="Realized PnL of the close, before fees">
+          <span className={`font-medium ${toneOf(c.pnlUsd)}`}>{c.pnlUsd === null ? "—" : formatUsdSigned(Math.round(c.pnlUsd))}</span>
+          <span className="ml-1.5 text-xs text-fg-muted">realized</span>
+        </td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+        <td className={`${tdClass} ${hideOnMobileClass}`}>{dash}</td>
+      </tr>
+    );
+  };
+
+  const renderOpen = ({ e, name, live, role, month }: OpenRow) => {
     const move = latestMove(e);
     const recent = move !== null && nowMs - move.at <= RECENT_MS;
     return (
       <tr key={`${e.address}:${e.coin}`} className={`${trClass} border-l-2 ${recent ? MOVE_EDGE[move.kind] : "border-l-transparent"}`}>
-        <td className={tdClass}>
-          <a href={explorerUrl(e.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title={e.address}>
-            {name}
-          </a>
-          <a href={hyperdashUrl(e.address)} target="_blank" rel="noreferrer" className="ml-1.5 text-xs text-fg-muted hover:text-accent" title="Open on HyperDash">
-            ↗
-          </a>
-        </td>
-        <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap ${toneOf(month.usd)}`} title="The trader's perps PnL over the last 30 days, and as a share of their account">
-          {month.usd === null ? "—" : formatCompactUsd(month.usd)}
-          {month.share !== null && <span className="ml-1 text-xs">{signedPct(month.share, 0)}</span>}
-        </td>
+        {traderCells(e.address, name, month)}
         <td className={`${tdClass} whitespace-nowrap font-medium`}>
           <span className="inline-flex items-center gap-1.5 align-middle">
             <TokenIcon ticker={e.coin} url={e.iconUrl ?? null} size="sm" />
@@ -237,6 +346,12 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
           </button>
         ))}
         <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+        {(["all", "open", "closed"] as const).map((st) => (
+          <button key={st} type="button" className={chipClass(status === st, true)} onClick={() => setStatus(st)}>
+            {st === "all" ? "Open & closed" : st === "open" ? "Open" : "Closed"}
+          </button>
+        ))}
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
         <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
           <input type="checkbox" checked={betterOnly} onChange={(e) => setBetterOnly(e.target.checked)} />
           Only below their entry (above, for shorts)
@@ -298,7 +413,7 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
                       <td colSpan={COLUMNS} className="px-3 py-2 text-sm">
                         <button type="button" className="inline-flex items-center gap-1.5 align-middle font-semibold text-fg" aria-expanded={expanded.has(gr.coin)}>
                           <ChevronRight className={`size-3.5 text-fg-muted transition-transform ${expanded.has(gr.coin) ? "rotate-90" : ""}`} aria-hidden="true" />
-                          <TokenIcon ticker={gr.coin} url={gr.rows[0].e.iconUrl ?? null} size="sm" />
+                          <TokenIcon ticker={gr.coin} url={gr.rows.map(iconOf).find(Boolean) ?? null} size="sm" />
                           {gr.coin}
                         </button>
                         <span className="ml-3 text-fg-muted">
@@ -307,8 +422,9 @@ export function EntriesTable({ entries, books, names, mids, serverNowSec }: { en
                           {gr.longs > 0 && <span className="text-positive">{gr.longs} long</span>}
                           {gr.longs > 0 && gr.shorts > 0 && " / "}
                           {gr.shorts > 0 && <span className="text-negative">{gr.shorts} short</span>}
-                          {` · ${gr.directional} directional · ${formatCompactUsd(gr.notionalUsd)}`}
+                          {gr.longs + gr.shorts > 0 && ` · ${gr.directional} directional · ${formatCompactUsd(gr.notionalUsd)}`}
                           {gr.avgEntry !== null && ` · avg entry ${formatPrice(gr.avgEntry)}`}
+                          {gr.closed > 0 && <span className="text-fg">{`${gr.longs + gr.shorts > 0 ? " · " : ""}${gr.closed} closed`}</span>}
                         </span>
                         <GroupActivity rows={gr.rows} nowMs={nowMs} />
                       </td>
