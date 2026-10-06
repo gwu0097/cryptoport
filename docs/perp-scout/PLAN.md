@@ -61,13 +61,28 @@ the same pure screen code as the tests (`perpScout/screen.ts`,
    - a profitable last 30 days;
    - monthly volume ≤ 60× its account value, which excludes market makers
      and HFT.
-2. **Review set** of 70. Half are the largest all-time earners and half the
-   largest earners over 30 days. ROI was tried first and picked accounts
-   with a tiny first deposit (ROI +995,700%).
-3. **Perps record only** (info `portfolio`, `perpAllTime` and `perpMonth`).
-   The all-time window also counts spot and vault money, which made
-   non-traders look like smooth winners. A trader passes with:
-   - typical (median) perps equity ≥ $50K;
+2. **Stage 1b**, still from leaderboard figures (`looksPromising`), keeps
+   accounts that:
+   - traded this month (volume ≥ account value);
+   - made less than half their all-time profit in the last 30 days;
+   - have all-time profit ≤ 30× their account value.
+
+   Without it, 69 of 70 reviewed failed: 44 on one lucky month, 48 on not
+   trading perps.
+3. **Review set** of 150. Half are the largest all-time earners and half
+   the largest earners over 30 days. ROI was tried first and picked
+   accounts with a tiny first deposit (ROI +995,700%).
+4. **Perps record** (info `portfolio`): perps PnL and volume
+   (`perpAllTime`, `perpMonth`) against the **whole account's** value
+   (`allTime`).
+   - PnL counts perps only. The all-time PnL also counts spot and vault
+     gains, which made non-traders look like smooth winners.
+   - Equity counts the whole account, because a unified account keeps its
+     cash in spot. #1's perps side alone read $1.1M of $6.1M, which turned a
+     47% drawdown into 180%.
+
+   A trader passes with:
+   - typical (median) account value ≥ $50K;
    - all-time perp volume ≥ 5× typical equity, and perp volume this month;
    - ≥ 26 weeks of history;
    - max drawdown of the **PnL curve** ≤ typical equity. Account value is
@@ -76,12 +91,18 @@ the same pure screen code as the tests (`perpScout/screen.ts`,
    - ≤ 90% winning weeks. Swing traders win 50–65% of weeks. The first live
      screen's picks won 100% of weeks for 29 months with 0% drawdown and had
      no perp positions: funding farms, vaults or rewards.
-4. **Rank** by yearly return on typical equity ÷ max drawdown share, with
+5. **Rank** by yearly return on typical equity ÷ max drawdown share, with
    the drawdown floored at 10%.
 
-**Seed list:** the handoff's 8 (its stage 3, run 2026-10-05 on the 60
-largest earners). Most of them are whales running hedged books, so the next
-step is to run the fixed screen for directional traders.
+**The list, 2026-10-06:**
+- **From the handoff (4):** #1, #2, #3 and #6. #4, #5, #7 and #8 were
+  dropped: they had no perp positions and little or no perps profit. #8's
+  $17.8M was spot gains, with no perp trade ever.
+- **From the screen (7):** 13 of 150 passed. Skipped among those: traders
+  turning their account over 48–84× a month (too fast to follow at a lag)
+  and one at 96% drawdown.
+- **Leaderboard counts that day:** 47,466 accounts, 5,855 passed stage 1,
+  1,344 passed stage 1b.
 
 ## Entries
 
@@ -102,6 +123,10 @@ From those:
 - **TP/SL**: `tpsl.ts` `hyperliquidTpsl` / `nearestTpsl`, the same code as
   the wallet sync.
 - **Mark**: position value ÷ size, so it costs no extra call.
+- **Last added**: seen within the fills read, even for a position opened
+  before them.
+- **Equity, % of equity and leverage**: against the whole account's value
+  (`portfolio`, which also gives the Traders table its live record).
 
 **Failure handling:**
 
@@ -125,8 +150,8 @@ Hyperliquid's docs:
 The app's calls go through one pacer per instance held at 1,000 a minute
 (`perpScout/pacer.ts`).
 
-- **A scan of 8 traders**: 8 × (2 + 20 + 20 + up to 100) ≈ 350–1,150
-  weight, about 10–70 s.
+- **A scan of 11 traders**: 11 × (2 + 20 + 20 + 20 + up to 100) ≈
+  700–1,800 weight, about 10–80 s. The extra 20 per trader is `portfolio`.
 - **A list of 40**: up to about 4 minutes, close to the route's limit.
   Traders not reached keep their last entries.
 - **Supabase**:
@@ -140,18 +165,27 @@ The app's calls go through one pacer per instance held at 1,000 a minute
     Twenty scans an hour lock the user out for 24 h (`abuseGuard.ts`). All
     calls are free.
   - Refresh prices: 300 an hour (weight 2 each).
-- **The screen script**: about 70 × 20 = 1,400 weight, spaced 1.2 s apart
-  (about 1.5 minutes). It only runs when asked in chat.
+- **The screen script**: about 150 × 20 = 3,000 weight, spaced 1.2 s apart
+  (about 3 minutes). It only runs when asked in chat.
 
 ## Verification
 
 - 2026-10-06, first live scan: it ran, and the old in-app screen's picks
   were wrong (see step 3 above). That screen was replaced by the curated
   list.
-- Still to check: the seeded 8 traders' entries against their accounts on
-  app.hyperliquid.xyz.
-- The screen script needs network access to Hyperliquid from wherever it
-  runs. The cloud environment's network policy blocked it on 2026-10-06.
+- 2026-10-06, entries built from live data for #1 matched HyperDash:
+  - ZRO entry $1.79395;
+  - ADA short −$315K at 22% of equity;
+  - the only stop on XLM.
+
+  Leverage reads 1.18× on Hyperliquid's $6.1M account value. HyperDash
+  shows 1.7× on $4.2M, apparently leaving out its spot memecoins. For
+  0xf97a the table showed open times, first-fill prices and adds.
+- Limit: #1's 2,000 fills reach back only 7 days, so a position older than
+  that shows "over 7d".
+- In the cloud sandbox the script needs `NODE_USE_ENV_PROXY=1`, so Node's
+  fetch uses the egress proxy. The environment allows `api.hyperliquid.xyz`
+  and `stats-data.hyperliquid.xyz`.
 
 ## Later (not built)
 

@@ -107,6 +107,16 @@ export function passesStage1(r: LeaderboardRow): boolean {
   );
 }
 
+/** Stage 1b, from the leaderboard alone, before spending a call on an
+ * account's record: trading this month (volume ≥ its account value), its
+ * last 30 days under half its all-time profit (not one lucky month), and
+ * all-time profit ≤ 30× its account value (not a tiny first deposit).
+ * Without it, 69 of 70 reviewed failed — 44 on one lucky month, 48 on not
+ * trading perps (2026-10-06). */
+export function looksPromising(r: LeaderboardRow): boolean {
+  return r.month.vlm >= r.accountValue && r.month.pnl <= 0.5 * r.allTime.pnl && r.allTime.pnl <= 30 * r.accountValue;
+}
+
 /** Stage 2: `n` accounts to review — the top by all-time PnL and the top by
  * 30-day PnL, alternating, without repeats. */
 export function pickForReview(rows: readonly LeaderboardRow[], n: number): LeaderboardRow[] {

@@ -31,10 +31,12 @@ export interface FollowedTrader {
   };
 }
 
-// The sol-bot handoff's shortlist (2026-10-05): the 8 of the 60 largest
-// all-time earners that passed its stage 3 (≥ 26 weeks, drawdown ≤ typical
-// equity, best 4 weeks ≤ 80% of profit, leverage ≤ 10×). Mostly whales with
-// hedged books — see docs/perp-scout/PLAN.md.
+// Seeded 2026-10-06 from the sol-bot handoff's shortlist (its stage 3 on the
+// 60 largest all-time earners; figures 2026-10-05). Re-checked on the perps
+// record that day: #4, #5, #7 and #8 were dropped — no perp positions, and
+// little or no perps profit (#8's $17.8M was spot gains, no perp trade ever).
+// #6 kept on the owner's call though 87% of its profit came in 4 weeks.
+// Then the fixed screen's picks (docs/perp-scout/PLAN.md, "Finding traders").
 const HANDOFF = (n: number, why: string) => `Handoff #${n}: ${why}`;
 
 export const FOLLOWED: readonly FollowedTrader[] = [
@@ -60,20 +62,6 @@ export const FOLLOWED: readonly FollowedTrader[] = [
     picked: { asOf: "2026-10-05", equity: 18.3e6, allTimePnl: 17.3e6, monthPnl: 2.61e6, historyMonths: 22, winningWeeks: 0.53, drawdownShare: 0.59, bestFourShare: 0.59 },
   },
   {
-    address: "0xd14d535a383b065cf2228963a984d0e2477bee1f",
-    name: "8-hour holder (#4)",
-    addedOn: "2026-10-06",
-    why: HANDOFF(4, "holds ~8 h; drawdown near equity, 80% of profit in 4 weeks (at the limit)"),
-    picked: { asOf: "2026-10-05", equity: 13.7e6, allTimePnl: 11.5e6, monthPnl: 1.21e6, historyMonths: 14, winningWeeks: 0.61, drawdownShare: 0.95, bestFourShare: 0.8 },
-  },
-  {
-    address: "0x807a2e2e469df84b299da5f90f15dda4380daca1",
-    name: "Top earner (#5)",
-    addedOn: "2026-10-06",
-    why: HANDOFF(5, "largest all-time PnL ($35.6M) on $12.9M"),
-    picked: { asOf: "2026-10-05", equity: 12.9e6, allTimePnl: 35.6e6, monthPnl: 1.49e6, historyMonths: 22, winningWeeks: 0.54, drawdownShare: 0.89, bestFourShare: 0.65 },
-  },
-  {
     address: "0x051c2e6d49cf82ebc47f08f9b85800f94fc9693c",
     name: "Hot month (#6)",
     addedOn: "2026-10-06",
@@ -81,17 +69,52 @@ export const FOLLOWED: readonly FollowedTrader[] = [
     picked: { asOf: "2026-10-05", equity: 16.1e6, allTimePnl: 15.3e6, monthPnl: 5.22e6, historyMonths: 19, winningWeeks: 0.5, drawdownShare: 0.81, bestFourShare: 0.6 },
   },
   {
-    address: "0x192bb1fdb08a197e1cdebcfc52deee92e5e33e1d",
-    name: "Smaller whale (#7)",
+    address: "0x8bae3527e5a33fa0cf184f37bc112d071463ab6d",
+    name: "Calm swing (0x8bae)",
     addedOn: "2026-10-06",
-    why: HANDOFF(7, "smallest account of the 8; 79% of profit in 4 weeks"),
-    picked: { asOf: "2026-10-05", equity: 5.8e6, allTimePnl: 10.5e6, monthPnl: 0.5e6, historyMonths: 19, winningWeeks: 0.54, drawdownShare: 0.82, bestFourShare: 0.79 },
+    why: "Screen 2026-10-06: best score of the 2026-10-06 screen: 75% winning weeks, 13% drawdown, slow (~6× turnover a month)",
+    picked: { asOf: "2026-10-06", equity: 4623663, allTimePnl: 11510028, monthPnl: 156384, historyMonths: 14, winningWeeks: 0.75, drawdownShare: 0.13, bestFourShare: 0.33 },
   },
   {
-    address: "0x462e3f2ce774b4dbba10662a2155e4823d4c820f",
-    name: "Steady whale (#8)",
+    address: "0x16bf84af3f85f8c8a97597bf2be549dfe0dee637",
+    name: "Low drawdown (0x16bf)",
     addedOn: "2026-10-06",
-    why: HANDOFF(8, "22-month record; drawdown 93% of equity"),
-    picked: { asOf: "2026-10-05", equity: 16.9e6, allTimePnl: 17.8e6, monthPnl: 1.64e6, historyMonths: 22, winningWeeks: 0.51, drawdownShare: 0.93, bestFourShare: 0.69 },
+    why: "Screen 2026-10-06: 5% drawdown on $9M, slow (~5× a month); 79% of profit in 4 weeks (near the limit)",
+    picked: { asOf: "2026-10-06", equity: 9090146, allTimePnl: 5739262, monthPnl: 84925, historyMonths: 11, winningWeeks: 0.59, drawdownShare: 0.05, bestFourShare: 0.79 },
+  },
+  {
+    address: "0xf97ad6704baec104d00b88e0c157e2b7b3a1ddd1",
+    name: "Directional majors (0xf97a)",
+    addedOn: "2026-10-06",
+    why: "Screen 2026-10-06: 82% winning weeks, 17% drawdown over 28 months; long BTC/ETH/SOL when picked",
+    picked: { asOf: "2026-10-06", equity: 646849, allTimePnl: 1631809, monthPnl: 75096, historyMonths: 28, winningWeeks: 0.82, drawdownShare: 0.17, bestFourShare: 0.28 },
+  },
+  {
+    address: "0x166866a2845506f6b4c817482fe53b4985882ea6",
+    name: "Patient (0x1668)",
+    addedOn: "2026-10-06",
+    why: "Screen 2026-10-06: 17% drawdown over 29 months, slow (~6× a month)",
+    picked: { asOf: "2026-10-06", equity: 1567821, allTimePnl: 395800, monthPnl: 38703, historyMonths: 29, winningWeeks: 0.67, drawdownShare: 0.17, bestFourShare: 0.72 },
+  },
+  {
+    address: "0x5cbdb794b3b36df58a7ce6c1a552f117f061103b",
+    name: "Directional (0x5cbd)",
+    addedOn: "2026-10-06",
+    why: "Screen 2026-10-06: 29 months, 30% drawdown; one directional position at a time when picked",
+    picked: { asOf: "2026-10-06", equity: 759943, allTimePnl: 491942, monthPnl: 342867, historyMonths: 29, winningWeeks: 0.53, drawdownShare: 0.3, bestFourShare: 0.79 },
+  },
+  {
+    address: "0xa5fd942d4badbab4fe84a9e10f565dd40d5f15ff",
+    name: "Long-biased book (0xa5fd)",
+    addedOn: "2026-10-06",
+    why: "Screen 2026-10-06: 70% winning weeks over 29 months; long-biased book of ~34 positions",
+    picked: { asOf: "2026-10-06", equity: 2574968, allTimePnl: 2258990, monthPnl: 472851, historyMonths: 29, winningWeeks: 0.7, drawdownShare: 0.48, bestFourShare: 0.44 },
+  },
+  {
+    address: "0x7c9063122c01837fe83da2521056e10c9b6dd129",
+    name: "Riskier swing (0x7c90)",
+    addedOn: "2026-10-06",
+    why: "Screen 2026-10-06: 73% winning weeks, but 74% drawdown; long WLD when picked",
+    picked: { asOf: "2026-10-06", equity: 568314, allTimePnl: 1818011, monthPnl: 674142, historyMonths: 11, winningWeeks: 0.73, drawdownShare: 0.74, bestFourShare: 0.68 },
   },
 ];

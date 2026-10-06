@@ -73,7 +73,7 @@ export function PerpScoutView({ scan, signedIn, serverNowSec }: { scan: ScoutSca
           <span className="inline-flex items-center gap-1.5">
             Traders
             <InfoTooltip>
-              The traders Perp Scout follows, picked in chat with Claude (src/lib/perpScout/followed.ts) — ask there to add or drop one. Win weeks, max drawdown (of the PnL curve, ÷ typical equity) and best-4-weeks share are from the day each was picked; equity, leverage, book and open positions are from the last scan.
+              The traders Perp Scout follows, picked in chat with Claude (src/lib/perpScout/followed.ts) — ask there to add or drop one. Perps record (all-time and 30-day PnL, winning weeks, max drawdown of the PnL curve ÷ the account\u2019s typical value, best-4-weeks share), equity (the whole account, perps + spot), leverage, book and open positions are from the last scan; before a trader\u2019s first scan, the figures they were picked on.
             </InfoTooltip>
           </span>
         }
