@@ -110,6 +110,22 @@ fees).
   trader whose fills fail keeps the last scan's closes.
 - On the real scan that day there were 89 closes across 22 traders.
 
+A trader's closes of one coin on one side are **summed into one row**
+(`closes.ts` `summarizeCloses`; owner: "this looks like 8 closes but really
+it's just 1"). The row shows "Closed ×8 · last 3d ago", the total size, the
+size-weighted entry and exit, the combined return (total PnL ÷ the entry
+value closed) and the total PnL; each close is listed on hover. The time
+filter picks the closes first, then sums them.
+
+**Fill order** (fixed 2026-10-06): userFills lists newest first, including
+the pieces of one order filled in the same millisecond. Re-sorting by time
+kept those pieces backwards, so a position seemed to go flat and reopen
+between them, producing closes with no open and misread trims (0xf97a's
+fills broke the position chain 1,766 times). `parseFills` now reverses the
+list, which gives 0 breaks on perps, and drops spot fills ("@107"); their
+fees break the chain and they aren't perp positions. Re-measured, the swing
+hold times on the list were unchanged.
+
 A status filter shows Open & closed, Open or Closed. Group by coin counts
 closes in the coin's header ("BTC · 8 traders · 2 long / 2 short · 9
 closed"); they count toward its traders but not its size or average entry

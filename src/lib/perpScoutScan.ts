@@ -25,6 +25,10 @@ const RUN_SETTING = "perp_scout_run";
 const FRESH_MS = 60_000;
 /** A claimed run older than this died (the route has 300 s). */
 const RUN_STALE_MS = 6 * 60_000;
+/** Bumped when how fills are read changes, so saved books built the old way
+ * are read in full once instead of carried forward. 2: fills in true order
+ * (2026-10-06 — the old order made closes with no open). */
+const BOOK_VERSION = 2;
 /** The record (PnL history) changes slowly: read again after this. */
 const STATS_MAX_AGE_MS = 6 * 60 * 60_000;
 /** TP/SL orders: read again after this even when nothing traded. */
@@ -54,6 +58,8 @@ export interface ScoutBook {
   /** When `stats` (the record) and the TP/SL orders were last read. */
   statsReadAt?: string | null;
   ordersReadAt?: string | null;
+  /** BOOK_VERSION it was read with; an older book is read in full again. */
+  v?: number;
 }
 
 export interface ScoutScan {
@@ -212,7 +218,7 @@ interface Previous {
 async function readBook(address: string, prev: Previous): Promise<{ book: ScoutBook; entries: ScoutEntry[]; closes: ScoutClose[]; delta: boolean }> {
   const now = Date.now();
   const since = prev.book?.fillsThrough ?? null;
-  const canDelta = since !== null && !prev.book?.error && now - since < DELTA_MAX_GAP_MS;
+  const canDelta = since !== null && prev.book?.v === BOOK_VERSION && !prev.book?.error && now - since < DELTA_MAX_GAP_MS;
   const statsFresh = canDelta && prev.book?.stats && prev.book.statsReadAt && now - Date.parse(prev.book.statsReadAt) < STATS_MAX_AGE_MS;
 
   const [state, series, sinceRead] = await Promise.all([
@@ -268,6 +274,7 @@ async function readBook(address: string, prev: Previous): Promise<{ book: ScoutB
       fillsThrough,
       statsReadAt,
       ordersReadAt: orders ? new Date(now).toISOString() : (prev.book?.ordersReadAt ?? null),
+      v: BOOK_VERSION,
     },
     entries,
     closes,

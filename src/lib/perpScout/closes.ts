@@ -109,3 +109,62 @@ export function mergeCloses(prev: readonly ScoutClose[], fresh: readonly ScoutCl
   }
   return [...byKey.values()].filter((c) => c.closedAt >= since).sort((a, b) => b.closedAt - a.closedAt);
 }
+
+/** A trader's closes of one coin on one side in the window, summed: a swing
+ * trader who opened and closed HYPE long 6 times reads as one row (owner
+ * 2026-10-06: "can we sum them together?"). */
+export interface CloseSummary {
+  address: string;
+  coin: string;
+  side: "long" | "short";
+  count: number;
+  /** Total size closed, in the coin. */
+  size: number;
+  /** Size-weighted averages over the closes whose entry is known. */
+  entryPx: number | null;
+  exitPx: number;
+  /** Sum of realized PnL; null when any close's is unknown. */
+  pnlUsd: number | null;
+  /** Combined return: total PnL ÷ the entry value of what was closed, at
+   * 1×; null when an entry is unknown. */
+  returnPct: number | null;
+  /** The earliest known open and the latest close. */
+  firstOpenedAt: number | null;
+  lastClosedAt: number;
+  /** Each close, newest first. */
+  closes: ScoutClose[];
+}
+
+export function summarizeCloses<T extends ScoutClose>(closes: readonly T[]): (Omit<CloseSummary, "closes"> & { closes: T[] })[] {
+  const groups = new Map<string, T[]>();
+  for (const c of closes) {
+    const key = `${c.address}:${c.coin}:${c.side}`;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  const out: (Omit<CloseSummary, "closes"> & { closes: T[] })[] = [];
+  for (const list of groups.values()) {
+    list.sort((a, b) => b.closedAt - a.closedAt);
+    const size = list.reduce((s, c) => s + c.size, 0);
+    const known = list.filter((c) => c.entryPx !== null);
+    const knownSize = known.reduce((s, c) => s + c.size, 0);
+    const entryValue = known.reduce((s, c) => s + c.size * c.entryPx!, 0);
+    const pnlUsd = list.every((c) => c.pnlUsd !== null) ? list.reduce((s, c) => s + c.pnlUsd!, 0) : null;
+    const opens = list.map((c) => c.openedAt).filter((t): t is number => t !== null);
+    const first = list[0];
+    out.push({
+      address: first.address,
+      coin: first.coin,
+      side: first.side,
+      count: list.length,
+      size,
+      entryPx: knownSize > 0 ? entryValue / knownSize : null,
+      exitPx: list.reduce((s, c) => s + c.size * c.exitPx, 0) / size,
+      pnlUsd,
+      returnPct: pnlUsd !== null && known.length === list.length && entryValue > 0 ? pnlUsd / entryValue : null,
+      firstOpenedAt: opens.length ? Math.min(...opens) : null,
+      lastClosedAt: first.closedAt,
+      closes: list,
+    });
+  }
+  return out.sort((a, b) => b.lastClosedAt - a.lastClosedAt);
+}
