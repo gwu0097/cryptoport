@@ -39,7 +39,9 @@ export interface FollowedTrader {
 // record that day: #4, #5, #7 and #8 were dropped — no perp positions, and
 // little or no perps profit (#8's $17.8M was spot gains, no perp trade ever).
 // #6 kept on the owner's call though 87% of its profit came in 4 weeks.
-// Then the fixed screen's picks (docs/perp-scout/PLAN.md, "Finding traders").
+// Then the fixed screen's picks (docs/perp-scout/PLAN.md, "Finding traders"),
+// and the swing screen's (--swing: 2-150 orders a week, a 2 h-21 d median
+// hold; owner 2026-10-06: "swing traders, not a super long book").
 const HANDOFF = (n: number, why: string) => `Handoff #${n}: ${why}`;
 
 export const FOLLOWED: readonly FollowedTrader[] = [
@@ -119,6 +121,48 @@ export const FOLLOWED: readonly FollowedTrader[] = [
     addedOn: "2026-10-06",
     why: "Screen 2026-10-06: 73% winning weeks, but 74% drawdown; long WLD when picked",
     picked: { asOf: "2026-10-06", equity: 568314, allTimePnl: 1818011, monthPnl: 674142, historyMonths: 11, winningWeeks: 0.73, drawdownShare: 0.74, bestFourShare: 0.68 },
+  },
+  {
+    address: "0xf53cab0c6f25f48f985d1e2c40e03fc7c1963364",
+    name: "Swing f53c (7 d holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06: +372% 12 mo, +39% 30 d; 40 orders a week, median hold 7 d; drawdown 79%",
+    picked: { asOf: "2026-10-06", equity: 806869, typicalEquity: 182697, allTimePnl: 1098788, monthPnl: 312589, historyMonths: 29, winningWeeks: 0.59, drawdownShare: 0.79, bestFourShare: 0.68 },
+  },
+  {
+    address: "0xf00eabc409c51cf884ec7861cb839524af6afe3d",
+    name: "Swing f00e (31 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06: +254% 12 mo, +53% 30 d; 13 orders a week, median hold 31 h; drawdown 74%",
+    picked: { asOf: "2026-10-06", equity: 422784, typicalEquity: 268316, allTimePnl: 691762, monthPnl: 224905, historyMonths: 13, winningWeeks: 0.68, drawdownShare: 0.74, bestFourShare: 0.74 },
+  },
+  {
+    address: "0x04a97ae7f350a22cd0cdb6b1875e8905b76495aa",
+    name: "Swing 04a9 (20 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06: +174% 12 mo, +36% 30 d; 13 orders a week, median hold 20 h; drawdown 81%",
+    picked: { asOf: "2026-10-06", equity: 686915, typicalEquity: 350764, allTimePnl: 610860, monthPnl: 247020, historyMonths: 8, winningWeeks: 0.76, drawdownShare: 0.81, bestFourShare: 0.74 },
+  },
+  {
+    address: "0x95da8596c44dd09f4b8becce87ad3b7894fb2328",
+    name: "Swing 95da (15 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06: +100% 12 mo, +12% 30 d; 88 orders a week, median hold 15 h; drawdown 20%",
+    picked: { asOf: "2026-10-06", equity: 1930057, typicalEquity: 1092721, allTimePnl: 1096052, monthPnl: 222751, historyMonths: 7, winningWeeks: 0.75, drawdownShare: 0.2, bestFourShare: 0.76 },
+  },
+  {
+    address: "0x2312171890250347dbf1b082bdf7950504909e92",
+    name: "Swing 2312 (48 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06: +92% 12 mo, +10% 30 d; 12 orders a week, median hold 48 h; drawdown 25%",
+    picked: { asOf: "2026-10-06", equity: 667286, typicalEquity: 429998, allTimePnl: 952134, monthPnl: 64137, historyMonths: 29, winningWeeks: 0.7, drawdownShare: 0.25, bestFourShare: 0.48 },
+  },
+  {
+    address: "0x352deb23bebae8b4c57d0ae341d9c1951fd8425a",
+    name: "Swing 352d (24 h holds)",
+    addedOn: "2026-10-06",
+    why: "Swing screen 2026-10-06: +79% 12 mo, +14% 30 d; 10 orders a week, median hold 24 h; drawdown 19%",
+    picked: { asOf: "2026-10-06", equity: 1254288, typicalEquity: 318526, allTimePnl: 341696, monthPnl: 176005, historyMonths: 29, winningWeeks: 0.57, drawdownShare: 0.19, bestFourShare: 0.53 },
   },
 ];
 

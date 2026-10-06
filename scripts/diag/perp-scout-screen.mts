@@ -9,6 +9,7 @@
 //   (in the cloud sandbox: NODE_USE_ENV_PROXY=1, so fetch uses the egress proxy)
 //   node scripts/diag/perp-scout-screen.mts [--review 70] [--top 25] [--json out.json]
 //        [--address 0xabc… ...]   (check given addresses instead of the leaderboard)
+//        [--skip N]  (review the next batch: skip the first N of the review order)
 //        [--swing]   (also read each passer's latest fills — userFills, weight
 //                    up to 120, ~7 s apart — for how often it adjusts and how
 //                    long it holds, swing.ts; passers that aren't swing
@@ -29,6 +30,8 @@ const arg = (name: string, fallback: string | null = null) => {
 };
 const addresses = process.argv.flatMap((a, i) => (process.argv[i - 1] === "--address" ? [a.toLowerCase()] : []));
 const reviewN = Number(arg("review", "70"));
+/** Skip the first N of the review order (to review the next batch). */
+const skipN = Number(arg("skip", "0"));
 const topN = Number(arg("top", "25"));
 const jsonOut = arg("json");
 const swing = process.argv.includes("--swing");
@@ -62,7 +65,7 @@ async function main() {
     const board = parseLeaderboard(await res.json());
     const stage1 = board.filter(passesStage1);
     const promising = stage1.filter(looksPromising);
-    review = pickForReview(promising, reviewN);
+    review = pickForReview(promising, skipN + reviewN).slice(skipN);
     console.error(`leaderboard ${board.length} · stage 1 ${stage1.length} · stage 1b ${promising.length} · reviewing ${review.length}`);
   }
 
