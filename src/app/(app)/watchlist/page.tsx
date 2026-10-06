@@ -52,7 +52,7 @@ export default async function WatchlistPage({
   // (one main watchlist); a true cross-list "full list" view is a bigger
   // feature this wasn't asked to build.
   const selected = watchlists.find((w) => w.id === listParam) ?? watchlists[0];
-  const items = selected ? await getWatchlistItems(selected.id) : [];
+  const items = selected ? await getWatchlistItems(selected.id, { withContracts: true }) : [];
 
   return (
     <>
