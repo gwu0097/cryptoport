@@ -352,6 +352,22 @@ owner's.
   Linked-wallet suggestions from the daily reads are phase 3. The address
   lookup (`/lookup`) is
   public; lookup links need no account.
+- **Perp Scout** (Tools → `/perp-scout`, `docs/perp-scout/PLAN.md`; owner
+  2026-10-06): consistent Hyperliquid traders and where price is against
+  their entries — observations, not signals, and nothing is copied or
+  traded. Scan (`api/perp-scout/scan`, streamed → `perpScoutScan.ts`
+  `runScan`): the leaderboard file screened (pure `perpScout/screen.ts`:
+  $50K–$20M, all-time PnL ≥ $100K and ROI ≥ 50%, 30d profitable, monthly
+  volume ≤ 60× equity), 50 reviewed by their own PnL curve
+  (`perpScout/portfolio.ts`: ≥ 26 weeks, drawdown on the PnL curve ≤
+  typical equity, best 4 weeks ≤ 80% of profit), the top 20 by yearly
+  return ÷ drawdown kept a day; then each one's main-market positions,
+  latest 2,000 fills (when each was opened and at what price,
+  `perpScout/entries.ts` `positionOpening`) and TP/SL orders. One shared
+  `app_settings` row (`perp_scout`; one scan at a time, `perp_scout_run`);
+  a trader not read keeps last scan's entries. Every Hyperliquid call goes
+  through one weight pacer per instance (`perpScout/pacer.ts`, 1,000 of
+  the IP's 1,200 a minute). Refresh prices is one `allMids` call, not stored.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
@@ -825,7 +841,8 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `abuseGuard.ts` `guardUser` / `guardUse` count each costly feature's uses
   per user (per IP for a signed-out visitor) against thresholds no person
   reaches — lookups 30/min, Refresh activity 30/h, the day endpoint 1,200/h,
-  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h
+  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, Perp Scout scans 20/h and
+  its price refreshes 300/h
   — and crossing one locks the user out of the costly features for 24 h
   (`app_settings` `user_lock:<key>`, honoured by every instance; read at most
   once a minute per user per instance) with a 🚨 Discord line. The owner is
