@@ -9,9 +9,15 @@
 //   (in the cloud sandbox: NODE_USE_ENV_PROXY=1, so fetch uses the egress proxy)
 //   node scripts/diag/perp-scout-screen.mts [--review 70] [--top 25] [--json out.json]
 //        [--address 0xabc… ...]   (check given addresses instead of the leaderboard)
+//        [--swing]   (also read each passer's latest fills — userFills, weight
+//                    up to 120, ~7 s apart — for how often it adjusts and how
+//                    long it holds, swing.ts; passers that aren't swing
+//                    traders are dropped; ranked by 12-month %)
 import { writeFileSync } from "node:fs";
 import { parseLeaderboard, passesStage1, looksPromising, pickForReview, stage3Failures, traderScore, STAGE3_REASON_LABEL, type LeaderboardRow, type Stage3Reason } from "../../src/lib/perpScout/screen.ts";
 import { parsePortfolio, traderStats, type TraderStats } from "../../src/lib/perpScout/portfolio.ts";
+import { parseFills } from "../../src/lib/perpScout/entries.ts";
+import { swingStats, swingFailures, type SwingStats } from "../../src/lib/perpScout/swing.ts";
 
 const INFO_URL = "https://api.hyperliquid.xyz/info";
 const LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
@@ -25,6 +31,9 @@ const addresses = process.argv.flatMap((a, i) => (process.argv[i - 1] === "--add
 const reviewN = Number(arg("review", "70"));
 const topN = Number(arg("top", "25"));
 const jsonOut = arg("json");
+const swing = process.argv.includes("--swing");
+/** userFills weighs up to 20 + 100 for 2,000 fills: ~7 s apart stays under 1,200 a minute. */
+const FILLS_SPACING_MS = 7_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -59,7 +68,7 @@ async function main() {
 
   const now = Date.now();
   const rejected: Partial<Record<Stage3Reason, number>> = {};
-  const rows: { address: string; name: string | null; equity: number | null; allTimePnl: number | null; monthPnl: number | null; stats: TraderStats; score: number | null; failures: Stage3Reason[] }[] = [];
+  const rows: { address: string; name: string | null; equity: number | null; allTimePnl: number | null; monthPnl: number | null; stats: TraderStats; score: number | null; failures: Stage3Reason[]; swing?: SwingStats; swingFails?: string[] }[] = [];
   let failed = 0;
   for (const [i, r] of review.entries()) {
     if (i > 0) await sleep(SPACING_MS);
@@ -75,11 +84,32 @@ async function main() {
     if ((i + 1) % 10 === 0) console.error(`  ${i + 1}/${review.length}`);
   }
 
-  const passed = rows.filter((r) => r.failures.length === 0 && r.score !== null).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  let passed = rows.filter((r) => r.failures.length === 0 && r.score !== null).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const yearPct = (r: (typeof rows)[number]) => (r.stats.typicalEquity ? r.stats.yearPnl / r.stats.typicalEquity : null);
+  const monthPct = (r: (typeof rows)[number]) => (r.stats.equityNow && r.stats.monthPnl !== null ? r.stats.monthPnl / r.stats.equityNow : null);
+  if (swing) {
+    const checkList = addresses.length ? rows : passed;
+    console.error(`reading fills for ${checkList.length}`);
+    for (const [i, r] of checkList.entries()) {
+      if (i > 0) await sleep(FILLS_SPACING_MS);
+      try {
+        r.swing = swingStats(parseFills(await post({ type: "userFills", user: r.address })), now);
+        r.swingFails = swingFailures(r.swing);
+      } catch (e) {
+        r.swingFails = [`fills unreadable: ${(e as Error).message}`];
+      }
+    }
+    if (!addresses.length) {
+      const notSwing = passed.filter((r) => r.swingFails?.length);
+      console.log(`swing check: ${passed.length - notSwing.length} of ${passed.length} are swing traders`);
+      for (const r of notSwing) console.log(`  not swing ${r.address.slice(0, 10)}: ${r.swingFails!.join(", ")}`);
+      passed = passed.filter((r) => !r.swingFails?.length).sort((a, b) => (yearPct(b) ?? -Infinity) - (yearPct(a) ?? -Infinity));
+    }
+  }
   const shown = addresses.length ? rows : passed.slice(0, topN);
   console.log(`\nreviewed ${rows.length + failed} · unreadable ${failed} · passed ${passed.length}`);
   for (const [reason, n] of Object.entries(rejected)) console.log(`  ${n} × ${STAGE3_REASON_LABEL[reason as Stage3Reason]}`);
-  console.log("\naddress                                     equity   allTime   30d      hist  winWk  maxDD  best4  turnov  score  fails");
+  console.log("\naddress                                     equity   allTime   30d      hist  winWk  maxDD  best4  turnov  score   12mo%   30d%  ord/wk  holdH  fails");
   for (const r of shown) {
     const s = r.stats;
     console.log(
@@ -94,7 +124,11 @@ async function main() {
         pct(s.bestFourShare).padStart(6),
         (s.turnover === null ? "—" : `${s.turnover.toFixed(0)}×`).padStart(7),
         (r.score === null ? "—" : r.score.toFixed(2)).padStart(6),
-        r.failures.join(","),
+        pct(yearPct(r)).padStart(7),
+        pct(monthPct(r)).padStart(6),
+        (r.swing ? r.swing.ordersPerWeek.toFixed(1) : "").padStart(7),
+        (r.swing?.medianHoldHours != null ? r.swing.medianHoldHours.toFixed(0) : "").padStart(6),
+        [...r.failures, ...(r.swingFails ?? [])].join(","),
       ].join(" "),
     );
   }

@@ -86,11 +86,18 @@ refuses an address with no perp history.
 
 - Added traders live in `app_settings` `perp_scout_added`, beside the code
   list. Scan reads both (`mergeFollowed`), up to 40.
-- Only traders added on the page can be removed there (✕, with a confirm).
-  The code list is changed in code.
+- Any trader can be removed there (✕, with a confirm; owner 2026-10-06:
+  "can only add, can't delete"). One added on the page is deleted. One from
+  the code list is hidden through the same row's `removed` addresses
+  (`mergeFollowed`); adding its address again brings it back.
 - Owner only: the list is shared by every viewer. Other users see it
   read-only.
 - Their positions show after the next Scan.
+
+**A trader's positions**: ▸ beside each name, or a click on its Open
+count, shows that trader's open positions under its row. They start
+collapsed. Each shows coin, side, last move, size, % of equity, leverage,
+entry, price now, vs entry, their gain and SL.
 
 **Traders table %**: each PnL figure leads with its % gain, with dollars in
 grey (owner: "numbers don't mean anything to me, need % gain"). Both

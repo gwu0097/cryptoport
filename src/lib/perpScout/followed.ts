@@ -128,8 +128,9 @@ export const MAX_FOLLOWED = 40;
 export const isTraderAddress = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
 
 /** The list a scan reads: the code list, then traders added on the page that
- * aren't already on it. */
-export function mergeFollowed(code: readonly FollowedTrader[], added: readonly FollowedTrader[]): FollowedTrader[] {
+ * aren't already on it, less any the owner removed on the page. */
+export function mergeFollowed(code: readonly FollowedTrader[], added: readonly FollowedTrader[], removed: readonly string[] = []): FollowedTrader[] {
   const listed = new Set(code.map((f) => f.address));
-  return [...code, ...added.filter((f) => !listed.has(f.address))];
+  const gone = new Set(removed);
+  return [...code, ...added.filter((f) => !listed.has(f.address))].filter((f) => !gone.has(f.address));
 }

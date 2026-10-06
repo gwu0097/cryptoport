@@ -32,6 +32,8 @@ export interface TraderStats {
   equityNow: number | null;
   /** Perps PnL over the last month. */
   monthPnl: number | null;
+  /** Perps PnL over the last 365 days (the whole curve when it's younger). */
+  yearPnl: number;
   maxDrawdownUsd: number;
   /** maxDrawdownUsd ÷ typicalEquity. */
   drawdownShare: number | null;
@@ -138,6 +140,7 @@ export function traderStats(series: PortfolioSeries, nowMs: number): TraderStats
     typicalEquity,
     equityNow: series.accountValue.length ? series.accountValue[series.accountValue.length - 1][1] : null,
     monthPnl: series.monthPnl,
+    yearPnl: pnl.length ? pnl[pnl.length - 1][1] - valueAt(pnl, nowMs - 365 * 24 * 60 * 60_000) : 0,
     maxDrawdownUsd,
     drawdownShare: typicalEquity ? maxDrawdownUsd / typicalEquity : null,
     winningWeeksShare: weeks.length ? weeks.filter((w) => w > 0).length / weeks.length : null,

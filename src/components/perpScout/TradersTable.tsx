@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
+import { TokenIcon } from "@/components/TokenIcon";
+import { latestMove, liveFigures, type ScoutEntry } from "@/lib/perpScout/entries";
+import { formatPrice } from "@/lib/format";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { usePersistedState } from "@/components/usePersistedState";
 import { formatCompactUsd } from "@/lib/format";
 import type { ScoutBook } from "@/lib/perpScoutScan";
 import type { FollowedTrader } from "@/lib/perpScout/followed";
-import { compareNullable, explorerUrl, hyperdashUrl, sharePct, signedPct, toneOf } from "./labels";
+import { ago, compareNullable, explorerUrl, hyperdashUrl, sharePct, signedPct, toneOf } from "./labels";
 import { ConfirmActionButton } from "@/components/ui/ConfirmActionButton";
 
 type SortKey = "name" | "equity" | "allTime" | "month" | "history" | "winWeeks" | "drawdown" | "best4" | "leverage" | "bias" | "positions" | "added";
@@ -77,7 +80,79 @@ function biasLabel(bias: number | null): string {
 /** The followed traders (followed.ts): their perps record and book as of the
  * last scan (else the figures they were picked on), leverage, bias, open
  * positions. */
-export function TradersTable({ followed, books, removable = [] }: { followed: readonly FollowedTrader[]; books: ScoutBook[]; removable?: readonly string[] }) {
+/** Columns in the traders table, for a trader's positions row. */
+const COLUMNS = 12;
+const MOVE_TEXT = { new: "New", add: "Added", trim: "Trimmed" } as const;
+const MOVE_TONE = { new: "text-positive", add: "text-accent", trim: "text-warning" } as const;
+
+/** One trader's open positions, shown under their row when opened. */
+function TraderPositions({ entries, mids, nowMs }: { entries: readonly ScoutEntry[]; mids: Record<string, number> | null; nowMs: number }) {
+  const sorted = [...entries].sort((a, b) => (b.notionalUsd ?? 0) - (a.notionalUsd ?? 0));
+  const cell = "px-2 py-1.5";
+  return (
+    <div className="overflow-x-auto py-1 pl-6">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-fg-muted">
+            <th className={`${cell} font-medium`}>Coin</th>
+            <th className={`${cell} font-medium`}>Side</th>
+            <th className={`${cell} font-medium`}>Last move</th>
+            <th className={`${cell} font-medium`}>Size</th>
+            <th className={`${cell} font-medium`}>% equity</th>
+            <th className={`${cell} font-medium`}>Lev</th>
+            <th className={`${cell} font-medium`}>Their entry</th>
+            <th className={`${cell} font-medium`}>Price now</th>
+            <th className={`${cell} font-medium`}>vs entry</th>
+            <th className={`${cell} font-medium`}>Their gain</th>
+            <th className={`${cell} font-medium`}>SL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((e) => {
+            const live = liveFigures(e, mids?.[e.coin]);
+            const move = latestMove(e);
+            return (
+              <tr key={e.coin} className="border-t border-border/40">
+                <td className={`${cell} whitespace-nowrap font-medium text-fg`}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <TokenIcon ticker={e.coin} url={e.iconUrl ?? null} size="sm" />
+                    {e.coin}
+                  </span>
+                </td>
+                <td className={`${cell} ${e.side === "long" ? "text-positive" : "text-negative"}`}>{e.side === "long" ? "Long" : "Short"}</td>
+                <td className={`${cell} whitespace-nowrap ${move ? MOVE_TONE[move.kind] : "text-fg-muted"}`}>{move ? `${MOVE_TEXT[move.kind]} ${ago(move.at, nowMs)}` : "—"}</td>
+                <td className={cell}>{formatCompactUsd(live.notionalUsd)}</td>
+                <td className={cell}>{sharePct(e.equityShare)}</td>
+                <td className={cell}>{e.leverage === null ? "—" : `${e.leverage}×`}</td>
+                <td className={cell}>{e.entryPx === null ? "—" : formatPrice(e.entryPx)}</td>
+                <td className={cell}>{live.mark === null ? "—" : formatPrice(live.mark)}</td>
+                <td className={`${cell} ${toneOf(live.vsEntry)}`}>{signedPct(live.vsEntry)}</td>
+                <td className={`${cell} ${toneOf(live.roe)}`}>{signedPct(live.roe)}</td>
+                <td className={cell}>{e.tpslKnown ? (e.sl === null ? <span className="text-fg-muted">none</span> : formatPrice(e.sl)) : "?"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function TradersTable({ followed, books, entries = [], mids = null, nowMs, removable = [] }: { followed: readonly FollowedTrader[]; books: ScoutBook[]; entries?: readonly ScoutEntry[]; mids?: Record<string, number> | null; nowMs: number; removable?: readonly string[] }) {
+  // Traders whose positions are open: none at first.
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (address: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(address)) next.delete(address);
+      else next.add(address);
+      return next;
+    });
+  const byTrader = useMemo(() => {
+    const m = new Map<string, ScoutEntry[]>();
+    for (const e of entries) m.set(e.address, [...(m.get(e.address) ?? []), e]);
+    return m;
+  }, [entries]);
   const router = useRouter();
   const [removeError, setRemoveError] = useState<string | null>(null);
   async function remove(address: string) {
@@ -126,9 +201,19 @@ export function TradersTable({ followed, books, removable = [] }: { followed: re
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ f, book, fig }) => (
-            <tr key={f.address} className={trClass}>
+          {rows.map(({ f, book, fig }) => {
+            const positions = byTrader.get(f.address) ?? [];
+            return (
+            <Fragment key={f.address}>
+            <tr className={trClass}>
               <td className={tdClass} title={f.why}>
+                {positions.length > 0 ? (
+                  <button type="button" onClick={() => toggle(f.address)} className="mr-1 align-middle text-fg-muted hover:text-fg" aria-expanded={open.has(f.address)} aria-label={`${open.has(f.address) ? "Hide" : "Show"} ${f.name}'s positions`}>
+                    <ChevronRight className={`size-3.5 transition-transform ${open.has(f.address) ? "rotate-90" : ""}`} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="mr-1 inline-block w-3.5" aria-hidden="true" />
+                )}
                 <a href={explorerUrl(f.address)} target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-accent" title="Hyperliquid explorer">
                   {f.name}
                 </a>
@@ -157,7 +242,17 @@ export function TradersTable({ followed, books, removable = [] }: { followed: re
               <td className={`${tdClass} ${hideOnMobileClass}`} title="Share of all perps profit made in the best 4 weeks">{sharePct(fig.bestFourShare)}</td>
               <td className={`${tdClass} ${hideOnMobileClass}`} title="Total position size ÷ account value">{book?.leverage == null ? "—" : `${book.leverage.toFixed(1)}×`}</td>
               <td className={`${tdClass} ${hideOnMobileClass}`}>{biasLabel(book?.bias ?? null)}</td>
-              <td className={tdClass}>{book ? book.positions : "—"}</td>
+              <td className={tdClass}>
+                {book && positions.length > 0 ? (
+                  <button type="button" onClick={() => toggle(f.address)} className="text-accent hover:underline">
+                    {book.positions}
+                  </button>
+                ) : book ? (
+                  book.positions
+                ) : (
+                  "—"
+                )}
+              </td>
               <td className={`${tdClass} ${hideOnMobileClass} whitespace-nowrap text-fg-muted`}>
                 {f.addedOn}
                 {removable.includes(f.address) && (
@@ -176,7 +271,16 @@ export function TradersTable({ followed, books, removable = [] }: { followed: re
                 )}
               </td>
             </tr>
-          ))}
+            {open.has(f.address) && (
+              <tr className="border-b border-border/60 bg-surface-raised/40">
+                <td colSpan={COLUMNS} className="px-3 pb-2">
+                  <TraderPositions entries={positions} mids={mids} nowMs={nowMs} />
+                </td>
+              </tr>
+            )}
+            </Fragment>
+            );
+          })}
         </tbody>
       </table>
       {removeError && <p className="mt-2 text-xs text-warning">{removeError}</p>}
