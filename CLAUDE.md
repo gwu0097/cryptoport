@@ -361,12 +361,15 @@ owner's.
   it was picked on. Candidates come from `scripts/diag/perp-scout-screen.mts`
   (pure `perpScout/screen.ts` + `portfolio.ts`: leaderboard $50K–$20M,
   all-time PnL ≥ $100K and ROI ≥ 50%, 30d profitable, monthly volume ≤ 60×
-  equity; then the **perps** record only — ≥ 5× turnover, traded this month,
-  ≥ 26 weeks, drawdown on the PnL curve ≤ typical equity, best 4 weeks ≤
-  80% of profit, ≤ 90% winning weeks; the first live screen's picks had
-  100% winning weeks, no perp positions and ROI +995,700%). Scan
+  equity, then `looksPromising`; then **perps** PnL against the **whole
+  account's** value — a unified account's cash sits in spot — ≥ 5×
+  turnover, traded this month, ≥ 26 weeks, drawdown on the PnL curve ≤
+  typical equity, best 4 weeks ≤ 80% of profit, ≤ 90% winning weeks; the
+  first live screen's picks had 100% winning weeks, no perp positions and
+  ROI +995,700%). Scan
   (`api/perp-scout/scan`, streamed → `perpScoutScan.ts` `runScan`) reads
-  each listed trader's main-market positions, latest 2,000 fills (when each
+  each listed trader's record and whole-account value (`portfolio`; equity,
+  % of equity and leverage use it), main-market positions, latest 2,000 fills (when each
   was opened and at what price, `perpScout/entries.ts` `positionOpening`)
   and TP/SL orders into one shared `app_settings` row (`perp_scout`; one
   scan at a time, `perp_scout_run`); a trader not read keeps last scan's

@@ -32,9 +32,10 @@ test("a flip opens the new side", () => {
   assert.equal(o.openPx, 2);
 });
 
-test("opened before the fills read: unknown, with the oldest fill as the bound", () => {
+test("opened before the fills read: unknown, with the oldest fill as the bound; adds still seen", () => {
   const o = positionOpening([fill(50, "B", 1, 3, 1), fill(40, "A", 1, 1, 1, 40, "BTC")], "ADA", 4);
-  assert.deepEqual(o, { openedAt: null, openPx: null, lastAddAt: null, openedBefore: 40 });
+  assert.deepEqual(o, { openedAt: null, openPx: null, lastAddAt: 50, openedBefore: 40 });
+  assert.equal(positionOpening([fill(50, "A", 1, 3, 1)], "ADA", 2).lastAddAt, null, "a trim isn't an add");
   assert.equal(positionOpening([], "ADA", 1).openedBefore, null);
 });
 
@@ -77,6 +78,8 @@ test("moveInFavour: negative means price is better than their entry", () => {
 
 test("account leverage and net bias", () => {
   assert.equal(accountLeverage(state), 0.7);
+  assert.equal(accountLeverage(state, 3500), 0.2, "a unified account: the whole account's value");
+  assert.equal(buildEntries("0xa", state, [], null, 8000)[0].equityShare, 0.01);
   const entries = buildEntries("0xa", state, [], null);
   assert.ok(Math.abs((netBias(entries) ?? 0) - (620 - 80) / 700) < 1e-12);
   assert.equal(netBias([]), null);

@@ -1,7 +1,8 @@
 import "server-only";
 import { serviceDb } from "./supabase";
 import { mapWithConcurrency } from "./adapters/http";
-import { fetchAccountState, fetchOpenOrders, fetchRecentFills } from "./adapters/hyperliquidScout";
+import { fetchAccountState, fetchOpenOrders, fetchPortfolio, fetchRecentFills } from "./adapters/hyperliquidScout";
+import { traderStats, type TraderStats } from "./perpScout/portfolio";
 import { accountLeverage, buildEntries, netBias, type ScoutEntry } from "./perpScout/entries";
 import { FOLLOWED } from "./perpScout/followed";
 
@@ -26,7 +27,11 @@ export interface ScoutBook {
   /** When its positions were read; on a failed read, the last good one. */
   readAt: string | null;
   error: string | null;
+  /** The whole account's value (perps + spot); the perps side's when the
+   * record couldn't be read. */
   accountValue: number | null;
+  /** Its perps record as of this read; null when it couldn't be read. */
+  stats?: TraderStats | null;
   leverage: number | null;
   bias: number | null;
   positions: number;
@@ -77,15 +82,20 @@ async function claimRun(): Promise<{ ok: true; release: () => Promise<void> } | 
   };
 }
 
-/** One account's book. Orders and fills are read only with a position. */
+/** One account's book: its record and whole-account value (portfolio, a
+ * failure leaves them unknown), positions, and — only with a position — its
+ * fills and orders. */
 async function readBook(address: string): Promise<{ book: ScoutBook; entries: ScoutEntry[] }> {
-  const state = await fetchAccountState(address);
+  const [state, series] = await Promise.all([fetchAccountState(address), fetchPortfolio(address).catch((e: Error) => e)]);
+  const stats = series instanceof Error ? null : traderStats(series, Date.now());
+  if (series instanceof Error) console.error(`[perp-scout] ${address} record: ${series.message}`);
   const open = state.assetPositions.some(({ position }) => Number(position.szi) !== 0);
   const [fills, orders] = open ? await Promise.all([fetchRecentFills(address), fetchOpenOrders(address).catch(() => null)]) : [[], null];
-  const entries = buildEntries(address, state, fills, orders);
-  const accountValue = Number(state.marginSummary?.accountValue);
+  const perpsValue = Number(state.marginSummary?.accountValue);
+  const equity = stats?.equityNow ?? (Number.isFinite(perpsValue) ? perpsValue : null);
+  const entries = buildEntries(address, state, fills, orders, equity);
   return {
-    book: { address, readAt: new Date().toISOString(), error: null, accountValue: Number.isFinite(accountValue) ? accountValue : null, leverage: accountLeverage(state), bias: netBias(entries), positions: entries.length },
+    book: { address, readAt: new Date().toISOString(), error: null, accountValue: equity, stats, leverage: accountLeverage(state, equity), bias: netBias(entries), positions: entries.length },
     entries,
   };
 }
@@ -117,7 +127,7 @@ export async function runScan(progress: (p: ScanProgress) => void): Promise<{ st
         const error = (e as Error).message;
         console.error(`[perp-scout] ${f.address} positions: ${error}`);
         return {
-          book: { address: f.address, readAt: prev?.readAt ?? null, error, accountValue: prev?.accountValue ?? null, leverage: prev?.leverage ?? null, bias: prev?.bias ?? null, positions: prev?.positions ?? 0 },
+          book: { address: f.address, readAt: prev?.readAt ?? null, error, accountValue: prev?.accountValue ?? null, stats: prev?.stats ?? null, leverage: prev?.leverage ?? null, bias: prev?.bias ?? null, positions: prev?.positions ?? 0 },
           entries: prevEntries.get(f.address) ?? [],
         };
       } finally {

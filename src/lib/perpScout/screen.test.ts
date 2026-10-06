@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseLeaderboard, passesStage1, pickForReview, stage3Failures, traderScore, type LeaderboardRow } from "./screen.ts";
+import { parseLeaderboard, passesStage1, looksPromising, pickForReview, stage3Failures, traderScore, type LeaderboardRow } from "./screen.ts";
 import type { TraderStats } from "./portfolio.ts";
 
 const w = (pnl: number, roi: number, vlm: number) => ({ pnl: String(pnl), roi: String(roi), vlm: String(vlm) });
@@ -50,7 +50,7 @@ test("pickForReview alternates top all-time PnL and top 30-day PnL without repea
 });
 
 const stats = (o: Partial<TraderStats>): TraderStats => ({
-  historyWeeks: 52, totalPnl: 1e6, typicalEquity: 1e6, maxDrawdownUsd: 2e5, drawdownShare: 0.2, winningWeeksShare: 0.6, bestFourShare: 0.5, yearlyReturn: 1, turnover: 40, monthVolume: 5e6, ...o,
+  historyWeeks: 52, totalPnl: 1e6, typicalEquity: 1e6, maxDrawdownUsd: 2e5, drawdownShare: 0.2, winningWeeksShare: 0.6, bestFourShare: 0.5, yearlyReturn: 1, turnover: 40, monthVolume: 5e6, equityNow: 1e6, monthPnl: 1e5, ...o,
 });
 
 test("stage 3 names each failure", () => {
@@ -73,4 +73,12 @@ test("score is yearly return over drawdown, floored at 10%", () => {
   assert.equal(traderScore(stats({ yearlyReturn: 1, drawdownShare: 0.5 })), 2);
   assert.equal(traderScore(stats({ yearlyReturn: 1, drawdownShare: 0.01 })), 10);
   assert.equal(traderScore(stats({ yearlyReturn: null })), null);
+});
+
+test("stage 1b: active this month, not one lucky month, not a tiny first deposit", () => {
+  const row = (av: number, all: number, month: number, vlm: number) => ({ accountValue: av, allTime: { pnl: all, roi: 1, vlm: 0 }, month: { pnl: month, roi: 0, vlm } }) as LeaderboardRow;
+  assert.equal(looksPromising(row(1e6, 2e6, 2e5, 3e6)), true);
+  assert.equal(looksPromising(row(1e6, 2e6, 2e5, 5e5)), false, "barely traded this month");
+  assert.equal(looksPromising(row(1e6, 2e6, 1.5e6, 3e6)), false, "most of it this month");
+  assert.equal(looksPromising(row(1e5, 5e6, 1e5, 3e6)), false, "50x its account");
 });

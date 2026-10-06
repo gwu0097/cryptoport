@@ -46,7 +46,7 @@ export interface Opening {
   openedAt: number | null;
   /** Price of that opening order (its fills' average). */
   openPx: number | null;
-  /** The last fill that added to it after opening. */
+  /** The last fill that added to it (after opening, when that's known). */
   lastAddAt: number | null;
   /** With openedAt null: the oldest fill read (opened before this). */
   openedBefore: number | null;
@@ -64,20 +64,25 @@ export function positionOpening(fills: readonly Fill[], coin: string, size: numb
     const scale = Math.abs(size);
     if (signOf(f.startPosition, scale) !== side && signOf(after, scale) === side) opener = i;
   });
+  const lastAdd = (from: readonly Fill[], skipOid: number | null) => {
+    let at: number | null = null;
+    for (const f of from) {
+      const after = f.startPosition + (f.side === "B" ? f.sz : -f.sz);
+      if ((skipOid === null || f.oid !== skipOid) && Math.abs(after) > Math.abs(f.startPosition) && Math.sign(after) === side) at = f.time;
+    }
+    return at;
+  };
   if (opener < 0) {
+    // Opened before the fills read: when it was opened is unknown, but adds
+    // within them are still seen.
     const oldest = fills.reduce((m, f) => Math.min(m, f.time), Infinity);
-    return { openedAt: null, openPx: null, lastAddAt: null, openedBefore: Number.isFinite(oldest) ? oldest : null };
+    return { openedAt: null, openPx: null, lastAddAt: lastAdd(mine, null), openedBefore: Number.isFinite(oldest) ? oldest : null };
   }
   const first = mine[opener];
   const sameOrder = first.oid === null ? [first] : mine.filter((f) => f.oid === first.oid);
   const qty = sameOrder.reduce((s, f) => s + f.sz, 0);
   const openPx = qty > 0 ? sameOrder.reduce((s, f) => s + f.px * f.sz, 0) / qty : first.px;
-  let lastAddAt: number | null = null;
-  for (const f of mine.slice(opener + 1)) {
-    const after = f.startPosition + (f.side === "B" ? f.sz : -f.sz);
-    if (f.oid !== first.oid && Math.abs(after) > Math.abs(f.startPosition) && Math.sign(after) === side) lastAddAt = f.time;
-  }
-  return { openedAt: first.time, openPx, lastAddAt, openedBefore: null };
+  return { openedAt: first.time, openPx, lastAddAt: lastAdd(mine.slice(opener + 1), first.oid), openedBefore: null };
 }
 
 export interface ScoutEntry {
@@ -119,9 +124,11 @@ const finite = (x: unknown): number | null => {
   return x !== null && x !== undefined && x !== "" && Number.isFinite(n) ? n : null;
 };
 
-/** Every open position of one account. `orders` null = not read. */
-export function buildEntries(address: string, state: ScoutAccountState, fills: readonly Fill[], orders: readonly HyperliquidOrder[] | null): ScoutEntry[] {
-  const equity = finite(state.marginSummary?.accountValue);
+/** Every open position of one account. `orders` null = not read.
+ * `equity`: the whole account's value (perps + spot) when known — a unified
+ * account's cash sits in spot, so the perps side alone overstates each
+ * position's share; else the perps account's value. */
+export function buildEntries(address: string, state: ScoutAccountState, fills: readonly Fill[], orders: readonly HyperliquidOrder[] | null, equity: number | null = finite(state.marginSummary?.accountValue)): ScoutEntry[] {
   const out: ScoutEntry[] = [];
   for (const { position: p } of state.assetPositions) {
     const szi = Number(p.szi);
@@ -167,9 +174,9 @@ export function moveInFavour(side: "long" | "short", from: number | null, mark: 
   return side === "long" ? mark / from - 1 : 1 - mark / from;
 }
 
-/** Total notional ÷ account value: how levered the whole book is. */
-export function accountLeverage(state: ScoutAccountState): number | null {
-  const equity = finite(state.marginSummary?.accountValue);
+/** Total notional ÷ account value (the whole account's when given, as in
+ * buildEntries): how levered the whole book is. */
+export function accountLeverage(state: ScoutAccountState, equity: number | null = finite(state.marginSummary?.accountValue)): number | null {
   if (equity === null || equity <= 0) return null;
   let notional = 0;
   for (const { position } of state.assetPositions) {

@@ -6,10 +6,11 @@
 // yearly return ÷ drawdown and how many failed each rule. Free, keyless; no
 // database.
 //
+//   (in the cloud sandbox: NODE_USE_ENV_PROXY=1, so fetch uses the egress proxy)
 //   node scripts/diag/perp-scout-screen.mts [--review 70] [--top 25] [--json out.json]
 //        [--address 0xabc… ...]   (check given addresses instead of the leaderboard)
 import { writeFileSync } from "node:fs";
-import { parseLeaderboard, passesStage1, pickForReview, stage3Failures, traderScore, STAGE3_REASON_LABEL, type LeaderboardRow, type Stage3Reason } from "../../src/lib/perpScout/screen.ts";
+import { parseLeaderboard, passesStage1, looksPromising, pickForReview, stage3Failures, traderScore, STAGE3_REASON_LABEL, type LeaderboardRow, type Stage3Reason } from "../../src/lib/perpScout/screen.ts";
 import { parsePortfolio, traderStats, type TraderStats } from "../../src/lib/perpScout/portfolio.ts";
 
 const INFO_URL = "https://api.hyperliquid.xyz/info";
@@ -51,8 +52,9 @@ async function main() {
     if (!res.ok) throw new Error(`leaderboard HTTP ${res.status}`);
     const board = parseLeaderboard(await res.json());
     const stage1 = board.filter(passesStage1);
-    review = pickForReview(stage1, reviewN);
-    console.error(`leaderboard ${board.length} · stage 1 ${stage1.length} · reviewing ${review.length}`);
+    const promising = stage1.filter(looksPromising);
+    review = pickForReview(promising, reviewN);
+    console.error(`leaderboard ${board.length} · stage 1 ${stage1.length} · stage 1b ${promising.length} · reviewing ${review.length}`);
   }
 
   const now = Date.now();
@@ -65,7 +67,7 @@ async function main() {
       const stats = traderStats(parsePortfolio(await post({ type: "portfolio", user: r.address })), now);
       const failures = stage3Failures(stats);
       for (const f of failures) rejected[f] = (rejected[f] ?? 0) + 1;
-      rows.push({ address: r.address, name: r.displayName, equity: r.accountValue, allTimePnl: r.allTime?.pnl ?? stats.totalPnl, monthPnl: r.month?.pnl ?? null, stats, score: traderScore(stats), failures });
+      rows.push({ address: r.address, name: r.displayName, equity: r.accountValue, allTimePnl: r.allTime?.pnl ?? stats.totalPnl, monthPnl: r.month?.pnl ?? stats.monthPnl, stats, score: traderScore(stats), failures });
     } catch (e) {
       failed++;
       console.error(`${r.address}: ${(e as Error).message}`);
