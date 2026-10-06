@@ -390,7 +390,17 @@ owner's.
   traded or every 30 min; the rest carried over (`carryOver`, `keepTpsl`,
   `mergeCloses`). Calls go through one weight pacer per instance
   (`perpScout/pacer.ts`, 1,000 of the IP's 1,200 a minute). Refresh prices
-  is one `allMids` call, not stored.
+  is one `allMids` call, not stored. **Tracked trades** (owner 2026-10-06):
+  ☆ on an Activity row stores that position with its figures then
+  (`perpScout/tracked.ts`; per user in `app_settings`
+  `perp_scout_tracked:<uid>`, ≤ 50, `api/perp-scout/tracked`); its status
+  (open, closed, stopped out, take-profit hit) comes from the latest scan
+  (`resolveTracked`). Shown first on Perp Scout (every section collapsible)
+  and on the Dashboard beside Open positions (`readTrackedTrades`, only the
+  tracked traders' rows sent). Refresh prices there only swaps prices (the
+  app's Refresh prices fires it too, `PRICES_REFRESHED_EVENT`); Refresh
+  re-reads only the tracked trades' traders (`runScan` with `only`,
+  `api/perp-scout/tracked/refresh`, guard `perpScoutTracked` 60/h).
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
@@ -864,8 +874,8 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `abuseGuard.ts` `guardUser` / `guardUse` count each costly feature's uses
   per user (per IP for a signed-out visitor) against thresholds no person
   reaches — lookups 30/min, Refresh activity 30/h, the day endpoint 1,200/h,
-  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, Perp Scout scans 20/h and
-  its price refreshes 300/h
+  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, Perp Scout scans 20/h,
+  its price refreshes 300/h and tracked refreshes 60/h
   — and crossing one locks the user out of the costly features for 24 h
   (`app_settings` `user_lock:<key>`, honoured by every instance; read at most
   once a minute per user per instance) with a 🚨 Discord line. The owner is

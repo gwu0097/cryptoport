@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
-import { Panel } from "@/components/ui/Panel";
 import { CollapsiblePanel } from "@/components/ui/CollapsiblePanel";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Button } from "@/components/ui/Button";
@@ -13,36 +11,38 @@ import { EntriesTable } from "./EntriesTable";
 import { TradersTable } from "./TradersTable";
 import { AddTraderForm } from "./AddTraderForm";
 import { CLOSES_DAYS } from "@/lib/perpScout/closes";
+import { TrackedPanel } from "./TrackedPanel";
+import { useScoutMids } from "./useScoutMids";
 
-/** Perp Scout's two sections: the followed traders' open entries (with
- * Refresh prices, current mids swapped in without a scan) and the traders. */
+/** Perp Scout's sections, each collapsible: the user's tracked trades, the
+ * followed traders' activity (with Refresh prices, current mids swapped in
+ * without a scan — shared with the tracked trades) and the traders. */
 export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { state: PerpScoutState; signedIn: boolean; isOwner: boolean; serverNowSec: number }) {
-  const { scan, traders } = state;
+  const { scan, traders, tracked } = state;
   const nowMs = useNowSec(serverNowSec) * 1000;
-  const [mids, setMids] = useState<{ at: number; mids: Record<string, number> } | null>(null);
-  const [pricing, setPricing] = useState(false);
-  const [priceError, setPriceError] = useState<string | null>(null);
+  const prices = useScoutMids(true);
+  const { pricing, error: priceError } = prices;
+  const mids = prices.mids && prices.at ? { mids: prices.mids, at: prices.at } : null;
   const names = Object.fromEntries(traders.map((f) => [f.address, f.name]));
   const entries = scan?.entries ?? [];
 
-  async function refreshPrices() {
-    setPricing(true);
-    setPriceError(null);
-    try {
-      const res = await fetch("/api/perp-scout/prices", { method: "POST", cache: "no-store" });
-      const body = (await res.json()) as { at?: number; mids?: Record<string, number>; error?: string };
-      if (!res.ok || !body.mids || !body.at) throw new Error(body.error ?? `HTTP ${res.status}`);
-      setMids({ at: body.at, mids: body.mids });
-    } catch (e) {
-      setPriceError((e as Error).message);
-    } finally {
-      setPricing(false);
-    }
-  }
-
   return (
     <div className="space-y-6">
-      <Panel
+      <TrackedPanel
+        tracked={tracked}
+        entries={entries}
+        closes={scan?.closes ?? []}
+        names={names}
+        prices={prices}
+        books={scan?.books ?? []}
+        serverNowSec={serverNowSec}
+        signedIn={signedIn}
+      />
+
+      <CollapsiblePanel
+        storageKey="cryptoport:perpScoutActivityOpen"
+        density="normal"
+        summary={<span className="text-xs text-fg-muted">{entries.length} open · {scan?.closes?.length ?? 0} closes</span>}
         title={
           <span className="inline-flex items-center gap-1.5">
             Activity
@@ -53,7 +53,7 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
         }
         actions={
           <div className="flex flex-col items-end gap-1">
-            <Button variant="secondary" size="sm" disabled={pricing || !signedIn || entries.length === 0} onClick={refreshPrices} title={signedIn ? "Current prices from Hyperliquid (one call)" : "Sign in to refresh prices"}>
+            <Button variant="secondary" size="sm" disabled={pricing || !signedIn || entries.length === 0} onClick={() => void prices.refresh()} title={signedIn ? "Current prices from Hyperliquid (one call)" : "Sign in to refresh prices"}>
               {pricing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
               Refresh prices
             </Button>
@@ -64,11 +64,11 @@ export function PerpScoutView({ state, signedIn, isOwner, serverNowSec }: { stat
         }
       >
         {scan ? (
-          <EntriesTable entries={entries} closes={scan?.closes ?? []} books={scan?.books ?? []} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} />
+          <EntriesTable entries={entries} closes={scan?.closes ?? []} books={scan?.books ?? []} names={names} mids={mids?.mids ?? null} serverNowSec={serverNowSec} tracked={tracked} canTrack={signedIn} />
         ) : (
           <p className="text-sm text-fg-muted">{signedIn ? "Press Scan to read the followed traders\u2019 open positions." : "Log in and press Scan to read the followed traders\u2019 open positions."}</p>
         )}
-      </Panel>
+      </CollapsiblePanel>
 
 
       <CollapsiblePanel

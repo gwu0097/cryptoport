@@ -27,6 +27,8 @@ import { getEffectiveTimeZone } from "@/lib/preferences";
 import { formatDateTime } from "@/lib/format";
 import { getWatchDayActivity, getWatchFeedTargets, getWatchMovements } from "@/lib/watchQuery";
 import { DashboardWatchActivity } from "@/components/dashboard/DashboardWatchActivity";
+import { DashboardTrackedTrades } from "@/components/dashboard/DashboardTrackedTrades";
+import { readTrackedTrades } from "@/lib/perpScoutScan";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
@@ -72,7 +74,7 @@ export default async function DashboardPage({
   // costs no round trip — and every read below starts at once: nothing here
   // waits on another read (CLAUDE.md §6 round-trip budget).
   const user = await getUser();
-  const [{ groups, grand }, watchlists, history, priceState, positions, zone, listedItems, watch] = await Promise.all([
+  const [{ groups, grand }, watchlists, history, priceState, positions, zone, listedItems, watch, trackedTrades] = await Promise.all([
     getAssetsGroupedByTicker(),
     getWatchlists(),
     getValueHistory(),
@@ -82,6 +84,9 @@ export default async function DashboardPage({
     // Only a well-formed id is read (a malformed one would be a query error).
     list && UUID.test(list) ? getWatchlistItems(list) : getAllWatchlistItems(),
     user ? loadWatchActivity() : null,
+    // Perp Scout's tracked trades (one app_settings read; a failure only
+    // hides the card).
+    user ? readTrackedTrades(user.id).catch(() => null) : null,
   ]);
   // The newest moment any position's PnL is from (a price refresh's mark, or
   // a wallet sync) — shown once for the section.
@@ -206,12 +211,20 @@ export default async function DashboardPage({
         </div>
       )}
 
+      {/* Open positions left, Perp Scout's tracked trades right (owner
+          2026-10-06); either alone takes the full row. */}
       {user && positions.length > 0 && (
-        <div className="order-5 min-w-0 xl:order-none xl:col-span-12 3xl:order-last">
+        <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${trackedTrades ? "xl:col-span-7" : "xl:col-span-12"}`}>
           <OpenPositionsPanel
             positions={positions}
             asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
           />
+        </div>
+      )}
+
+      {trackedTrades && (
+        <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${positions.length > 0 ? "xl:col-span-5" : "xl:col-span-12"}`}>
+          <DashboardTrackedTrades {...trackedTrades} serverNowSec={requestNowSec()} />
         </div>
       )}
 

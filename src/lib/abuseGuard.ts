@@ -13,7 +13,7 @@ import { isAdminEmail } from "./adminEmail";
 // locked. Counts are per instance (Vercel runs several): the thresholds are
 // per instance, so a spread-out bot still trips one quickly.
 
-export type Feature = "lookup" | "check" | "day" | "tradingRecord" | "backfill" | "coinPrice" | "search" | "perpScout" | "perpScoutPrices";
+export type Feature = "lookup" | "check" | "day" | "tradingRecord" | "backfill" | "coinPrice" | "search" | "perpScout" | "perpScoutPrices" | "perpScoutTracked";
 
 /** [uses, window] that only a script reaches. */
 const THRESHOLDS: Record<Feature, [number, number]> = {
@@ -26,6 +26,7 @@ const THRESHOLDS: Record<Feature, [number, number]> = {
   search: [60, 60 * 60_000], // Wallet searches
   perpScout: [20, 60 * 60_000], // Perp Scout scans (a scan under 2 min old is reused, one runs at a time)
   perpScoutPrices: [300, 60 * 60_000], // Perp Scout price refreshes (one Hyperliquid call each)
+  perpScoutTracked: [60, 60 * 60_000], // Tracked trades' Refresh (a delta read of the traders behind them)
 };
 const LOCK_MS = 24 * 60 * 60_000;
 const LOCK_CACHE_MS = 60_000;

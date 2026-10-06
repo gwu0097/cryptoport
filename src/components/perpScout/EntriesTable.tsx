@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Star } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { tableClass, theadRowClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { chipClass } from "@/components/ui/chip";
@@ -13,6 +14,7 @@ import type { ScoutBook } from "@/lib/perpScoutScan";
 import { summarizeCloses, type CloseSummary, type ScoutClose } from "@/lib/perpScout/closes";
 import { groupByCoin } from "@/lib/perpScout/groups";
 import { TokenIcon } from "@/components/TokenIcon";
+import { findTracked, trackClose, trackOpen, trackedKey, type TrackedTrade } from "@/lib/perpScout/tracked";
 import { ago, compareNullable, explorerUrl, hyperdashUrl, shortAddress, signedPct, sharePct, toneOf } from "./labels";
 
 type SortKey = "trader" | "trader30d" | "role" | "coin" | "side" | "move" | "opened" | "notional" | "share" | "leverage" | "entry" | "open" | "mark" | "vsEntry" | "vsOpen" | "pnl" | "tp" | "sl" | "liq";
@@ -99,7 +101,7 @@ function sortValue(r: Row, key: SortKey): number | string | null {
 }
 
 /** Columns in the table, for a group's header row. */
-const COLUMNS = 19;
+const COLUMNS = 20;
 
 const MOVE_LABEL: Record<MoveKind | "close", string> = { new: "New", add: "Added", trim: "Trimmed", close: "Closed" };
 const MOVE_BADGE: Record<MoveKind | "close", string> = { new: "bg-positive/15 text-positive", add: "bg-accent/15 text-accent", trim: "bg-warning/15 text-warning", close: "bg-border text-fg" };
@@ -135,8 +137,65 @@ const price = (x: number | null) => (x === null ? "—" : formatPrice(x));
  * entry in their direction: negative means they're down and the price now is
  * better than theirs; on a closed row it's the return from entry to exit.
  */
-export function EntriesTable({ entries, closes, books, names, mids, serverNowSec }: { entries: ScoutEntry[]; closes: readonly Close[]; books: ScoutBook[]; names: Record<string, string>; mids: Record<string, number> | null; serverNowSec: number }) {
+export function EntriesTable({
+  entries,
+  closes,
+  books,
+  names,
+  mids,
+  serverNowSec,
+  tracked = [],
+  canTrack = false,
+}: {
+  entries: ScoutEntry[];
+  closes: readonly Close[];
+  books: ScoutBook[];
+  names: Record<string, string>;
+  mids: Record<string, number> | null;
+  serverNowSec: number;
+  /** The user's tracked trades: their rows show a filled ☆. */
+  tracked?: readonly TrackedTrade[];
+  canTrack?: boolean;
+}) {
   const nowMs = useNowSec(serverNowSec) * 1000;
+  const router = useRouter();
+  // Marked or unmarked here, before the page re-renders with the saved list.
+  const [optimistic, setOptimistic] = useState<{ add: TrackedTrade[]; drop: ReadonlySet<string> }>({ add: [], drop: new Set() });
+  const [trackError, setTrackError] = useState<string | null>(null);
+  const trackedNow = useMemo(() => [...tracked, ...optimistic.add].filter((t) => !optimistic.drop.has(trackedKey(t))), [tracked, optimistic]);
+
+  async function toggleTrack(fresh: TrackedTrade) {
+    const existing = findTracked(trackedNow, fresh);
+    setTrackError(null);
+    const res = existing
+      ? (setOptimistic((o) => ({ add: o.add, drop: new Set(o.drop).add(trackedKey(existing)) })),
+        await fetch("/api/perp-scout/tracked", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: trackedKey(existing) }) }))
+      : (setOptimistic((o) => ({ add: [...o.add, fresh], drop: o.drop })),
+        await fetch("/api/perp-scout/tracked", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trade: fresh }) }));
+    if (!res.ok) setTrackError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`);
+    // The saved list replaces the optimistic one once the page re-renders.
+    router.refresh();
+    setOptimistic({ add: [], drop: new Set() });
+  }
+
+  const starCell = (fresh: TrackedTrade) => {
+    const on = findTracked(trackedNow, fresh) !== undefined;
+    return (
+      <td className={`${tdClass} w-6 pr-0`}>
+        <button
+          type="button"
+          disabled={!canTrack}
+          onClick={() => toggleTrack(fresh)}
+          className={`${on ? "text-warning" : "text-fg-muted hover:text-warning"} disabled:cursor-not-allowed disabled:opacity-40`}
+          aria-pressed={on}
+          aria-label={on ? `Untrack ${fresh.coin}` : `Track ${fresh.coin}`}
+          title={canTrack ? (on ? "Tracked — click to untrack" : "Track this trade (Tracked trades, top of the page and the Dashboard)") : "Sign in to track trades"}
+        >
+          <Star className="size-3.5" fill={on ? "currentColor" : "none"} aria-hidden="true" />
+        </button>
+      </td>
+    );
+  };
   const [sortKey, setSortKey] = usePersistedState<SortKey>("cryptoport:perpScoutEntriesSort", "opened");
   const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">("cryptoport:perpScoutEntriesSortDir", "desc");
   const [window, setWindow] = usePersistedState<Window>("cryptoport:perpScoutWindow", "any");
@@ -243,6 +302,7 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
     const dash = <span className="text-fg-muted">—</span>;
     return (
       <tr key={`${c.address}:${c.coin}:${c.side}:closed`} className={`${trClass} border-l-2 ${recent ? MOVE_EDGE.close : "border-l-transparent"} bg-surface-raised/30`}>
+        {starCell(trackClose(c.closes[0], nowMs))}
         {traderCells(c.address, name, month)}
         <td className={`${tdClass} whitespace-nowrap font-medium`}>
           <span className="inline-flex items-center gap-1.5 align-middle">
@@ -289,6 +349,7 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
     const recent = move !== null && nowMs - move.at <= RECENT_MS;
     return (
       <tr key={`${e.address}:${e.coin}`} className={`${trClass} border-l-2 ${recent ? MOVE_EDGE[move.kind] : "border-l-transparent"}`}>
+        {starCell(trackOpen(e, live.mark, nowMs))}
         {traderCells(e.address, name, month)}
         <td className={`${tdClass} whitespace-nowrap font-medium`}>
           <span className="inline-flex items-center gap-1.5 align-middle">
@@ -392,6 +453,7 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
         <table className={tableClass}>
           <thead>
             <tr className={`${theadRowClass} whitespace-nowrap`}>
+              <th className={`${tdClass} w-6 pr-0`} aria-label="Track" title="☆ marks a trade to follow in Tracked trades" />
               {h("Trader", "trader")}
               {h("Trader 30d", "trader30d", hideOnMobileClass)}
               {h("Coin", "coin")}
@@ -443,6 +505,7 @@ export function EntriesTable({ entries, closes, books, names, mids, serverNowSec
               : rows.map(renderRow)}
           </tbody>
         </table>
+        {trackError && <p className="mt-2 text-xs text-warning">Couldn&apos;t save the tracked trade: {trackError}</p>}
         {rows.length === 0 && <p className="py-6 text-center text-sm text-fg-muted">{entries.length === 0 ? "No open positions from the followed traders yet." : "No entry matches these filters."}</p>}
       </div>
     </>
