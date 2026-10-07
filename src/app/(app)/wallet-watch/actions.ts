@@ -19,6 +19,7 @@ import { summarizeLinks, type LinkEvidence } from "@/lib/walletLinks";
 import { evmLinkTransfers, solanaLinkTransfers } from "@/lib/adapters/walletLinkReads";
 import { detectChain } from "@/lib/lookup";
 import { normalizeWatchAddress } from "@/lib/watchSnapshot";
+import { parseBulk } from "@/lib/watchBulk";
 import { claimWatchedAddresses, ensureWatchedAddress, refreshWatchedAddresses, type WatchedKey } from "@/lib/watchRefresh";
 import type { JobStartResult } from "@/lib/jobStatus";
 import { getSharedInfluencer } from "@/lib/watchQuery";
@@ -87,7 +88,17 @@ function revalidate(influencerId?: string) {
  * Watches an address: under a new influencer (`name`) or an existing one
  * (`influencerId`), in the chosen groups, and reads it right away.
  */
-export async function watchAddress(input: {
+export async function watchAddress(input: WatchInput): Promise<WatchActionResult> {
+  const user = await requireUser();
+  const db = await userDb();
+  const r = await addAddress(user.id, db, input);
+  if (!r.ok) return r;
+  await startRefresh([r.key]);
+  revalidate(r.influencerId);
+  return { ok: true, influencerId: r.influencerId };
+}
+
+interface WatchInput {
   address: string;
   influencerId?: string;
   name?: string;
@@ -95,13 +106,15 @@ export async function watchAddress(input: {
   groupIds?: string[];
   /** A Wallet search: watched like any address, but unsaved until named. */
   unsaved?: boolean;
-}): Promise<WatchActionResult> {
-  const user = await requireUser();
+}
+
+/** watchAddress's work without the read: the bulk add reads every address
+ * it added in one go. */
+async function addAddress(userId: string, db: Awaited<ReturnType<typeof userDb>>, input: WatchInput): Promise<{ ok: true; influencerId: string; key: WatchedKey } | { ok: false; error: string }> {
   const parsed = parseAddress(input.address);
   if ("error" in parsed) return { ok: false, error: parsed.error };
-  const db = await userDb();
   if (input.influencerId) {
-    const { data: own } = await db.from("watch_influencers").select("id").eq("id", input.influencerId).eq("user_id", user.id).maybeSingle();
+    const { data: own } = await db.from("watch_influencers").select("id").eq("id", input.influencerId).eq("user_id", userId).maybeSingle();
     if (!own) return { ok: false, error: NOT_YOURS };
   }
 
@@ -118,7 +131,7 @@ export async function watchAddress(input: {
   }
 
   // A new influencer whose first address can't be saved isn't kept.
-  const fail = async (message: string): Promise<WatchActionResult> => {
+  const fail = async (message: string): Promise<{ ok: false; error: string }> => {
     if (created) await db.from("watch_influencers").delete().eq("id", influencerId!);
     return { ok: false, error: message };
   };
@@ -138,10 +151,58 @@ export async function watchAddress(input: {
       .upsert(input.groupIds.map((group_id) => ({ group_id, influencer_id: influencerId })), { onConflict: "group_id,influencer_id", ignoreDuplicates: true });
     if (groupError) return { ok: false, error: friendly(groupError.message) };
   }
+  return { ok: true, influencerId, key: parsed };
+}
 
-  await startRefresh([parsed]);
-  revalidate(influencerId);
-  return { ok: true, influencerId };
+export interface BulkAddResult {
+  line: number;
+  name: string;
+  address: string;
+  ok: boolean;
+  /** Why it wasn't added (the line's own problem, already watched, a cap). */
+  error?: string;
+  influencerId?: string;
+}
+
+/**
+ * Bulk add (owner 2026-10-07): a pasted list, one wallet a line (watchBulk.ts),
+ * each a new influencer in the chosen groups, all read together after.
+ * Every line gets a result — added, already watched (by which name), or why
+ * not. Up to 40 a batch; the influencer cap still holds (the trigger).
+ */
+export async function watchAddresses(input: { text: string; groupIds?: string[] }): Promise<{ ok: true; results: BulkAddResult[] } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const guard = await guardUser("bulkAdd", user);
+  if (!guard.ok) return { ok: false, error: guard.error };
+  const { lines, problems } = parseBulk(input.text);
+  if (lines.length === 0) return { ok: false, error: problems[0]?.error ?? "Paste at least one address." };
+  const db = await userDb();
+  // What the user already watches, so a repeat says where it is instead of
+  // making a second influencer for it.
+  const { data: mine } = await db.from("watch_influencers").select("id, name").eq("user_id", user.id);
+  const names = new Map(((mine ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
+  const { data: watched } = names.size
+    ? await db.from("watch_influencer_addresses").select("address, influencer_id").in("influencer_id", [...names.keys()])
+    : { data: [] };
+  const already = new Map(((watched ?? []) as { address: string; influencer_id: string }[]).map((r) => [r.address, r.influencer_id]));
+
+  const results: BulkAddResult[] = problems.map((p) => ({ line: p.line, name: "", address: p.text, ok: false, error: p.error }));
+  const keys: WatchedKey[] = [];
+  for (const l of lines) {
+    const address = normalizeWatchAddress(l.address);
+    const name = l.name ?? `${address.slice(0, 4)}…${address.slice(-4)}`;
+    const existing = already.get(address);
+    if (existing) {
+      results.push({ line: l.line, name, address, ok: false, error: `Already watched as ${names.get(existing) ?? "another influencer"}`, influencerId: existing });
+      continue;
+    }
+    const r = await addAddress(user.id, db, { address, name, groupIds: input.groupIds });
+    if (r.ok) keys.push(r.key);
+    results.push(r.ok ? { line: l.line, name, address, ok: true, influencerId: r.influencerId } : { line: l.line, name, address, ok: false, error: r.error });
+  }
+  if (keys.length) await startRefresh(keys);
+  revalidate();
+  return { ok: true, results: results.sort((a, b) => a.line - b.line) };
 }
 
 /** After the response: addresses nobody watches any more come off live and

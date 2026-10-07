@@ -312,6 +312,13 @@ owner's.
   (`WATCHED_COLUMNS` `live`). The group last picked is remembered in a
   cookie (`watchGroupCookie.ts`): a link naming no group opens it; All is
   `?group=all`.
+  **Bulk add** (owner 2026-10-07): "Watch a wallet" → Several takes a
+  pasted list, one wallet a line — name and address in either order
+  (`watchBulk.ts` `parseBulk`, previewed as typed) — each a new influencer
+  in the ticked groups (`watchAddresses`, sharing `addAddress` with the
+  single add; addresses read together after). Every line gets a result:
+  added, already watched (by which name), or why not. Up to 40 a batch;
+  guard `bulkAdd` 10 batches an hour.
   **Wallet search** (owner 2026-09-30; the search bar in Wallet Watch's
   header, `WalletSearch` → `searchWallet`): an address opens on the
   influencer page exactly as if watched (read now, trading record a click
@@ -901,7 +908,7 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `abuseGuard.ts` `guardUser` / `guardUse` count each costly feature's uses
   per user (per IP for a signed-out visitor) against thresholds no person
   reaches — lookups 30/min, Refresh activity 30/h, the day endpoint 1,200/h,
-  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, Perp Scout scans 20/h,
+  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, bulk adds 10/h, Perp Scout scans 20/h,
   its price refreshes 300/h and tracked refreshes 60/h
   — and crossing one locks the user out of the costly features for 24 h
   (`app_settings` `user_lock:<key>`, honoured by every instance; read at most
