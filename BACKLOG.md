@@ -83,8 +83,10 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ### Copy-contract buttons on the other coin lists — small, open (2026-10-06)
 Watchlist and Encyclopedia have them (`coinContractsQuery.ts`,
-`CoinContractCopy`). Not yet: the Watchlist signals table, Trend Finder's peer
-table, the Dashboard movers. Solana/Sui addresses appear after the next
+`CoinContractCopy`); the Dashboard movers ask on click (`api/coin-contract`,
+same `copyableContracts` rule since 2026-10-07 — it used to copy the lowercase
+Solana mint). Not yet: the Watchlist signals table, Trend Finder's peer
+table. Solana/Sui addresses appear after the next
 token-list refresh fills `token_registry.contract_exact` (weekly cron, or
 reset `token_registry_state.refreshed_at` and run the cron in Vercel).
 
