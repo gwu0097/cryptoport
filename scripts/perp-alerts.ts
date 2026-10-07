@@ -15,8 +15,9 @@
 // scripts/launchd/com.cryptoport.perp-alerts.plist.
 //
 // Cost per poll: 2 Hyperliquid weight per trader (22 traders: 44, ~88 a
-// minute of the IP's 1,200), plus per change 20–60 more (the fills for a
-// close, the account value and TP/SL for an open). Free, keyless.
+// minute of the IP's 1,200), plus per trader with a change 20–160 more (the
+// fills since the last alert, the account value — kept 10 min — the TP/SL for
+// an open, and once per older position its opening). Free, keyless.
 // Safeguards: at most 10 messages per trader an hour (the rest counted and
 // summed in one line), posts spaced 2 s (Discord allows ~30 a minute), every
 // request times out after 15 s, a failed read keeps the trader's last book
@@ -27,8 +28,8 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { alertMessage, closeResult, diffBook, takeBudget, type AlertMessage, type Book, type Change, type ReadPosition } from "../src/lib/perpScout/alerts.ts";
-import { parseFills, type Fill, type ScoutAccountState } from "../src/lib/perpScout/entries.ts";
+import { addPrice, alertMessage, closeResult, diffBook, takeBudget, type AlertMessage, type Book, type Change, type ReadPosition } from "../src/lib/perpScout/alerts.ts";
+import { parseFills, positionOpening, type Fill, type ScoutAccountState } from "../src/lib/perpScout/entries.ts";
 import { FOLLOWED, mergeFollowed, type FollowedTrader } from "../src/lib/perpScout/followed.ts";
 import { createPacer } from "../src/lib/perpScout/pacer.ts";
 import { parsePortfolio } from "../src/lib/perpScout/portfolio.ts";
@@ -83,6 +84,8 @@ function positionsOf(state: ScoutAccountState): ReadPosition[] {
       leverage: num(p.leverage?.value),
       liquidationPx: num(p.liquidationPx),
       notionalUsd: num(p.positionValue) ?? (entryPx ? Math.abs(szi) * entryPx : null),
+      unrealizedPnl: num(p.unrealizedPnl),
+      roe: num(p.returnOnEquity),
     };
   });
 }
@@ -145,23 +148,52 @@ async function fillsSince(address: string, sinceMs: number): Promise<Fill[]> {
   throw new Error("over 10,000 fills since the last alert");
 }
 
-/** The extra reads one trader's changes need, then its messages. */
+/** The whole account's value (portfolio, weight 20), kept 10 minutes per
+ * trader: every card says what share of the account a position is. */
+const accountCache = new Map<string, { at: number; value: number | null }>();
+async function accountValueOf(address: string, nowMs: number): Promise<number | null> {
+  const hit = accountCache.get(address);
+  if (hit && nowMs - hit.at < 600_000) return hit.value;
+  const value = await info<unknown>({ type: "portfolio", user: address }, 20)
+    .then((raw) => parsePortfolio(raw).accountValue.at(-1)?.[1] ?? null)
+    .catch(() => null);
+  accountCache.set(address, { at: nowMs, value });
+  return value;
+}
+
+/** The extra reads one trader's changes need, then its messages. Every read
+ * here happens only when something posts. */
 async function report(trader: FollowedTrader, changes: Change[], state: State, nowMs: number, lateMs: number): Promise<number> {
-  const exits = changes.filter((c) => c.kind === "closed" || c.kind === "flipped");
+  const withWas = changes.filter((c): c is Exclude<Change, { kind: "opened" }> => c.kind !== "opened");
   const opens = changes.filter((c) => c.kind === "opened");
+  // The trades since each position's last alert: a close's or trim's exit, an add's price.
   let fills: Fill[] | null = null;
-  if (exits.length) {
-    const since = Math.min(...exits.map((c) => ("was" in c ? c.was.alertedAt : nowMs))) - 1_000;
+  if (withWas.length) {
+    const since = Math.min(...withWas.map((c) => c.was.alertedAt)) - 1_000;
     fills = await fillsSince(trader.address, since).catch((e: Error) => (log(`${trader.name}: fills not read (${e.message})`), null));
   }
-  let accountValue: number | null = null;
-  let orders: HyperliquidOrder[] | null = null;
-  if (opens.length) {
-    accountValue = await info<unknown>({ type: "portfolio", user: trader.address }, 20)
-      .then((raw) => parsePortfolio(raw).accountValue.at(-1)?.[1] ?? null)
+  // When a position open since before the script started was opened: its
+  // latest 2,000 fills, once per position (then kept in the state).
+  const unknown = withWas.filter((c) => c.was.openedAt === undefined);
+  if (unknown.length) {
+    const recent = await info<unknown[]>({ type: "userFills", user: trader.address }, 20)
+      .then((raw) => {
+        if (Array.isArray(raw)) pacer.charge(Math.ceil(raw.length / 20));
+        return parseFills(raw);
+      })
       .catch(() => null);
-    orders = await info<HyperliquidOrder[]>({ type: "frontendOpenOrders", user: trader.address }, 20).catch(() => null);
+    if (recent) {
+      for (const c of unknown) {
+        const o = positionOpening(recent, c.coin, c.was.szi);
+        c.was.openedAt = o.openedAt;
+        c.was.openedBefore = o.openedBefore;
+        const kept = state.books[trader.address]?.[c.coin];
+        if (kept && c.kind !== "flipped") Object.assign(kept, { openedAt: o.openedAt, openedBefore: o.openedBefore });
+      }
+    }
   }
+  const accountValue = await accountValueOf(trader.address, nowMs);
+  const orders = opens.length ? await info<HyperliquidOrder[]>({ type: "frontendOpenOrders", user: trader.address }, 20).catch(() => null) : null;
   let posted = 0;
   const sent = (state.sent[trader.address] ??= []);
   for (const change of changes) {
@@ -169,12 +201,17 @@ async function report(trader: FollowedTrader, changes: Change[], state: State, n
       state.muted[trader.address] = (state.muted[trader.address] ?? 0) + 1;
       continue;
     }
+    const was = change.kind === "opened" ? null : change.was;
     const msg = alertMessage(change, {
       traderName: trader.name,
       address: trader.address,
       accountValue,
       tpsl: change.kind === "opened" && orders ? (({ tp, sl }) => ({ tp, sl }))(nearestTpsl(hyperliquidTpsl(orders, change.coin, change.side), change.side)) : undefined,
-      result: "was" in change && (change.kind === "closed" || change.kind === "flipped") ? (fills ? closeResult(fills, change.was) : null) : undefined,
+      result: was && change.kind !== "added" ? (fills ? closeResult(fills, was) : null) : undefined,
+      addPx: was && change.kind === "added" && fills ? addPrice(fills, was) : undefined,
+      openedAt: was?.openedAt,
+      openedBefore: was?.openedBefore,
+      nowMs,
       lateMs,
     });
     await post(msg).then(() => posted++, (e: Error) => log(`${trader.name}: not posted (${e.message}): ${msg.embed.title}`));

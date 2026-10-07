@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alertMessage, closeResult, diffBook, takeBudget, type Book, type ReadPosition } from "./alerts.ts";
+import { addPrice, alertMessage, closeResult, diffBook, heldFor, takeBudget, type Book, type ReadPosition } from "./alerts.ts";
 import type { Fill } from "./entries.ts";
 
 const pos = (coin: string, szi: number, extra: Partial<ReadPosition> = {}): ReadPosition => ({ coin, szi, entryPx: 100, leverage: 5, liquidationPx: 80, notionalUsd: Math.abs(szi) * 100, ...extra });
@@ -82,4 +82,61 @@ test("only an open pings; a close says its result and colour", () => {
 
   const unknown = alertMessage({ kind: "closed", coin: "BTC", side: "long", was }, { ...ctx, result: null });
   assert.equal(unknown.embed.title, "⚪ Swing #3 closed LONG BTC");
+});
+
+test("held time reads like a person would say it", () => {
+  assert.equal(heldFor(40 * 60_000), "40 min");
+  assert.equal(heldFor((5 * 60 + 20) * 60_000), "5h 20m");
+  assert.equal(heldFor((3 * 24 + 4) * 3_600_000), "3d 4h");
+});
+
+test("when a position was opened survives reads that change nothing, and an add or trim", () => {
+  let book: Book = diffBook(null, [pos("BTC", 10)], T0).book;
+  book.BTC.openedAt = T0 - 86_400_000;
+  book = diffBook(book, [pos("BTC", 10.5)], T0 + 1).book;
+  assert.equal(book.BTC.openedAt, T0 - 86_400_000);
+  book = diffBook(book, [pos("BTC", 20)], T0 + 2).book;
+  assert.equal(book.BTC.openedAt, T0 - 86_400_000);
+  const opened = diffBook(book, [pos("BTC", 20), pos("ETH", 1)], T0 + 3).book;
+  assert.equal(opened.ETH.openedAt, T0 + 3);
+});
+
+test("an add's price averages only the buys that grew it since the last alert", () => {
+  const was = { ...pos("HYPE", 10), alertedSzi: 10, alertedAt: T0 };
+  const px = addPrice(
+    [
+      fill({ coin: "HYPE", side: "B", startPosition: 5, sz: 5, px: 1, time: T0 - 1 }), // before the last alert
+      fill({ coin: "HYPE", side: "B", startPosition: 10, sz: 4, px: 90 }),
+      fill({ coin: "HYPE", side: "B", startPosition: 14, sz: 6, px: 95 }),
+      fill({ coin: "HYPE", side: "A", startPosition: 20, sz: 1, px: 999 }), // a sell
+    ],
+    was,
+  );
+  assert.equal(px, 93);
+});
+
+test("a trim says the size before and after, the share of the account, the sale and what's still open", () => {
+  const was = { ...pos("ETH", 10, { entryPx: 2000 }), alertedSzi: 10, alertedAt: T0, openedAt: T0 - 3 * 86_400_000 };
+  const now = pos("ETH", 4, { entryPx: 2000, notionalUsd: 4 * 2500, leverage: 8, roe: 2.0, unrealizedPnl: 2000 });
+  const msg = alertMessage({ kind: "trimmed", coin: "ETH", side: "long", was, now }, {
+    traderName: "Hot month",
+    address: "0xabc",
+    accountValue: 100_000,
+    result: { exitPx: 2500, pnlUsd: 3000, returnPct: 0.25 },
+    openedAt: was.openedAt,
+    nowMs: T0,
+  });
+  assert.equal(msg.embed.title, "🟠 Hot month trimmed LONG ETH (-60.0%) · held 3d 0h");
+  const [size, sold, open] = msg.embed.description.split("\n");
+  assert.equal(size, "Size $25K → $10K · now 10% of account (was 25%) · 8x");
+  assert.equal(sold, "Sold at $2,500.00 (+25.0% vs entry $2,000.00) · this trim's PnL +$3K");
+  assert.equal(open, "Still open: open PnL +200.0% on margin · +$2K");
+});
+
+test("an add says what it was bought at; an unknown opening time is left out", () => {
+  const was = { ...pos("HYPE", 10, { entryPx: 85 }), alertedSzi: 10, alertedAt: T0 };
+  const now = pos("HYPE", 19.3, { entryPx: 88.9, notionalUsd: 19.3 * 90, leverage: 5 });
+  const msg = alertMessage({ kind: "added", coin: "HYPE", side: "long", was, now }, { traderName: "Swing cb34", address: "0xabc", accountValue: 20_000, addPx: 92.6, nowMs: T0 });
+  assert.equal(msg.embed.title, "🔵 Swing cb34 added to LONG HYPE (+93.0%)");
+  assert.match(msg.embed.description, /^Size \$900 → \$1\.7K · now 8\.7% of account \(was 4\.5%\) · 5x\nBought at \$92\.60 · avg entry now \$88\.90/);
 });

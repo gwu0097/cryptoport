@@ -413,6 +413,9 @@ owner's.
   - It posts each position change to `DISCORD_PERP_WEBHOOK_URL` (pure
     `perpScout/alerts.ts`): opened (the only ping), closed with its result,
     flipped, and adds/trims once 25% from the last alert. Never per fill.
+    Each card also says how long the position was held, its size before →
+    after as a share of the whole account, the exit or add price, and the
+    open PnL still riding.
   - Safeguards: 10 messages per trader an hour, a lock file for one
     instance, and a failed read keeps the last book.
   - After changing the list in code, restart it (`launchctl kickstart -k`).

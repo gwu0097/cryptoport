@@ -400,11 +400,27 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
 
   Only an open pings. A trader's first read sets the baseline; nothing
   posts for it.
+- **What each card says** (owner 2026-10-07: "−62% doesn't tell me what it
+  was of his portfolio"):
+  - how long the position was held;
+  - for an add or trim: its size before → after, both at today's price, as
+    a share of the whole account before and after;
+  - what it was sold at (a trim's or close's average exit, with that part's
+    PnL) or bought at (an add);
+  - what's still open: Hyperliquid's open PnL on margin and in dollars;
+  - for a close: the size closed as a share of the account.
+
+  The account value (`portfolio`) is read only when a card posts, kept 10
+  minutes per trader. When a position was opened is known if the script
+  saw it open. Otherwise it's found in the trader's latest 2,000 fills
+  (`positionOpening`) at its first card and then kept; older than those
+  fills, it reads "held over Nd".
 - **Rate** (2026-10-07, last 7 days of the 22): 72 opened, 80 closed, so
   about 25–40 messages a day.
 - **Cost**: 2 Hyperliquid weight per trader per poll (22 traders: about 88
-  a minute of the Mac's 1,200). Per change, 20–60 more (the fills for a
-  close; the account value and orders for an open). Free and keyless. One
+  a minute of the Mac's 1,200). Per trader with a change, 20–160 more: the
+  fills since the last alert, the account value, the orders for an open,
+  and once per older position its opening. Free and keyless. One
   Supabase request an hour.
 - **Safeguards**:
   - At most 10 messages per trader an hour; the rest are counted and posted
