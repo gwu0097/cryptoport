@@ -72,6 +72,22 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
+### Perp Scout follow-ups — open (owner 2026-10-06)
+- **Discord feed of tracked trades** (opened/added/trimmed/closed/stopped):
+  waits for the owner's Mac mini (to be set up from there).
+- **Automatic reads of followed traders** instead of Scan by hand: designed
+  in chat — pg_cron every 5–10 min calling a delta scan (a websocket worker
+  caps at 10 users per IP). Waiting on the owner's choice of interval,
+  channel, thresholds and pings.
+- HIP-3 markets aren't read.
+
+### Copy-contract buttons on the other coin lists — small, open (2026-10-06)
+Watchlist and Encyclopedia have them (`coinContractsQuery.ts`,
+`CoinContractCopy`). Not yet: the Watchlist signals table, Trend Finder's peer
+table, the Dashboard movers. Solana/Sui addresses appear after the next
+token-list refresh fills `token_registry.contract_exact` (weekly cron, or
+reset `token_registry_state.refreshed_at` and run the cron in Vercel).
+
 ### EVM trading record — SHIPPED on Zerion; transfer-scanning dropped (2026-09-30)
 
 Shipped from Zerion's PnL (monthly windows via `since`/`till`). The

@@ -9,6 +9,41 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-10-06 — Copy contracts on coin rows: only addresses copied as written
+
+The owner kept finding coins with no copy button (Watchlist, Encyclopedia):
+those rows are a coin id, not a holding, so they had no contract. The coin's
+contracts come from `token_registry` by coin id — but that table stores every
+address lowercased (its lookup key). Lowercase is fine for EVM; a lowercased
+Solana mint or Sui coin type is a different, wrong address. So EVM contracts
+are offered as stored, Solana/Sui only from `contract_exact` (the address as
+CoinGecko lists it, written by the token-list refresh since 2026-10-06, and
+only when it matches the key), and a `jup:<mint>` coin's own mint. A wrong
+address is worse than no button.
+
+## 2026-10-06 — Perp Scout: a curated list, incremental scans, figures in %
+
+- **The list is curated in chat, not found by the app.** The first in-app
+  screen picked junk (100% winning weeks, no perp positions, ROI +995,700%);
+  the owner: "I'm asking you to find them for me, then just add it to the
+  list." The screen became a script (`scripts/diag/perp-scout-screen.mts`)
+  and the stage-3 rules came from what the junk had in common.
+- **Unified accounts keep cash in spot:** equity and returns use the whole
+  account's value (`portfolio` allTime), not the perps margin (#1 read $1.1M
+  instead of $6.1M).
+- **Fills arrive newest first, same-millisecond pieces too:** re-sorting by
+  time put pieces of one order backwards and produced closes with no open
+  (1,766 broken position chains on one trader; the owner: "how can you close
+  close close without any opens?"). `parseFills` reverses the list; books
+  carry a version so old ones were re-read in full.
+- **Scans read only what changed** after a trader's first full read (the
+  owner: "shouldn't that delta be tiny?"), checked by replaying 72 h of real
+  fills against a full read — identical.
+- **Percentages over dollars** everywhere a trader's result is shown: their
+  size isn't the owner's.
+- **Tracked trades and the added-trader list live in `app_settings` rows**
+  (no DDL), small and read once per page.
+
 ## 2026-09-29 — Page latency: one round-trip budget, measured on every render
 
 **What happened.** Speed kept coming back one page at a time: Refresh prices
