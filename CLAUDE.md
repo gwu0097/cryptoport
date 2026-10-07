@@ -403,7 +403,8 @@ owner's.
   tracked traders' rows sent). Refresh prices there only swaps prices (the
   app's Refresh prices fires it too, `PRICES_REFRESHED_EVENT`); Refresh
   re-reads only the tracked trades' traders (`runScan` with `only`,
-  `api/perp-scout/tracked/refresh`, guard `perpScoutTracked` 60/h).
+  `api/perp-scout/tracked/refresh`, guard `perpScoutTracked` 60/h). Why
+  these choices: DECISIONS 2026-10-06 Perp Scout; open items in BACKLOG.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
@@ -638,6 +639,14 @@ the token list refreshes weekly and when a Solana/Sui sync meets an unknown
 token (`tokenRegistryRefresh.ts`). `/admin/pricing` (`pricingCoverage.ts`) lists
 every unpriced holding across all users by cause; Settings → "Exchange coin
 mappings" shows each user how their exchange tickers were matched.
+
+**A coin row copies only an address as written** (Watchlist, Encyclopedia —
+rows that are a coin id, not a holding): `coinContractsQuery.ts`
+`getCoinContracts` reads `token_registry` by coin id (one request, beside the
+prices; the Dashboard's movers don't read it), pure `coinContracts.ts` keeps
+EVM contracts, Solana/Sui ones only from `contract_exact` (the registry's
+`contract` is lowercased, a wrong mint), and a `jup:<mint>` coin's own mint;
+`CoinContractCopy` shows it. (DECISIONS: 2026-10-06 Copy contracts)
 
 **History.** Performance keys price history by `price_key` (`priceHistory.ts`
 `getPriceHistoryMap`): old `price_history` rows under the pre-price_key key,
