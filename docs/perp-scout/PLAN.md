@@ -375,12 +375,56 @@ The app's calls go through one pacer per instance held at 1,000 a minute
   fetch uses the egress proxy. The environment allows `api.hyperliquid.xyz`
   and `stats-data.hyperliquid.xyz`.
 
+## Alerts (Discord)
+
+Owner 2026-10-07: "send a discord message every time one of the wallets in
+perp scout makes a trade, and alert specifically if there's a new position
+opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
+
+- **Where**: `scripts/perp-alerts.ts`, kept running by launchd
+  (`scripts/launchd/com.cryptoport.perp-alerts.plist`). Hyperliquid has no
+  webhooks, so it polls every 30 s. Its state (each trader's positions at
+  the last read) is a local file, `~/.cryptoport/perp-alerts.json`.
+  Supabase is read only for the trader list (`perp_scout_added`), once an
+  hour, and never written. Vercel isn't involved.
+- **What posts** (pure `perpScout/alerts.ts`), one message per position
+  change, never per fill (one trader makes ~285 fills a day):
+  - **Opened**: pings the role (`DISCORD_PERP_ROLE_ID`, else
+    `DISCORD_WATCH_ROLE_ID`), with size, share of the whole account
+    (`portfolio`), entry, liquidation, TP and SL.
+  - **Closed**: ✅/❌ with entry → exit, the % at 1× and on margin, and this
+    exit's PnL — the fills since the position's last alert.
+  - **Flipped**: the closed side's result and the new side.
+  - **Added / trimmed**: only once the size is 25% (`STEP`) from the size
+    last alerted, so scaling in by small steps posts once it adds up.
+
+  Only an open pings. A trader's first read sets the baseline; nothing
+  posts for it.
+- **Rate** (2026-10-07, last 7 days of the 22): 72 opened, 80 closed, so
+  about 25–40 messages a day.
+- **Cost**: 2 Hyperliquid weight per trader per poll (22 traders: about 88
+  a minute of the Mac's 1,200). Per change, 20–60 more (the fills for a
+  close; the account value and orders for an open). Free and keyless. One
+  Supabase request an hour.
+- **Safeguards**:
+  - At most 10 messages per trader an hour; the rest are counted and posted
+    as one "N more moves" line.
+  - Posts are spaced 2 s apart (Discord allows ~30 a minute).
+  - Every request times out after 15 s.
+  - A failed read keeps the trader's last positions, so no false "closed".
+  - A lock file allows one instance at a time; a second would post
+    everything twice.
+  - After the Mac sleeps, moves seen on waking say "seen late".
+- **Checked 2026-10-07** (dry run, real data):
+  - The script read all 22 traders and set the baseline.
+  - #1's real INJ short shown as opened gave the right size, 6.1% of the
+    account, entry, liquidation, TP $3 and no SL.
+  - 0xa5fd's real ZRO close gave the scan's own exit ($2.272, +18.2%).
+- **Not covered**: HIP-3 markets, like the page. Tracked trades get no
+  separate feed: every followed trader's moves already post.
+
 ## Later (not built)
 
-- Discord feed of tracked trades' changes (owner: set up from the Mac
-  mini later).
-- Discord alerts when a listed trader opens a position. BACKLOG lists perp
-  opens for Wallet Watch.
 - HIP-3 markets.
 - Hyperliquid's terms for the owner's region (still unchecked) matter
   before any trading.

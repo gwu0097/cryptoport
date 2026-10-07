@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Perp Scout alerts (scripts/perp-alerts.ts, docs/perp-scout/PLAN.md "Alerts"):
+  polls the followed traders' Hyperliquid positions every 30 s and posts each
+  change to Discord. Runs all the time on the Mac mini; launchd starts it at
+  login and restarts it if it stops (ThrottleInterval: at most every 30 s).
+
+  Needs in the checkout's .env.local: DISCORD_PERP_WEBHOOK_URL (without it the
+  script only prints), optionally DISCORD_PERP_ROLE_ID (else
+  DISCORD_WATCH_ROLE_ID is pinged on opens), and NEXT_PUBLIC_SUPABASE_URL +
+  SUPABASE_SERVICE_ROLE_KEY for the trader list (else followed.ts only).
+  State: ~/.cryptoport/perp-alerts.json. Log: ~/Library/Logs/cryptoport-perp-alerts.log.
+  Keep the Mac awake (System Settings → Energy → Prevent automatic sleeping);
+  asleep, nothing is read, and moves seen after waking are marked "seen late".
+
+  Adjust the path below if the checkout isn't at ~/appDevelopmentWorkSpace/cryptoport.
+
+  Install:
+    cp scripts/launchd/com.cryptoport.perp-alerts.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cryptoport.perp-alerts.plist
+  Watch it:
+    tail -f ~/Library/Logs/cryptoport-perp-alerts.log
+  Restart after a git pull (picks up new code and list changes):
+    launchctl kickstart -k gui/$(id -u)/com.cryptoport.perp-alerts
+  Remove:
+    launchctl bootout gui/$(id -u)/com.cryptoport.perp-alerts
+
+  zsh -lc so the login profile puts node on PATH (launchd's own PATH doesn't).
+  exec so launchd's stop reaches node itself (its lock file is then released).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cryptoport.perp-alerts</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "$HOME/appDevelopmentWorkSpace/cryptoport" &amp;&amp; exec node --env-file=.env.local --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/perp-alerts.ts &gt;&gt; "$HOME/Library/Logs/cryptoport-perp-alerts.log" 2&gt;&amp;1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+</dict>
+</plist>

@@ -405,6 +405,17 @@ owner's.
   re-reads only the tracked trades' traders (`runScan` with `only`,
   `api/perp-scout/tracked/refresh`, guard `perpScoutTracked` 60/h). Why
   these choices: DECISIONS 2026-10-06 Perp Scout; open items in BACKLOG.
+  **Alerts** (owner 2026-10-07; PLAN.md "Alerts"):
+  - `scripts/perp-alerts.ts` runs on the owner's Mac mini under launchd
+    (`scripts/launchd/com.cryptoport.perp-alerts.plist`), not Vercel. It
+    polls every followed trader's positions every 30 s, with state in a
+    local file; Supabase is read only for the list, once an hour.
+  - It posts each position change to `DISCORD_PERP_WEBHOOK_URL` (pure
+    `perpScout/alerts.ts`): opened (the only ping), closed with its result,
+    flipped, and adds/trims once 25% from the last alert. Never per fill.
+  - Safeguards: 10 messages per trader an hour, a lock file for one
+    instance, and a failed read keeps the last book.
+  - After changing the list in code, restart it (`launchctl kickstart -k`).
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
@@ -486,7 +497,8 @@ Env var names (values only in `.env.local` / Vercel): `NEXT_PUBLIC_SUPABASE_URL`
 `ETHERSCAN_API_KEY`, `HELIUS_API_KEY`, `ALCHEMY_API_KEY`, `ZERION_API_KEY`,
 `JUPITER_API_KEY`, `PERPLEXITY_API_KEY`, `SOLANA_TRACKER_API_KEY`, `HELIUS_WEBHOOK_SECRET`, `ALCHEMY_NOTIFY_TOKEN`, `DISCORD_WATCH_WEBHOOK_URL`, `DISCORD_WATCH_ROLE_ID`, `SECRETS_ENCRYPTION_KEY`,
 `ADMIN_EMAIL`, `CRON_SECRET` (Vercel only); scripts only:
-`SCREENER_ARCHIVE_DIR`, `SIGNALS_ARCHIVE_DIR`.
+`SCREENER_ARCHIVE_DIR`, `SIGNALS_ARCHIVE_DIR`, and on the Mac mini
+`DISCORD_PERP_WEBHOOK_URL`, `DISCORD_PERP_ROLE_ID`, `PERP_ALERTS_STATE` (scripts/perp-alerts.ts).
 
 ## 4. Data invariants — these must never break
 

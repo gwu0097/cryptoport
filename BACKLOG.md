@@ -73,8 +73,9 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 ## General cryptoport features
 
 ### Perp Scout follow-ups — open (owner 2026-10-06)
-- **Discord feed of tracked trades** (opened/added/trimmed/closed/stopped):
-  waits for the owner's Mac mini (to be set up from there).
+- **Discord alerts**: built 2026-10-07 (`scripts/perp-alerts.ts` on the Mac
+  mini, PLAN.md "Alerts"). Every followed trader's moves post, so tracked
+  trades need no separate feed.
 - **Automatic reads of followed traders** instead of Scan by hand: designed
   in chat — pg_cron every 5–10 min calling a delta scan (a websocket worker
   caps at 10 users per IP). Waiting on the owner's choice of interval,
