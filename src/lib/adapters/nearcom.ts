@@ -26,8 +26,19 @@ async function call<T>(path: string, init: { method?: string; body?: unknown; to
   return { status: res.status, body };
 }
 
-/** intents.near's current nonce salt (NEAR's public RPC, a free view call). */
-async function currentSalt(): Promise<string> {
+/** intents.near's current nonce salt (NEAR's public RPC, a free view call),
+ * kept 5 minutes like the official SDK's SaltManager — connect clicks don't
+ * each reach the RPC. */
+let salt: { at: number; value: Promise<string> } | null = null;
+function currentSalt(): Promise<string> {
+  if (!salt || Date.now() - salt.at > 300_000) {
+    const value = readSalt();
+    salt = { at: Date.now(), value };
+    value.catch(() => (salt = null));
+  }
+  return salt.value;
+}
+async function readSalt(): Promise<string> {
   const res = await fetchWithRetry("https://rpc.mainnet.near.org", {
     method: "POST",
     headers: HEADERS,

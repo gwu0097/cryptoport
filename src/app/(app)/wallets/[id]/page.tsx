@@ -1,3 +1,4 @@
+import { requestNowSec } from "@/lib/requestClock";
 import { ConnectNearCom } from "@/components/ConnectNearCom";
 import { NEARCOM } from "@/lib/nearIntents";
 import Link from "next/link";
@@ -39,6 +40,7 @@ import {
   syncExchangeHoldings,
   updateWallet,
   renameWallet,
+  nearComSignedAt,
 } from "../actions";
 
 // The EVM adapter reads every configured chain via Multicall3 (see
@@ -232,7 +234,7 @@ export default async function WalletDetailPage(
                   sync={syncExchangeHoldings.bind(null, wallet.id)}
                 />
                 {/* near.com's token lasts 30 days: a fresh signature renews it. */}
-                {wallet.provider === NEARCOM && <ConnectNearCom walletId={wallet.id} />}
+                {wallet.provider === NEARCOM && <ConnectNearCom walletId={wallet.id} signedAt={await nearComSignedAt(wallet.id)} nowMs={requestNowSec() * 1000} />}
               </>
             ) : wallet.mode === "auto" ? (
               // Sync also prices this wallet's own coins, so there's no

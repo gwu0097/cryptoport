@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createStore, type EIP6963ProviderDetail } from "mipd";
 import type { EIP1193Provider } from "viem";
 import { connectNearCom, nearComChallengeAction, reconnectNearCom } from "@/app/(app)/wallets/actions";
+import { REFRESH_TOKEN_DAYS } from "@/lib/nearIntents";
 import { Dialog } from "./ui/Dialog";
 import { Field, inputClass } from "./ui/Field";
 import { buttonClass } from "./ui/Button";
@@ -17,7 +18,7 @@ import { buttonClass } from "./ui/Button";
  * existing near.com wallet. Wallets found the same way as sign-in (EIP-6963,
  * window.ethereum as the fallback).
  */
-export function ConnectNearCom({ walletId }: { walletId?: string }) {
+export function ConnectNearCom({ walletId, signedAt, nowMs }: { walletId?: string; signedAt?: string | null; nowMs?: number }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState("near.com");
@@ -53,9 +54,9 @@ export function ConnectNearCom({ walletId }: { walletId?: string }) {
         dialogRef.current?.close();
         router.refresh();
       } else {
-        // Redirects to the new wallet on success.
         const r = await connectNearCom({ name, payload: challenge.payload, signature });
-        if (r?.error) throw new Error(r.error);
+        if ("error" in r) throw new Error(r.error);
+        router.push(`/wallets/${r.walletId}`);
       }
     } catch (e) {
       const rejected = e && typeof e === "object" && "code" in e && (e as { code: unknown }).code === 4001;
@@ -80,6 +81,7 @@ export function ConnectNearCom({ walletId }: { walletId?: string }) {
       >
         {walletId ? "Reconnect near.com" : "Connect near.com"}
       </button>
+      {walletId && signedAt && nowMs && <ReconnectBy signedAt={signedAt} nowMs={nowMs} />}
       <Dialog ref={dialogRef} title={walletId ? "Reconnect near.com" : "Connect near.com"}>
         <div className="flex flex-col gap-4">
           {error && <p className="rounded-lg border border-negative/30 bg-negative/10 px-4 py-3 text-sm text-negative">{error}</p>}
@@ -109,4 +111,13 @@ export function ConnectNearCom({ walletId }: { walletId?: string }) {
       </Dialog>
     </>
   );
+}
+
+/** "Reconnect by Nov 7" — the token's 30 days, amber in the last 5 (the
+ * request's clock, CLAUDE.md §6). */
+function ReconnectBy({ signedAt, nowMs: now }: { signedAt: string; nowMs: number }) {
+  const due = Date.parse(signedAt) + REFRESH_TOKEN_DAYS * 86_400_000;
+  const days = Math.ceil((due - now) / 86_400_000);
+  const date = new Date(due).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return <p className={`text-xs ${days <= 5 ? "text-warning" : "text-fg-muted"}`}>{days > 0 ? `Reconnect by ${date} (${days} day${days === 1 ? "" : "s"})` : "Expired — reconnect to sync"}</p>;
 }

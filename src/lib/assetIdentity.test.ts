@@ -156,4 +156,6 @@ test("near.com balances are priced as the coin its token list names; one it does
   const usdc = { ticker: "USDC", chain: "nearcom", contract: "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near", source: "auto_exchange", coingecko_id: "usd-coin" };
   assert.equal(resolvePriceKey(usdc, maps), "usd-coin");
   assert.equal(resolvePriceKey({ ...usdc, ticker: "MYSTERY", coingecko_id: null }, maps), null);
+  // A listed ticker without the list's coin id is never matched by ticker (§4.2).
+  assert.equal(resolvePriceKey({ ...usdc, ticker: "ETH", coingecko_id: null }, maps), null);
 });

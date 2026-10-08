@@ -110,7 +110,7 @@ export function krakenStakedBase(ticker: string): string {
 const COIN_NAMING_VENUES = new Set(["nearcom"]);
 const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 // Venues priced by their own tickers (exchange balances; protocol accounts).
-export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket", "lighter"]);
+export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket", "lighter", "nearcom"]);
 
 /** A stored position value, not a coin quantity: its worth comes from the
  * protocol (LP, perps, prediction shares, leveraged vault) and has no single

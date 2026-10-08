@@ -977,7 +977,7 @@ async function nearComToken(payload: string, signature: string): Promise<{ accou
 
 /** Step 2: the signed message → a read-only token (stored encrypted, like an
  * exchange key) → a test read → the wallet, with its first sync. */
-export async function connectNearCom(input: { name: string; payload: string; signature: string }): Promise<{ error: string }> {
+export async function connectNearCom(input: { name: string; payload: string; signature: string }): Promise<{ walletId: string } | { error: string }> {
   const user = await requireUser();
   const name = input.name.trim() || "near.com";
   const token = await nearComToken(input.payload, input.signature);
@@ -991,7 +991,17 @@ export async function connectNearCom(input: { name: string; payload: string; sig
   const saved = await saveExchangeConnection(user.id, NEARCOM, name, token.account, token.refreshToken, testResult);
   if ("error" in saved) return saved;
   revalidatePath("/wallets");
-  redirect(`/wallets/${saved.walletId}`);
+  // The browser navigates (a redirect from a click handler's action call
+  // isn't the form-action path connectExchange relies on).
+  return saved;
+}
+
+/** When a near.com wallet's token was issued (exchange_connections is
+ * service-role only) — the wallet page's "reconnect by" date. */
+export async function nearComSignedAt(walletId: string): Promise<string | null> {
+  const user = await requireUser();
+  const { data } = await serviceDb().from("exchange_connections").select("created_at").eq("wallet_id", walletId).eq("user_id", user.id).eq("provider", NEARCOM).maybeSingle();
+  return (data?.created_at as string | undefined) ?? null;
 }
 
 /** The monthly re-sign: a new token for an existing near.com wallet (the same
