@@ -123,6 +123,13 @@ export interface IntentsBalance {
   source?: string;
 }
 
+/** A token's price key: its CoinGecko id when it has a real one, else
+ * `nearcom:<assetId>` (near.com's own price). */
+export function priceKeyFor(t: Pick<IntentsToken, "assetId" | "coingeckoId">): string {
+  const cg = t.coingeckoId?.trim();
+  return cg && /^[a-z0-9-]+$/.test(cg) ? cg : `nearcom:${t.assetId}`;
+}
+
 /** Balances to holdings, named and priced through the token list: each
  * token's own CoinGecko id is its coin (resolvePriceKey's venue rule), never
  * a ticker guess. Amounts are base units ÷ 10^decimals (a decimal point in
@@ -147,7 +154,10 @@ export function balancesToHoldings(balances: readonly IntentsBalance[], tokens: 
       category: "token",
       chain: NEARCOM,
       icon_url: null,
-      coingecko_id: t?.coingeckoId ?? null,
+      // The coin it's priced as: its CoinGecko id, or — for one near.com
+      // names "custom:…" (not a CoinGecko id: QTC, 2026-10-08) — its own key,
+      // priced from near.com's token list (the "nearcom" price lane).
+      coingecko_id: t ? priceKeyFor(t) : null,
       ...(t ? { display_label: `${t.symbol} (${t.blockchain})` } : {}),
     });
   }

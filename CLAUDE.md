@@ -544,7 +544,9 @@ pricing change with `scripts/diag/portfolio-totals.ts save`/`compare`.
 
 **Identity.** Every holding carries a `price_key`: the one asset it is — a
 CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<TICKER>` /
-`fiat:USD` for what CoinGecko doesn't list. `resolvePriceKey`
+`nearcom:<assetId>` (a near.com token its list doesn't give a CoinGecko id —
+priced from that list, the `nearcom` lane) / `fiat:USD` for what CoinGecko
+doesn't list. `resolvePriceKey`
 (`src/lib/assetIdentity.ts`; lookup tables loaded by `adapters/assetKeys.ts`
 `withPriceKeys`) sets it at sync time:
 - manual dollar entries and position values (`isPositionValue`) get none;
@@ -569,7 +571,7 @@ CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<TICKER>` /
 
 **Prices.** `asset_prices` holds one price per key plus its `change_*` and
 `market_cap` columns, filled by `refreshAssetPrices` (`adapters/assetPrices.ts`)
-in one lane per source — coingecko, jupiter, hyperliquid, coinbase — with
+in one lane per source — coingecko, jupiter, hyperliquid, coinbase, nearcom — with
 `fiat:USD` fixed at $1. When CoinGecko fails (2026-09-29: its CloudFront
 refused the long 250-id queries), the same ids are priced from DefiLlama
 (`adapters/llamaPrices.ts`: price and 24h change, serial calls 1.5 s apart;

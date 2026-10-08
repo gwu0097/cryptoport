@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount } from "viem/accounts";
 import { recoverMessageAddress } from "viem";
-import { authPayload, balancesToHoldings, base58, erc191Signature, readAuthPayload, timestampedBytes, versionedNonce } from "./nearIntents.ts";
+import { authPayload, balancesToHoldings, priceKeyFor, base58, erc191Signature, readAuthPayload, timestampedBytes, versionedNonce } from "./nearIntents.ts";
 
 test("the nonce matches intents.near's own example byte for byte (docs, 2025-05-21: its deadline in bytes 9–16)", () => {
   const example = "Vij2xgAlKBKzgNPJFViEQRgYyS7p2NEiYTTY4XmT8go=";
@@ -73,4 +73,10 @@ test("balances become holdings named and priced by the token list; an unknown to
   assert.match(warnings[0], /1 token not in near\.com's token list/);
   // An already-formatted amount (a decimal point) is taken as is.
   assert.equal(balancesToHoldings([{ tokenId: tokens[0].assetId, available: "10.5" }], tokens).holdings[0].qty, 10.5);
+});
+
+test("a token near.com names with its own id ('custom:qtc') is priced from near.com, not as a CoinGecko id", () => {
+  assert.equal(priceKeyFor({ assetId: "nep141:arb-0xaf88.omft.near", coingeckoId: "usd-coin" }), "usd-coin");
+  assert.equal(priceKeyFor({ assetId: "nep141:qtc.omft.near", coingeckoId: "custom:qtc" }), "nearcom:nep141:qtc.omft.near");
+  assert.equal(priceKeyFor({ assetId: "nep141:x.near", coingeckoId: null }), "nearcom:nep141:x.near");
 });

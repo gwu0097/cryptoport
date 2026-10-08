@@ -84,6 +84,17 @@ function tokenList(): Promise<IntentsToken[]> {
   return tokens.list;
 }
 
+/** near.com's own prices for `nearcom:<assetId>` keys (its token list — the
+ * same cached download the sync uses, so no extra call within the hour). */
+export async function nearComPrices(): Promise<Map<string, { usd: number; symbol: string }>> {
+  const out = new Map<string, { usd: number; symbol: string }>();
+  for (const t of await tokenList()) {
+    const usd = Number((t as IntentsToken & { price?: number }).price);
+    if (Number.isFinite(usd) && usd > 0) out.set(`nearcom:${t.assetId}`, { usd, symbol: t.symbol });
+  }
+  return out;
+}
+
 export const NEARCOM_EXPIRED = "near.com connection expired — click Reconnect and sign again (it lasts 30 days).";
 
 /** The exchange fetcher (EXCHANGE_ADAPTERS): `keyName` is the account

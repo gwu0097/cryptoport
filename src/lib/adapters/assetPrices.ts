@@ -1,4 +1,5 @@
 import "server-only";
+import { nearComPrices } from "./nearcom";
 import { serviceDb } from "../supabase";
 import { fetchMarketStatsByIds } from "./coingecko";
 import { fetchLlamaPrices } from "./llamaPrices";
@@ -49,7 +50,7 @@ async function allHeldKeys(): Promise<string[]> {
 }
 
 /** One source's progress through a pass ("Refresh prices" shows it live). */
-export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter" | "aster";
+export type PricingLane = "coingecko" | "jupiter" | "hyperliquid" | "coinbase" | "lighter" | "aster" | "nearcom";
 export type OnLane = (lane: PricingLane, status: "running" | "done" | "error") => void;
 
 /** Prices the given keys (default: every held key + watchlist + Wallet
@@ -206,6 +207,22 @@ export async function refreshAssetPrices(
           const p = marks.get(symbol);
           if (p) fetched.set(k, { usd: p.usd, change_24h: p.change24h, source: "aster" });
           assets.push({ price_key: k, symbol, name: null, image_url: null, updated_at: nowIso() });
+        }
+      }),
+    );
+  }
+  const nearcom = bySource.get("nearcom") ?? [];
+  if (nearcom.length) {
+    lanes.push(
+      lane("nearcom", nearcom, async () => {
+        // near.com tokens CoinGecko doesn't list: near.com's own price, from
+        // the token list the sync already downloads (one call, cached an hour).
+        calls.nearcom = 1;
+        const prices = await nearComPrices();
+        for (const k of nearcom) {
+          const p = prices.get(k);
+          if (p) fetched.set(k, { usd: p.usd, change_24h: null, source: "nearcom" });
+          assets.push({ price_key: k, symbol: p?.symbol ?? null, name: null, image_url: null, updated_at: nowIso() });
         }
       }),
     );
