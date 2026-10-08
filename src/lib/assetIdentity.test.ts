@@ -151,3 +151,9 @@ test("a receipt row carrying its underlying coin is priced as that coin", () => 
   // a plain token row without one is still keyed by its own contract
   assert.equal(resolvePriceKey({ ticker: "X", chain: "taiko", contract: "0xacd2e13c933ae1ef97698f00d14117bb70c77ef1", source: "auto" }, maps), null);
 });
+
+test("near.com balances are priced as the coin its token list names; one it doesn't name stays unpriced", () => {
+  const usdc = { ticker: "USDC", chain: "nearcom", contract: "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near", source: "auto_exchange", coingecko_id: "usd-coin" };
+  assert.equal(resolvePriceKey(usdc, maps), "usd-coin");
+  assert.equal(resolvePriceKey({ ...usdc, ticker: "MYSTERY", coingecko_id: null }, maps), null);
+});

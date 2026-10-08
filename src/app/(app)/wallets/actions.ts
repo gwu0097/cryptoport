@@ -7,7 +7,7 @@ import { serviceDb, userDb } from "@/lib/supabase";
 import { requireUser } from "@/lib/auth";
 import { fetchEvmHoldings } from "@/lib/adapters/evm";
 import { fetchZerionDefiPositions } from "@/lib/adapters/zerionDefi";
-import { EXCHANGE_ADAPTERS } from "@/lib/exchangeAdapters";
+import { EXCHANGE_ADAPTERS, type ExchangeFetchResult } from "@/lib/exchangeAdapters";
 import { encryptSecret, decryptSecret } from "@/lib/cryptoSecrets";
 import { fetchBitcoinHoldingsForSync } from "@/lib/adapters/bitcoin";
 import type { ScriptType } from "@/lib/adapters/bitcoinXpub";
@@ -29,6 +29,8 @@ import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY, TOKEN_LIST_WEEKLY } from
 import { refreshExchangeAssetsIfStale } from "@/lib/adapters/exchangeTickers";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import { cleanAddressInput, evmAddressProblem } from "@/lib/addressInput";
+import { NEARCOM, readAuthPayload } from "@/lib/nearIntents";
+import { fetchNearComHoldings, nearComAuthenticate, nearComChallenge } from "@/lib/adapters/nearcom";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
@@ -891,6 +893,23 @@ export async function connectExchange(
     return { error: (e as Error).message };
   }
 
+  const saved = await saveExchangeConnection(user.id, providerId, name, keyName, privateKey, testResult);
+  if ("error" in saved) return saved;
+  revalidatePath("/wallets");
+  redirect(`/wallets/${saved.walletId}`);
+}
+
+/** A tested connection saved: its wallets row, the encrypted credential, and
+ * the test call's balances as the first sync. Shared by every exchange and
+ * near.com (whose "key" comes from a wallet signature, not a form). */
+async function saveExchangeConnection(
+  userId: string,
+  providerId: string,
+  name: string,
+  keyName: string,
+  secret: string,
+  testResult: ExchangeFetchResult,
+): Promise<{ walletId: string } | { error: string }> {
   const db = await userDb();
   const { data: wallet, error: walletError } = await db
     .from("wallets")
@@ -902,10 +921,10 @@ export async function connectExchange(
   const svc = serviceDb();
   const { error: connError } = await svc.from("exchange_connections").insert({
     wallet_id: wallet.id,
-    user_id: user.id,
+    user_id: userId,
     provider: providerId,
     key_name: keyName,
-    encrypted_secret: encryptSecret(privateKey),
+    encrypted_secret: encryptSecret(secret),
   });
   if (connError) {
     // Roll back rather than leave an orphaned, connection-less exchange
@@ -924,9 +943,76 @@ export async function connectExchange(
     p_status: testResult.warnings.length === 0 ? "ok" : `partial — ${testResult.warnings.join("; ")}`,
   });
   await ensureAssetPrices(firstSync.map((r) => r.price_key), "sync").catch(() => {});
+  return { walletId: wallet.id as string };
+}
 
+/**
+ * near.com (owner 2026-10-08; nearIntents.ts): step 1 of connecting — the
+ * message the user's wallet signs. An empty intent for intents.near, valid 5
+ * minutes: it proves the address is theirs and moves nothing.
+ */
+export async function nearComChallengeAction(address: string): Promise<{ ok: true; payload: string } | { ok: false; error: string }> {
+  await requireUser();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return { ok: false, error: "That isn't an Ethereum address." };
+  try {
+    return { ok: true, payload: await nearComChallenge(address.toLowerCase()) };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** The signature for a refresh token — only ever for an empty ownership
+ * proof (readAuthPayload refuses anything else, so this can't be used to
+ * submit a real intent). */
+async function nearComToken(payload: string, signature: string): Promise<{ account: string; refreshToken: string } | { error: string }> {
+  const read = readAuthPayload(payload);
+  if (!read) return { error: "That isn't a near.com sign-in message." };
+  if (read.deadline.getTime() < Date.now()) return { error: "The sign-in message expired — try again." };
+  try {
+    return { account: read.signerId, refreshToken: await nearComAuthenticate(payload, signature) };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/** Step 2: the signed message → a read-only token (stored encrypted, like an
+ * exchange key) → a test read → the wallet, with its first sync. */
+export async function connectNearCom(input: { name: string; payload: string; signature: string }): Promise<{ error: string }> {
+  const user = await requireUser();
+  const name = input.name.trim() || "near.com";
+  const token = await nearComToken(input.payload, input.signature);
+  if ("error" in token) return token;
+  let testResult: ExchangeFetchResult;
+  try {
+    testResult = await fetchNearComHoldings(token.account, token.refreshToken);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  const saved = await saveExchangeConnection(user.id, NEARCOM, name, token.account, token.refreshToken, testResult);
+  if ("error" in saved) return saved;
   revalidatePath("/wallets");
-  redirect(`/wallets/${wallet.id}`);
+  redirect(`/wallets/${saved.walletId}`);
+}
+
+/** The monthly re-sign: a new token for an existing near.com wallet (the same
+ * account — a different wallet's signature is refused), then a sync. */
+export async function reconnectNearCom(walletId: string, payload: string, signature: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const svc = serviceDb();
+  const { data: conn } = await svc.from("exchange_connections").select("key_name").eq("wallet_id", walletId).eq("user_id", user.id).eq("provider", NEARCOM).maybeSingle();
+  if (!conn) return { ok: false, error: "near.com connection not found." };
+  const token = await nearComToken(payload, signature);
+  if ("error" in token) return { ok: false, error: token.error };
+  if (token.account !== conn.key_name) return { ok: false, error: `Sign with the wallet this was connected with (${conn.key_name.slice(0, 6)}…${conn.key_name.slice(-4)}).` };
+  const { error } = await svc
+    .from("exchange_connections")
+    .update({ encrypted_secret: encryptSecret(token.refreshToken), created_at: new Date().toISOString() })
+    .eq("wallet_id", walletId)
+    .eq("user_id", user.id);
+  if (error) return { ok: false, error: `Failed to save the new connection: ${error.message}` };
+  await syncExchangeHoldings(walletId);
+  revalidatePath(`/wallets/${walletId}`);
+  return { ok: true };
 }
 
 /** Same CAS-claim/after() shape as syncWalletDefi, its own

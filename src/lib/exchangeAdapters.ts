@@ -3,6 +3,7 @@ import { fetchCoinbaseBalances } from "./adapters/coinbaseAdvancedTrade";
 import { fetchKrakenBalances } from "./adapters/kraken";
 import { fetchGeminiBalances } from "./adapters/gemini";
 import { fetchMexcBalances } from "./adapters/mexc";
+import { fetchNearComHoldings } from "./adapters/nearcom";
 import type { AdapterHolding } from "./adapters/types";
 
 export interface ExchangeFetchResult {
@@ -27,4 +28,7 @@ export const EXCHANGE_ADAPTERS: Record<string, ExchangeFetcher> = {
   kraken: fetchKrakenBalances,
   gemini: fetchGeminiBalances,
   mexc: fetchMexcBalances,
+  // near.com (Confidential Intents): connected by a wallet signature, not a
+  // pasted key — keyName is the account, secret the refresh token.
+  nearcom: fetchNearComHoldings,
 };

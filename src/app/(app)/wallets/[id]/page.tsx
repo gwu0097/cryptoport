@@ -1,3 +1,5 @@
+import { ConnectNearCom } from "@/components/ConnectNearCom";
+import { NEARCOM } from "@/lib/nearIntents";
 import Link from "next/link";
 import { getChainIconMap, scopePricesToUser } from "@/lib/queries";
 import { notFound, redirect } from "next/navigation";
@@ -222,12 +224,16 @@ export default async function WalletDetailPage(
             {wallet.provider ? (
               // A connected exchange has no address to scan — its own
               // balances job (SyncExchangeButton).
-              <SyncExchangeButton
-                exchangeSyncStatus={wallet.exchange_sync_status}
-                exchangeSyncStartedAt={wallet.exchange_sync_started_at}
-                exchangeSyncedAt={wallet.exchange_synced_at}
-                sync={syncExchangeHoldings.bind(null, wallet.id)}
-              />
+              <>
+                <SyncExchangeButton
+                  exchangeSyncStatus={wallet.exchange_sync_status}
+                  exchangeSyncStartedAt={wallet.exchange_sync_started_at}
+                  exchangeSyncedAt={wallet.exchange_synced_at}
+                  sync={syncExchangeHoldings.bind(null, wallet.id)}
+                />
+                {/* near.com's token lasts 30 days: a fresh signature renews it. */}
+                {wallet.provider === NEARCOM && <ConnectNearCom walletId={wallet.id} />}
+              </>
             ) : wallet.mode === "auto" ? (
               // Sync also prices this wallet's own coins, so there's no
               // separate Refresh prices here.

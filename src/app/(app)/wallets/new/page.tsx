@@ -11,6 +11,7 @@ import { TagPicker } from "@/components/TagPicker";
 import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
 import { ConnectExchangeModal } from "@/components/ConnectExchangeModal";
 import { EXCHANGE_PROVIDERS } from "@/lib/exchangeProviders";
+import { ConnectNearCom } from "@/components/ConnectNearCom";
 import { SignInPrompt } from "@/components/SignInPrompt";
 
 // Reads the live tags list — must never be frozen into a static build
@@ -70,6 +71,8 @@ export default async function NewWalletPage() {
             {EXCHANGE_PROVIDERS.map((provider) => (
               <ConnectExchangeModal key={provider.id} provider={provider} />
             ))}
+            {/* near.com: connected by a wallet signature, not a pasted key. */}
+            <ConnectNearCom />
           </div>
         </Panel>
       )}

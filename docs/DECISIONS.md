@@ -9,6 +9,19 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-10-08 — near.com is read through Confidential Intents' user session
+
+near.com's balances aren't on any public chain: they sit in NEAR Intents'
+private shard (its "internal network"), and intents.near's public balances for
+the user's 0x account were empty — the $10 deposit went to an address the
+bridge doesn't attribute to that account. 1Click's account API reveals them to
+a User-Session token got by signing an empty intent. That token is read-only
+(only GET balances/history accept it; moving funds needs a freshly signed
+intent), so it's stored like an exchange key. The nonce layout came from the
+official SDK (its deadline sits in the nonce — guessing it from the docs'
+examples failed verification); the whole sign-in was checked live with a
+throwaway key before the owner signed.
+
 ## 2026-10-06 — Copy contracts on coin rows: only addresses copied as written
 
 The owner kept finding coins with no copy button (Watchlist, Encyclopedia):

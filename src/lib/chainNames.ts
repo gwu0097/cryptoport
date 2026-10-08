@@ -31,7 +31,9 @@ export const CHAIN_NAMES: Record<string, string> = {
   gemini: "Gemini",
   GEMINI: "Gemini",
   mexc: "MEXC",
+  nearcom: "near.com",
   MEXC: "MEXC",
+  NEARCOM: "near.com",
 };
 
 export function chainDisplayName(chainId: string): string {

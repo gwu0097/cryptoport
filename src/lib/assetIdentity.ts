@@ -106,6 +106,8 @@ export function krakenStakedBase(ticker: string): string {
   return m ? m[1] : t;
 }
 
+/** Venues whose balances carry their own coin id (near.com). */
+const COIN_NAMING_VENUES = new Set(["nearcom"]);
 const SOLANA_CHAINS = new Set(["solana", "solana-defi"]);
 // Venues priced by their own tickers (exchange balances; protocol accounts).
 export const VENUE_CHAINS = new Set(["coinbase", "kraken", "gemini", "mexc", "hyperliquid", "polymarket", "lighter"]);
@@ -136,6 +138,10 @@ export function resolvePriceKey(h: KeyInput, maps: KeyMaps): string | null {
   // A DeFi receipt valued as its underlying coin (docs/sync/PLAN.md, owner
   // decision 2026-09-25): the sync sets the underlying's coin on the row.
   if (h.source === "auto" && h.coingecko_id) return h.coingecko_id;
+  // A venue that names each balance's coin itself: near.com's token list
+  // gives every token's CoinGecko id (nearIntents.ts) — its identity from
+  // the source, not a ticker match.
+  if (h.chain && COIN_NAMING_VENUES.has(h.chain) && h.coingecko_id) return h.coingecko_id;
 
   if (h.chain && EXCHANGES.has(h.chain)) {
     const t = h.ticker.toUpperCase();
