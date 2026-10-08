@@ -183,7 +183,36 @@ export interface AlertMessage {
    * position"; 2026-10-08: "when a position is closed, tag me"). Adds, trims
    * and flips post silently. */
   ping: boolean;
+  /** The text card (its description is the labeled table — what posts when
+   * the image can't be drawn). */
   embed: { title: string; url: string; description: string; color: number };
+  /** The same values for the image card (alertCardImage.ts), and the links
+   * that sit under it. */
+  card: AlertCard;
+  links: string;
+}
+
+/** One column of a card: its label and value; a tone colours the value. */
+export interface CardCell {
+  label: string;
+  value: string;
+  tone?: "pos" | "neg" | "muted";
+}
+
+/** What the image card shows (owner 2026-10-08: "more polished… a table"). */
+export interface AlertCard {
+  /** "OPENED", "CLOSED · WIN"… — small, in the accent colour. */
+  kind: string;
+  /** The accent (hex), the same colour as the embed. */
+  accent: string;
+  /** "PYTH LONG". */
+  title: string;
+  /** The big number on the right and its tone. */
+  headline: string;
+  headTone: "pos" | "neg" | "plain";
+  /** The trader, then held time / leverage. */
+  sub: string;
+  cells: CardCell[];
 }
 
 const GREEN = 0x22c55e;
@@ -230,30 +259,40 @@ export function table(columns: readonly [string, string][]): string {
 /** A position's size at today's price, from the size last alerted. */
 const valueOf = (szi: number, now: ReadPosition) => (now.notionalUsd && now.szi ? Math.abs(szi) * (now.notionalUsd / Math.abs(now.szi)) : null);
 
+const toneOf = (x: number | null | undefined): CardCell["tone"] => (x === null || x === undefined || !Number.isFinite(x) || x === 0 ? undefined : x > 0 ? "pos" : "neg");
+const hex = (n: number) => `#${n.toString(16).padStart(6, "0")}`;
+
 /** The Discord card for a change: a title line (kind, trader, coin, the
- * headline number), then one labeled table row. Colours: green open, blue
- * add, amber trim, green/red close by result, purple flip. */
+ * headline number), then the values — drawn as an image card with a real
+ * table (alertCardImage.ts), or as one labeled text row when it can't be.
+ * Colours: green open, blue add, amber trim, green/red close by result,
+ * purple flip. */
 export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
   const who = ctx.traderName;
   const url = `https://hyperdash.com/trader/${ctx.address}`;
-  const head = (emoji: string, kind: string, tail = "") => `${emoji} ${kind} · ${who} · ${change.coin} ${SIDE[change.side]}${tail}`;
+  const coinSide = `${change.coin} ${SIDE[change.side]}`;
+  const head = (emoji: string, kind: string, tail = "") => `${emoji} ${kind} · ${who} · ${coinSide}${tail}`;
+  const held = heldCell(ctx);
   let title: string;
   let color: number;
-  let body: string;
+  let cells: CardCell[];
+  let card: Omit<AlertCard, "accent" | "cells">;
   switch (change.kind) {
     case "opened": {
       const n = change.now;
+      const acct = share(n.notionalUsd, ctx.accountValue);
       title = head("🟢", "OPEN");
       color = GREEN;
-      body = table([
-        ["Lev", levText(n.leverage)],
-        ["Entry", price(n.entryPx)],
-        ["Size", usd(n.notionalUsd)],
-        ["%Acct", share(n.notionalUsd, ctx.accountValue)],
-        ["Liq", price(n.liquidationPx)],
-        ["TP", ctx.tpsl ? (ctx.tpsl.tp === null ? "none" : price(ctx.tpsl.tp)) : "—"],
-        ["SL", ctx.tpsl ? (ctx.tpsl.sl === null ? "none" : price(ctx.tpsl.sl)) : "—"],
-      ]);
+      cells = [
+        { label: "Entry", value: price(n.entryPx) },
+        { label: "Size", value: usd(n.notionalUsd) },
+        { label: "Lev", value: levText(n.leverage) },
+        { label: "Liq", value: price(n.liquidationPx) },
+        { label: "TP", value: ctx.tpsl ? (ctx.tpsl.tp === null ? "none" : price(ctx.tpsl.tp)) : "—", tone: ctx.tpsl?.tp ? "pos" : "muted" },
+        { label: "SL", value: ctx.tpsl ? (ctx.tpsl.sl === null ? "none" : price(ctx.tpsl.sl)) : "—", tone: ctx.tpsl?.sl ? "neg" : "muted" },
+        { label: "% Acct", value: acct },
+      ];
+      card = { kind: "OPENED", title: coinSide, headline: acct === "—" ? usd(n.notionalUsd) : `${acct} of acct`, headTone: "plain", sub: `${who} · ${levText(n.leverage)}` };
       break;
     }
     case "added":
@@ -264,56 +303,73 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       const added = change.kind === "added";
       title = head(added ? "🔵" : "🟠", added ? "ADD" : "TRIM", ` · ${pct(step)}`);
       color = added ? BLUE : AMBER;
-      body = table([
-        [added ? "Added" : "Sold", usd(moved, true)],
-        ["Price", price(added ? ctx.addPx : ctx.result?.exitPx)],
-        ["Size", usd(change.now.notionalUsd)],
-        ["%Acct", share(change.now.notionalUsd, ctx.accountValue)],
-        ["Lev", levText(change.now.leverage)],
-        ["AvgEntry", price(change.now.entryPx)],
-        ["P/L", pct(change.now.roe)],
-        ["Held", heldCell(ctx)],
-      ]);
+      cells = [
+        { label: added ? "Added" : "Sold", value: usd(moved, true) },
+        { label: "Price", value: price(added ? ctx.addPx : ctx.result?.exitPx) },
+        { label: "Size", value: usd(change.now.notionalUsd) },
+        { label: "% Acct", value: share(change.now.notionalUsd, ctx.accountValue) },
+        { label: "Lev", value: levText(change.now.leverage) },
+        { label: "Avg entry", value: price(change.now.entryPx) },
+        { label: "P/L", value: pct(change.now.roe), tone: toneOf(change.now.roe) },
+        { label: "Held", value: held },
+      ];
+      card = { kind: added ? "ADDED" : "TRIMMED", title: coinSide, headline: pct(step), headTone: "plain", sub: `${who} · held ${held}` };
       break;
     }
     case "closed": {
       const r = ctx.result;
       const move = r?.returnPct ?? null;
+      const onMargin = move !== null && change.was.leverage ? move * change.was.leverage : move;
       const good = move === null ? (r?.pnlUsd == null ? null : r.pnlUsd >= 0) : move >= 0;
       title = head(good === null ? "⚪" : good ? "✅" : "❌", "CLOSE", move !== null ? ` · ${pct(move)}` : "");
       color = good === null ? GREY : good ? GREEN : RED;
-      body = table([
-        ["Entry", price(change.was.entryPx)],
-        ["Exit", price(r?.exitPx)],
-        ["Move", pct(move)],
-        ["Lev", levText(change.was.leverage)],
-        ["P/L", pct(move !== null && change.was.leverage ? move * change.was.leverage : null)],
-        ["$P/L", usd(r?.pnlUsd, true)],
-        ["%Acct", share(change.was.notionalUsd, ctx.accountValue)],
-        ["Held", heldCell(ctx)],
-      ]);
+      cells = [
+        { label: "Entry", value: price(change.was.entryPx) },
+        { label: "Exit", value: price(r?.exitPx) },
+        { label: "Move", value: pct(move), tone: toneOf(move) },
+        { label: "Lev", value: levText(change.was.leverage) },
+        { label: "P/L", value: pct(onMargin), tone: toneOf(onMargin) },
+        { label: "$ P/L", value: usd(r?.pnlUsd, true), tone: toneOf(r?.pnlUsd) },
+        { label: "% Acct", value: share(change.was.notionalUsd, ctx.accountValue) },
+        { label: "Held", value: held },
+      ];
+      card = {
+        kind: good === null ? "CLOSED" : good ? "CLOSED · WIN" : "CLOSED · LOSS",
+        title: coinSide,
+        headline: pct(onMargin),
+        headTone: good === null ? "plain" : good ? "pos" : "neg",
+        sub: `${who} · held ${held}`,
+      };
       break;
     }
     case "flipped": {
       const r = ctx.result;
       const old = change.side === "long" ? "short" : "long";
+      const closedPl = r?.returnPct != null && change.was.leverage ? r.returnPct * change.was.leverage : (r?.returnPct ?? null);
       title = `🔁 FLIP · ${who} · ${change.coin} ${SIDE[old]} → ${SIDE[change.side]}`;
       color = PURPLE;
-      body = table([
-        ["Closed", SIDE[old]],
-        ["P/L", pct(r?.returnPct != null && change.was.leverage ? r.returnPct * change.was.leverage : r?.returnPct)],
-        ["$P/L", usd(r?.pnlUsd, true)],
-        ["New", SIDE[change.side]],
-        ["Lev", levText(change.now.leverage)],
-        ["Entry", price(change.now.entryPx)],
-        ["Size", usd(change.now.notionalUsd)],
-        ["%Acct", share(change.now.notionalUsd, ctx.accountValue)],
-      ]);
+      cells = [
+        { label: "Closed", value: SIDE[old] },
+        { label: "P/L", value: pct(closedPl), tone: toneOf(closedPl) },
+        { label: "$ P/L", value: usd(r?.pnlUsd, true), tone: toneOf(r?.pnlUsd) },
+        { label: "New", value: SIDE[change.side] },
+        { label: "Lev", value: levText(change.now.leverage) },
+        { label: "Entry", value: price(change.now.entryPx) },
+        { label: "Size", value: usd(change.now.notionalUsd) },
+        { label: "% Acct", value: share(change.now.notionalUsd, ctx.accountValue) },
+      ];
+      card = { kind: "FLIPPED", title: `${change.coin} ${SIDE[old]} > ${SIDE[change.side]}`, headline: pct(closedPl), headTone: closedPl === null ? "plain" : closedPl >= 0 ? "pos" : "neg", sub: `${who} · now ${levText(change.now.leverage)}` };
       break;
     }
   }
-  const lines = [body];
-  if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`_Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older._`);
-  lines.push(`[HyperDash](${url}) · [Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
-  return { ping: change.kind === "opened" || change.kind === "closed", embed: { title: title.slice(0, 256), url, description: lines.join("\n"), color } };
+  const linkLines: string[] = [];
+  if (ctx.lateMs && ctx.lateMs > 10 * 60_000) linkLines.push(`_Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older._`);
+  linkLines.push(`[HyperDash](${url}) · [Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
+  const links = linkLines.join("\n");
+  return {
+    ping: change.kind === "opened" || change.kind === "closed",
+    embed: { title: title.slice(0, 256), url, description: `${table(cells.map((c) => [c.label, c.value]))}\n${links}`, color },
+    card: { ...card, accent: hex(color), cells },
+    links,
+  };
 }

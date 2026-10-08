@@ -413,7 +413,13 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
     the whole position since it opened, not the slice since the last alert;
   - flip: Closed · P/L · $P/L · New · Lev · Entry · Size · %Acct.
 
-  Rows are ~60 characters: one line on desktop Discord, wrapped on a phone.
+  Posted as an **image card** (owner 2026-10-08: "more polished"): the
+  values in a real table — header row, grid lines, P/L coloured — drawn on
+  the Mac mini by next's bundled @vercel/og (`scripts/perp-alert-card.ts`;
+  measured ~3 ms a card, ~50 ms the first; no network, no tokens), uploaded
+  with the post under the title line and the links. Discord has no tables
+  in text; an image also doesn't wrap on a phone. If the image can't be
+  drawn or Discord refuses it, the text table posts instead.
   The account value (`portfolio`) is read only when a card posts, kept 10
   minutes per trader. When a position was opened is known if the script
   saw it open. Otherwise it's found in the trader's latest 2,000 fills
