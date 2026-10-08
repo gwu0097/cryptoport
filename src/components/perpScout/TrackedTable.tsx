@@ -113,9 +113,9 @@ export function TrackedTable({
 
   if (rows.length === 0) return <p className="text-sm text-fg-muted">No tracked trades yet. Mark one with ☆ in Perp Scout&apos;s Activity table.</p>;
   return (
-    <div className="overflow-x-auto">
+    <div className={`overflow-x-auto ${compact ? "overflow-y-auto overscroll-contain xl:max-h-[18rem]" : ""}`}>
       <table className={tableClass}>
-        <thead>
+        <thead className={compact ? "sticky top-0 z-10 bg-surface" : undefined}>
           <tr className={`${theadRowClass} whitespace-nowrap`}>
             {h("Trader", "trader")}
             {h("Coin", "coin")}

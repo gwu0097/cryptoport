@@ -10,6 +10,7 @@ import { formatPercent, formatPrice, formatQty, formatUsd, formatUsdSigned } fro
 import { tableClass, theadRowClass, thClass, trClass, tdClass, hideOnMobileClass } from "@/components/ui/table";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { Button } from "@/components/ui/Button";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { usePersistedState } from "@/components/usePersistedState";
 
 type SortKey = "position" | "value" | "pnl";
@@ -177,6 +178,10 @@ export function OpenPositionsPanel({ positions: initial, asOfLabel }: { position
           </p>
         </button>
         <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-1.5">
+          {/* The when-and-how note in a tooltip, not a line under the title
+              (Dashboard fits one screen, owner 2026-10-08). */}
+          <InfoTooltip>{asOfLabel} Values are already counted in each wallet&apos;s total (a perp at its margin).</InfoTooltip>
           <Button
             variant="secondary"
             size="sm"
@@ -187,6 +192,7 @@ export function OpenPositionsPanel({ positions: initial, asOfLabel }: { position
             <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
             {refreshing ? "Refreshing positions…" : "Refresh positions"}
           </Button>
+          </div>
           {progress && progress.total > 0 && (
             <p className="text-xs tabular-nums text-fg-muted">
               {progress.done} of {progress.total} accounts updated
@@ -197,10 +203,10 @@ export function OpenPositionsPanel({ positions: initial, asOfLabel }: { position
       </div>
       {!collapsed && (
         <>
-      <p className="mt-2 text-xs text-fg-muted">{asOfLabel} Values are already counted in each wallet&apos;s total (a perp at its margin).</p>
-      <div className="mt-4 overflow-x-auto">
+      {/* Scrolls inside the card on wide screens, its header pinned. */}
+      <div className="mt-3 overflow-auto overscroll-contain xl:max-h-[18rem]">
         <table className={tableClass}>
-          <thead>
+          <thead className="sticky top-0 z-10 bg-surface">
             <tr className={theadRowClass}>
               <SortableHeader label="Position" sortKeyValue="position" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th className={`${thClass} ${hideOnMobileClass}`}>Size</th>

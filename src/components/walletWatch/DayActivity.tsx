@@ -516,7 +516,7 @@ export function CoinTable({
   const items = foldSoldOut(sorted);
   return (
     <PeriodContext.Provider value={period}>
-    <div className={`mt-1 max-h-[34rem] overflow-auto overscroll-contain ${dense ? "[&_td]:py-2 [&_th]:py-1.5" : ""}`}>
+    <div className={`mt-1 max-h-[34rem] overflow-auto overscroll-contain ${dense ? "xl:max-h-[14rem] [&_td]:py-2 [&_th]:py-1.5" : ""}`}>
       <table className={tableClass}>
         <thead className="sticky top-0 z-10 bg-surface">
           <tr className={theadRowClass}>
