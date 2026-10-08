@@ -67,7 +67,7 @@ test("at most 10 messages per trader an hour", () => {
   assert.equal(takeBudget(sent, T0 + 3_600_001), true);
 });
 
-test("only an open pings; a close says its result and colour", () => {
+test("opens and closes ping; a close says its result and colour", () => {
   const ctx = { traderName: "Swing #3", address: "0xabc" };
   const opened = alertMessage({ kind: "opened", coin: "BTC", side: "long", now: pos("BTC", 2) }, { ...ctx, accountValue: 4_000, tpsl: { tp: 130, sl: null } });
   assert.equal(opened.ping, true);
@@ -76,7 +76,7 @@ test("only an open pings; a close says its result and colour", () => {
 
   const was = { ...pos("BTC", 2), alertedSzi: 2, alertedAt: T0 };
   const lost = alertMessage({ kind: "closed", coin: "BTC", side: "long", was }, { ...ctx, result: { exitPx: 90, pnlUsd: -20, returnPct: -0.1 } });
-  assert.equal(lost.ping, false);
+  assert.equal(lost.ping, true);
   assert.equal(lost.embed.title, "❌ Swing #3 closed LONG BTC · -10.0%");
   assert.match(lost.embed.description, /Entry \$100\.00 → exit \$90\.00 · -10\.0% \(-50\.0% on margin at 5x\) · this exit's PnL −\$20/);
 
@@ -139,4 +139,12 @@ test("an add says what it was bought at; an unknown opening time is left out", (
   const msg = alertMessage({ kind: "added", coin: "HYPE", side: "long", was, now }, { traderName: "Swing cb34", address: "0xabc", accountValue: 20_000, addPx: 92.6, nowMs: T0 });
   assert.equal(msg.embed.title, "🔵 Swing cb34 added to LONG HYPE (+93.0%)");
   assert.match(msg.embed.description, /^Size \$900 → \$1\.7K · now 8\.7% of account \(was 4\.5%\) · 5x\nBought at \$92\.60 · avg entry now \$88\.90/);
+});
+
+test("adds, trims and flips don't ping", () => {
+  const was = { ...pos("BTC", 2), alertedSzi: 2, alertedAt: T0 };
+  const ctx = { traderName: "X", address: "0xabc" };
+  assert.equal(alertMessage({ kind: "added", coin: "BTC", side: "long", was, now: pos("BTC", 3) }, ctx).ping, false);
+  assert.equal(alertMessage({ kind: "trimmed", coin: "BTC", side: "long", was, now: pos("BTC", 1) }, ctx).ping, false);
+  assert.equal(alertMessage({ kind: "flipped", coin: "BTC", side: "short", was, now: pos("BTC", -2) }, ctx).ping, false);
 });

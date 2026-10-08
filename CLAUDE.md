@@ -418,8 +418,9 @@ owner's.
     polls every followed trader's positions every 30 s, with state in a
     local file; Supabase is read only for the list, once an hour.
   - It posts each position change to `DISCORD_PERP_WEBHOOK_URL` (pure
-    `perpScout/alerts.ts`): opened (the only ping), closed with its result,
-    flipped, and adds/trims once 25% from the last alert. Never per fill.
+    `perpScout/alerts.ts`): opened, closed with its result, flipped, and
+    adds/trims once 25% from the last alert. Never per fill. Opens and
+    closes ping the role (owner 2026-10-08); the rest post silently.
     Each card also says how long the position was held, its size before →
     after as a share of the whole account, the exit or add price, and the
     open PnL still riding.

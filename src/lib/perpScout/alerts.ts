@@ -179,7 +179,9 @@ export interface AlertContext {
 }
 
 export interface AlertMessage {
-  /** Only an open pings (owner: "alerting specifically if there's a new position"). */
+  /** Opens and closes ping (owner: "alerting specifically if there's a new
+   * position"; 2026-10-08: "when a position is closed, tag me"). Adds, trims
+   * and flips post silently. */
   ping: boolean;
   embed: { title: string; url: string; description: string; color: number };
 }
@@ -291,5 +293,5 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
   }
   if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`_Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older._`);
   lines.push(`[HyperDash](${url}) · [${change.coin} on Hyperliquid](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
-  return { ping: change.kind === "opened", embed: { title: title.slice(0, 256), url, description: lines.join("\n"), color } };
+  return { ping: change.kind === "opened" || change.kind === "closed", embed: { title: title.slice(0, 256), url, description: lines.join("\n"), color } };
 }

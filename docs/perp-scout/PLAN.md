@@ -398,7 +398,8 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
   - **Added / trimmed**: only once the size is 25% (`STEP`) from the size
     last alerted, so scaling in by small steps posts once it adds up.
 
-  Only an open pings. A trader's first read sets the baseline; nothing
+  Opens and closes ping (owner 2026-10-08: "when a position is closed, tag
+  me"); adds, trims and flips don't. A trader's first read sets the baseline; nothing
   posts for it.
 - **What each card says** (owner 2026-10-07: "−62% doesn't tell me what it
   was of his portfolio"):
