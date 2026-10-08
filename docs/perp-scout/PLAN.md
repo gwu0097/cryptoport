@@ -401,16 +401,19 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
   Opens and closes ping (owner 2026-10-08: "when a position is closed, tag
   me"); adds, trims and flips don't. A trader's first read sets the baseline; nothing
   posts for it.
-- **What each card says** (owner 2026-10-07: "−62% doesn't tell me what it
-  was of his portfolio"):
-  - how long the position was held;
-  - for an add or trim: its size before → after, both at today's price, as
-    a share of the whole account before and after;
-  - what it was sold at (a trim's or close's average exit, with that part's
-    PnL) or bought at (an add);
-  - what's still open: Hyperliquid's open PnL on margin and in dollars;
-  - for a close: the size closed as a share of the account.
+- **What each card says** (owner 2026-10-08: "core information… condensed…
+  a table format, each value clear"): a title line — kind, trader, coin and
+  side, the headline number — coloured by kind (green open, blue add, amber
+  trim, green/red close by result, purple flip), then ONE labeled table row
+  (`alerts.ts` `table`, a header row over its values):
+  - open: Lev · Entry · Size · %Acct · Liq · TP · SL;
+  - add / trim: Added or Sold (dollars) · Price · Size · %Acct · Lev ·
+    AvgEntry · P/L (open, on margin) · Held;
+  - close: Entry · Exit · Move · Lev · P/L (on margin) · $P/L · %Acct · Held —
+    the whole position since it opened, not the slice since the last alert;
+  - flip: Closed · P/L · $P/L · New · Lev · Entry · Size · %Acct.
 
+  Rows are ~60 characters: one line on desktop Discord, wrapped on a phone.
   The account value (`portfolio`) is read only when a card posts, kept 10
   minutes per trader. When a position was opened is known if the script
   saw it open. Otherwise it's found in the trader's latest 2,000 fills

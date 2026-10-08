@@ -97,14 +97,14 @@ export interface CloseResult {
 
 /** The exit of a closed (or flipped) position, from the fills after its last
  * alert: every fill that reduced it, averaged. Null when none was read. */
-export function closeResult(fills: readonly Fill[], was: HeldPosition): CloseResult | null {
+export function closeResult(fills: readonly Fill[], was: HeldPosition, sinceMs: number = was.alertedAt): CloseResult | null {
   const long = was.szi > 0;
   let qty = 0;
   let value = 0;
   let pnl = 0;
   let pnlKnown = false;
   for (const f of fills) {
-    if (f.coin !== was.coin || f.time < was.alertedAt) continue;
+    if (f.coin !== was.coin || f.time < sinceMs) continue;
     // A reducing fill sells a long (A) or buys back a short (B); on a flip only
     // the part that brings it to zero closes.
     const reduces = long ? f.side === "A" && f.startPosition > 0 : f.side === "B" && f.startPosition < 0;
@@ -193,105 +193,127 @@ const AMBER = 0xf59e0b;
 const GREY = 0x9ca3af;
 const PURPLE = 0xa855f7;
 
-const pct = (x: number) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(Math.abs(x) >= 0.1 ? 1 : 2)}%`;
-const lev = (x: number | null) => (x ? ` · ${Math.round(x * 10) / 10}x` : "");
+const pct = (x: number | null | undefined) => (x === null || x === undefined || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : ""}${(x * 100).toFixed(Math.abs(x) >= 0.1 ? 1 : 2)}%`);
+const levText = (x: number | null | undefined) => (x ? `${Math.round(x * 10) / 10}x` : "—");
 const price = (x: number | null | undefined) => (x === null || x === undefined || !Number.isFinite(x) ? "—" : formatPrice(x));
+const usd = (x: number | null | undefined, signed = false) =>
+  x === null || x === undefined || !Number.isFinite(x) ? "—" : `${signed ? (x >= 0 ? "+" : "-") : ""}${formatCompactUsd(Math.abs(x))}`;
+const share = (value: number | null | undefined, account: number | null | undefined) => (value && account ? `${Math.round((value / account) * 1000) / 10}%` : "—");
 const SIDE = { long: "LONG", short: "SHORT" } as const;
 
-function resultLine(was: HeldPosition, r: CloseResult | null | undefined): { line: string; good: boolean | null } {
-  if (!r) return { line: `Entry ${price(was.entryPx)} · exit not read`, good: null };
-  const parts = [`Entry ${price(was.entryPx)} → exit ${price(r.exitPx)}`];
-  if (r.returnPct !== null) parts.push(`${pct(r.returnPct)}${was.leverage && was.leverage !== 1 ? ` (${pct(r.returnPct * was.leverage)} on margin at ${Math.round(was.leverage * 10) / 10}x)` : ""}`);
-  if (r.pnlUsd !== null) parts.push(`this exit's PnL ${r.pnlUsd >= 0 ? "+" : "−"}${formatCompactUsd(Math.abs(r.pnlUsd))}`);
-  const basis = r.returnPct ?? r.pnlUsd;
-  return { line: parts.join(" · "), good: basis === null ? null : basis >= 0 };
+/** "15h05m", "3d4h", "40m". */
+function heldShort(ms: number): string {
+  const min = Math.max(0, Math.round(ms / 60_000));
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h${String(min % 60).padStart(2, "0")}m`;
+  return `${Math.floor(h / 24)}d${h % 24}h`;
 }
 
-const share = (usd: number | null | undefined, account: number | null | undefined) => (usd && account ? `${Math.round((usd / account) * 1000) / 10}%` : null);
-
-/** "held 3d 4h", "held over 7d", or nothing when unknown. */
-function held(ctx: AlertContext): string {
-  if (!ctx.nowMs) return "";
-  if (ctx.openedAt) return ` · held ${heldFor(ctx.nowMs - ctx.openedAt)}`;
-  if (ctx.openedBefore) return ` · held over ${heldFor(ctx.nowMs - ctx.openedBefore).replace(/ \d+[hm]$/, "")}`;
-  return "";
+/** How long it's been open: exact when known, "7d+" when it predates the
+ * fills read, "—" when unknown. */
+function heldCell(ctx: AlertContext): string {
+  if (!ctx.nowMs) return "—";
+  if (ctx.openedAt) return heldShort(ctx.nowMs - ctx.openedAt);
+  if (ctx.openedBefore) return `${heldShort(ctx.nowMs - ctx.openedBefore).replace(/\d+[hm]$/, "")}+`;
+  return "—";
 }
 
-/** "Size $1.28M → $481.6K · now 9.5% of account (was 25.3%)" — both sizes at
- * today's price, so the change is in the coin, not the price. */
-function sizeLine(was: HeldPosition, now: ReadPosition, account: number | null | undefined): string {
-  const unit = now.notionalUsd && now.szi ? now.notionalUsd / Math.abs(now.szi) : null;
-  const before = unit ? Math.abs(was.alertedSzi) * unit : null;
-  const a = share(now.notionalUsd, account);
-  const b = share(before, account);
-  return `Size ${formatCompactUsd(before)} → ${formatCompactUsd(now.notionalUsd)}${a ? ` · now ${a} of account${b ? ` (was ${b})` : ""}` : ""}${lev(now.leverage)}`;
+/** One labeled row: a header and its values, columns padded to line up
+ * (owner 2026-10-08: "a table format, each value clear"). */
+export function table(columns: readonly [string, string][]): string {
+  const widths = columns.map(([h, v]) => Math.max(h.length, v.length));
+  const row = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
+  return "```\n" + row(columns.map(([h]) => h)) + "\n" + row(columns.map(([, v]) => v)) + "\n```";
 }
 
-/** The open part's PnL now, as Hyperliquid reports it. */
-function openPnl(now: ReadPosition): string | null {
-  if (now.roe == null && now.unrealizedPnl == null) return null;
-  const parts: string[] = [];
-  if (now.roe != null) parts.push(`${pct(now.roe)} on margin`);
-  if (now.unrealizedPnl != null) parts.push(`${now.unrealizedPnl >= 0 ? "+" : "−"}${formatCompactUsd(Math.abs(now.unrealizedPnl))}`);
-  return `open PnL ${parts.join(" · ")}`;
-}
+/** A position's size at today's price, from the size last alerted. */
+const valueOf = (szi: number, now: ReadPosition) => (now.notionalUsd && now.szi ? Math.abs(szi) * (now.notionalUsd / Math.abs(now.szi)) : null);
 
-/** The Discord card for a change. */
+/** The Discord card for a change: a title line (kind, trader, coin, the
+ * headline number), then one labeled table row. Colours: green open, blue
+ * add, amber trim, green/red close by result, purple flip. */
 export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
   const who = ctx.traderName;
   const url = `https://hyperdash.com/trader/${ctx.address}`;
-  const lines: string[] = [];
+  const head = (emoji: string, kind: string, tail = "") => `${emoji} ${kind} · ${who} · ${change.coin} ${SIDE[change.side]}${tail}`;
   let title: string;
   let color: number;
+  let body: string;
   switch (change.kind) {
     case "opened": {
       const n = change.now;
-      title = `🟢 ${who} opened ${SIDE[change.side]} ${change.coin}${lev(n.leverage)}`;
+      title = head("🟢", "OPEN");
       color = GREEN;
-      const share = n.notionalUsd && ctx.accountValue ? ` (${Math.round((n.notionalUsd / ctx.accountValue) * 1000) / 10}% of account)` : "";
-      lines.push(`Size ${formatCompactUsd(n.notionalUsd)}${share} · entry ${price(n.entryPx)} · liq ${price(n.liquidationPx)}`);
-      if (ctx.tpsl) lines.push(`TP ${ctx.tpsl.tp === null ? "none" : price(ctx.tpsl.tp)} · SL ${ctx.tpsl.sl === null ? "none" : price(ctx.tpsl.sl)}`);
-      break;
-    }
-    case "closed": {
-      const r = resultLine(change.was, ctx.result);
-      title = `${r.good === null ? "⚪" : r.good ? "✅" : "❌"} ${who} closed ${SIDE[change.side]} ${change.coin}${r.good !== null && ctx.result?.returnPct != null ? ` · ${pct(ctx.result.returnPct)}` : ""}${held(ctx)}`;
-      color = r.good === null ? GREY : r.good ? GREEN : RED;
-      lines.push(r.line);
-      const was = share(change.was.notionalUsd, ctx.accountValue);
-      lines.push(`Closed ${formatCompactUsd(change.was.notionalUsd)}${was ? ` (${was} of account)` : ""}${lev(change.was.leverage)}`);
-      break;
-    }
-    case "flipped": {
-      const r = resultLine(change.was, ctx.result);
-      title = `🔁 ${who} flipped ${change.coin}: ${SIDE[change.side === "long" ? "short" : "long"]} → ${SIDE[change.side]}${lev(change.now.leverage)}${held(ctx)}`;
-      color = PURPLE;
-      const now = share(change.now.notionalUsd, ctx.accountValue);
-      lines.push(`Closed: ${r.line}`, `Now ${SIDE[change.side]} ${formatCompactUsd(change.now.notionalUsd)}${now ? ` (${now} of account)` : ""} · entry ${price(change.now.entryPx)}`);
+      body = table([
+        ["Lev", levText(n.leverage)],
+        ["Entry", price(n.entryPx)],
+        ["Size", usd(n.notionalUsd)],
+        ["%Acct", share(n.notionalUsd, ctx.accountValue)],
+        ["Liq", price(n.liquidationPx)],
+        ["TP", ctx.tpsl ? (ctx.tpsl.tp === null ? "none" : price(ctx.tpsl.tp)) : "—"],
+        ["SL", ctx.tpsl ? (ctx.tpsl.sl === null ? "none" : price(ctx.tpsl.sl)) : "—"],
+      ]);
       break;
     }
     case "added":
     case "trimmed": {
-      const from = Math.abs(change.was.alertedSzi);
-      const to = Math.abs(change.now.szi);
-      const move = from > 0 ? (to - from) / from : 0;
-      title = `${change.kind === "added" ? "🔵" : "🟠"} ${who} ${change.kind === "added" ? "added to" : "trimmed"} ${SIDE[change.side]} ${change.coin} (${pct(move)})${held(ctx)}`;
-      color = change.kind === "added" ? BLUE : AMBER;
-      lines.push(sizeLine(change.was, change.now, ctx.accountValue));
-      if (change.kind === "added") {
-        lines.push(`${ctx.addPx ? `${change.side === "long" ? "Bought" : "Sold"} at ${price(ctx.addPx)} · ` : ""}avg entry now ${price(change.now.entryPx)}`);
-      } else {
-        const r = ctx.result;
-        const parts = [r ? `Sold at ${price(r.exitPx)}${r.returnPct !== null ? ` (${pct(r.returnPct)} vs entry ${price(change.was.entryPx)})` : ""}` : `Entry ${price(change.now.entryPx)} · exit not read`];
-        if (r?.pnlUsd != null) parts.push(`this trim's PnL ${r.pnlUsd >= 0 ? "+" : "−"}${formatCompactUsd(Math.abs(r.pnlUsd))}`);
-        lines.push(parts.join(" · "));
-      }
-      const pnl = openPnl(change.now);
-      if (pnl) lines.push(`Still open: ${pnl}`);
+      const before = valueOf(change.was.alertedSzi, change.now);
+      const moved = before !== null && change.now.notionalUsd !== null ? change.now.notionalUsd - before : null;
+      const step = Math.abs(change.was.alertedSzi) > 0 ? (Math.abs(change.now.szi) - Math.abs(change.was.alertedSzi)) / Math.abs(change.was.alertedSzi) : null;
+      const added = change.kind === "added";
+      title = head(added ? "🔵" : "🟠", added ? "ADD" : "TRIM", ` · ${pct(step)}`);
+      color = added ? BLUE : AMBER;
+      body = table([
+        [added ? "Added" : "Sold", usd(moved, true)],
+        ["Price", price(added ? ctx.addPx : ctx.result?.exitPx)],
+        ["Size", usd(change.now.notionalUsd)],
+        ["%Acct", share(change.now.notionalUsd, ctx.accountValue)],
+        ["Lev", levText(change.now.leverage)],
+        ["AvgEntry", price(change.now.entryPx)],
+        ["P/L", pct(change.now.roe)],
+        ["Held", heldCell(ctx)],
+      ]);
+      break;
+    }
+    case "closed": {
+      const r = ctx.result;
+      const move = r?.returnPct ?? null;
+      const good = move === null ? (r?.pnlUsd == null ? null : r.pnlUsd >= 0) : move >= 0;
+      title = head(good === null ? "⚪" : good ? "✅" : "❌", "CLOSE", move !== null ? ` · ${pct(move)}` : "");
+      color = good === null ? GREY : good ? GREEN : RED;
+      body = table([
+        ["Entry", price(change.was.entryPx)],
+        ["Exit", price(r?.exitPx)],
+        ["Move", pct(move)],
+        ["Lev", levText(change.was.leverage)],
+        ["P/L", pct(move !== null && change.was.leverage ? move * change.was.leverage : null)],
+        ["$P/L", usd(r?.pnlUsd, true)],
+        ["%Acct", share(change.was.notionalUsd, ctx.accountValue)],
+        ["Held", heldCell(ctx)],
+      ]);
+      break;
+    }
+    case "flipped": {
+      const r = ctx.result;
+      const old = change.side === "long" ? "short" : "long";
+      title = `🔁 FLIP · ${who} · ${change.coin} ${SIDE[old]} → ${SIDE[change.side]}`;
+      color = PURPLE;
+      body = table([
+        ["Closed", SIDE[old]],
+        ["P/L", pct(r?.returnPct != null && change.was.leverage ? r.returnPct * change.was.leverage : r?.returnPct)],
+        ["$P/L", usd(r?.pnlUsd, true)],
+        ["New", SIDE[change.side]],
+        ["Lev", levText(change.now.leverage)],
+        ["Entry", price(change.now.entryPx)],
+        ["Size", usd(change.now.notionalUsd)],
+        ["%Acct", share(change.now.notionalUsd, ctx.accountValue)],
+      ]);
       break;
     }
   }
+  const lines = [body];
   if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`_Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older._`);
-  lines.push(`[HyperDash](${url}) · [${change.coin} on Hyperliquid](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
+  lines.push(`[HyperDash](${url}) · [Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
   return { ping: change.kind === "opened" || change.kind === "closed", embed: { title: title.slice(0, 256), url, description: lines.join("\n"), color } };
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addPrice, alertMessage, closeResult, diffBook, heldFor, takeBudget, type Book, type ReadPosition } from "./alerts.ts";
+import { addPrice, alertMessage, closeResult, diffBook, heldFor, table, takeBudget, type Book, type ReadPosition } from "./alerts.ts";
 import type { Fill } from "./entries.ts";
 
 const pos = (coin: string, szi: number, extra: Partial<ReadPosition> = {}): ReadPosition => ({ coin, szi, entryPx: 100, leverage: 5, liquidationPx: 80, notionalUsd: Math.abs(szi) * 100, ...extra });
@@ -67,22 +67,6 @@ test("at most 10 messages per trader an hour", () => {
   assert.equal(takeBudget(sent, T0 + 3_600_001), true);
 });
 
-test("opens and closes ping; a close says its result and colour", () => {
-  const ctx = { traderName: "Swing #3", address: "0xabc" };
-  const opened = alertMessage({ kind: "opened", coin: "BTC", side: "long", now: pos("BTC", 2) }, { ...ctx, accountValue: 4_000, tpsl: { tp: 130, sl: null } });
-  assert.equal(opened.ping, true);
-  assert.equal(opened.embed.title, "🟢 Swing #3 opened LONG BTC · 5x");
-  assert.match(opened.embed.description, /Size \$200 \(5% of account\) · entry \$100\.00 · liq \$80\.00\nTP \$130\.00 · SL none/);
-
-  const was = { ...pos("BTC", 2), alertedSzi: 2, alertedAt: T0 };
-  const lost = alertMessage({ kind: "closed", coin: "BTC", side: "long", was }, { ...ctx, result: { exitPx: 90, pnlUsd: -20, returnPct: -0.1 } });
-  assert.equal(lost.ping, true);
-  assert.equal(lost.embed.title, "❌ Swing #3 closed LONG BTC · -10.0%");
-  assert.match(lost.embed.description, /Entry \$100\.00 → exit \$90\.00 · -10\.0% \(-50\.0% on margin at 5x\) · this exit's PnL −\$20/);
-
-  const unknown = alertMessage({ kind: "closed", coin: "BTC", side: "long", was }, { ...ctx, result: null });
-  assert.equal(unknown.embed.title, "⚪ Swing #3 closed LONG BTC");
-});
 
 test("held time reads like a person would say it", () => {
   assert.equal(heldFor(40 * 60_000), "40 min");
@@ -115,31 +99,7 @@ test("an add's price averages only the buys that grew it since the last alert", 
   assert.equal(px, 93);
 });
 
-test("a trim says the size before and after, the share of the account, the sale and what's still open", () => {
-  const was = { ...pos("ETH", 10, { entryPx: 2000 }), alertedSzi: 10, alertedAt: T0, openedAt: T0 - 3 * 86_400_000 };
-  const now = pos("ETH", 4, { entryPx: 2000, notionalUsd: 4 * 2500, leverage: 8, roe: 2.0, unrealizedPnl: 2000 });
-  const msg = alertMessage({ kind: "trimmed", coin: "ETH", side: "long", was, now }, {
-    traderName: "Hot month",
-    address: "0xabc",
-    accountValue: 100_000,
-    result: { exitPx: 2500, pnlUsd: 3000, returnPct: 0.25 },
-    openedAt: was.openedAt,
-    nowMs: T0,
-  });
-  assert.equal(msg.embed.title, "🟠 Hot month trimmed LONG ETH (-60.0%) · held 3d 0h");
-  const [size, sold, open] = msg.embed.description.split("\n");
-  assert.equal(size, "Size $25K → $10K · now 10% of account (was 25%) · 8x");
-  assert.equal(sold, "Sold at $2,500.00 (+25.0% vs entry $2,000.00) · this trim's PnL +$3K");
-  assert.equal(open, "Still open: open PnL +200.0% on margin · +$2K");
-});
 
-test("an add says what it was bought at; an unknown opening time is left out", () => {
-  const was = { ...pos("HYPE", 10, { entryPx: 85 }), alertedSzi: 10, alertedAt: T0 };
-  const now = pos("HYPE", 19.3, { entryPx: 88.9, notionalUsd: 19.3 * 90, leverage: 5 });
-  const msg = alertMessage({ kind: "added", coin: "HYPE", side: "long", was, now }, { traderName: "Swing cb34", address: "0xabc", accountValue: 20_000, addPx: 92.6, nowMs: T0 });
-  assert.equal(msg.embed.title, "🔵 Swing cb34 added to LONG HYPE (+93.0%)");
-  assert.match(msg.embed.description, /^Size \$900 → \$1\.7K · now 8\.7% of account \(was 4\.5%\) · 5x\nBought at \$92\.60 · avg entry now \$88\.90/);
-});
 
 test("adds, trims and flips don't ping", () => {
   const was = { ...pos("BTC", 2), alertedSzi: 2, alertedAt: T0 };
@@ -147,4 +107,43 @@ test("adds, trims and flips don't ping", () => {
   assert.equal(alertMessage({ kind: "added", coin: "BTC", side: "long", was, now: pos("BTC", 3) }, ctx).ping, false);
   assert.equal(alertMessage({ kind: "trimmed", coin: "BTC", side: "long", was, now: pos("BTC", 1) }, ctx).ping, false);
   assert.equal(alertMessage({ kind: "flipped", coin: "BTC", side: "short", was, now: pos("BTC", -2) }, ctx).ping, false);
+});
+
+test("a table is one header row and one value row, columns lined up", () => {
+  assert.equal(table([["Entry", "$0.6640"], ["P/L", "+36.6%"], ["Held", "15h05m"]]), "```\nEntry    P/L     Held\n$0.6640  +36.6%  15h05m\n```");
+});
+
+test("an open: green, pings, its title then lev/entry/size/%acct/liq/TP/SL", () => {
+  const m = alertMessage({ kind: "opened", coin: "GRASS", side: "long", now: pos("GRASS", 7500, { entryPx: 0.62, notionalUsd: 4650, leverage: 3, liquidationPx: null }) }, { traderName: "Swing 95da", address: "0xabc", accountValue: 2_000_000, tpsl: { tp: null, sl: null } });
+  assert.equal(m.ping, true);
+  assert.equal(m.embed.color, 0x22c55e);
+  assert.equal(m.embed.title, "🟢 OPEN · Swing 95da · GRASS LONG");
+  assert.match(m.embed.description, /^```\nLev  Entry +Size +%Acct +Liq +TP +SL\n3x +\$0\.62\d* +\$4\.\d+K +0\.2% +— +none +none\n```/);
+});
+
+test("a close: the whole position's result, green or red, pings", () => {
+  const was = { ...pos("GRASS", 75_000, { entryPx: 0.664, notionalUsd: 56_000, leverage: 3 }), alertedSzi: 75_000, alertedAt: T0 };
+  const win = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", accountValue: 2_000_000, result: { exitPx: 0.7451, pnlUsd: 6109, returnPct: 0.1222 }, openedAt: T0 - (15 * 60 + 5) * 60_000, nowMs: T0 });
+  assert.equal(win.ping, true);
+  assert.equal(win.embed.color, 0x22c55e);
+  assert.equal(win.embed.title, "✅ CLOSE · Swing 95da · GRASS LONG · +12.2%");
+  assert.match(win.embed.description, /Entry +Exit +Move +Lev +P\/L +\$P\/L +%Acct +Held\n\$0\.664\d* +\$0\.745\d* +\+12\.2% +3x +\+36\.7% +\+\$6\.1K +2\.8% +15h05m/);
+  const loss = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", result: { exitPx: 0.6, pnlUsd: -500, returnPct: -0.0964 } });
+  assert.equal(loss.embed.color, 0xef4444);
+  assert.match(loss.embed.title, /^❌ CLOSE/);
+  const unknown = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", result: null });
+  assert.equal(unknown.embed.title, "⚪ CLOSE · Swing 95da · GRASS LONG");
+});
+
+test("an add is blue, a trim amber, neither pings; each names its size, price and P/L", () => {
+  const was = { ...pos("HYPE", 10, { entryPx: 85 }), alertedSzi: 10, alertedAt: T0 };
+  const add = alertMessage({ kind: "added", coin: "HYPE", side: "long", was, now: pos("HYPE", 19.3, { entryPx: 88.9, notionalUsd: 19.3 * 90, leverage: 5, roe: -0.003 }) }, { traderName: "Swing cb34", address: "0xabc", accountValue: 20_000, addPx: 92.6 });
+  assert.equal(add.ping, false);
+  assert.equal(add.embed.color, 0x3b82f6);
+  assert.equal(add.embed.title, "🔵 ADD · Swing cb34 · HYPE LONG · +93.0%");
+  assert.match(add.embed.description, /Added +Price +Size +%Acct +Lev +AvgEntry +P\/L +Held\n\+\$837 +\$92\.60 +\$1\.7K +8\.7% +5x +\$88\.90 +-0\.30% +—/);
+  const trim = alertMessage({ kind: "trimmed", coin: "HYPE", side: "long", was, now: pos("HYPE", 4, { notionalUsd: 360 }) }, { traderName: "X", address: "0xabc", result: { exitPx: 95, pnlUsd: 50, returnPct: 0.1 } });
+  assert.equal(trim.embed.color, 0xf59e0b);
+  assert.match(trim.embed.title, /^🟠 TRIM · X · HYPE LONG · -60\.0%/);
+  assert.match(trim.embed.description, /^```\nSold +Price/);
 });

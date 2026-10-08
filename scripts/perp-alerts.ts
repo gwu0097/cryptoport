@@ -166,14 +166,9 @@ async function accountValueOf(address: string, nowMs: number): Promise<number | 
 async function report(trader: FollowedTrader, changes: Change[], state: State, nowMs: number, lateMs: number): Promise<number> {
   const withWas = changes.filter((c): c is Exclude<Change, { kind: "opened" }> => c.kind !== "opened");
   const opens = changes.filter((c) => c.kind === "opened");
-  // The trades since each position's last alert: a close's or trim's exit, an add's price.
-  let fills: Fill[] | null = null;
-  if (withWas.length) {
-    const since = Math.min(...withWas.map((c) => c.was.alertedAt)) - 1_000;
-    fills = await fillsSince(trader.address, since).catch((e: Error) => (log(`${trader.name}: fills not read (${e.message})`), null));
-  }
   // When a position open since before the script started was opened: its
-  // latest 2,000 fills, once per position (then kept in the state).
+  // latest 2,000 fills, once per position (then kept in the state). First,
+  // because a close's result reads every fill since then.
   const unknown = withWas.filter((c) => c.was.openedAt === undefined);
   if (unknown.length) {
     const recent = await info<unknown[]>({ type: "userFills", user: trader.address }, 20)
@@ -192,6 +187,14 @@ async function report(trader: FollowedTrader, changes: Change[], state: State, n
       }
     }
   }
+  // A close's or flip's result covers the whole position (since it opened);
+  // a trim's and an add's, the fills since the last alert.
+  const fromOf = (c: (typeof withWas)[number]) => (c.kind === "closed" || c.kind === "flipped" ? (c.was.openedAt ?? c.was.openedBefore ?? c.was.alertedAt) : c.was.alertedAt);
+  let fills: Fill[] | null = null;
+  if (withWas.length) {
+    const since = Math.min(...withWas.map(fromOf)) - 1_000;
+    fills = await fillsSince(trader.address, since).catch((e: Error) => (log(`${trader.name}: fills not read (${e.message})`), null));
+  }
   const accountValue = await accountValueOf(trader.address, nowMs);
   const orders = opens.length ? await info<HyperliquidOrder[]>({ type: "frontendOpenOrders", user: trader.address }, 20).catch(() => null) : null;
   let posted = 0;
@@ -207,7 +210,7 @@ async function report(trader: FollowedTrader, changes: Change[], state: State, n
       address: trader.address,
       accountValue,
       tpsl: change.kind === "opened" && orders ? (({ tp, sl }) => ({ tp, sl }))(nearestTpsl(hyperliquidTpsl(orders, change.coin, change.side), change.side)) : undefined,
-      result: was && change.kind !== "added" ? (fills ? closeResult(fills, was) : null) : undefined,
+      result: was && change.kind !== "added" ? (fills ? closeResult(fills, was, fromOf(change as (typeof withWas)[number])) : null) : undefined,
       addPx: was && change.kind === "added" && fills ? addPrice(fills, was) : undefined,
       openedAt: was?.openedAt,
       openedBefore: was?.openedBefore,

@@ -421,9 +421,9 @@ owner's.
     `perpScout/alerts.ts`): opened, closed with its result, flipped, and
     adds/trims once 25% from the last alert. Never per fill. Opens and
     closes ping the role (owner 2026-10-08); the rest post silently.
-    Each card also says how long the position was held, its size before →
-    after as a share of the whole account, the exit or add price, and the
-    open PnL still riding.
+    Each card is a title line coloured by kind, then one labeled table row
+    (`alerts.ts` `table`; PLAN.md "Alerts"); a close's result covers the
+    whole position since it opened.
   - Safeguards: 10 messages per trader an hour, a lock file for one
     instance, and a failed read keeps the last book.
   - After changing the list in code, restart it (`launchctl kickstart -k`).
