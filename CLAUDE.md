@@ -422,7 +422,7 @@ owner's.
     adds/trims once 25% from the last alert. Never per fill. Opens and
     closes ping the role (owner 2026-10-08); the rest post silently.
     Each card is a one-line title coloured by kind (short trader name,
-    coin, side, leverage, result), a small subline (full name, time held,
+    coin, side, leverage, result), a small subline (the name's note, time held,
     links), then a text table in an ```ansi block (`alerts.ts` `table`: header,
     rule, values divided by " │ ", P/L red/green); a close's result covers
     the whole position since it opened. (An image card was tried and dropped:

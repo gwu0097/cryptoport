@@ -126,7 +126,7 @@ test("an open: green, pings; leverage in the title; entry/size/%acct/liq/TP/SL",
   assert.equal(m.ping, true);
   assert.equal(m.embed.color, 0x22c55e);
   assert.equal(m.embed.title, "🟢 OPEN · Swing 95da · GRASS LONG 3x");
-  assert.match(plain(m.embed.description), /^-# Swing 95da · \[HyperDash\]\(https:\/\/hyperdash\.com\/trader\/0xabc\) · \[Chart\]\([^)]+\)\n```ansi\nEntry +│ Size +│ % Acct │ Liq │ TP +│ SL\n/);
+  assert.match(plain(m.embed.description), /^-# \[HyperDash\]\(https:\/\/hyperdash\.com\/trader\/0xabc\) · \[Chart\]\([^)]+\)\n```ansi\nEntry +│ Size +│ % Acct │ Liq │ TP +│ SL\n/);
 });
 
 test("a close: the whole position's result, green or red, pings; P/L and held in the title", () => {
@@ -135,7 +135,7 @@ test("a close: the whole position's result, green or red, pings; P/L and held in
   assert.equal(win.ping, true);
   assert.equal(win.embed.color, 0x22c55e);
   assert.equal(win.embed.title, "✅ CLOSE · Swing 95da · GRASS LONG 3x · +36.7%");
-  assert.match(win.embed.description, /^-# Swing 95da \(15 h holds\) · held 15h05m · \[HyperDash\]/);
+  assert.match(win.embed.description, /^-# 15 h holds · held 15h05m · \[HyperDash\]/);
   assert.match(plain(win.embed.description), /Entry +│ Exit +│ Move +│ P\/L +│ \$ P\/L +│ % Acct\n[─┼]+\n\$0\.664\d* +│ \$0\.745\d* +│ \+12\.2% +│ \+36\.7% +│ \+\$6\.1K +│ 2\.8%\n/);
   const loss = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", result: { exitPx: 0.6, pnlUsd: -500, returnPct: -0.0964 } });
   assert.equal(loss.embed.color, 0xef4444);

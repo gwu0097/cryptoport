@@ -332,9 +332,11 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       break;
     }
   }
-  // The subline (Discord's small grey "-#" text): the full trader name, time
+  // The subline (Discord's small grey "-#" text): the name's note, time
   // held, the links — then the table, nothing under it.
-  const sub = [ctx.traderName, change.kind === "opened" ? null : `held ${held}`, `[HyperDash](${url})`, `[Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`].filter(Boolean).join(" · ");
+  // Only what the title leaves out of the name ("15 h holds"), never the name twice.
+  const note = ctx.traderName.match(/\(([^)]*)\)\s*$/)?.[1]?.trim() || null;
+  const sub = [note, change.kind === "opened" ? null : `held ${held}`, `[HyperDash](${url})`, `[Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`].filter(Boolean).join(" · ");
   const lines = [`-# ${sub}`];
   if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`-# Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older.`);
   lines.push(table(cells));
