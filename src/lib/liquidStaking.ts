@@ -162,6 +162,10 @@ function combine(base: AssetGroup, staked: AssetGroup[]): AssetGroup {
     total: base.total + staked.reduce((s, g) => s + g.total, 0),
     unpricedCount: base.unpricedCount + staked.reduce((s, g) => s + g.unpricedCount, 0),
     holdings: [...base.holdings, ...staked.flatMap((s) => s.holdings)],
-    combinedTickers: staked.map((s) => s.ticker),
+    // Each other ticker once (copies of a stablecoin often share one).
+    ...(() => {
+      const others = [...new Set(staked.map((s) => s.ticker))].filter((t) => t.toUpperCase() !== base.ticker.toUpperCase());
+      return others.length ? { combinedTickers: others } : {};
+    })(),
   };
 }

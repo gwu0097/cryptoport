@@ -545,7 +545,11 @@ CoinGecko coin id, or `jup:<mint>` / `hl:<TOKEN>` / `coinbase:<TICKER>` /
   sets and a chain's own native symbol; no match means unpriced.
 - **Bridged and wrapped copies are their own assets** (WETH, USDC.e, axlUSDC,
   Gravity USDT). Combining liquid staking tokens with their base coin is a
-  display toggle (`liquidStaking.ts`), never a price rule. A registry that maps
+  display toggle (`liquidStaking.ts`), never a price rule; so is combining
+  copies of one coin across chains (`coinCopies.ts`, the same Assets toggle,
+  owner 2026-10-08): same ticker at prices within 1%, or a fixed list of
+  renamed stablecoin copies (USDC.e, USDbC, axlUSDC, USDT0…) within 2% of $1
+  — a namesake at another price, or an unpriced row, never joins. A registry that maps
   a bridged copy onto the real coin (Keplr does) is not trusted for that asset
   (`registryAssetInfo`, `src/lib/cosmosMulti.ts`).
 

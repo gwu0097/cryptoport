@@ -3,6 +3,7 @@ import { toAssetRowGroups } from "@/lib/holdingRows";
 import { scopePricesToUser } from "@/lib/queries";
 import { chainAllocations } from "@/lib/chainAllocation";
 import { consolidateLiquidStaking, resolveBases } from "@/lib/liquidStaking";
+import { resolveCoinCopies } from "@/lib/coinCopies";
 import { getLiquidStakingTokens } from "@/lib/adapters/liquidStakingRegistry";
 import { ChainAllocationPanel } from "@/components/ChainAllocationPanel";
 import { getUser } from "@/lib/auth";
@@ -84,7 +85,11 @@ export default async function AssetsPage({
   // Liquid staking tokens folded into their base coin (weETH → ETH), for
   // the table and Coin allocation alike — see liquidStaking.ts. Totals are
   // the same either way; only the grouping changes.
-  const groups = combineLst ? consolidateLiquidStaking(tickerGroups, resolveBases(tickerGroups, lstTokens)) : tickerGroups;
+  // …and every copy of one coin (WETH per chain, bridged USDC.e/USDT0) into
+  // one row (coinCopies.ts) — display only, totals unchanged.
+  const lstBases = resolveBases(tickerGroups, lstTokens);
+  const bases = new Map([...lstBases, ...resolveCoinCopies(tickerGroups, new Set(lstBases.keys()))]);
+  const groups = combineLst ? consolidateLiquidStaking(tickerGroups, bases) : tickerGroups;
   // Value by chain split by asset type, from the same holdings (and so the
   // same total) as the Coin allocation chart — see chainAllocation.ts.
   const chains = chainAllocations(groups.flatMap((g) => g.holdings));
@@ -151,7 +156,7 @@ export default async function AssetsPage({
             <CheckboxLink
               href={buildHref({ ...view, combineLst: !combineLst })}
               checked={combineLst}
-              label="Combine liquid staking tokens"
+              label="Combine staked tokens and copies across chains"
             />
             <CheckboxLink
               href={buildHref({ ...view, hideUnpriced: !hideUnpriced })}
