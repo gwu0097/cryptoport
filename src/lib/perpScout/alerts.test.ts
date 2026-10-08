@@ -126,21 +126,22 @@ test("an open: green, pings; leverage in the title; entry/size/%acct/liq/TP/SL",
   assert.equal(m.ping, true);
   assert.equal(m.embed.color, 0x22c55e);
   assert.equal(m.embed.title, "🟢 OPEN · Swing 95da · GRASS LONG 3x");
-  assert.match(plain(m.embed.description), /^```ansi\nEntry +│ Size +│ % Acct │ Liq │ TP +│ SL\n/);
+  assert.match(plain(m.embed.description), /^-# Swing 95da · \[HyperDash\]\(https:\/\/hyperdash\.com\/trader\/0xabc\) · \[Chart\]\([^)]+\)\n```ansi\nEntry +│ Size +│ % Acct │ Liq │ TP +│ SL\n/);
 });
 
 test("a close: the whole position's result, green or red, pings; P/L and held in the title", () => {
   const was = { ...pos("GRASS", 75_000, { entryPx: 0.664, notionalUsd: 56_000, leverage: 3 }), alertedSzi: 75_000, alertedAt: T0 };
-  const win = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", accountValue: 2_000_000, result: { exitPx: 0.7451, pnlUsd: 6109, returnPct: 0.1222 }, openedAt: T0 - (15 * 60 + 5) * 60_000, nowMs: T0 });
+  const win = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da (15 h holds)", address: "0xabc", accountValue: 2_000_000, result: { exitPx: 0.7451, pnlUsd: 6109, returnPct: 0.1222 }, openedAt: T0 - (15 * 60 + 5) * 60_000, nowMs: T0 });
   assert.equal(win.ping, true);
   assert.equal(win.embed.color, 0x22c55e);
-  assert.equal(win.embed.title, "✅ CLOSE · Swing 95da · GRASS LONG 3x · +36.7% · held 15h05m");
+  assert.equal(win.embed.title, "✅ CLOSE · Swing 95da · GRASS LONG 3x · +36.7%");
+  assert.match(win.embed.description, /^-# Swing 95da \(15 h holds\) · held 15h05m · \[HyperDash\]/);
   assert.match(plain(win.embed.description), /Entry +│ Exit +│ Move +│ P\/L +│ \$ P\/L +│ % Acct\n[─┼]+\n\$0\.664\d* +│ \$0\.745\d* +│ \+12\.2% +│ \+36\.7% +│ \+\$6\.1K +│ 2\.8%\n/);
   const loss = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", result: { exitPx: 0.6, pnlUsd: -500, returnPct: -0.0964 } });
   assert.equal(loss.embed.color, 0xef4444);
   assert.match(loss.embed.title, /^❌ CLOSE/);
   const unknown = alertMessage({ kind: "closed", coin: "GRASS", side: "long", was }, { traderName: "Swing 95da", address: "0xabc", result: null });
-  assert.equal(unknown.embed.title, "⚪ CLOSE · Swing 95da · GRASS LONG 3x · held —");
+  assert.equal(unknown.embed.title, "⚪ CLOSE · Swing 95da · GRASS LONG 3x");
 });
 
 test("an add is blue, a trim amber, neither pings; each names its amount, price, size and P/L", () => {
@@ -148,7 +149,7 @@ test("an add is blue, a trim amber, neither pings; each names its amount, price,
   const add = alertMessage({ kind: "added", coin: "HYPE", side: "long", was, now: pos("HYPE", 19.3, { entryPx: 88.9, notionalUsd: 19.3 * 90, leverage: 5, roe: -0.003 }) }, { traderName: "Swing cb34", address: "0xabc", accountValue: 20_000, addPx: 92.6 });
   assert.equal(add.ping, false);
   assert.equal(add.embed.color, 0x3b82f6);
-  assert.equal(add.embed.title, "🔵 ADD · Swing cb34 · HYPE LONG 5x · +93.0% · held —");
+  assert.equal(add.embed.title, "🔵 ADD · Swing cb34 · HYPE LONG 5x · +93.0%");
   assert.match(plain(add.embed.description), /Added +│ Price +│ Size +│ % Acct │ Avg entry │ P\/L\n[─┼]+\n\+\$837 +│ \$92\.60 │ \$1\.7K │ 8\.7% +│ \$88\.90 +│ -0\.30%/);
   const trim = alertMessage({ kind: "trimmed", coin: "HYPE", side: "long", was, now: pos("HYPE", 4, { notionalUsd: 360 }) }, { traderName: "X", address: "0xabc", result: { exitPx: 95, pnlUsd: 50, returnPct: 0.1 } });
   assert.equal(trim.embed.color, 0xf59e0b);

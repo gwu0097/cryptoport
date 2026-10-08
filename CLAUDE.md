@@ -421,8 +421,9 @@ owner's.
     `perpScout/alerts.ts`): opened, closed with its result, flipped, and
     adds/trims once 25% from the last alert. Never per fill. Opens and
     closes ping the role (owner 2026-10-08); the rest post silently.
-    Each card is a title line coloured by kind (with leverage and time
-    held), then a text table in an ```ansi block (`alerts.ts` `table`: header,
+    Each card is a one-line title coloured by kind (short trader name,
+    coin, side, leverage, result), a small subline (full name, time held,
+    links), then a text table in an ```ansi block (`alerts.ts` `table`: header,
     rule, values divided by " │ ", P/L red/green); a close's result covers
     the whole position since it opened. (An image card was tried and dropped:
     unreadable or too tall at Discord's size.)

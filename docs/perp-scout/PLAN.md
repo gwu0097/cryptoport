@@ -402,10 +402,11 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
   me"); adds, trims and flips don't. A trader's first read sets the baseline; nothing
   posts for it.
 - **What each card says** (owner 2026-10-08: "core information… a table…
-  lines between… not crunched up"): a title line — kind, trader, coin, side
-  and leverage, the headline number, how long it's been held — coloured by
-  kind (green open, blue add, amber trim, green/red close by result, purple
-  flip), then a text table in an ```ansi block (`alerts.ts` `table`): a
+  lines between… not crunched up"; "put held and the links on the 2nd row"):
+  a one-line title — kind, the trader's short name, coin, side and leverage,
+  the headline number — coloured by kind (green open, blue add, amber trim, green/red close by result, purple
+  flip); a small grey subline (`-#`) with the full trader name, time held,
+  and the HyperDash · Chart links; then a text table in an ```ansi block (`alerts.ts` `table`): a
   header row, a rule, the values, columns divided by " │ " and crossing at
   "┼", the P/L in red/green (desktop; the mobile app shows it uncoloured).
   Six columns at most, ~58 characters, so a row stays on one line:

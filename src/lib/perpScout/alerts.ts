@@ -257,7 +257,9 @@ const toneOf = (x: number | null | undefined): CardCell["tone"] => (x === null |
  * result, purple flip. Six columns at most, so a row stays on one line in
  * the embed. */
 export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
-  const who = ctx.traderName;
+  // The title fits one line (owner 2026-10-08): the trader's short name —
+  // "Swing 95da (15 h holds)" → "Swing 95da"; the full one is in the subline.
+  const who = ctx.traderName.replace(/\s*\([^)]*\)\s*$/, "") || ctx.traderName;
   const url = `https://hyperdash.com/trader/${ctx.address}`;
   const held = heldCell(ctx);
   const lev = (x: number | null | undefined) => (x ? ` ${levText(x)}` : "");
@@ -285,7 +287,7 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       const moved = before !== null && change.now.notionalUsd !== null ? change.now.notionalUsd - before : null;
       const step = Math.abs(change.was.alertedSzi) > 0 ? (Math.abs(change.now.szi) - Math.abs(change.was.alertedSzi)) / Math.abs(change.was.alertedSzi) : null;
       const added = change.kind === "added";
-      title = `${added ? "🔵 ADD" : "🟠 TRIM"} · ${who} · ${change.coin} ${SIDE[change.side]}${lev(change.now.leverage)} · ${pct(step)} · held ${held}`;
+      title = `${added ? "🔵 ADD" : "🟠 TRIM"} · ${who} · ${change.coin} ${SIDE[change.side]}${lev(change.now.leverage)} · ${pct(step)}`;
       color = added ? BLUE : AMBER;
       cells = [
         { label: added ? "Added" : "Sold", value: usd(moved, true) },
@@ -302,7 +304,7 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       const move = r?.returnPct ?? null;
       const onMargin = move !== null && change.was.leverage ? move * change.was.leverage : move;
       const good = move === null ? (r?.pnlUsd == null ? null : r.pnlUsd >= 0) : move >= 0;
-      title = `${good === null ? "⚪" : good ? "✅" : "❌"} CLOSE · ${who} · ${change.coin} ${SIDE[change.side]}${lev(change.was.leverage)}${onMargin !== null ? ` · ${pct(onMargin)}` : ""} · held ${held}`;
+      title = `${good === null ? "⚪" : good ? "✅" : "❌"} CLOSE · ${who} · ${change.coin} ${SIDE[change.side]}${lev(change.was.leverage)}${onMargin !== null ? ` · ${pct(onMargin)}` : ""}`;
       color = good === null ? GREY : good ? GREEN : RED;
       cells = [
         { label: "Entry", value: price(change.was.entryPx) },
@@ -330,8 +332,11 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       break;
     }
   }
-  const lines = [table(cells)];
-  if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`_Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older._`);
-  lines.push(`[HyperDash](${url}) · [Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
+  // The subline (Discord's small grey "-#" text): the full trader name, time
+  // held, the links — then the table, nothing under it.
+  const sub = [ctx.traderName, change.kind === "opened" ? null : `held ${held}`, `[HyperDash](${url})`, `[Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`].filter(Boolean).join(" · ");
+  const lines = [`-# ${sub}`];
+  if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`-# Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older.`);
+  lines.push(table(cells));
   return { ping: change.kind === "opened" || change.kind === "closed", embed: { title: title.slice(0, 256), url, description: lines.join("\n"), color } };
 }
