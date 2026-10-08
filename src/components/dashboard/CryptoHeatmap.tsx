@@ -50,7 +50,7 @@ function CryptoHeatmap({ height }: { height: number | "fill" }) {
   return (
     <div className={height === "fill" ? "flex h-full flex-col" : ""}>
       {/* In the grid it fills its card (at least COMPACT_HEIGHT); expanded, a fixed height. */}
-      {height === "fill" ? <div className="relative min-h-[220px] flex-1">{iframe}</div> : iframe}
+      {height === "fill" ? <div className="relative min-h-[280px] flex-1">{iframe}</div> : iframe}
       <p className="mt-2 text-center text-xs text-fg-muted">
         <a href="https://coin360.com/" rel="noopener nofollow" target="_blank" className="hover:text-fg">
           Market data via Coin360

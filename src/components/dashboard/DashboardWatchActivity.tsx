@@ -114,7 +114,7 @@ export function DashboardWatchActivity({
       ) : (
         // Capped on wider screens (its own scroll); a phone shows the first
         // lines and links to the rest instead of a scroll inside a scroll.
-        <div className="sm:max-h-[34rem] sm:overflow-y-auto xl:max-h-[14rem]">
+        <div className="sm:max-h-[34rem] sm:overflow-y-auto xl:max-h-[17rem]">
           <ActivityFeed movements={shown} serverNowSec={serverNowSec} />
           <Link href={href} className="mt-2 inline-block text-xs text-accent hover:underline sm:hidden">
             All movements in Wallet Watch →

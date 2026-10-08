@@ -1104,7 +1104,7 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   side by side when the card fits them, a container query); Wallet Watch
   full width, and from 3xl Wallet Watch 8 | heatmap 4 (12 without Wallet
   Watch) with open positions last; phone order set by `order-*`. It fits one screen
-  (owner 2026-10-08): from xl, Wallet Watch's table scrolls within 14rem
+  (owner 2026-10-08): from xl, Wallet Watch's table scrolls within 17rem (the heatmap at least 280px)
   and Open positions and Tracked trades within 18rem each, headers pinned;
   explanations sit in `InfoTooltip`s. Cards fill
   their row's height (`Panel` in a flex column; `ValueChart fill`, the
