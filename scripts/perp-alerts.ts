@@ -34,7 +34,6 @@ import { FOLLOWED, mergeFollowed, type FollowedTrader } from "../src/lib/perpSco
 import { createPacer } from "../src/lib/perpScout/pacer.ts";
 import { parsePortfolio } from "../src/lib/perpScout/portfolio.ts";
 import { hyperliquidTpsl, nearestTpsl, type HyperliquidOrder } from "../src/lib/tpsl.ts";
-import { renderAlertCard } from "./perp-alert-card.ts";
 
 const args = new Set(process.argv.slice(2));
 const WEBHOOK = process.env.DISCORD_PERP_WEBHOOK_URL?.trim() ?? "";
@@ -114,45 +113,19 @@ async function refreshList(): Promise<void> {
 }
 
 let lastPostAt = 0;
-/** Posts a card: the short title, then the image card (a real table) with
- * the links under it; the text card when the image can't be drawn. */
-async function post(msg: Pick<AlertMessage, "ping" | "embed"> & Partial<Pick<AlertMessage, "card" | "links">>): Promise<void> {
+async function post(msg: AlertMessage): Promise<void> {
   const content = msg.ping && ROLE ? `<@&${ROLE}>` : "";
-  let image: ArrayBuffer | null = null;
-  if (msg.card) image = await renderAlertCard(msg.card).catch((e: Error) => (log(`card image not drawn (${e.message}) — posting the text card`), null));
-  const embed = image && msg.links !== undefined ? { ...msg.embed, description: msg.links, image: { url: "attachment://card.png" } } : msg.embed;
-  if (DRY) {
-    if (image && process.env.PERP_ALERTS_CARD_DIR) {
-      const { writeFile } = await import("node:fs/promises");
-      await writeFile(`${process.env.PERP_ALERTS_CARD_DIR}/${msg.embed.title.replace(/[^\w]+/g, "_").slice(0, 60)}.png`, Buffer.from(image));
-    }
-    return log(`DRY ${content ? "(ping) " : ""}${msg.embed.title}${image ? ` [image ${Math.round(image.byteLength / 1024)} KB]` : ""}\n    ${embed.description.replace(/\n/g, "\n    ")}`);
-  }
+  if (DRY) return log(`DRY ${content ? "(ping) " : ""}${msg.embed.title}\n    ${msg.embed.description.replace(/\u001b\[[0-9;]*m/g, "").replace(/\n/g, "\n    ")}`);
   await sleep(Math.max(0, lastPostAt + POST_SPACING_MS - Date.now()));
   lastPostAt = Date.now();
-  const payload = JSON.stringify({ content, embeds: [embed], allowed_mentions: { parse: [], roles: msg.ping && ROLE ? [ROLE] : [] } });
+  const body = JSON.stringify({ content, embeds: [msg.embed], allowed_mentions: { parse: [], roles: msg.ping && ROLE ? [ROLE] : [] } });
   for (let attempt = 0; attempt < 2; attempt++) {
-    // With an image: multipart, the file the embed points at (attachment://).
-    let init: RequestInit;
-    if (image) {
-      const form = new FormData();
-      form.set("payload_json", payload);
-      form.set("files[0]", new Blob([image], { type: "image/png" }), "card.png");
-      init = { method: "POST", body: form };
-    } else {
-      init = { method: "POST", headers: { "content-type": "application/json" }, body: payload };
-    }
-    const res = await fetch(WEBHOOK, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetch(WEBHOOK, { method: "POST", headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (res.ok) return;
     if (res.status === 429 && attempt === 0) {
       const wait = Number(((await res.json().catch(() => ({}))) as { retry_after?: number }).retry_after ?? 2);
       await sleep(Math.min(30, wait) * 1000);
       continue;
-    }
-    // Discord refused the upload itself: the text card instead, never no alert.
-    if (image) {
-      log(`card image refused (HTTP ${res.status}) — posting the text card`);
-      return post({ ping: msg.ping, embed: msg.embed });
     }
     throw new Error(`Discord: HTTP ${res.status}`);
   }
