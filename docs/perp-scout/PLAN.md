@@ -416,7 +416,8 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
   Posted as an **image card** (owner 2026-10-08: "more polished"): the
   values in a real table — header row, grid lines, P/L coloured — drawn on
   the Mac mini by next's bundled @vercel/og (`scripts/perp-alert-card.ts`;
-  measured ~3 ms a card, ~50 ms the first; no network, no tokens), uploaded
+  measured ~3 ms a card, ~50 ms the first; no network, no tokens) — 800 px
+  wide in rows of 4 columns, readable at the ~400 px Discord shows it — uploaded
   with the post under the title line and the links. Discord has no tables
   in text; an image also doesn't wrap on a phone. If the image can't be
   drawn or Discord refuses it, the text table posts instead.

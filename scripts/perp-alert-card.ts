@@ -11,61 +11,59 @@ import { createElement as h, type ReactElement } from "react";
 import type { AlertCard, CardCell } from "../src/lib/perpScout/alerts.ts";
 
 const C = { bg: "#0b1220", panel: "#111a2e", line: "#24314d", muted: "#8a97b0", text: "#e6ecf5", pos: "#22c55e", neg: "#ef4444" };
-const W = 1100;
-const H = 290;
+// Drawn for how Discord shows it: an embed's image is scaled to ~400 px wide,
+// so the canvas is 800 (2x, crisp) with large text, and the table wraps to
+// rows of 4 columns (owner 2026-10-08: the 1,100 px single row was unreadable).
+const W = 800;
+const PER_ROW = 4;
 
 /** Printable Latin only (the bundled font's range). */
 const clean = (s: string) => s.replace(/[−–—]/g, "-").replace(/[^\x20-\x7E -ÿ]/g, "").replace(/\s+/g, " ").trim();
 const toneColor = (t: CardCell["tone"]) => (t === "pos" ? C.pos : t === "neg" ? C.neg : t === "muted" ? C.muted : C.text);
 
 function view(card: AlertCard): ReactElement {
-  const cell = (c: CardCell, i: number, header: boolean) =>
+  const cell = (c: CardCell, i: number) =>
     h(
       "div",
-      {
-        key: i,
-        style: {
-          flex: 1,
-          display: "flex",
-          padding: header ? "9px 14px" : "13px 14px",
-          borderLeft: i ? `1px solid ${C.line}` : "none",
-          fontSize: header ? 14 : 21,
-          letterSpacing: header ? 1 : 0,
-          color: header ? C.muted : toneColor(c.tone),
-        },
-      },
-      header ? clean(c.label).toUpperCase() : clean(c.value),
+      { key: i, style: { flex: 1, display: "flex", flexDirection: "column", padding: "14px 18px", borderLeft: i ? `2px solid ${C.line}` : "none" } },
+      h("div", { style: { display: "flex", fontSize: 21, letterSpacing: 1, color: C.muted } }, clean(c.label).toUpperCase()),
+      h("div", { style: { display: "flex", fontSize: 34, marginTop: 6, color: toneColor(c.tone) } }, clean(c.value)),
     );
+  const rows: CardCell[][] = [];
+  for (let i = 0; i < card.cells.length; i += PER_ROW) rows.push(card.cells.slice(i, i + PER_ROW));
   const head = card.headTone === "pos" ? C.pos : card.headTone === "neg" ? C.neg : C.text;
   return h(
     "div",
     { style: { width: "100%", height: "100%", display: "flex", background: C.bg } },
-    h("div", { style: { width: 10, height: "100%", background: card.accent } }),
+    h("div", { style: { width: 14, height: "100%", background: card.accent } }),
     h(
       "div",
-      { style: { flex: 1, display: "flex", flexDirection: "column", padding: "24px 32px" } },
+      { style: { flex: 1, display: "flex", flexDirection: "column", padding: "26px 30px" } },
       h(
         "div",
-        { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end" } },
+        { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
         h(
           "div",
           { style: { display: "flex", flexDirection: "column" } },
-          h("div", { style: { display: "flex", fontSize: 14, letterSpacing: 2, color: card.accent } }, clean(card.kind)),
-          h("div", { style: { display: "flex", fontSize: 34, color: C.text, marginTop: 4 } }, clean(card.title)),
-          h("div", { style: { display: "flex", fontSize: 16, color: C.muted, marginTop: 6 } }, clean(card.sub)),
+          h("div", { style: { display: "flex", fontSize: 22, letterSpacing: 2, color: card.accent } }, clean(card.kind)),
+          h("div", { style: { display: "flex", fontSize: 46, color: C.text, marginTop: 2 } }, clean(card.title)),
         ),
-        h("div", { style: { display: "flex", fontSize: 50, color: head } }, clean(card.headline)),
+        h("div", { style: { display: "flex", fontSize: 64, color: head } }, clean(card.headline)),
       ),
+      h("div", { style: { display: "flex", fontSize: 23, color: C.muted, marginTop: 4 } }, clean(card.sub)),
       h(
         "div",
-        { style: { display: "flex", flexDirection: "column", marginTop: 20, border: `1px solid ${C.line}`, borderRadius: 10, background: C.panel } },
-        h("div", { style: { display: "flex", borderBottom: `1px solid ${C.line}` } }, ...card.cells.map((c, i) => cell(c, i, true))),
-        h("div", { style: { display: "flex" } }, ...card.cells.map((c, i) => cell(c, i, false))),
+        { style: { display: "flex", flexDirection: "column", marginTop: 20, border: `2px solid ${C.line}`, borderRadius: 12, background: C.panel } },
+        ...rows.map((row, r) =>
+          h("div", { key: r, style: { display: "flex", borderTop: r ? `2px solid ${C.line}` : "none" } }, ...row.map((c, i) => cell(c, i)), ...Array.from({ length: PER_ROW - row.length }, (_, k) => h("div", { key: `pad${k}`, style: { flex: 1, display: "flex", borderLeft: `2px solid ${C.line}` } }))),
+        ),
       ),
-      h("div", { style: { display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 13, color: C.muted } }, h("span", {}, "Hyperliquid perps"), h("span", {}, "CryptoPort · Perp Scout")),
     ),
   );
 }
+
+/** Height for the rows the card has. */
+const heightFor = (card: AlertCard) => 214 + Math.ceil(card.cells.length / PER_ROW) * 104;
 
 // The renderer is loaded on first use (~50 ms), not at startup.
 let renderer: Promise<{ ImageResponse: new (el: ReactElement, opts: { width: number; height: number }) => Response }> | null = null;
@@ -74,5 +72,5 @@ let renderer: Promise<{ ImageResponse: new (el: ReactElement, opts: { width: num
 export async function renderAlertCard(card: AlertCard): Promise<ArrayBuffer> {
   renderer ??= import("next/dist/compiled/@vercel/og/index.node.js") as never;
   const { ImageResponse } = await renderer;
-  return new ImageResponse(view(card), { width: W, height: H }).arrayBuffer();
+  return new ImageResponse(view(card), { width: W, height: heightFor(card) }).arrayBuffer();
 }
