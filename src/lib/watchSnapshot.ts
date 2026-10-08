@@ -10,6 +10,7 @@
 // real wallet (2026-09-26) held 3,992 unrecognized tokens and 369 holdings
 // under $1, which made a full snapshot 593 KB.
 
+import { cleanAddressInput } from "./addressInput.ts";
 import type { AdapterHolding } from "./adapters/types.ts";
 
 /** A stored row: an adapter row with its price key, null fields dropped to
@@ -51,7 +52,8 @@ const tokenKey = (chain: string | null | undefined, contract: string | null | un
 
 /** Trimmed; an EVM (0x) address lowercased, so one address is one row. */
 export function normalizeWatchAddress(raw: string): string {
-  const a = raw.trim();
+  // A pasted chain prefix ("HL:0x…") comes off first (addressInput.ts).
+  const a = cleanAddressInput(raw);
   return /^0x[0-9a-fA-F]{40}$/.test(a) ? a.toLowerCase() : a;
 }
 

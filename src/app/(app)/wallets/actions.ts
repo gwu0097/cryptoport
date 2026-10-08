@@ -28,6 +28,7 @@ import { searchCoins, type CoinSearchResult } from "@/lib/adapters/coingecko";
 import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY, TOKEN_LIST_WEEKLY } from "@/lib/tokenRegistryRefresh";
 import { refreshExchangeAssetsIfStale } from "@/lib/adapters/exchangeTickers";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
+import { cleanAddressInput, evmAddressProblem } from "@/lib/addressInput";
 import type { AdapterHolding } from "@/lib/adapters/types";
 import { isSyncOwned, type WalletMode, type HoldingSource } from "@/lib/types";
 import { JOB_STALE_MS, type JobStartResult } from "@/lib/jobStatus";
@@ -133,6 +134,19 @@ async function replaceWalletTags(walletId: string, tagIds: string[]): Promise<vo
 // recognizes — enforced here too, not just by ChainModeAddressFields disabling
 // the option client-side, since a direct form POST could otherwise bypass
 // that.
+/** The address as saved: a chain prefix stripped ("HL:0x…" → "0x…",
+ * addressInput.ts), and for an auto-synced EVM wallet a real 0x address —
+ * a malformed one failed every chain at sync time with a wall of errors. */
+function walletAddress(formData: FormData, chain: string, mode: WalletMode): string | null {
+  const raw = optionalString(formData, "address");
+  const address = raw === null ? null : cleanAddressInput(raw);
+  if (mode === "auto" && isEvmChainId(chain)) {
+    const problem = evmAddressProblem(address);
+    if (problem) throw new Error(problem);
+  }
+  return address;
+}
+
 function requireChainAndMode(formData: FormData): { chain: string; mode: WalletMode } {
   const chain = requireString(formData, "chain").toUpperCase();
   const mode = requireOneOf(formData, "mode", MODES);
@@ -149,7 +163,7 @@ export async function createWallet(formData: FormData) {
   await requireUser();
   const name = requireString(formData, "name");
   const { chain, mode } = requireChainAndMode(formData);
-  const address = optionalString(formData, "address");
+  const address = walletAddress(formData, chain, mode);
   const tagIds = await resolveTagIds(formData);
 
   // user_id isn't set explicitly — the column defaults to auth.uid() (see
@@ -200,7 +214,7 @@ export async function updateWallet(walletId: string, formData: FormData) {
     const { chain, mode } = requireChainAndMode(formData);
     update.chain = chain;
     update.mode = mode;
-    update.address = optionalString(formData, "address");
+    update.address = walletAddress(formData, update.chain, update.mode);
   }
 
   const db = await userDb();

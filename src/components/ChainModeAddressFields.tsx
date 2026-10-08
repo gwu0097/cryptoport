@@ -139,7 +139,18 @@ export function ChainModeAddressFields({
         label="Address"
         hint={addressHint ? `Optional for manual. ${addressHint}` : "Optional for manual tracking."}
       >
-        <input name="address" type="text" defaultValue={defaultAddress} className={inputClass} />
+        {/* An auto-synced EVM wallet needs a real 0x address (a chain prefix
+            like Hyperliquid's "HL:" is fine — the server strips it,
+            addressInput.ts); the browser stops anything else before it's sent. */}
+        <input
+          name="address"
+          type="text"
+          defaultValue={defaultAddress}
+          className={inputClass}
+          {...(mode === "auto" && isEvmChainId(trimmedChain)
+            ? { required: true, pattern: "\\s*(?:[A-Za-z][A-Za-z0-9\\-]{0,19}:)?0x[0-9a-fA-F]{40}\\s*", title: "An EVM address: 0x followed by 40 letters and digits" }
+            : {})}
+        />
       </Field>
     </>
   );

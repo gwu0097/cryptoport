@@ -214,9 +214,7 @@ export default async function WalletDetailPage(
                 </a>
               </p>
             )}
-            {wallet.last_refresh_status?.startsWith("error:") && (
-              <p className="mt-1 text-xs text-negative">Last sync failed: {wallet.last_refresh_status}</p>
-            )}
+            {wallet.last_refresh_status?.startsWith("error:") && <SyncError status={wallet.last_refresh_status} />}
             {wallet.notes && !isSyncNote(wallet.notes) && <p className="mt-1 text-xs text-fg-muted">{wallet.notes}</p>}
           </div>
 
@@ -287,5 +285,19 @@ export default async function WalletDetailPage(
         </Panel>
       )}
     </>
+  );
+}
+
+/** A failed sync's message: one short line, the rest behind "details" — a
+ * failure on every chain once filled the header with 40 chains' errors
+ * (2026-10-08). */
+function SyncError({ status }: { status: string }) {
+  const text = status.replace(/^error:\s*/, "");
+  if (text.length <= 160) return <p className="mt-1 break-words text-xs text-negative">Last sync failed: {text}</p>;
+  return (
+    <details className="mt-1 text-xs text-negative">
+      <summary className="cursor-pointer break-words">Last sync failed: {text.slice(0, 140)}… <span className="text-fg-muted underline">details</span></summary>
+      <p className="mt-1 max-h-48 overflow-y-auto break-all text-fg-muted">{text}</p>
+    </details>
   );
 }
