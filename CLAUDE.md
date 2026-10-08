@@ -429,6 +429,10 @@ owner's.
   - Safeguards: 10 messages per trader an hour, a lock file for one
     instance, and a failed read keeps the last book.
   - After changing the list in code, restart it (`launchctl kickstart -k`).
+    **Claude may restart this job itself** after pushing a change to it
+    (owner 2026-10-08 — the named exception to the global "never restart a
+    live service" floor; only `com.cryptoport.perp-alerts`), then confirms
+    the log's newest `start ·` line shows the new commit and one copy runs.
 - Signals / SMC (`src/lib/signals`, `src/lib/smc`) are pre-registered research
   (`docs/signals/`), not trading. Auto-trading is backlog and gets its own plan.
 
