@@ -18,6 +18,8 @@ import {
   type Valuation,
 } from "./valuation";
 import type { CoinLiquidity } from "./liquidity";
+import { implausibleStakedChanges } from "./stakedChangeCheck";
+import { liquidStakingTokensHourly } from "./adapters/liquidStakingRegistry";
 import { pricesAsOf, type PricesAsOf } from "./pricesAsOf";
 import { holdingKeyIndex, transactionPriceKey } from "./transactionPricing.ts";
 import { chainDisplayName, defaultChainId } from "./chainNames";
@@ -301,8 +303,16 @@ export interface AssetStats {
  * and display info (asset_prices + assets) — what every asset row shows
  * (docs/pricing/PLAN.md). Cached per request. */
 export const getAssetStatsMap = cache(async (): Promise<Map<string, AssetStats>> => {
-  const { rows, scoped } = await getAssetPriceRows();
-  return statsMapFrom(rows, scoped ? isMarkKey : null);
+  const [{ rows, scoped }, staked] = await Promise.all([getAssetPriceRows(), liquidStakingTokensHourly()]);
+  const map = statsMapFrom(rows, scoped ? isMarkKey : null);
+  // A staked token's 24h change far from its base coin's is a bad print
+  // (INF +11% while SOL −7%, 2026-10-08): unknown, not a mover.
+  const bad = implausibleStakedChanges(rows.map((r) => ({ key: r.price_key, symbol: r.symbol, change: parseNumeric(r.change_24h), marketCap: parseNumeric(r.market_cap) })), staked);
+  for (const key of bad) {
+    const s = map.get(key);
+    if (s) s.change24h = null;
+  }
+  return map;
 });
 
 function statsMapFrom(rows: readonly AssetPriceRow[], exempt: ((key: string) => boolean) | null): Map<string, AssetStats> {

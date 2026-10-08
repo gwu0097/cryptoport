@@ -63,3 +63,30 @@ export const getLiquidStakingTokens = cache(async (): Promise<LiquidStakingToken
     baseSymbol: r.base_symbol,
   }));
 });
+
+/** The same list kept an hour per server instance — for every page's price
+ * read (queries.ts getAssetStatsMap, the staked-token change check), where a
+ * request per page view would be waste: the table changes weekly. Empty on
+ * a read failure (the check then just doesn't run). */
+let hourly: { at: number; tokens: Promise<LiquidStakingToken[]> } | null = null;
+export function liquidStakingTokensHourly(nowMs = Date.now()): Promise<LiquidStakingToken[]> {
+  if (!hourly || nowMs - hourly.at > 3_600_000) {
+    hourly = {
+      at: nowMs,
+      tokens: Promise.resolve(
+        serviceDb()
+          .from("liquid_staking_tokens")
+          .select("coingecko_id, symbol, base_symbol")
+          .then(({ data, error }) => {
+            if (error) throw new Error(error.message);
+            return (data as { coingecko_id: string; symbol: string; base_symbol: string | null }[]).map((r) => ({ coingeckoId: r.coingecko_id, symbol: r.symbol, baseSymbol: r.base_symbol }));
+          }),
+      ).catch((e: Error) => {
+        console.warn(`[liquidStaking] hourly read failed: ${e.message}`);
+        hourly = null; // try again on the next request
+        return [];
+      }),
+    };
+  }
+  return hourly.tokens;
+}

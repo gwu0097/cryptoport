@@ -519,7 +519,11 @@ wrong number. `valuation.ts`'s `Valuation` union (`{kind:"unpriced"}` vs
 `{kind:"priced"}`) makes "forgot to handle missing data" a type error.
 Unpriced holdings are counted and named, never dropped from totals silently;
 averages (`blendedChange`) exclude missing inputs rather than treating them as
-flat; the UI shows `—` or an explicit warning. Never fabricate placeholder data,
+flat; the UI shows `—` or an explicit warning. A liquid staking token's 24h change more than 5 points from
+its base coin's (or, without the base among the prices read, from the median of
+3+ staked tokens of that base) is a bad print, so it's unknown too
+(`stakedChangeCheck.ts`, applied in `getAssetStatsMap`; INF +11% while SOL −7%,
+2026-10-08 — the token list is read once an hour per instance). Never fabricate placeholder data,
 for guests included (§7).
 
 ### 4.2 Pricing: one price per asset
