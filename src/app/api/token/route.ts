@@ -54,8 +54,11 @@ export async function GET(request: NextRequest): Promise<Response> {
   const ticker = (s?.symbol ?? holdings[0]?.ticker ?? "").toUpperCase();
 
   // TradingView's chart when it lists the coin (the shared lookup every chart
-  // uses), else our own daily closes for the last 180 days.
-  const tv = /^[A-Z0-9]{1,20}$/.test(ticker) ? await resolveTradingViewSymbol(ticker).catch(() => null) : null;
+  // uses), else our own daily closes for the last 180 days. Only a CoinGecko
+  // coin is looked up there by ticker: a key with a source prefix (jup:,
+  // nearcom:, hl:…) is a coin TradingView's ticker would likely name wrongly
+  // (QTC → Crypto.com's QTCUSD, a different coin, 2026-10-09).
+  const tv = !key.includes(":") && /^[A-Z0-9]{1,20}$/.test(ticker) ? await resolveTradingViewSymbol(ticker).catch(() => null) : null;
   let closes: [string, number][] = [];
   if (!tv?.listed) {
     const { history } = await getPriceHistoryMap([{ ticker: ticker || key, source: "auto", contract: null, chain: null, coingecko_id: key, price_key: key }]);

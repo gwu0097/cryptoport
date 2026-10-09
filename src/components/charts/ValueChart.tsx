@@ -156,7 +156,7 @@ function Chart({ points, heightClass, fill, priceChart }: { points: ValueChartPo
               className={`text-sm font-medium tabular-nums ${change ? trendClass : "text-fg-muted"}`}
               title={change?.chained ? "Estimated and real portions linked by their own % moves; the step where real snapshots begin isn't counted" : undefined}
             >
-              {!change ? "—" : hidden ? formatPercent(change.pct) : `${formatUsdSigned(change.usd)} (${formatPercent(change.pct)})`}
+              {!change ? "—" : hidden ? formatPercent(change.pct) : `${priceChart ? `${change.usd >= 0 ? "+" : "-"}${formatPrice(Math.abs(change.usd))}` : formatUsdSigned(change.usd)} (${formatPercent(change.pct)})`}
               {change?.chained && "*"}
             </span>
           </>

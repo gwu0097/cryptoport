@@ -1103,13 +1103,14 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
 - **A token's name opens the token drawer** (owner 2026-10-09): wrap it in
   `components/token/TokenLink` with the coin's price_key — Dashboard movers,
   Assets, Portfolio and wallet holdings, Watchlist and Wallet Watch already
-  do. One drawer for the app (`TokenDrawerProvider` in the app layout,
-  `?token=<key>` in the URL, Back closes it) reads `api/token`
+  do. One drawer for the app (`TokenDrawerProvider` in the app layout;
+  plain state — closes on Esc, the backdrop or another page) reads `api/token`
   (`tokenOverview.ts`: the user's wallets holding it, price, contracts,
   watchlists — ~4 reads, guard `token` 600/h) and charts it with the one
   TradingView component (`TradingViewCompareChart`, its exchange picked by
-  TradingView's own symbol search, `tradingViewPick.ts`), else our daily
-  closes. A new table showing coins uses TokenLink, never plain text.
+  TradingView's own symbol search, `tradingViewPick.ts`; only for CoinGecko
+  coins — a `jup:`/`nearcom:`/`hl:` coin's ticker may name another coin
+  there), else our daily closes. A new table showing coins uses TokenLink, never plain text.
 - **Reuse UI primitives** before building one-offs: `Panel`, `PageHeader`,
   `GuestBanner`, `SignInPrompt`, `AuthButtons`, `ui/table.ts` classes,
   `buttonClass`, `SubmitButton`. Small presentational duplication beats a shared
