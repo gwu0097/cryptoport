@@ -31,12 +31,12 @@ test("merging never changes the inputs", () => {
 test("a merged row names every wallet it sums, each once (Portfolio's Show wallets), without changing the originals", () => {
   const base = { id: "a", wallet_id: "w1", ticker: "ETH", price_key: "ethereum", qty: 1, usd_override: null, source: "auto", contract: null, category: "token", chain: "base", icon_url: null } as unknown as Holding;
   const rows = [
-    { ...base, id: "1", wallets: ["Main"] },
-    { ...base, id: "2", qty: 2, wallets: ["Trading"] },
-    { ...base, id: "3", qty: 3, wallets: ["Main"] },
+    { ...base, id: "1", wallets: [{ id: "w1", name: "Main" }] },
+    { ...base, id: "2", qty: 2, wallets: [{ id: "w2", name: "Trading" }] },
+    { ...base, id: "3", qty: 3, wallets: [{ id: "w1", name: "Main" }] },
   ];
   const [merged] = mergeSameCoin(rows);
   assert.equal(merged.qty, 6);
-  assert.deepEqual(merged.wallets, ["Main", "Trading"]);
-  assert.deepEqual(rows[0].wallets, ["Main"]);
+  assert.deepEqual(merged.wallets?.map((w) => w.name), ["Main", "Trading"]);
+  assert.deepEqual(rows[0].wallets, [{ id: "w1", name: "Main" }]);
 });

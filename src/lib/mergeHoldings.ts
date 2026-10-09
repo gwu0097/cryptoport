@@ -7,7 +7,7 @@
 
 import type { Holding } from "./types.ts";
 
-export function mergeSameCoin<T extends Holding & { wallets?: string[] }>(holdings: readonly T[]): T[] {
+export function mergeSameCoin<T extends Holding & { wallets?: { id: string; name: string }[] }>(holdings: readonly T[]): T[] {
   const out: T[] = [];
   const merged = new Map<string, T>();
   for (const h of holdings) {
@@ -27,7 +27,7 @@ export function mergeSameCoin<T extends Holding & { wallets?: string[] }>(holdin
       cur.qty = (cur.qty as number) + (qty as number);
       if (cur.contract !== h.contract) cur.contract = null; // several contracts: none is "the" one
       // Every wallet it sums, each once.
-      for (const w of h.wallets ?? []) if (cur.wallets && !cur.wallets.includes(w)) cur.wallets.push(w);
+      for (const w of h.wallets ?? []) if (cur.wallets && !cur.wallets.some((x) => x.id === w.id)) cur.wallets.push(w);
     }
   }
   return out;

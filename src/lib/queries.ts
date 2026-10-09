@@ -489,7 +489,7 @@ export interface HoldingWithValuation extends Holding {
   /** The wallet(s) the row is from — set on Portfolio (owner 2026-10-09:
    * "show which wallets are in each token"); a merged row names every
    * wallet it sums. Absent on pages showing one wallet. */
-  wallets?: string[];
+  wallets?: { id: string; name: string }[];
 }
 
 export interface ChainGroup {
@@ -651,7 +651,7 @@ export async function getAssetsGroupedByChain(opts: { merge?: boolean; wallets?:
   // Each row's chain made explicit first, so merging never joins two wallets'
   // chain-less rows that sit on different chains.
   // Which wallet each row is from only when asked (Portfolio's "Show wallets").
-  const withChains = rows.flatMap((wallet) => wallet.holdings.map((h) => ({ ...h, chain: h.chain ?? defaultChainId(wallet.chain), ...(opts.wallets ? { wallets: [wallet.name] } : {}) })));
+  const withChains = rows.flatMap((wallet) => wallet.holdings.map((h) => ({ ...h, chain: h.chain ?? defaultChainId(wallet.chain), ...(opts.wallets ? { wallets: [{ id: wallet.id, name: wallet.name }] } : {}) })));
   const entries = (opts.merge ? mergeSameCoin(withChains) : withChains).map((holding) => ({
     holding: {
       ...holding,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingRow } from "@/lib/holdingRows";
 import { isSyncOwned } from "@/lib/types";
@@ -31,7 +32,7 @@ function sortValue(holding: HoldingRow, key: SortKey): number | string {
     case "category":
       return holding.category;
     case "wallet":
-      return (holding.wallets ?? []).join(", ").toLowerCase();
+      return (holding.wallets ?? []).map((w) => w.name).join(", ").toLowerCase();
     case "qty":
       return numeric(holding.qty);
     case "price":
@@ -361,13 +362,20 @@ export function HoldingsTable({
   );
 }
 
-/** One wallet's name, or "3 wallets" with the names on hover (a merged row). */
-function WalletsCell({ wallets }: { wallets?: string[] }) {
+/** The wallet, linked to its page; a merged row's "3 wallets" opens a list of
+ * them, each linked (owner 2026-10-09: "make the wallet linkable"). */
+function WalletsCell({ wallets }: { wallets?: { id: string; name: string }[] }) {
   if (!wallets?.length) return <>—</>;
-  if (wallets.length === 1) return <span className="block max-w-48 truncate" title={wallets[0]}>{wallets[0]}</span>;
+  const link = (w: { id: string; name: string }) => (
+    <Link key={w.id} href={`/wallets/${w.id}`} className="block max-w-48 truncate text-fg hover:text-accent hover:underline" title={`Open ${w.name}`}>
+      {w.name}
+    </Link>
+  );
+  if (wallets.length === 1) return link(wallets[0]);
   return (
-    <span className="cursor-help underline decoration-dotted underline-offset-2" title={wallets.join("\n")}>
-      {wallets.length} wallets
-    </span>
+    <details className="relative">
+      <summary className="cursor-pointer list-none text-fg hover:text-accent">{wallets.length} wallets ▾</summary>
+      <div className="absolute z-20 mt-1 flex min-w-40 flex-col gap-1 rounded-lg border border-border bg-surface p-2 shadow-lg">{wallets.map(link)}</div>
+    </details>
   );
 }
