@@ -29,6 +29,7 @@ import { refreshTokenRegistryIfStale, TOKEN_LIST_DAILY, TOKEN_LIST_WEEKLY } from
 import { refreshExchangeAssetsIfStale } from "@/lib/adapters/exchangeTickers";
 import { isEvmChainId } from "@/lib/adapters/evmChains";
 import { cleanAddressInput, evmAddressProblem } from "@/lib/addressInput";
+import { duplicateOf, type WalletKey } from "@/lib/walletDuplicates";
 import { NEARCOM, readAuthPayload } from "@/lib/nearIntents";
 import { fetchNearComHoldings, nearComAuthenticate, nearComChallenge } from "@/lib/adapters/nearcom";
 import type { AdapterHolding } from "@/lib/adapters/types";
@@ -161,6 +162,21 @@ function requireChainAndMode(formData: FormData): { chain: string; mode: WalletM
   return { chain, mode };
 }
 
+/** An address the user already has as an active wallet is refused — it would
+ * count twice in every total (walletDuplicates.ts). One request. */
+async function refuseDuplicate(db: Awaited<ReturnType<typeof userDb>>, chain: string, address: string | null, exceptId?: string): Promise<void> {
+  if (!address) return;
+  const { data, error } = await db.from("wallets").select("id, name, chain, address").eq("active", true).not("address", "is", null);
+  if (error) throw new Error(`Couldn't check for a duplicate wallet: ${error.message}`);
+  const rows = (data ?? []) as WalletKey[];
+  // An edit that keeps the wallet's own address isn't a new duplicate (a
+  // pair that predates this check can still be renamed).
+  const self = exceptId ? rows.find((w) => w.id === exceptId) : undefined;
+  if (self && duplicateOf({ chain, address }, [self], isEvmChainId)) return;
+  const dupe = duplicateOf({ chain, address }, rows, isEvmChainId, exceptId);
+  if (dupe) throw new Error(`That address is already added as "${dupe.name}" — it would be counted twice. Edit or delete that wallet instead.`);
+}
+
 export async function createWallet(formData: FormData) {
   await requireUser();
   const name = requireString(formData, "name");
@@ -172,6 +188,7 @@ export async function createWallet(formData: FormData) {
   // db/schema.sql), so this insert only ever creates a row owned by
   // whoever's session userDb() is bound to.
   const db = await userDb();
+  await refuseDuplicate(db, chain, address);
   const { data, error } = await db.from("wallets").insert({ name, chain, mode, address }).select("id").single();
   if (error) throw new Error(`Failed to create wallet: ${error.message}`);
   await replaceWalletTags(data.id, tagIds);
@@ -220,6 +237,7 @@ export async function updateWallet(walletId: string, formData: FormData) {
   }
 
   const db = await userDb();
+  if (update.address !== undefined && update.chain) await refuseDuplicate(db, update.chain, update.address, walletId);
   const { error } = await db.from("wallets").update(update).eq("id", walletId);
   if (error) throw new Error(`Failed to update wallet: ${error.message}`);
   await replaceWalletTags(walletId, tagIds);
