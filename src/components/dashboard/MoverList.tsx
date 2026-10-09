@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TokenLink } from "@/components/token/TokenLink";
 import Link from "next/link";
 import { ChevronRight, TrendingUp, BookOpen, ExternalLink } from "lucide-react";
 import { formatUsd, formatPercent } from "@/lib/format";
@@ -123,8 +124,10 @@ export function MoverRows({ items }: { items: MoverItem[] }) {
             // always on a phone.
             <li key={item.key} className="group relative flex items-center gap-2">
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                <TokenIcon ticker={item.ticker} url={item.iconUrl} />
-                <span className="max-w-[7rem] shrink-0 truncate text-sm font-medium text-fg">{item.ticker}</span>
+                <TokenLink tokenKey={item.key} className="flex min-w-0 shrink-0 items-center gap-2">
+                  <TokenIcon ticker={item.ticker} url={item.iconUrl} />
+                  <span className="max-w-[7rem] shrink-0 truncate text-sm font-medium text-fg">{item.ticker}</span>
+                </TokenLink>
                 {item.coingeckoId && <CopyCoinContract priceKey={item.coingeckoId} ticker={item.ticker} />}
                 <MoverHoldingValue usd={item.holdingValueUsd} />
               </div>

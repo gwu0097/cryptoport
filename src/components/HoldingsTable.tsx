@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenLink } from "@/components/token/TokenLink";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, ChevronsUpDown, ExternalLink, Trash } from "lucide-react";
 import type { HoldingRow } from "@/lib/holdingRows";
@@ -278,7 +279,7 @@ export function HoldingsTable({
                 <TokenIcon ticker={holding.ticker} url={holding.icon_url} />
                 <div className="flex flex-col">
                   <span className="inline-flex items-center gap-1.5">
-                    {holding.display_label ?? formatTicker(holding.ticker)}
+                    <TokenLink tokenKey={holding.price_key}>{holding.display_label ?? formatTicker(holding.ticker)}</TokenLink>
                     <CopyButton
                       value={holding.contract ?? holding.ticker}
                       label={holding.contract ? "Copy contract address" : "Copy ticker"}

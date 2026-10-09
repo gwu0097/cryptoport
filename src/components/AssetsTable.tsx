@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenLink } from "@/components/token/TokenLink";
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ChevronDown, ExternalLink, Search, TrendingUp, BookOpen } from "lucide-react";
@@ -338,7 +339,7 @@ export function AssetsTable({ groups, total, initialSort }: { groups: AssetGroup
                         <TokenIcon ticker={group.ticker} url={group.iconUrl} />
                         <div>
                           <div className="flex items-center gap-1.5 font-medium text-fg">
-                            {group.ticker}
+                            <TokenLink tokenKey={group.tickerKey}>{group.ticker}</TokenLink>
                             <GroupCopy group={group} />
                           </div>
                           {group.combinedTickers && (

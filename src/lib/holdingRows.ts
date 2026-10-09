@@ -9,6 +9,8 @@ import type { AssetGroup, AssetHoldingEntry, HoldingWithValuation } from "./quer
 const HOLDING_ROW_FIELDS = [
   "id",
   "ticker",
+  // The coin, for the token drawer (TokenLink).
+  "price_key",
   "display_label",
   "icon_url",
   "source",

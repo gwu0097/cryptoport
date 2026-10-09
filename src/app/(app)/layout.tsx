@@ -1,3 +1,4 @@
+import { TokenDrawerProvider } from "@/components/token/TokenDrawerProvider";
 import { AppShell } from "@/components/layout/AppShell";
 import { JobPollerProvider } from "@/components/jobs/JobPoller";
 import { SyncQueueProvider } from "@/components/jobs/SyncQueue";
@@ -35,9 +36,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <JobPollerProvider>
         <SyncQueueProvider>
         <HideBalanceProvider>
-          <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null} isAdmin={isAdmin}>
-            {children}
-          </AppShell>
+          {/* The token drawer (click a token anywhere) — only for a signed-in user. */}
+          {user ? (
+            <TokenDrawerProvider>
+              <AppShell userEmail={(user && walletDisplayName(user)) ?? user?.email ?? null} isAdmin={isAdmin}>
+                {children}
+              </AppShell>
+            </TokenDrawerProvider>
+          ) : (
+            <AppShell userEmail={null} isAdmin={isAdmin}>
+              {children}
+            </AppShell>
+          )}
         </HideBalanceProvider>
         </SyncQueueProvider>
       </JobPollerProvider>

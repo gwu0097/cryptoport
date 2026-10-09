@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenLink } from "@/components/token/TokenLink";
 import { Fragment, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Search, X, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
@@ -232,7 +233,7 @@ export function WatchlistTable({ items, initialSort }: { items: WatchlistRow[]; 
                           <TokenIcon ticker={row.ticker} url={row.imageUrl} />
                           <div>
                             <div className="flex items-center gap-1 font-medium text-fg">
-                              {row.ticker}
+                              <TokenLink tokenKey={row.coingeckoId}>{row.ticker}</TokenLink>
                               <CoinContractCopy ticker={row.ticker} contracts={row.contracts} />
                             </div>
                             <div className="text-xs text-fg-muted">{row.name}</div>

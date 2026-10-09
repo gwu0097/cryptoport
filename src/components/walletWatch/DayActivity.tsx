@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenLink } from "@/components/token/TokenLink";
 import { createContext, useCallback, useContext, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -297,7 +298,7 @@ function CoinRows({ c, isNew, showNames, serverNowSec, nested = false }: { c: Wa
         )}
         <td className={tdClass}>
           {!showNames && isNew && <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">new</span>}
-          <span className="font-semibold text-fg">{c.ticker}</span>
+          <TokenLink tokenKey={c.priceKey} className="font-semibold text-fg">{c.ticker}</TokenLink>
           {c.contract && (
             <span className="ml-1 inline-flex align-middle">
               <CopyButton value={c.contract} label={`Copy ${c.ticker} contract`} title={`Copy ${c.ticker}'s contract${c.contractChain ? ` (${c.contractChain})` : ""}: ${c.contract}`} />

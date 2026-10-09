@@ -264,6 +264,10 @@ export const UNLISTED_HOSTS: { reason: string; hosts: string[] }[] = [
     hosts: ["s3.tradingview.com", "coin360.com"],
   },
   {
+    reason: "TradingView's public symbol search: which exchange lists a coin, for its chart (one call per ticker a day, cached; unofficial — a refusal falls back to Binance/MEXC)",
+    hosts: ["symbol-search.tradingview.com", "www.tradingview.com"],
+  },
+  {
     reason: "A link shown to the user (explorers, apps, docs, news) — never called",
     hosts: [
       "www.coingecko.com", "fomo.family", "dexscreener.com", "www.mintscan.io", "jup.ag", "x.com", "governance.aave.com", "dashboard.sei.io", "crypto.news", "coinalertnews.com", "cryptoticker.io",

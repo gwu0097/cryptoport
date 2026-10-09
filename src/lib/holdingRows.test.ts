@@ -18,7 +18,8 @@ test("a table row keeps what the table shows and drops the rest", () => {
   assert.equal(row.change24h, 1.5);
   assert.equal("wallet_id" in row, false);
   assert.equal("updated_at" in row, false);
-  assert.equal("price_key" in row, false);
+  // The coin the token drawer opens (TokenLink), since 2026-10-09.
+  assert.equal("price_key" in row, true);
 });
 
 test("an asset group keeps its own fields; its holdings keep the expanded row's", () => {

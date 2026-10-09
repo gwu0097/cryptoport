@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
+import { formatPrice, formatUsd, formatUsdSigned, formatPercent } from "@/lib/format";
 import { scalePoints, linePath, areaPath, sliceToRange, rangeChange, CHART_RANGES, type ChartRangeKey } from "@/lib/chart";
 import { usePersistedState } from "../usePersistedState";
 import { useHideBalance } from "../HideBalanceProvider";
@@ -65,6 +65,7 @@ export function ValueChart({
   emptyRangeMessage = "Not enough data in this range yet — try a wider one.",
   heightClass = "h-52",
   fill = false,
+  priceChart = false,
 }: {
   points: ValueChartPoint[];
   rangeStorageKey: string;
@@ -74,6 +75,9 @@ export function ValueChart({
   /** Grow to fill the parent's height (a dashboard card) instead of a
    * fixed plot height; the parent must be a flex column with a height. */
   fill?: boolean;
+  /** A coin's price (the token drawer), not the user's money: never masked
+   * in privacy mode, and small prices keep their digits. */
+  priceChart?: boolean;
 }) {
   const [range, setRange] = usePersistedState<ChartRangeKey>(rangeStorageKey, "90d");
   const rangeDays = CHART_RANGES.find((r) => r.key === range)?.days ?? 90;
@@ -91,14 +95,16 @@ export function ValueChart({
       {sliced.length < 2 ? (
         <p className="mt-4 text-sm text-fg-muted">{emptyRangeMessage}</p>
       ) : (
-        <Chart points={sliced} heightClass={heightClass} fill={fill} />
+        <Chart points={sliced} heightClass={heightClass} fill={fill} priceChart={priceChart} />
       )}
     </div>
   );
 }
 
-function Chart({ points, heightClass, fill }: { points: ValueChartPoint[]; heightClass: string; fill: boolean }) {
-  const { hidden } = useHideBalance();
+function Chart({ points, heightClass, fill, priceChart }: { points: ValueChartPoint[]; heightClass: string; fill: boolean; priceChart: boolean }) {
+  const { hidden: masked } = useHideBalance();
+  const hidden = masked && !priceChart;
+  const money = (n: number) => (priceChart ? formatPrice(n) : formatUsd(n));
 
   const coords = scalePoints(
     points.map((p) => p.total),
@@ -136,7 +142,7 @@ function Chart({ points, heightClass, fill }: { points: ValueChartPoint[]; heigh
         {hovered ? (
           <>
             <span className="text-2xl font-semibold tabular-nums text-fg">
-              {hidden ? "••••••" : formatUsd(hovered.total)}
+              {hidden ? "••••••" : money(hovered.total)}
             </span>
             <span className="text-sm font-medium text-fg-muted">
               {longDate(hovered.date)}
@@ -145,7 +151,7 @@ function Chart({ points, heightClass, fill }: { points: ValueChartPoint[]; heigh
           </>
         ) : (
           <>
-            <span className="text-2xl font-semibold tabular-nums text-fg">{hidden ? "••••••" : formatUsd(last)}</span>
+            <span className="text-2xl font-semibold tabular-nums text-fg">{hidden ? "••••••" : money(last)}</span>
             <span
               className={`text-sm font-medium tabular-nums ${change ? trendClass : "text-fg-muted"}`}
               title={change?.chained ? "Estimated and real portions linked by their own % moves; the step where real snapshots begin isn't counted" : undefined}

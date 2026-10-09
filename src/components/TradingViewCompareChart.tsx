@@ -10,8 +10,8 @@ import { tradingViewTimeZone } from "@/lib/timezone";
  * overlay — the two tickers' price action normalized to % change on one
  * chart, so you can see whether a "lagging" peer actually moved early or
  * is genuinely behind, rather than trusting a single correlation/24h-change
- * number. Each ticker's exchange is resolved first (/api/tv-symbol: Binance
- * if it lists the USDT pair, else MEXC, else the Binance guess — see
+ * number. Each ticker's exchange is resolved first (/api/tv-symbol: TradingView's
+ * own symbol search, the biggest exchange with a spot pair — see
  * adapters/exchangeListings.ts); `allow_symbol_change` in the widget config
  * still lets either side be corrected by hand inside the chart.
  *
@@ -26,9 +26,17 @@ export function TradingViewCompareChart({
   baseTicker,
   compareTicker,
   height = 600,
+  interval = "60",
+  compact = false,
 }: {
   baseTicker: string;
-  compareTicker: string;
+  /** The coin overlaid on the base (and BTC as a baseline); absent = one coin
+   * alone (the token drawer, owner 2026-10-09: one chart module, reused). */
+  compareTicker?: string;
+  /** TradingView's interval code: "60" (1h), "240", "D"… */
+  interval?: string;
+  /** No footer note (a small panel). */
+  compact?: boolean;
   /** Reported directly: the old 420px default was too cramped to read
    * price action clearly, especially with two overlaid lines' legends. */
   height?: number;
@@ -40,14 +48,14 @@ export function TradingViewCompareChart({
   // (on failure the Binance guesses are used, same as before this existed).
   // Tagged with the pair it was resolved for, so a stale answer for the
   // previous pair is never used (no synchronous reset inside the effect).
-  const pairKey = `${baseTicker}|${compareTicker}`;
+  const pairKey = `${baseTicker}|${compareTicker ?? ""}`;
   const [resolved, setResolved] = useState<{ key: string; map: Record<string, string> } | null>(null);
   const symbols = resolved?.key === pairKey ? resolved.map : null;
 
   useEffect(() => {
     let cancelled = false;
-    const key = `${baseTicker}|${compareTicker}`;
-    const tickers = [...new Set([baseTicker, compareTicker, "BTC"].map((t) => t.toUpperCase()))];
+    const key = `${baseTicker}|${compareTicker ?? ""}`;
+    const tickers = [...new Set((compareTicker ? [baseTicker, compareTicker, "BTC"] : [baseTicker]).map((t) => t.toUpperCase()))];
     const fallback = Object.fromEntries(tickers.map((t) => [t, guessTradingViewSymbol(t)]));
     fetch(`/api/tv-symbol?${tickers.map((t) => `t=${encodeURIComponent(t)}`).join("&")}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
@@ -78,9 +86,7 @@ export function TradingViewCompareChart({
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.async = true;
 
-    const compareSymbols: { symbol: string; position: string; linestyle?: number }[] = [
-      { symbol: sym(compareTicker), position: "SameScale" },
-    ];
+    const compareSymbols: { symbol: string; position: string; linestyle?: number }[] = compareTicker ? [{ symbol: sym(compareTicker), position: "SameScale" }] : [];
     // BTC as a always-on baseline, dashed to read as "the market," not a
     // third thing being compared — skipped when either side already IS
     // BTC, since overlaying it against itself is meaningless. linestyle:2
@@ -89,7 +95,7 @@ export function TradingViewCompareChart({
     // constructor, not confirmed for this free embed widget's compare
     // config — if the embed silently ignores the field, BTC still shows as
     // a solid third line, which is still a real, useful baseline.
-    if (baseTicker.toUpperCase() !== "BTC" && compareTicker.toUpperCase() !== "BTC") {
+    if (compareTicker && baseTicker.toUpperCase() !== "BTC" && compareTicker.toUpperCase() !== "BTC") {
       compareSymbols.push({ symbol: sym("BTC"), position: "SameScale", linestyle: 2 });
     }
 
@@ -107,7 +113,7 @@ export function TradingViewCompareChart({
       height,
       symbol: sym(baseTicker),
       compareSymbols,
-      interval: "60",
+      interval,
       // The user's display timezone, if TradingView's widget supports it (else UTC — see tradingViewTimeZone).
       timezone: tradingViewTimeZone(tz),
       theme: "dark",
@@ -118,16 +124,18 @@ export function TradingViewCompareChart({
       hide_legend: false,
     });
     container.appendChild(script);
-  }, [baseTicker, compareTicker, height, tz, symbols]);
+  }, [baseTicker, compareTicker, height, interval, tz, symbols]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="tradingview-widget-container" ref={containerRef} style={{ height }} />
-      <p className="border-t border-border bg-surface-raised px-3 py-1.5 text-[11px] text-fg-muted">
-        Each ticker&rsquo;s USDT pair on Binance if listed there, otherwise MEXC — use the chart&rsquo;s own symbol
-        search (top-left) to correct either side if it&rsquo;s the wrong token or unlisted. BTC is overlaid (dashed, if
-        the chart honors that) as a market baseline.
-      </p>
+      {!compact && (
+        <p className="border-t border-border bg-surface-raised px-3 py-1.5 text-[11px] text-fg-muted">
+          Each ticker on the biggest exchange TradingView lists it on (a USDT, USD or USDC spot pair) — use the
+          chart&rsquo;s own symbol search (top-left) to correct either side if it&rsquo;s the wrong token.
+          {compareTicker && " BTC is overlaid (dashed, if the chart honors that) as a market baseline."}
+        </p>
+      )}
     </div>
   );
 }
