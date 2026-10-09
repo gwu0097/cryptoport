@@ -18,6 +18,7 @@ const HOLDING_ROW_FIELDS = [
   "price",
   "change24h",
   "valuation",
+  "wallets",
   "usd_override",
   "protocol",
   "protocol_url",

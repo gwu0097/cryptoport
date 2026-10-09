@@ -486,6 +486,10 @@ export interface HoldingWithValuation extends Holding {
   /** The holding's asset's 24h change (asset_prices, by price_key). Null,
    * not 0, when it has none (a position, an unmapped token). */
   change24h: number | null;
+  /** The wallet(s) the row is from — set on Portfolio (owner 2026-10-09:
+   * "show which wallets are in each token"); a merged row names every
+   * wallet it sums. Absent on pages showing one wallet. */
+  wallets?: string[];
 }
 
 export interface ChainGroup {
@@ -640,13 +644,14 @@ export interface AssetsResult {
 /** Every holding across every active wallet, grouped by chain rather than by wallet. */
 /** `merge`: one row per coin per chain across wallets (mergeHoldings.ts);
  * totals are the same either way. */
-export async function getAssetsGroupedByChain(opts: { merge?: boolean } = {}): Promise<AssetsResult> {
+export async function getAssetsGroupedByChain(opts: { merge?: boolean; wallets?: boolean } = {}): Promise<AssetsResult> {
   if (!(await getUser())) return { groups: [], grand: aggregate([], {}) };
   const [rows, prices, assetStats] = await Promise.all([getActiveWalletsWithHoldings(), getPriceMap(), getAssetStatsMap()]);
 
   // Each row's chain made explicit first, so merging never joins two wallets'
   // chain-less rows that sit on different chains.
-  const withChains = rows.flatMap((wallet) => wallet.holdings.map((h) => ({ ...h, chain: h.chain ?? defaultChainId(wallet.chain) })));
+  // Which wallet each row is from only when asked (Portfolio's "Show wallets").
+  const withChains = rows.flatMap((wallet) => wallet.holdings.map((h) => ({ ...h, chain: h.chain ?? defaultChainId(wallet.chain), ...(opts.wallets ? { wallets: [wallet.name] } : {}) })));
   const entries = (opts.merge ? mergeSameCoin(withChains) : withChains).map((holding) => ({
     holding: {
       ...holding,

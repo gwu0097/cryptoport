@@ -7,9 +7,9 @@
 
 import type { Holding } from "./types.ts";
 
-export function mergeSameCoin(holdings: readonly Holding[]): Holding[] {
-  const out: Holding[] = [];
-  const merged = new Map<string, Holding>();
+export function mergeSameCoin<T extends Holding & { wallets?: string[] }>(holdings: readonly T[]): T[] {
+  const out: T[] = [];
+  const merged = new Map<string, T>();
   for (const h of holdings) {
     const qty = typeof h.qty === "string" ? Number(h.qty) : h.qty;
     const mergeable = !!h.price_key && h.category === "token" && !h.position_side && h.usd_override == null && qty != null && Number.isFinite(qty);
@@ -20,12 +20,14 @@ export function mergeSameCoin(holdings: readonly Holding[]): Holding[] {
     const key = `${h.chain ?? ""}|${h.price_key}`;
     const cur = merged.get(key);
     if (!cur) {
-      const first = { ...h, qty };
+      const first = { ...h, qty, ...(h.wallets ? { wallets: [...h.wallets] } : {}) };
       merged.set(key, first);
       out.push(first);
     } else {
       cur.qty = (cur.qty as number) + (qty as number);
       if (cur.contract !== h.contract) cur.contract = null; // several contracts: none is "the" one
+      // Every wallet it sums, each once.
+      for (const w of h.wallets ?? []) if (cur.wallets && !cur.wallets.includes(w)) cur.wallets.push(w);
     }
   }
   return out;

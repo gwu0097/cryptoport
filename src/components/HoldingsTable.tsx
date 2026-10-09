@@ -13,7 +13,7 @@ import { CopyButton } from "./CopyButton";
 import { usePersistedState } from "./usePersistedState";
 import { updateHolding, deleteHolding } from "@/app/(app)/wallets/actions";
 
-type SortKey = "ticker" | "qty" | "price" | "change24h" | "value" | "category";
+type SortKey = "ticker" | "wallet" | "qty" | "price" | "change24h" | "value" | "category";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 const STORAGE_KEY = "cryptoport:holdingsSort";
@@ -30,6 +30,8 @@ function sortValue(holding: HoldingRow, key: SortKey): number | string {
       return holding.ticker;
     case "category":
       return holding.category;
+    case "wallet":
+      return (holding.wallets ?? []).join(", ").toLowerCase();
     case "qty":
       return numeric(holding.qty);
     case "price":
@@ -219,6 +221,8 @@ export function HoldingsTable({
     setSort(key === sortKey ? { key, dir: sortDir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
   }
 
+  // Portfolio's rows say which wallet(s) they're from; one wallet's page doesn't.
+  const showWallets = holdings.some((h) => (h.wallets?.length ?? 0) > 0);
   const sorted = [...holdings].sort((a, b) => {
     const av = sortValue(a, sortKey);
     const bv = sortValue(b, sortKey);
@@ -235,6 +239,7 @@ export function HoldingsTable({
       <thead>
         <tr className={theadRowClass}>
           <Header label="Ticker" sortKeyValue="ticker" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+          {showWallets && <Header label="Wallet" sortKeyValue="wallet" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={hideOnMobileClass} />}
           <Header
             label="Qty"
             sortKeyValue="qty"
@@ -291,6 +296,11 @@ export function HoldingsTable({
                 </div>
               </div>
             </td>
+            {showWallets && (
+              <td className={`${tdClass} ${hideOnMobileClass} text-fg-muted`}>
+                <WalletsCell wallets={holding.wallets} />
+              </td>
+            )}
             <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>{formatQty(holding.qty)}</td>
             <td className={`${tdClass} tabular-nums`}>
               {/* manual_usd holdings have no meaningful per-unit price — a
@@ -348,5 +358,16 @@ export function HoldingsTable({
       </tbody>
     </table>
     </div>
+  );
+}
+
+/** One wallet's name, or "3 wallets" with the names on hover (a merged row). */
+function WalletsCell({ wallets }: { wallets?: string[] }) {
+  if (!wallets?.length) return <>—</>;
+  if (wallets.length === 1) return <span className="block max-w-48 truncate" title={wallets[0]}>{wallets[0]}</span>;
+  return (
+    <span className="cursor-help underline decoration-dotted underline-offset-2" title={wallets.join("\n")}>
+      {wallets.length} wallets
+    </span>
   );
 }
