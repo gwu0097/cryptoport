@@ -401,24 +401,26 @@ opened" — run from the Mac mini (owner: no Vercel or Supabase per poll).
   Opens and closes ping (owner 2026-10-08: "when a position is closed, tag
   me"); adds, trims and flips don't. A trader's first read sets the baseline; nothing
   posts for it.
-- **What each card says** (owner 2026-10-08: "core information… a table…
-  lines between… not crunched up"; "put held and the links on the 2nd row"):
-  a one-line title — kind, the trader's short name, coin, side and leverage,
-  the headline number — coloured by kind (green open, blue add, amber trim, green/red close by result, purple
-  flip); a small grey subline (`-#`) with the name's note ("15 h holds" — never the name twice), time held,
-  and the HyperDash · Chart links; then a text table in an ```ansi block (`alerts.ts` `table`): a
-  header row, a rule, the values, columns divided by " │ " and crossing at
-  "┼", the P/L in red/green (desktop; the mobile app shows it uncoloured).
-  Six columns at most, ~58 characters, so a row stays on one line:
-  - open: Entry · Size · % Acct · Liq · TP · SL;
-  - add / trim: Added or Sold · Price · Size · % Acct · Avg entry · P/L;
-  - close: Entry · Exit · Move · P/L (on margin) · $ P/L · % Acct — the whole
-    position since it opened;
-  - flip: the old side's P/L · $ P/L · Entry · Size · % Acct.
+- **What each card says** (owner 2026-10-08: "core information… a table";
+  2026-10-09: the image card, the text table was harder to read): a title
+  line — kind, trader, coin and side, the headline number — coloured by kind
+  (green open, blue add, amber trim, green/red close by result, purple
+  flip), the HyperDash · Chart links, then an **image card**: the values in a
+  real table (label over value, rows of 4 columns, P/L coloured), drawn on
+  the Mac mini by next's bundled @vercel/og (`scripts/perp-alert-card.ts`;
+  ~3 ms a card, ~50 ms the first; no network, no tokens) at 800 px so it reads
+  at the ~400 px Discord shows it. Columns:
+  - open: Entry · Size · Lev · Liq · TP · SL · % Acct;
+  - add / trim: Added or Sold · Price · Size · % Acct · Lev · Avg entry · P/L ·
+    Held;
+  - close: Entry · Exit · Move · Lev · P/L (on margin) · $ P/L · % Acct · Held —
+    the whole position since it opened;
+  - flip: Closed · P/L · $ P/L · New · Lev · Entry · Size · % Acct.
 
-  An image card with a real table was tried and dropped the same day: at
-  the ~400 px Discord shows an embed's image it was either unreadable or
-  too tall.
+  If the image can't be drawn or Discord refuses it, the same values post as
+  a text table. A text-only lined table (```ansi, " │ " columns) was tried and
+  dropped: harder to read.
+
   The account value (`portfolio`) is read only when a card posts, kept 10
   minutes per trader. When a position was opened is known if the script
   saw it open. Otherwise it's found in the trader's latest 2,000 fills

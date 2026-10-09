@@ -421,12 +421,14 @@ owner's.
     `perpScout/alerts.ts`): opened, closed with its result, flipped, and
     adds/trims once 25% from the last alert. Never per fill. Opens and
     closes ping the role (owner 2026-10-08); the rest post silently.
-    Each card is a one-line title coloured by kind (short trader name,
-    coin, side, leverage, result), a small subline (the name's note, time held,
-    links), then a text table in an ```ansi block (`alerts.ts` `table`: header,
-    rule, values divided by " │ ", P/L red/green); a close's result covers
-    the whole position since it opened. (An image card was tried and dropped:
-    unreadable or too tall at Discord's size.)
+    Each card is a title line coloured by kind, the HyperDash · Chart links,
+    then an image card with the values in a real table
+    (`scripts/perp-alert-card.ts`, next's bundled @vercel/og, ~3 ms, no
+    network; 800 px wide, rows of 4 columns, readable at Discord's ~400 px) —
+    the text table (`alerts.ts` `table`) if it can't be drawn or sent; a
+    close's result covers the whole position since it opened. (A text-only
+    lined table was tried 2026-10-08 and dropped by the owner 2026-10-09:
+    harder to read.)
   - Safeguards: 10 messages per trader an hour, a lock file for one
     instance, and a failed read keeps the last book.
   - After changing the list in code, restart it (`launchctl kickstart -k`).

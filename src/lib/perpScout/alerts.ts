@@ -183,14 +183,36 @@ export interface AlertMessage {
    * position"; 2026-10-08: "when a position is closed, tag me"). Adds, trims
    * and flips post silently. */
   ping: boolean;
+  /** The text card (its description is the labeled table — what posts when
+   * the image can't be drawn). */
   embed: { title: string; url: string; description: string; color: number };
+  /** The same values for the image card (alertCardImage.ts), and the links
+   * that sit under it. */
+  card: AlertCard;
+  links: string;
 }
 
-/** One column of the table: its label and value; a tone colours the value. */
+/** One column of a card: its label and value; a tone colours the value. */
 export interface CardCell {
   label: string;
   value: string;
   tone?: "pos" | "neg" | "muted";
+}
+
+/** What the image card shows (owner 2026-10-08: "more polished… a table"). */
+export interface AlertCard {
+  /** "OPENED", "CLOSED · WIN"… — small, in the accent colour. */
+  kind: string;
+  /** The accent (hex), the same colour as the embed. */
+  accent: string;
+  /** "PYTH LONG". */
+  title: string;
+  /** The big number on the right and its tone. */
+  headline: string;
+  headTone: "pos" | "neg" | "plain";
+  /** The trader, then held time / leverage. */
+  sub: string;
+  cells: CardCell[];
 }
 
 const GREEN = 0x22c55e;
@@ -226,59 +248,51 @@ function heldCell(ctx: AlertContext): string {
   return "—";
 }
 
-/** ANSI colours Discord renders in an ```ansi block (desktop; the mobile app
- * shows the same text uncoloured). */
-const ANSI = { pos: "\u001b[0;32m", neg: "\u001b[0;31m", muted: "\u001b[0;30m", reset: "\u001b[0m" } as const;
-
-/** The table (owner 2026-10-08: "a table… lines between… letters not
- * crunched up"): a header row, a rule, the values — columns divided by " │ ",
- * the rule crossing at "┼"; the P/L coloured. Padding is measured on the
- * text alone (the colour codes take no width). */
-export function table(cells: readonly CardCell[]): string {
-  const widths = cells.map((c) => Math.max(c.label.length, c.value.length));
-  const header = cells.map((c, i) => c.label.padEnd(widths[i])).join(" │ ").trimEnd();
-  const rule = widths.map((w) => "─".repeat(w)).join("─┼─");
-  const values = cells
-    .map((c, i) => {
-      const text = i === cells.length - 1 ? c.value : c.value.padEnd(widths[i]);
-      return c.tone ? `${ANSI[c.tone]}${text}${ANSI.reset}` : text;
-    })
-    .join(" │ ");
-  return "```ansi\n" + header + "\n" + rule + "\n" + values + "\n```";
+/** One labeled row: a header and its values, columns padded to line up
+ * (owner 2026-10-08: "a table format, each value clear"). */
+export function table(columns: readonly [string, string][]): string {
+  const widths = columns.map(([h, v]) => Math.max(h.length, v.length));
+  const row = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
+  return "```\n" + row(columns.map(([h]) => h)) + "\n" + row(columns.map(([, v]) => v)) + "\n```";
 }
 
 /** A position's size at today's price, from the size last alerted. */
 const valueOf = (szi: number, now: ReadPosition) => (now.notionalUsd && now.szi ? Math.abs(szi) * (now.notionalUsd / Math.abs(now.szi)) : null);
-const toneOf = (x: number | null | undefined): CardCell["tone"] => (x === null || x === undefined || !Number.isFinite(x) || x === 0 ? undefined : x > 0 ? "pos" : "neg");
 
-/** The Discord card for a change: a title line — kind, trader, coin, side
- * and leverage, the headline number, how long it's been held — then the
- * table. Colours: green open, blue add, amber trim, green/red close by
- * result, purple flip. Six columns at most, so a row stays on one line in
- * the embed. */
+const toneOf = (x: number | null | undefined): CardCell["tone"] => (x === null || x === undefined || !Number.isFinite(x) || x === 0 ? undefined : x > 0 ? "pos" : "neg");
+const hex = (n: number) => `#${n.toString(16).padStart(6, "0")}`;
+
+/** The Discord card for a change: a title line (kind, trader, coin, the
+ * headline number), then the values — drawn as an image card with a real
+ * table (alertCardImage.ts), or as one labeled text row when it can't be.
+ * Colours: green open, blue add, amber trim, green/red close by result,
+ * purple flip. */
 export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
-  // The title fits one line (owner 2026-10-08): the trader's short name —
-  // "Swing 95da (15 h holds)" → "Swing 95da"; the full one is in the subline.
-  const who = ctx.traderName.replace(/\s*\([^)]*\)\s*$/, "") || ctx.traderName;
+  const who = ctx.traderName;
   const url = `https://hyperdash.com/trader/${ctx.address}`;
+  const coinSide = `${change.coin} ${SIDE[change.side]}`;
+  const head = (emoji: string, kind: string, tail = "") => `${emoji} ${kind} · ${who} · ${coinSide}${tail}`;
   const held = heldCell(ctx);
-  const lev = (x: number | null | undefined) => (x ? ` ${levText(x)}` : "");
   let title: string;
   let color: number;
   let cells: CardCell[];
+  let card: Omit<AlertCard, "accent" | "cells">;
   switch (change.kind) {
     case "opened": {
       const n = change.now;
-      title = `🟢 OPEN · ${who} · ${change.coin} ${SIDE[change.side]}${lev(n.leverage)}`;
+      const acct = share(n.notionalUsd, ctx.accountValue);
+      title = head("🟢", "OPEN");
       color = GREEN;
       cells = [
         { label: "Entry", value: price(n.entryPx) },
         { label: "Size", value: usd(n.notionalUsd) },
-        { label: "% Acct", value: share(n.notionalUsd, ctx.accountValue) },
+        { label: "Lev", value: levText(n.leverage) },
         { label: "Liq", value: price(n.liquidationPx) },
-        { label: "TP", value: ctx.tpsl ? (ctx.tpsl.tp === null ? "none" : price(ctx.tpsl.tp)) : "—", tone: ctx.tpsl?.tp ? "pos" : undefined },
-        { label: "SL", value: ctx.tpsl ? (ctx.tpsl.sl === null ? "none" : price(ctx.tpsl.sl)) : "—", tone: ctx.tpsl?.sl ? "neg" : undefined },
+        { label: "TP", value: ctx.tpsl ? (ctx.tpsl.tp === null ? "none" : price(ctx.tpsl.tp)) : "—", tone: ctx.tpsl?.tp ? "pos" : "muted" },
+        { label: "SL", value: ctx.tpsl ? (ctx.tpsl.sl === null ? "none" : price(ctx.tpsl.sl)) : "—", tone: ctx.tpsl?.sl ? "neg" : "muted" },
+        { label: "% Acct", value: acct },
       ];
+      card = { kind: "OPENED", title: coinSide, headline: acct === "—" ? usd(n.notionalUsd) : `${acct} of acct`, headTone: "plain", sub: `${who} · ${levText(n.leverage)}` };
       break;
     }
     case "added":
@@ -287,16 +301,19 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       const moved = before !== null && change.now.notionalUsd !== null ? change.now.notionalUsd - before : null;
       const step = Math.abs(change.was.alertedSzi) > 0 ? (Math.abs(change.now.szi) - Math.abs(change.was.alertedSzi)) / Math.abs(change.was.alertedSzi) : null;
       const added = change.kind === "added";
-      title = `${added ? "🔵 ADD" : "🟠 TRIM"} · ${who} · ${change.coin} ${SIDE[change.side]}${lev(change.now.leverage)} · ${pct(step)}`;
+      title = head(added ? "🔵" : "🟠", added ? "ADD" : "TRIM", ` · ${pct(step)}`);
       color = added ? BLUE : AMBER;
       cells = [
         { label: added ? "Added" : "Sold", value: usd(moved, true) },
         { label: "Price", value: price(added ? ctx.addPx : ctx.result?.exitPx) },
         { label: "Size", value: usd(change.now.notionalUsd) },
         { label: "% Acct", value: share(change.now.notionalUsd, ctx.accountValue) },
+        { label: "Lev", value: levText(change.now.leverage) },
         { label: "Avg entry", value: price(change.now.entryPx) },
         { label: "P/L", value: pct(change.now.roe), tone: toneOf(change.now.roe) },
+        { label: "Held", value: held },
       ];
+      card = { kind: added ? "ADDED" : "TRIMMED", title: coinSide, headline: pct(step), headTone: "plain", sub: `${who} · held ${held}` };
       break;
     }
     case "closed": {
@@ -304,41 +321,55 @@ export function alertMessage(change: Change, ctx: AlertContext): AlertMessage {
       const move = r?.returnPct ?? null;
       const onMargin = move !== null && change.was.leverage ? move * change.was.leverage : move;
       const good = move === null ? (r?.pnlUsd == null ? null : r.pnlUsd >= 0) : move >= 0;
-      title = `${good === null ? "⚪" : good ? "✅" : "❌"} CLOSE · ${who} · ${change.coin} ${SIDE[change.side]}${lev(change.was.leverage)}${onMargin !== null ? ` · ${pct(onMargin)}` : ""}`;
+      title = head(good === null ? "⚪" : good ? "✅" : "❌", "CLOSE", move !== null ? ` · ${pct(move)}` : "");
       color = good === null ? GREY : good ? GREEN : RED;
       cells = [
         { label: "Entry", value: price(change.was.entryPx) },
         { label: "Exit", value: price(r?.exitPx) },
         { label: "Move", value: pct(move), tone: toneOf(move) },
+        { label: "Lev", value: levText(change.was.leverage) },
         { label: "P/L", value: pct(onMargin), tone: toneOf(onMargin) },
         { label: "$ P/L", value: usd(r?.pnlUsd, true), tone: toneOf(r?.pnlUsd) },
         { label: "% Acct", value: share(change.was.notionalUsd, ctx.accountValue) },
+        { label: "Held", value: held },
       ];
+      card = {
+        kind: good === null ? "CLOSED" : good ? "CLOSED · WIN" : "CLOSED · LOSS",
+        title: coinSide,
+        headline: pct(onMargin),
+        headTone: good === null ? "plain" : good ? "pos" : "neg",
+        sub: `${who} · held ${held}`,
+      };
       break;
     }
     case "flipped": {
       const r = ctx.result;
       const old = change.side === "long" ? "short" : "long";
       const closedPl = r?.returnPct != null && change.was.leverage ? r.returnPct * change.was.leverage : (r?.returnPct ?? null);
-      title = `🔁 FLIP · ${who} · ${change.coin} ${SIDE[old]} → ${SIDE[change.side]}${lev(change.now.leverage)}`;
+      title = `🔁 FLIP · ${who} · ${change.coin} ${SIDE[old]} → ${SIDE[change.side]}`;
       color = PURPLE;
       cells = [
-        { label: `${SIDE[old]} P/L`, value: pct(closedPl), tone: toneOf(closedPl) },
+        { label: "Closed", value: SIDE[old] },
+        { label: "P/L", value: pct(closedPl), tone: toneOf(closedPl) },
         { label: "$ P/L", value: usd(r?.pnlUsd, true), tone: toneOf(r?.pnlUsd) },
+        { label: "New", value: SIDE[change.side] },
+        { label: "Lev", value: levText(change.now.leverage) },
         { label: "Entry", value: price(change.now.entryPx) },
         { label: "Size", value: usd(change.now.notionalUsd) },
         { label: "% Acct", value: share(change.now.notionalUsd, ctx.accountValue) },
       ];
+      card = { kind: "FLIPPED", title: `${change.coin} ${SIDE[old]} > ${SIDE[change.side]}`, headline: pct(closedPl), headTone: closedPl === null ? "plain" : closedPl >= 0 ? "pos" : "neg", sub: `${who} · now ${levText(change.now.leverage)}` };
       break;
     }
   }
-  // The subline (Discord's small grey "-#" text): the name's note, time
-  // held, the links — then the table, nothing under it.
-  // Only what the title leaves out of the name ("15 h holds"), never the name twice.
-  const note = ctx.traderName.match(/\(([^)]*)\)\s*$/)?.[1]?.trim() || null;
-  const sub = [note, change.kind === "opened" ? null : `held ${held}`, `[HyperDash](${url})`, `[Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`].filter(Boolean).join(" · ");
-  const lines = [`-# ${sub}`];
-  if (ctx.lateMs && ctx.lateMs > 10 * 60_000) lines.push(`-# Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older.`);
-  lines.push(table(cells));
-  return { ping: change.kind === "opened" || change.kind === "closed", embed: { title: title.slice(0, 256), url, description: lines.join("\n"), color } };
+  const linkLines: string[] = [];
+  if (ctx.lateMs && ctx.lateMs > 10 * 60_000) linkLines.push(`_Seen late: the alert script was off for ${Math.round(ctx.lateMs / 60_000)} min — this may be older._`);
+  linkLines.push(`[HyperDash](${url}) · [Chart](https://app.hyperliquid.xyz/trade/${encodeURIComponent(change.coin)})`);
+  const links = linkLines.join("\n");
+  return {
+    ping: change.kind === "opened" || change.kind === "closed",
+    embed: { title: title.slice(0, 256), url, description: `${table(cells.map((c) => [c.label, c.value]))}\n${links}`, color },
+    card: { ...card, accent: hex(color), cells },
+    links,
+  };
 }
