@@ -14,7 +14,7 @@ const MAX_PAGES = 20;
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
 const HEADERS: Record<string, string> = JUPITER_API_KEY ? { "x-api-key": JUPITER_API_KEY } : {};
 
-/** The protocol name these rows carry — jupiterPositions.ts skips Jupiter's
+/** The protocol name these rows carry — Jupiter's retired Portfolio API skipped Jupiter's
  * portfolio prediction fetcher, and solDefiPositions.ts keeps these rows on
  * failure. */
 export const JUPITER_PREDICTION_PROTOCOL = "Jupiter Prediction";

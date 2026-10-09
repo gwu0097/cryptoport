@@ -29,7 +29,7 @@ export interface AdapterHolding {
    * null"): a plain token balance has no protocol, and every existing
    * non-DeFi adapter site is correct to simply omit these two rather than
    * being forced to add `protocol: null` everywhere. Only set by adapters
-   * producing 'defi' category holdings (currently jupiterPositions.ts). */
+   * producing 'defi' category holdings (the Solana DeFi adapters, solDefiPositions.ts). */
   protocol?: string | null;
   protocol_url?: string | null;
   /** Overrides the ticker text shown in the UI (e.g. "Perps Withdrawable",

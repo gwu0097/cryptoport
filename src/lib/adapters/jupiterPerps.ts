@@ -10,7 +10,7 @@ import type { AdapterHolding } from "./types";
 const API = "https://perps-api.jup.ag/v2/positions";
 const APP_URL = "https://jup.ag/perps";
 
-/** The protocol name these rows carry — jupiterPositions.ts skips Jupiter's
+/** The protocol name these rows carry — Jupiter's retired Portfolio API skipped Jupiter's
  * own perps fetcher, and solDefiPositions.ts keeps these rows on failure. */
 export const JUPITER_PERPS_PROTOCOL = "Jupiter Perps";
 

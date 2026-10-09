@@ -1,7 +1,8 @@
 import "server-only";
 import type { AdapterHolding } from "./types";
 import { protocolScope, type KeepScope } from "../carryForward";
-import { fetchJupiterPositions } from "./jupiterPositions";
+import { fetchJupiterEarn } from "./jupiterEarn";
+import { JUPITER_EARN_PROTOCOL } from "../jupiterEarn";
 import { fetchJupiterPerps, JUPITER_PERPS_PROTOCOL } from "./jupiterPerps";
 import { fetchJupiterPrediction, JUPITER_PREDICTION_PROTOCOL } from "./jupiterPrediction";
 import { fetchKaminoPositions } from "./kaminoPositions";
@@ -32,16 +33,11 @@ export interface SolPositionsResult {
 // `keep`: the rows a source owns (by the protocol names it writes), kept
 // from the last sync when it fails — see carryForward.ts.
 const SOURCES: { name: string; keep: KeepScope; fetch: (address: string) => Promise<SolPositionsResult> }[] = [
-  {
-    name: "jupiter positions",
-    // "Jupiter <product>" (jupiterPositions.ts), but not the Jupiter
-    // products read by their own adapters below.
-    keep: {
-      label: "jupiter positions",
-      owns: (h) => !!h.protocol?.startsWith("Jupiter ") && !["Jupiter DAO", JUPITER_PERPS_PROTOCOL, JUPITER_PREDICTION_PROTOCOL].includes(h.protocol),
-    },
-    fetch: fetchJupiterPositions,
-  },
+  // Jupiter Earn from the Lend API (jupiterEarn.ts) — Jupiter's Portfolio API,
+  // which read Earn, limit orders and DCA here, was retired (2026-10-09). Its
+  // newer limit orders and DCA (Trigger V2) are per-user vaults readable only
+  // with the owner's signed session, so they aren't read.
+  { name: "jupiter earn", keep: protocolScope("jupiter earn", JUPITER_EARN_PROTOCOL), fetch: fetchJupiterEarn },
   { name: "jupiter perps", keep: protocolScope("jupiter perps", JUPITER_PERPS_PROTOCOL), fetch: fetchJupiterPerps },
   { name: "jupiter prediction", keep: protocolScope("jupiter prediction", JUPITER_PREDICTION_PROTOCOL), fetch: fetchJupiterPrediction },
   { name: "kamino", keep: protocolScope("kamino", "Kamino"), fetch: fetchKaminoPositions },

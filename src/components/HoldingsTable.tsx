@@ -55,7 +55,7 @@ function ChangeCell({ value }: { value: number | null }) {
 }
 
 // The DeFi-position breakdown (DeBank/Rabby-style: which protocol, and a
-// link to it) — only ever set on holdings jupiterPositions.ts (or a future
+// link to it) — only ever set on holdings a DeFi adapter (jupiterEarn.ts, or a future
 // equivalent for another chain) produced, so a plain token row renders
 // nothing extra here.
 function ProtocolTag({ protocol, url }: { protocol: string; url: string | null }) {

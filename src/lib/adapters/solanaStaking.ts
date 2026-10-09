@@ -6,7 +6,7 @@ import { fetchValidatorName } from "./stakewiz";
 import type { AdapterHolding } from "./types";
 
 const STAKE_PROGRAM = "Stake11111111111111111111111111111111111111";
-// Same wrapped-SOL mint jupiterPositions.ts's resolveAsset uses to look up
+// The wrapped-SOL mint (Jupiter's APIs use it to look up
 // SOL's own icon — reused here via the already-exported fetchTokenInfo
 // (also assetPrices.ts's jupiter pricing lane) rather than
 // hardcoding an icon URL or adding a second API call for it.
@@ -34,7 +34,7 @@ interface Delegation {
  * built-in Stake program, the mechanism behind jup.ag's own "Validators"
  * tab. Not covered by Jupiter's portfolio API at all (confirmed live:
  * api.jup.ag/portfolio/v1/platforms lists only Jupiter's own 8 products —
- * see jupiterPositions.ts's own doc comment), so this reads the on-chain
+ * Jupiter's positions APIs only cover Jupiter's own products), so this reads the on-chain
  * stake accounts directly, the same getProgramAccounts+memcmp technique as
  * wormholeStaking.ts/jupiterDaoStaking.ts/parclPositions.ts.
  *

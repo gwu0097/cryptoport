@@ -9,6 +9,16 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-10-09 — Jupiter Earn from the Lend API; the Portfolio API is gone
+
+Every Solana sync reported "jupiter positions: HTTP 503" for days. Not a rate
+limit (headers showed requests to spare) nor an outage: Jupiter's docs no longer
+list the Portfolio API, and both its endpoints 503 instantly. Earn — the only
+Jupiter product in the owner's wallets — is read from the Lend API's
+`/earn/positions` (checked live: 12.508 SOL vs the frozen 12.4906). Limit orders
+and DCA moved to Trigger V2 vaults that need the owner's signed session, so
+they aren't read; a user with them would need a connect flow like near.com's.
+
 ## 2026-10-08 — near.com is read through Confidential Intents' user session
 
 near.com's balances aren't on any public chain: they sit in NEAR Intents'

@@ -608,8 +608,8 @@ else the row's stored `usd_override`, else unpriced. `usd_override` is for
 position values a protocol computes (LP, perps, Kamino, prediction shares,
 vaults) and manual dollar entries. No sync path prices a coin row from the
 app's own price tables. Some protocol adapters still stamp the source's own
-valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts`,
-`jupiterPositions.ts` (limit orders) — and `valueHolding` uses it only when the
+valuation on coin rows — `zerionDefi.ts`, `naviPositions.ts` — and
+`valueHolding` uses it only when the
 row's key has no price. **An illiquid holding is shown but not counted** (owner decision
 2026-09-26, `liquidity.ts`, docs/pricing/ILLIQUID.md): worth more than its
 coin's 24h volume and more than 5% of its market cap (with no market cap:
@@ -740,10 +740,15 @@ stay and the sync status says so. Budget: one Zerion call per wallet sync
 (free tier: 300/day, 1/second app-wide; its chain list is cached).
 (DECISIONS: 2026-09-25 DeFi in the wallet sync)
 
-The same rule holds on Solana: Jupiter's portfolio API
-(`adapters/jupiterPositions.ts`) skips the products a dedicated adapter reads
-(`SKIPPED_FETCHERS`: Jupiter Perps and Jupiter Prediction, read from their
-dedicated APIs by `adapters/jupiterPerps.ts` and `adapters/jupiterPrediction.ts`).
+On Solana every DeFi source has its own adapter (`adapters/solDefiPositions.ts`
+`SOURCES`): Jupiter Earn from Jupiter's Lend API (`adapters/jupiterEarn.ts`,
+pure `jupiterEarn.ts` — one call per wallet; a deposit is the asset it holds),
+Jupiter Perps and Prediction from their dedicated APIs (`jupiterPerps.ts`,
+`jupiterPrediction.ts`), Kamino, Meteora, Parcl, Lulo, Jupiter DAO, staking.
+Jupiter's Portfolio API, which used to read Earn, limit orders and DCA, was
+retired (2026-10-09: gone from its docs, 503 to every request); its newer limit
+orders and DCA (Trigger V2) are per-user vaults readable only with the
+owner's signed session, so they aren't read.
 An isolated-margin perps position is valued at what closing it returns
 (collateral + PnL after fees), not its margin — see `jupiterPerps.ts`.
 (DECISIONS: 2026-09-25 Jupiter Perps)
