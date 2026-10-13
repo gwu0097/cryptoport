@@ -241,6 +241,13 @@ export function OpenPositionsPanel({ positions: initial, asOfLabel }: { position
                       {p.walletName}
                     </Link>
                   </div>
+                  {/* On a phone the Entry → Now column is hidden: the mark (and
+                      entry) under the name instead (owner 2026-10-13). */}
+                  {p.kind === "perp" && (
+                    <div className="text-xs tabular-nums text-fg-muted sm:hidden">
+                      Mark <span className="text-fg">{price(p.markPrice)}</span> · entry {price(p.entryPrice)}
+                    </div>
+                  )}
                 </td>
                 <td className={`${tdClass} ${hideOnMobileClass} tabular-nums`}>
                   {p.size === null ? "—" : formatQty(p.size)}
