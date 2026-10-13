@@ -19,7 +19,7 @@ import type { AdapterHolding } from "./adapters/types";
 // a position opened after the last one closed is still found — one account
 // call each, and replaces that venue's rows for that wallet: positions, cash and
 // margin together, so wallet totals stay right (a perp's PnL lands in its
-// account's cash rows). No chain scan, no price refresh, no CoinGecko. The
+// account's cash rows). No chain scan, no CoinGecko; the route refreshes only the positions' venue marks (api/positions/refresh). The
 // wallet's other rows and its last-synced time are untouched.
 
 type Db = Awaited<ReturnType<typeof userDb>>;

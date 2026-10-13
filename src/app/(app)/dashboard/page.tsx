@@ -217,7 +217,7 @@ export default async function DashboardPage({
         <div className={`order-5 min-w-0 xl:order-none 3xl:order-last ${trackedTrades ? "xl:col-span-6" : "xl:col-span-12"}`}>
           <OpenPositionsPanel
             positions={positions}
-            asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included); Refresh prices updates perp PnL from the venue's mark.`}
+            asOfLabel={`Updated ${positionsAsOf ? formatDateTime(positionsAsOf, zone.tz) : "—"}. Refresh positions re-reads these accounts (new and closed positions included) and their venues' marks.`}
           />
         </div>
       )}

@@ -642,8 +642,9 @@ refresh that sees a position) (`POSITION_VENUES`: Hyperliquid incl. its HIP-3 ma
 Polymarket, Jupiter Perps, Jupiter Prediction — one call each) and replaces
 that venue's rows for the wallet (`replace_venue_holdings`, narrowed by
 protocol on a shared chain), cash and margin included, so totals stay right;
-no chain scan, no price refresh, and the wallet's `last_refresh_at` is left
-alone. It streams: every account is read at once and each one's positions are
+no chain scan, and the wallet's `last_refresh_at` is left alone; the positions'
+venue marks are refreshed with it (only those keys, one call per venue — owner
+2026-10-13: the mark didn't move until Refresh prices). It streams: every account is read at once and each one's positions are
 sent as one NDJSON line the moment it's saved, so the section's rows and
 totals update account by account (`OpenPositionsPanel` `streamRefresh`), then
 `router.refresh()` re-renders the page. Whether a mark is newer is judged per row (`holdings.updated_at`). Each
