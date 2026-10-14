@@ -177,6 +177,9 @@ export async function getAnalytics(): Promise<AnalyticsView> {
   const symbolByKey = new Map<string, string>();
   for (const r of assetRes.flatMap((x) => (x.data ?? []) as { price_key: string; symbol: string | null }[])) if (r.symbol) symbolByKey.set(r.price_key, r.symbol);
   const symbolOf = (key: string) => symbolByKey.get(key) ?? tickerOf.get(key) ?? null;
+  // A coin's label: the held row's ticker, else its symbol (a sold-out coin
+  // has no row — it showed as its id, "zksync"), else the id.
+  const labelOf = (key: string) => tickerOf.get(key) ?? symbolByKey.get(key)?.toUpperCase() ?? key;
   const matchWallets = wallets.map((w) => ({ id: w.id, name: w.name, address: w.address, txSyncedAt: (w as { tx_synced_at?: string | null }).tx_synced_at ?? null }));
   windows.forEach((win, i) => {
     type SnapRow = { wallet_id: string; snapshot_date: string; total_usd: number | string; assets: SnapshotAssets | null; positions_usd: number | string | null; created_at: string };
@@ -202,7 +205,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
         coins: c.coins
           .filter((x) => Math.abs(x.quantityUsd + x.revaluedUsd) >= 1)
           .slice(0, 4)
-          .map((x) => ({ key: x.key, ticker: tickerOf.get(x.key) ?? x.key, qtyBefore: x.qtyBefore, qtyAfter: x.qtyAfter, usd: x.quantityUsd + x.revaluedUsd, revalued: x.revaluedUsd !== 0 })),
+          .map((x) => ({ key: x.key, ticker: labelOf(x.key), qtyBefore: x.qtyBefore, qtyAfter: x.qtyAfter, usd: x.quantityUsd + x.revaluedUsd, revalued: x.revaluedUsd !== 0 })),
       };
       for (const x of c.coins) {
         if (x.qtyAfter < x.qtyBefore && Math.abs(x.quantityUsd + x.revaluedUsd) >= 1) {
@@ -221,7 +224,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     a.priceUsd = price;
     a.otherUsd = actual - price;
     a.contributions = mergeByTicker(
-      [...byCoin].map(([key, c]) => ({ key, ticker: tickerOf.get(key) ?? key, valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd })),
+      [...byCoin].map(([key, c]) => ({ key, ticker: labelOf(key), valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd })),
     ).filter((c) => Math.abs(c.usd) >= 0.01);
 
     // Where each coin that went down went, from stored transactions
