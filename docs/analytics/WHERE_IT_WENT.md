@@ -3,7 +3,7 @@
 ## Goal
 
 In Analytics → "Everything else, by wallet", a coin line like `zksync 29,000 → 0`
-says where it went (`→ 342 USDC on Arbitrum`, `→ Main Acct SubHyperliquid`), and
+says where it went (`→ 342 USDC on Arbitrum`, `→ Hyperliquid`), and
 money moved between the user's own wallets is shown once, as a move, not as a
 loss in one wallet and a gain in another.
 
@@ -35,7 +35,7 @@ same over the app's own `transactions` table.
   address is labelled "→ Hyperliquid" (pure `knownDestinations.ts`: Arbitrum
   `0x2df1c51e09aecf9cacb7bc98cb1742757f163df7` Bridge2 and
   `0xa95d9c1f655341597c94393fddc30cf3c08e4fce` CctpExtension — the owner's five
-  USDC deposits 2026-10-07/09/14 went there and reached his Hyperliquid
+  USDC deposits 2026-10-07/09/14 went there and reached the owner's Hyperliquid
   account within a minute). Its ledger isn't read.
 - **Matching** (pure `transferMatch.ts` + test), per coin that went down, in
   this order:
