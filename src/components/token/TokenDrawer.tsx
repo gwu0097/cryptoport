@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, X } from "lucide-react";
 import type { TokenOverview } from "@/lib/tokenOverview";
+import type { CostBasisRow } from "@/lib/costBasis";
 import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatUsd } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { CopyButton } from "../CopyButton";
@@ -127,7 +128,7 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
                 <ul className="divide-y divide-border rounded-lg border border-border">
                   {d.position.rows.map((r, i) => (
                     <li key={`${r.walletId}-${i}`}>
-                      <Link href={`/wallets/${r.walletId}`} onClick={onClose} className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-surface-raised">
+                      <Link href={`/wallets/${r.walletId}`} onClick={onClose} className="flex items-center justify-between gap-3 px-3 pt-2 text-sm hover:bg-surface-raised">
                         <span className="min-w-0">
                           <span className="block truncate text-fg">{r.walletName}</span>
                           <span className="block text-xs text-fg-muted">
@@ -140,6 +141,8 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
                           <span className="block text-xs text-fg-muted">{hidden ? "••••" : r.qty === null ? "—" : formatQty(r.qty)}</span>
                         </span>
                       </Link>
+                      {/* Once per wallet: one lookup covers its every chain. */}
+                      {d.position.rows.findIndex((x) => x.walletId === r.walletId) === i && <CostBasisLine tokenKey={d.key} walletId={r.walletId} ticker={d.ticker} price={d.stats?.usd ?? null} />}
                     </li>
                   ))}
                 </ul>
@@ -189,6 +192,67 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
           </div>
         )}
       </aside>
+    </div>
+  );
+}
+
+/** "Cost basis" under a wallet's line: on demand (a few history reads), its
+ * average entry, cost and P/L, and what came in without a payment. */
+function CostBasisLine({ tokenKey, walletId, ticker, price }: { tokenKey: string; walletId: string; ticker: string; price: number | null }) {
+  const [state, setState] = useState<{ busy?: boolean; rows?: CostBasisRow[]; note?: string; error?: string } | null>(null);
+  const { hidden } = useHideBalance();
+
+  async function load() {
+    setState({ busy: true });
+    try {
+      const res = await fetch("/api/token/cost-basis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: tokenKey, walletId }) });
+      const body = (await res.json()) as { results?: CostBasisRow[]; note?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setState({ rows: body.results ?? [], note: body.note });
+    } catch (e) {
+      setState({ error: (e as Error).message });
+    }
+  }
+
+  if (!state) {
+    return (
+      <div className="px-3 pb-2">
+        <button type="button" onClick={load} className="text-xs text-accent hover:underline">
+          Cost basis
+        </button>
+      </div>
+    );
+  }
+  if (state.busy) return <p className="px-3 pb-2 text-xs text-fg-muted">Reading this wallet&apos;s history…</p>;
+  if (state.error) return <p className="px-3 pb-2 text-xs text-negative">Cost basis: {state.error}</p>;
+  if (!state.rows?.length) return <p className="px-3 pb-2 text-xs text-fg-muted">{state.note ?? "No history found for it in this wallet."}</p>;
+  const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—");
+  return (
+    <div className="flex flex-col gap-1 px-3 pb-2 text-xs">
+      {state.rows.map((c) => {
+        const pl = c.avgCost && price ? (price - c.avgCost) / c.avgCost : null;
+        return (
+          <div key={c.chain} className="rounded-md bg-surface-raised px-2 py-1.5">
+            {c.avgCost !== null ? (
+              <p className="tabular-nums text-fg">
+                Avg entry {formatPrice(c.avgCost)} · cost {hidden ? "••••" : formatUsd(c.costUsd ?? 0)}
+                {pl !== null && <span className={`ml-1 ${tone(pl)}`}>{formatPercent(pl * 100)}</span>}
+                <span className="text-fg-muted"> · {c.buys} buy{c.buys === 1 ? "" : "s"} since {day(c.firstBuyAt)}</span>
+              </p>
+            ) : (
+              <p className="text-fg">No buy found in this wallet&apos;s history.</p>
+            )}
+            {c.unknownQty > 0 && (
+              <p className="mt-0.5 text-fg-muted">
+                {formatQty(c.unknownQty)} {ticker} came in without a payment from this wallet (a transfer, an airdrop…) — cost unknown
+                {c.avgCost === null && c.firstSeenAt ? `, first on ${day(c.firstSeenAt)}` : ""}.
+              </p>
+            )}
+            {c.partial && <p className="mt-0.5 text-warning">Long history: the oldest moves weren&apos;t read.</p>}
+            <p className="mt-0.5 text-[10px] text-fg-muted">Estimate: each buy valued at the paid coin&apos;s close that day.</p>
+          </div>
+        );
+      })}
     </div>
   );
 }

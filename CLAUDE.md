@@ -944,7 +944,7 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   `abuseGuard.ts` `guardUser` / `guardUse` count each costly feature's uses
   per user (per IP for a signed-out visitor) against thresholds no person
   reaches — lookups 30/min, Refresh activity 30/h, the day endpoint 1,200/h,
-  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, bulk adds 10/h, Perp Scout scans 20/h,
+  trading record 30/h, backfill 10/h, coin refresh 300/h, Wallet search 60/h, bulk adds 10/h, cost basis 60/h, Perp Scout scans 20/h,
   its price refreshes 300/h and tracked refreshes 60/h
   — and crossing one locks the user out of the costly features for 24 h
   (`app_settings` `user_lock:<key>`, honoured by every instance; read at most
@@ -1112,6 +1112,15 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   TradingView's own symbol search, `tradingViewPick.ts`; only for CoinGecko
   coins — a `jup:`/`nearcom:`/`hl:` coin's ticker may name another coin
   there), else our daily closes. A new table showing coins uses TokenLink, never plain text.
+  Each EVM wallet holding the token can show its **cost basis** on a click
+  (owner 2026-10-14; `api/token/cost-basis`, guard `costBasis` 60/h): the
+  token's transfers in that wallet and what each buy paid — ETH sent, other
+  tokens' Transfer logs from the wallet (`adapters/costBasisEvm.ts`, ~2–4
+  Alchemy calls) — each payment priced at the transaction's time by
+  DefiLlama's history (`llamaPrices.ts` `fetchLlamaHistorical`, one batched
+  call; the app's own closes only reach back months), averaged
+  (`costBasis.ts`). Coins in with no visible payment (transfers, airdrops)
+  are "cost unknown", never free. Solana waits (Helius credits).
 - **Reuse UI primitives** before building one-offs: `Panel`, `PageHeader`,
   `GuestBanner`, `SignInPrompt`, `AuthButtons`, `ui/table.ts` classes,
   `buttonClass`, `SubmitButton`. Small presentational duplication beats a shared

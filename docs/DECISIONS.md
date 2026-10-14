@@ -9,6 +9,17 @@ rule is added or changed because of something that happened. Entries dated
 
 ---
 
+## 2026-10-14 — Cost basis prices each buy when it was paid
+
+The token drawer's cost basis first valued payments at the app's daily closes;
+on the owner's wallets most buys (2024) came back "cost unknown" because
+`price_history` / `asset_price_daily` only reach back months. DefiLlama's
+`batchHistorical` prices any CoinGecko coin at a given second (free, no key,
+one call for every buy; checked live: DEGEN's May 2024 buys, and USDC bought
+with USDbC at ~1:1). A failed price read fails the request rather than showing
+every buy as unknown. Transfers in and airdrops (VVV in BizNFT) have no payment
+to value and stay "cost unknown" — never free.
+
 ## 2026-10-09 — Jupiter Earn from the Lend API; the Portfolio API is gone
 
 Every Solana sync reported "jupiter positions: HTTP 503" for days. Not a rate

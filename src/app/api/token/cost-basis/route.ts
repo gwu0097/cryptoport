@@ -1,0 +1,80 @@
+import { getUser } from "@/lib/auth";
+import { guardUser } from "@/lib/abuseGuard";
+import { serviceDb, userDb } from "@/lib/supabase";
+import { ALCHEMY_HOSTS } from "@/lib/adapters/alchemy";
+import { evmCostEvents } from "@/lib/adapters/costBasisEvm";
+import { EVM_CHAINS } from "@/lib/adapters/evmChains";
+import { chainDisplayName } from "@/lib/chainNames";
+import { averageCost, valuePaid, type CostBasisRow } from "@/lib/costBasis";
+import { DOLLAR_KEYS } from "@/lib/watchActivity";
+import { fetchLlamaHistorical } from "@/lib/adapters/llamaPrices";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+/**
+ * POST /api/token/cost-basis {key, walletId} — a holding's cost basis, on
+ * demand from the token drawer (owner 2026-10-14). EVM wallets for now: the
+ * token's transfers in that wallet and what each buy paid (costBasisEvm.ts,
+ * ~2–4 Alchemy requests), each payment valued when it was paid (DefiLlama's
+ * price history, one batched call), averaged (costBasis.ts). Solana waits:
+ * its history costs Helius credits.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const user = await getUser();
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const guard = await guardUser("costBasis", user);
+  if (!guard.ok) return Response.json({ error: guard.error }, { status: 429 });
+  const { key, walletId } = (await request.json().catch(() => ({}))) as { key?: string; walletId?: string };
+  if (!key || !walletId) return Response.json({ error: "key and walletId required" }, { status: 400 });
+
+  const db = await userDb();
+  const [{ data: wallet }, { data: rows, error }] = await Promise.all([
+    db.from("wallets").select("id, address").eq("id", walletId).eq("active", true).maybeSingle(),
+    db.from("holdings").select("qty, chain, contract").eq("wallet_id", walletId).eq("price_key", key).not("contract", "is", null),
+  ]);
+  if (!wallet?.address) return Response.json({ error: "Wallet not found" }, { status: 404 });
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+  const evmRows = ((rows ?? []) as { qty: number | string | null; chain: string | null; contract: string }[]).filter((r) => r.chain && ALCHEMY_HOSTS[r.chain] && /^0x[0-9a-fA-F]{40}$/.test(r.contract));
+  if (evmRows.length === 0) return Response.json({ results: [], note: "Cost basis reads EVM tokens for now (not a chain's own coin, Solana or other chains yet)." });
+
+  const results: CostBasisRow[] = [];
+  for (const row of evmRows) {
+    const chain = row.chain!;
+    let raw: Awaited<ReturnType<typeof evmCostEvents>>;
+    try {
+      raw = await evmCostEvents(wallet.address, chain, row.contract);
+    } catch (e) {
+      return Response.json({ error: (e as Error).message }, { status: 502 });
+    }
+    // What each buy paid with: the native coin, or tokens named by the registry.
+    const paidContracts = [...new Set(raw.events.flatMap((e) => e.paid.map((p) => p.contract)).filter((c): c is string => !!c))];
+    const { data: reg } = paidContracts.length
+      ? await serviceDb().from("token_registry").select("contract, coingecko_id, decimals").eq("chain_id", chain).in("contract", paidContracts)
+      : { data: [] };
+    const registry = new Map(((reg ?? []) as { contract: string; coingecko_id: string | null; decimals: number | null }[]).map((r) => [r.contract.toLowerCase(), r]));
+    const nativeKey = EVM_CHAINS.find((c) => c.id === chain)?.nativeCoingeckoId ?? "ethereum";
+    // Each payment priced when it was paid (DefiLlama's history, one batched
+    // call) — the app's own closes only reach back months.
+    const coinOf = (contract: string | null) => (contract ? registry.get(contract)?.coingecko_id : nativeKey);
+    const tsOf = (at: string) => Math.floor(Date.parse(at) / 1000);
+    const points = raw.events.flatMap((e) => (e.qty > 0 ? e.paid.map((p) => coinOf(p.contract)).filter((k): k is string => !!k && !DOLLAR_KEYS.has(k)).map((k) => ({ coin: `coingecko:${k}`, ts: tsOf(e.at) })) : []));
+    let priced = new Map<string, number>();
+    try {
+      if (points.length) priced = await fetchLlamaHistorical(points);
+    } catch (e) {
+      return Response.json({ error: `Price history: ${(e as Error).message}` }, { status: 502 });
+    }
+    const priceOf = (contract: string | null, at: string) => {
+      const k = coinOf(contract);
+      const decimals = contract ? registry.get(contract)?.decimals : 18;
+      if (!k || decimals == null) return null;
+      const usd = DOLLAR_KEYS.has(k) ? 1 : priced.get(`coingecko:${k}|${tsOf(at)}`);
+      return usd === undefined ? null : { usd, decimals };
+    };
+    const basis = averageCost(valuePaid(raw.events, priceOf));
+    const firstSeenAt = raw.events.filter((e) => e.qty > 0).map((e) => e.at).sort()[0] ?? null;
+    results.push({ ...basis, chain, chainName: chainDisplayName(chain), holdingQty: row.qty === null ? null : Number(row.qty), firstSeenAt, partial: raw.partial });
+  }
+  return Response.json({ results }, { headers: { "cache-control": "no-store" } });
+}

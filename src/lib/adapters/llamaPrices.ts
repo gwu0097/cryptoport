@@ -60,3 +60,34 @@ export async function fetchLlamaPrices(coingeckoIds: string[]): Promise<{ prices
   for (const [id, p] of prices) p.change24h = changes.get(id) ?? null;
   return { prices, calls: requests.length };
 }
+
+/** Prices at given moments (DefiLlama's batchHistorical: each coin with its
+ * timestamps in one call — owner 2026-10-14, cost basis: what a buy paid, at
+ * the time it was paid, years back). `coin` is DefiLlama's id
+ * ("coingecko:ethereum"). Keyed `${coin}|${unixSeconds}`; a moment it can't
+ * price (or prices with low confidence) is left out. Calls are serial and
+ * spaced, ~40 moments each (the query is a JSON object in the URL). */
+export async function fetchLlamaHistorical(points: readonly { coin: string; ts: number }[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const unique = [...new Map(points.map((p) => [`${p.coin}|${p.ts}`, p])).values()];
+  const chunks: (typeof unique)[] = [];
+  for (let i = 0; i < unique.length; i += 40) chunks.push(unique.slice(i, i + 40));
+  await sequentialWithSpacing(chunks, SPACING_MS, async (chunk) => {
+    const coins: Record<string, number[]> = {};
+    for (const p of chunk) (coins[p.coin] ??= []).push(p.ts);
+    const body = await getJson<{ coins?: Record<string, { prices?: { timestamp: number; price: number; confidence?: number }[] }> }>(
+      `${BASE}/batchHistorical?coins=${encodeURIComponent(JSON.stringify(coins))}&searchWidth=600`,
+    );
+    for (const [coin, tss] of Object.entries(coins)) {
+      const answers = body.coins?.[coin]?.prices ?? [];
+      // Each moment takes the answer nearest it (within the 10-minute search
+      // width asked for) — never matched by position.
+      for (const ts of tss) {
+        let best: (typeof answers)[number] | null = null;
+        for (const a of answers) if (Math.abs(a.timestamp - ts) <= 600 && (!best || Math.abs(a.timestamp - ts) < Math.abs(best.timestamp - ts))) best = a;
+        if (best && Number.isFinite(best.price) && (best.confidence ?? 1) >= MIN_CONFIDENCE) out.set(`${coin}|${ts}`, best.price);
+      }
+    }
+  });
+  return out;
+}
