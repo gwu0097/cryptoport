@@ -5,6 +5,7 @@
 import { valueHolding, type PriceMap } from "./valuation.ts";
 import type { HoldingSource } from "./types.ts";
 import type { CoinContract } from "./coinContracts.ts";
+import type { SavedCostBasis } from "./costBasisStore.ts";
 
 /** A holding of the coin, with its wallet (holdings joined to wallets). */
 export interface TokenHoldingRow {
@@ -52,6 +53,8 @@ export interface TokenOverview {
   /** The TradingView ticker when TradingView lists the coin; otherwise our own
    * daily closes (oldest first) to chart. */
   chart: { tradingView: string | null; closes: [string, number][] };
+  /** Saved cost bases by wallet id (api/token adds them). */
+  costBasis?: Record<string, SavedCostBasis>;
 }
 
 const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));

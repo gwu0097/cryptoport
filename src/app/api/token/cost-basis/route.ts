@@ -8,6 +8,7 @@ import { chainDisplayName } from "@/lib/chainNames";
 import { averageCost, valuePaid, type CostBasisRow } from "@/lib/costBasis";
 import { DOLLAR_KEYS } from "@/lib/watchActivity";
 import { fetchLlamaHistorical } from "@/lib/adapters/llamaPrices";
+import { costBasisSettingKey, type SavedCostBasis } from "@/lib/costBasisStore";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -18,7 +19,8 @@ export const maxDuration = 60;
  * token's transfers in that wallet and what each buy paid (costBasisEvm.ts,
  * ~2–4 Alchemy requests), each payment valued when it was paid (DefiLlama's
  * price history, one batched call), averaged (costBasis.ts). Solana waits:
- * its history costs Helius credits.
+ * its history costs Helius credits. The answer is saved per user, wallet and
+ * coin (costBasisStore.ts) and shown by `api/token` until a Refresh.
  */
 export async function POST(request: Request): Promise<Response> {
   const user = await getUser();
@@ -36,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!wallet?.address) return Response.json({ error: "Wallet not found" }, { status: 404 });
   if (error) return Response.json({ error: error.message }, { status: 500 });
   const evmRows = ((rows ?? []) as { qty: number | string | null; chain: string | null; contract: string }[]).filter((r) => r.chain && ALCHEMY_HOSTS[r.chain] && /^0x[0-9a-fA-F]{40}$/.test(r.contract));
-  if (evmRows.length === 0) return Response.json({ results: [], note: "Cost basis reads EVM tokens for now (not a chain's own coin, Solana or other chains yet)." });
+  if (evmRows.length === 0) return saved(user.id, walletId, key, { results: [], note: "Cost basis reads EVM tokens for now (not a chain's own coin, Solana or other chains yet).", computedAt: new Date().toISOString() });
 
   const results: CostBasisRow[] = [];
   for (const row of evmRows) {
@@ -76,5 +78,13 @@ export async function POST(request: Request): Promise<Response> {
     const firstSeenAt = raw.events.filter((e) => e.qty > 0).map((e) => e.at).sort()[0] ?? null;
     results.push({ ...basis, chain, chainName: chainDisplayName(chain), holdingQty: row.qty === null ? null : Number(row.qty), firstSeenAt, partial: raw.partial });
   }
-  return Response.json({ results }, { headers: { "cache-control": "no-store" } });
+  return saved(user.id, walletId, key, { results, computedAt: new Date().toISOString() });
+}
+
+/** Keeps the answer (costBasisStore.ts) so the drawer shows it next time
+ * without reading the history again; a failed save still returns it. */
+async function saved(userId: string, walletId: string, key: string, value: SavedCostBasis): Promise<Response> {
+  const { error } = await serviceDb().from("app_settings").upsert({ key: costBasisSettingKey(userId, walletId, key), value, updated_at: value.computedAt });
+  if (error) console.warn(`[cost-basis] save failed wallet=${walletId} key=${key}: ${error.message}`);
+  return Response.json(value, { headers: { "cache-control": "no-store" } });
 }

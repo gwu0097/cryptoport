@@ -1120,7 +1120,13 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   DefiLlama's history (`llamaPrices.ts` `fetchLlamaHistorical`, one batched
   call; the app's own closes only reach back months), averaged
   (`costBasis.ts`). Coins in with no visible payment (transfers, airdrops)
-  are "cost unknown", never free. Solana waits (Helius credits).
+  are "cost unknown", never free. Solana waits (Helius credits). The answer
+  is saved (owner 2026-10-14: "don't see why we need to get it every single
+  time") — one `app_settings` row per user, wallet and coin,
+  `cost_basis:<user>:<wallet>:<price_key>` (`costBasisStore.ts`) — and
+  `api/token` returns the saved ones in its first `Promise.all` (one more
+  request, no extra round trip): the drawer shows it with "Worked out x ago",
+  "your holding changed since" when the wallet's amount differs, and Refresh.
 - **Reuse UI primitives** before building one-offs: `Panel`, `PageHeader`,
   `GuestBanner`, `SignInPrompt`, `AuthButtons`, `ui/table.ts` classes,
   `buttonClass`, `SubmitButton`. Small presentational duplication beats a shared

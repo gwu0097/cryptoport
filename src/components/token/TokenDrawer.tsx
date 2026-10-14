@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, X } from "lucide-react";
 import type { TokenOverview } from "@/lib/tokenOverview";
-import type { CostBasisRow } from "@/lib/costBasis";
-import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatUsd } from "@/lib/format";
+import { holdingChangedSince, type SavedCostBasis } from "@/lib/costBasisStore";
+import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatStaleness, formatUsd } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { CopyButton } from "../CopyButton";
 import { TradingViewCompareChart } from "../TradingViewCompareChart";
@@ -142,7 +142,7 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
                         </span>
                       </Link>
                       {/* Once per wallet: one lookup covers its every chain. */}
-                      {d.position.rows.findIndex((x) => x.walletId === r.walletId) === i && <CostBasisLine tokenKey={d.key} walletId={r.walletId} ticker={d.ticker} price={d.stats?.usd ?? null} />}
+                      {d.position.rows.findIndex((x) => x.walletId === r.walletId) === i && <CostBasisLine tokenKey={d.key} walletId={r.walletId} ticker={d.ticker} price={d.stats?.usd ?? null} saved={d.costBasis?.[r.walletId] ?? null} walletQty={walletQty(d, r.walletId)} />}
                     </li>
                   ))}
                 </ul>
@@ -196,40 +196,70 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
   );
 }
 
-/** "Cost basis" under a wallet's line: on demand (a few history reads), its
- * average entry, cost and P/L, and what came in without a payment. */
-function CostBasisLine({ tokenKey, walletId, ticker, price }: { tokenKey: string; walletId: string; ticker: string; price: number | null }) {
-  const [state, setState] = useState<{ busy?: boolean; rows?: CostBasisRow[]; note?: string; error?: string } | null>(null);
+/** The wallet's quantity of the coin across its chains; null when any is unknown. */
+function walletQty(d: TokenOverview, walletId: string): number | null {
+  const qs = d.position.rows.filter((r) => r.walletId === walletId).map((r) => r.qty);
+  return qs.some((q) => q === null) ? null : (qs as number[]).reduce((a, b) => a + b, 0);
+}
+
+/** "Cost basis" under a wallet's line: worked out on demand (a few history
+ * reads) and saved, so it shows at once next time with when it was worked
+ * out and a Refresh — its average entry, cost and P/L, and what came in
+ * without a payment. */
+function CostBasisLine({ tokenKey, walletId, ticker, price, saved, walletQty }: { tokenKey: string; walletId: string; ticker: string; price: number | null; saved: SavedCostBasis | null; walletQty: number | null }) {
+  const [state, setState] = useState<{ busy?: boolean; data?: SavedCostBasis; error?: string } | null>(saved ? { data: saved } : null);
   const { hidden } = useHideBalance();
 
   async function load() {
-    setState({ busy: true });
+    setState((s) => ({ ...s, busy: true, error: undefined }));
     try {
       const res = await fetch("/api/token/cost-basis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: tokenKey, walletId }) });
-      const body = (await res.json()) as { results?: CostBasisRow[]; note?: string; error?: string };
+      const body = (await res.json()) as SavedCostBasis & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-      setState({ rows: body.results ?? [], note: body.note });
+      // The drawer's cached overview carries it too, so reopening within its minute shows it.
+      const hit = cache.get(tokenKey);
+      if (hit) hit.data = { ...hit.data, costBasis: { ...hit.data.costBasis, [walletId]: body } };
+      setState({ data: body });
     } catch (e) {
-      setState({ error: (e as Error).message });
+      setState((s) => ({ data: s?.data, error: (e as Error).message }));
     }
   }
 
-  if (!state) {
+  if (!state?.data) {
+    if (state?.busy) return <p className="px-3 pb-2 text-xs text-fg-muted">Reading this wallet&apos;s history…</p>;
     return (
-      <div className="px-3 pb-2">
-        <button type="button" onClick={load} className="text-xs text-accent hover:underline">
+      <div className="px-3 pb-2 text-xs">
+        <button type="button" onClick={load} className="text-accent hover:underline">
           Cost basis
         </button>
+        {state?.error && <p className="text-negative">Cost basis: {state.error}</p>}
       </div>
     );
   }
-  if (state.busy) return <p className="px-3 pb-2 text-xs text-fg-muted">Reading this wallet&apos;s history…</p>;
-  if (state.error) return <p className="px-3 pb-2 text-xs text-negative">Cost basis: {state.error}</p>;
-  if (!state.rows?.length) return <p className="px-3 pb-2 text-xs text-fg-muted">{state.note ?? "No history found for it in this wallet."}</p>;
+  const data = state.data;
+  const changed = holdingChangedSince(data, walletQty);
+  const footer = (
+    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-fg-muted">
+      <span>Worked out {formatStaleness(data.computedAt)}</span>
+      {changed && <span className="text-warning">· your holding changed since</span>}
+      <button type="button" onClick={load} disabled={state.busy} className="text-accent hover:underline disabled:opacity-50">
+        {state.busy ? "Refreshing…" : "Refresh"}
+      </button>
+      {state.error && <span className="text-negative">{state.error}</span>}
+    </p>
+  );
+  if (!data.results.length) {
+    return (
+      <div className="px-3 pb-2 text-xs">
+        <p className="text-fg-muted">{data.note ?? "No history found for it in this wallet."}</p>
+        {footer}
+      </div>
+    );
+  }
   const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—");
   return (
     <div className="flex flex-col gap-1 px-3 pb-2 text-xs">
-      {state.rows.map((c) => {
+      {data.results.map((c) => {
         const pl = c.avgCost && price ? (price - c.avgCost) / c.avgCost : null;
         return (
           <div key={c.chain} className="rounded-md bg-surface-raised px-2 py-1.5">
@@ -249,10 +279,11 @@ function CostBasisLine({ tokenKey, walletId, ticker, price }: { tokenKey: string
               </p>
             )}
             {c.partial && <p className="mt-0.5 text-warning">Long history: the oldest moves weren&apos;t read.</p>}
-            <p className="mt-0.5 text-[10px] text-fg-muted">Estimate: each buy valued at the paid coin&apos;s close that day.</p>
+            <p className="mt-0.5 text-[10px] text-fg-muted">Estimate: each buy valued at the paid coin&apos;s price when it was paid.</p>
           </div>
         );
       })}
+      {footer}
     </div>
   );
 }

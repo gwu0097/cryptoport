@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { getUser } from "@/lib/auth";
 import { guardUser } from "@/lib/abuseGuard";
-import { userDb } from "@/lib/supabase";
+import { serviceDb, userDb } from "@/lib/supabase";
+import { costBasisSettingPattern, savedForToken } from "@/lib/costBasisStore";
 import { getMarketFor } from "@/lib/queries";
 import { getCoinContracts } from "@/lib/coinContractsQuery";
 import { getPriceHistoryMap } from "@/lib/priceHistory";
@@ -14,9 +15,9 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/token?key=<price_key> — the token drawer's Overview (owner
  * 2026-10-09): which of the user's wallets hold the coin, its price and
- * changes, its contracts, the watchlists it's on, and what to chart. Four
+ * changes, its contracts, the watchlists it's on, and what to chart. Five
  * reads at once (the user's holdings of it with their wallets — RLS; its
- * price row; its contracts; their watchlist items), then our daily closes only
+ * price row; its contracts; their watchlist items; their saved cost bases), then our daily closes only
  * when TradingView has no chart for it. A route handler, so opening a token
  * never waits in the Server Action queue.
  */
@@ -29,11 +30,13 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (!key || key.length > 160) return Response.json({ error: "key required" }, { status: 400 });
 
   const db = await userDb();
-  const [holdingsRes, market, contracts, watchRes] = await Promise.all([
+  const [holdingsRes, market, contracts, watchRes, savedRes] = await Promise.all([
     db.from("holdings").select("ticker, qty, usd_override, source, price_key, chain, protocol, wallets!inner(id, name, chain, active)").eq("price_key", key).eq("wallets.active", true),
     getMarketFor([key]),
     getCoinContracts([key]),
     db.from("watchlist_items").select("watchlist_id, watchlists(name)").eq("coingecko_id", key),
+    // Cost bases worked out before (api/token/cost-basis), keyed by this user.
+    serviceDb().from("app_settings").select("key, value").like("key", costBasisSettingPattern(user.id, key)),
   ]);
   if (holdingsRes.error) return Response.json({ error: holdingsRes.error.message }, { status: 500 });
 
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const watchlists = ((watchRes.data ?? []) as unknown as Watch[]).map((w) => ({ id: w.watchlist_id, name: w.watchlists?.name ?? "Watchlist" }));
 
   return Response.json(
-    buildTokenOverview({ key, holdings, prices: market.prices, stats, contracts: contracts.get(key) ?? [], watchlists, tradingView: tv?.listed ? ticker : null, closes }),
+    { ...buildTokenOverview({ key, holdings, prices: market.prices, stats, contracts: contracts.get(key) ?? [], watchlists, tradingView: tv?.listed ? ticker : null, closes }), costBasis: savedForToken(savedRes.data ?? [], user.id, key) },
     { headers: { "cache-control": "no-store" } },
   );
 }
