@@ -43,7 +43,13 @@ owner's.
   wallets); one row per ticker —
   the same token on several chains summed, `mergeByTicker` — with the top 6
   each way and the rest behind a toggle, so the lists add up to the price
-  figure), its risk (`risk.ts`: today's holdings over the last 90 days with
+  figure; by wallet, each coin that went down says where it went, read from
+  the stored `transactions` — `transferMatch.ts`: a trade in the same
+  transaction, a move to another of the user's wallets (listed once), a
+  cross-chain swap landing within 10 minutes at ±10% value, a known
+  destination such as Hyperliquid (`knownDestinations.ts`), else the outside
+  address; history not synced over the window says so, never a guess —
+  docs/analytics/WHERE_IT_WENT.md), its risk (`risk.ts`: today's holdings over the last 90 days with
   daily prices, benchmarked to BTC's history; an asset without enough history
   is named as not modeled) and each holding's context (`holdingContext.ts`:
   fixed-threshold flags — observations, not advice).

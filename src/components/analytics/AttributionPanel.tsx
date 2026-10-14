@@ -3,7 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import type { Attribution, AttributionWindow, WalletAttribution } from "@/lib/analytics/attribution";
+import type { Attribution, AttributionWindow, ByWallet, WalletAttribution } from "@/lib/analytics/attribution";
+import type { Destination, WalletMove } from "@/lib/analytics/transferMatch";
+import { destinationText } from "@/lib/analytics/destinationText";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Dialog } from "@/components/ui/Dialog";
 import { useLazyDialog } from "@/components/ui/useLazyDialog";
 import { formatPercent, formatQty, formatUsd, formatUsdSigned } from "@/lib/format";
@@ -43,8 +46,71 @@ function Figure({ label, value, caption, onClick }: { label: string; value: numb
   );
 }
 
+/** Where a coin that went down went (transferMatch.ts): one line, or each
+ * place with its amount when it went to several. */
+function Destinations({ list, ticker }: { list: Destination[]; ticker: string }) {
+  const several = list.length > 1;
+  return (
+    <>
+      {list.map((d, i) => (
+        <span key={i}>
+          {" · "}
+          {d.kind === "moved" ? (
+            <>
+              {several && `${formatQty(d.amount)} ${ticker} `}→{" "}
+              <Link href={`/wallets/${d.toWalletId}`} className="hover:text-accent hover:underline">
+                {d.toWalletName}
+              </Link>
+            </>
+          ) : (
+            destinationText(d, ticker, several)
+          )}
+          {d.kind === "unknown" && (
+            <span className="ml-1 inline-flex align-middle">
+              <InfoTooltip>
+                {d.reason === "not-synced"
+                  ? "This wallet's transaction history isn't synced for this window. Sync it on the Transactions page to see where this went."
+                  : "No transaction in this wallet's synced history accounts for this much of the change."}
+              </InfoTooltip>
+            </span>
+          )}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** Moves between two of the user's own wallets, each listed once. */
+function MovesBetweenWallets({ moves }: { moves: WalletMove[] }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface-raised/40 px-3 py-2">
+      <p className="flex items-center gap-1 text-xs font-medium text-fg">
+        Moved between your wallets
+        <InfoTooltip>Coins sent from one of your wallets to another. They leave one wallet&apos;s figure and join the other&apos;s; your total doesn&apos;t change.</InfoTooltip>
+      </p>
+      <ul className="mt-1 space-y-0.5 text-xs">
+        {moves.map((m) => (
+          <li key={`${m.fromWalletId}|${m.toWalletId}|${m.ticker}`} className="flex flex-wrap justify-between gap-x-3">
+            <span className="min-w-0 text-fg-muted">
+              <Link href={`/wallets/${m.fromWalletId}`} className="hover:text-accent hover:underline">
+                {m.fromWalletName}
+              </Link>{" "}
+              →{" "}
+              <Link href={`/wallets/${m.toWalletId}`} className="hover:text-accent hover:underline">
+                {m.toWalletName}
+              </Link>{" "}
+              · {formatQty(m.amount)} {m.ticker}
+            </span>
+            <span className="tabular-nums text-fg-muted">{m.usd === null ? "—" : formatUsd(m.usd)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Where "everything else" came from, wallet by wallet (attributeByWallet). */
-function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: WalletAttribution[]; removedUsd: number; totalOtherUsd: number | null; exact: boolean }) {
+function ByWalletList({ rows, removedUsd, totalOtherUsd, exact, moves, historyPartial }: { rows: WalletAttribution[]; removedUsd: number; totalOtherUsd: number | null; exact: boolean; moves?: WalletMove[]; historyPartial?: boolean }) {
   const shown = rows.filter((w) => w.otherUsd === null || Math.abs(w.otherUsd) >= 1);
   const quiet = rows.length - shown.length;
   // What the wallet rows don't account for, so the list always adds up to the
@@ -59,7 +125,9 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: Wallet
         {exact
           ? "Measured from what each wallet held at the snapshot, coin by coin."
           : "Estimated: this window's snapshot predates coin-by-coin records, so price moves come from each coin's own close on the snapshot day (or, without one, its 24h/7d/30d change) on what's held now."}
+        {historyPartial && " Where coins went is read from your latest 1,000 transactions; older ones in this window aren't looked at."}
       </p>
+      {moves && moves.length > 0 && <MovesBetweenWallets moves={moves} />}
       <ul className="divide-y divide-border/60">
         {shown.map((w) => (
           <li key={w.id} className="py-2">
@@ -84,16 +152,22 @@ function ByWalletList({ rows, removedUsd, totalOtherUsd, exact }: { rows: Wallet
                   </span>
                 </>
               )}
+              {w.exact?.movedUsd !== undefined && (
+                <span>
+                  of which {w.exact.movedUsd === null ? "an unknown amount" : formatUsd(Math.abs(w.exact.movedUsd))} moved {w.exact.movedUsd !== null && w.exact.movedUsd > 0 ? "from" : "to"} your other wallets
+                </span>
+              )}
               {!w.exact && w.positionsUsd > 0 && <span title="Perp margin, LP and other protocol positions change value with profit, funding and rewards, not a coin price">{formatUsd(w.positionsUsd)} in positions/perps</span>}
               {!w.exact && w.unattributedCount > 0 && <span>{w.unattributedCount} holdings without a price change for this window</span>}
             </div>
             {w.exact && (
               <ul className="mt-1 space-y-0.5 text-xs">
                 {w.exact.coins.map((c) => (
-                  <li key={c.ticker} className="flex justify-between gap-3">
-                    <span className="text-fg-muted">
+                  <li key={c.key} className="flex justify-between gap-3">
+                    <span className="min-w-0 break-words text-fg-muted">
                       {c.ticker} {formatQty(c.qtyBefore)} → {formatQty(c.qtyAfter)}
                       {c.revalued && <span className="text-warning"> · now unpriced or illiquid (still held)</span>}
+                      {c.destinations && <Destinations list={c.destinations} ticker={c.ticker} />}
                     </span>
                     <span className={`tabular-nums ${tone(c.usd)}`}>{signed(c.usd)}</span>
                   </li>
@@ -207,11 +281,12 @@ export function AttributionPanel({
   byWallet,
 }: {
   byWindow: Record<AttributionWindow, Attribution>;
-  byWallet: Record<AttributionWindow, { wallets: WalletAttribution[]; removedUsd: number }>;
+  byWallet: Record<AttributionWindow, ByWallet>;
 }) {
   const { dialogRef, open, openDialog } = useLazyDialog();
   const [window, setWindow] = usePersistedState<AttributionWindow>("cryptoport:analyticsAttributionWindow", "7d");
   const a = byWindow[window] ?? byWindow["7d"];
+  const wb = byWallet[window] ?? byWallet["7d"];
   const allGains = a.contributions.filter((c) => c.usd > 0);
   const allDrags = a.contributions.filter((c) => c.usd < 0);
   // Whatever of the price figure isn't in a listed coin (should be ~0).
@@ -280,7 +355,7 @@ export function AttributionPanel({
       </>
       )}
       <Dialog ref={dialogRef} title={`Everything else, by wallet · ${WINDOWS.find((x) => x.key === window)?.label}`}>
-        {open && <ByWalletList rows={(byWallet[window] ?? byWallet["7d"]).wallets} removedUsd={(byWallet[window] ?? byWallet["7d"]).removedUsd} totalOtherUsd={a.otherUsd} exact={!!a.exact} />}
+        {open && <ByWalletList rows={wb.wallets} removedUsd={wb.removedUsd} totalOtherUsd={a.otherUsd} exact={!!a.exact} moves={wb.moves} historyPartial={wb.historyPartial} />}
       </Dialog>
     </Panel>
   );

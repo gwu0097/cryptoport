@@ -11,6 +11,8 @@
 // closed, rewards — and price moves on coins no longer held. It is shown as
 // that, never split further without the data to do it.
 
+import type { Destination, WalletMove } from "./transferMatch.ts";
+
 export type AttributionWindow = "24h" | "7d" | "30d";
 
 export const WINDOW_DAYS: Record<AttributionWindow, number> = { "24h": 1, "7d": 7, "30d": 30 };
@@ -167,8 +169,13 @@ export interface WalletAttribution {
     quantityUsd: number;
     positionsUsd: number;
     revaluedUsd: number;
-    /** The biggest per-coin quantity changes and revaluations. */
-    coins: { ticker: string; qtyBefore: number; qtyAfter: number; usd: number; revalued: boolean }[];
+    /** The biggest per-coin quantity changes and revaluations; a coin that
+     * went down says where it went when the transaction history shows it
+     * (transferMatch.ts). */
+    coins: { key: string; ticker: string; qtyBefore: number; qtyAfter: number; usd: number; revalued: boolean; destinations?: Destination[] }[];
+    /** Of "everything else", what moved to (−) or from (+) the user's other
+     * wallets; null when a move's coin has no price. */
+    movedUsd?: number | null;
   };
 }
 
@@ -179,13 +186,23 @@ export interface WalletAttribution {
  * their own, so the rows add up to the portfolio's "everything else" when
  * every wallet has a base row.
  */
+/** "Everything else" by wallet for one window, with where coins went. */
+export interface ByWallet {
+  wallets: WalletAttribution[];
+  removedUsd: number;
+  /** Moves between two of the user's own wallets, each once. */
+  moves?: WalletMove[];
+  /** The transaction read was capped: older parts of the window are unknown. */
+  historyPartial?: boolean;
+}
+
 export function attributeByWallet(
   window: AttributionWindow,
   wallets: readonly WalletAttributionInput[],
   baseByWallet: ReadonlyMap<string, number>,
   today: string,
   baseDateOverride?: string,
-): { wallets: WalletAttribution[]; removedUsd: number } {
+): ByWallet {
   const baseDate = baseDateOverride ?? daysBefore(today, WINDOW_DAYS[window]);
   const rows = wallets.map((w): WalletAttribution => {
     const a = attribute(window, w.assets, w.positions, w.liveUsd, [], today);

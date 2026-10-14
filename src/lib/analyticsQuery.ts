@@ -2,7 +2,9 @@ import "server-only";
 import { getActiveWalletsWithHoldings, getAssetsGroupedByTicker, getAssetStatsMap, getPriceMap, getValueHistory } from "./queries";
 import { getPriceHistoryMap } from "./priceHistory";
 import { requestNowSec } from "./requestClock";
-import { attribute, attributeByWallet, changeSinceClose, daysBefore, mergeByTicker, WINDOW_DAYS, type Attribution, type AttributionWindow, type WalletAttribution, type WalletAttributionInput } from "./analytics/attribution.ts";
+import { attribute, attributeByWallet, changeSinceClose, daysBefore, mergeByTicker, WINDOW_DAYS, type Attribution, type AttributionWindow, type ByWallet, type WalletAttributionInput } from "./analytics/attribution.ts";
+import { coinKey, matchDestinations, tickersToName, type DroppedCoin, type TxLeg } from "./analytics/transferMatch.ts";
+import { chunkByLength } from "./urlBatch.ts";
 import { userDb } from "./supabase";
 import { parseNumeric, valueHolding } from "./valuation";
 import { riskProfile, type RiskProfile } from "./analytics/risk.ts";
@@ -19,11 +21,21 @@ const MIN_LISTED_WEIGHT = 0.001;
 /** The benchmark: BTC's daily price history (a CoinGecko coin, backfilled
  * like any held coin's). */
 const BENCHMARK_KEY = "bitcoin";
+/** Transaction rows read for "where it went" — one request (no paging in a
+ * render); past it, the window's older part is unknown (coveredFrom). */
+const TX_ROW_CAP = 1000;
+/** Tickers safe inside PostgREST's ilike(any).{…} list (it isn't quoted). */
+const NAMEABLE_TICKER = /^[\p{L}\p{N}.$+-]{1,24}$/u;
+/** Two of the user's own coins with one ticker: their prices must agree
+ * this closely to value that ticker, else it's ambiguous. */
+const SAME_PRICE = 0.02;
+
+type TxRow = { wallet_id: string; chain: string; tx_hash: string; occurred_at: string; direction: string; ticker: string | null; amount: number | string | null; counterparty: string | null };
 
 export interface AnalyticsView {
   totalUsd: number;
   /** "Everything else" split by wallet, per window (attributeByWallet). */
-  byWallet: Record<AttributionWindow, { wallets: WalletAttribution[]; removedUsd: number }>;
+  byWallet: Record<AttributionWindow, ByWallet>;
   /** Holdings whose value is unknown (no price) — left out of every figure. */
   unpricedCount: number;
   attribution: Record<AttributionWindow, Attribution>;
@@ -37,15 +49,43 @@ export async function getAnalytics(): Promise<AnalyticsView> {
   const windows = Object.keys(WINDOW_DAYS) as AttributionWindow[];
   const requestedDates = windows.map((w) => daysBefore(today, WINDOW_DAYS[w]));
   // Two round trips: these together (with the earliest coin-by-coin
-  // snapshot), then the price history of what's held with the wallet
-  // snapshots each window starts from.
-  const [{ groups, grand }, stats, snapshots, wallets, firstExactRes] = await Promise.all([
+  // snapshot and the longest window's stored transactions), then the price
+  // history of what's held with the wallet snapshots each window starts
+  // from and the price keys of the transactions' tickers.
+  const txFrom = `${[...requestedDates].sort()[0]}T00:00:00Z`;
+  const [{ groups, grand }, stats, snapshots, wallets, firstExactRes, txRes] = await Promise.all([
     getAssetsGroupedByTicker(),
     getAssetStatsMap(),
     getValueHistory(),
     getActiveWalletsWithHoldings(),
     userDb().then((db) => db.from("wallet_snapshots").select("snapshot_date").not("assets", "is", null).order("snapshot_date").limit(1)),
+    userDb().then((db) =>
+      db
+        .from("transactions")
+        .select("wallet_id, chain, tx_hash, occurred_at, direction, ticker, amount, counterparty")
+        .gte("occurred_at", txFrom)
+        .in("direction", ["in", "out"])
+        .order("occurred_at", { ascending: false })
+        .limit(TX_ROW_CAP),
+    ),
   ]);
+  // "Where it went" reads only stored transactions; a failed read shows no
+  // destinations rather than calling every coin unexplained.
+  if (txRes.error) console.error(`[analytics] transactions read failed: ${txRes.error.message}`);
+  const txRows = txRes.error ? null : ((txRes.data ?? []) as TxRow[]);
+  const txLegs: TxLeg[] = (txRows ?? []).map((r) => ({
+    walletId: r.wallet_id,
+    chain: r.chain,
+    txHash: r.tx_hash,
+    occurredAt: r.occurred_at,
+    direction: r.direction,
+    ticker: r.ticker,
+    amount: parseNumeric(r.amount),
+    counterparty: r.counterparty,
+  }));
+  const txPartial = !!txRows && txRows.length >= TX_ROW_CAP;
+  const coveredFrom = txPartial ? txRows[txRows.length - 1].occurred_at : null;
+  const nameable = tickersToName(txLegs).filter((t) => NAMEABLE_TICKER.test(t));
   // A window starts on its own day, or — while the coin-by-coin snapshots
   // are newer than that — on the first of them (owner 2026-10-02: show what
   // can be measured, labeled, not an estimate).
@@ -55,9 +95,16 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     Holding,
     "ticker" | "source" | "contract" | "chain" | "coingecko_id" | "price_key"
   >;
-  const [{ history }, snaps] = await Promise.all([
+  const [{ history }, snaps, assetRes] = await Promise.all([
     getPriceHistoryMap([...wallets.flatMap((w) => w.holdings), benchmark]),
-    userDb().then((db) => db.from("wallet_snapshots").select("wallet_id, snapshot_date, total_usd, assets, positions_usd").in("snapshot_date", [...new Set(baseDates)])),
+    userDb().then((db) => db.from("wallet_snapshots").select("wallet_id, snapshot_date, total_usd, assets, positions_usd, created_at").in("snapshot_date", [...new Set(baseDates)])),
+    // Which coins the transactions' tickers are (rows carry a symbol, no
+    // price_key) — a sold-out coin isn't in the user's price scope.
+    Promise.all(
+      chunkByLength(nameable).map((batch) =>
+        userDb().then((db) => db.from("assets").select("price_key, symbol").ilikeAnyOf("symbol", batch).limit(1000)),
+      ),
+    ),
   ]);
 
   // An asset (a price_key with a price) has a price series; everything else
@@ -123,8 +170,16 @@ export async function getAnalytics(): Promise<AnalyticsView> {
   const tickerOf = new Map<string, string>();
   for (const w of wallets) for (const h of w.holdings) if (h.price_key && !tickerOf.has(h.price_key)) tickerOf.set(h.price_key, h.ticker);
   const nowComposition = new Map(wallets.map((w) => [w.id, walletComposition(w.holdings, prices)]));
+  // "Where it went": each coin's ticker as transaction rows name it — from
+  // the assets read (sold-out coins too), else the held row's ticker.
+  const assetsFailed = assetRes.find((r) => r.error);
+  if (assetsFailed?.error) console.error(`[analytics] assets read failed: ${assetsFailed.error.message}`);
+  const symbolByKey = new Map<string, string>();
+  for (const r of assetRes.flatMap((x) => (x.data ?? []) as { price_key: string; symbol: string | null }[])) if (r.symbol) symbolByKey.set(r.price_key, r.symbol);
+  const symbolOf = (key: string) => symbolByKey.get(key) ?? tickerOf.get(key) ?? null;
+  const matchWallets = wallets.map((w) => ({ id: w.id, name: w.name, address: w.address, txSyncedAt: (w as { tx_synced_at?: string | null }).tx_synced_at ?? null }));
   windows.forEach((win, i) => {
-    type SnapRow = { wallet_id: string; snapshot_date: string; total_usd: number | string; assets: SnapshotAssets | null; positions_usd: number | string | null };
+    type SnapRow = { wallet_id: string; snapshot_date: string; total_usd: number | string; assets: SnapshotAssets | null; positions_usd: number | string | null; created_at: string };
     const base = new Map((walletSnaps as SnapRow[]).filter((r) => r.snapshot_date === baseDates[i]).map((r) => [r.wallet_id, r]));
     const rows = byWallet[win].wallets;
     const measurable = rows.every((r) => r.added || base.get(r.id)?.assets);
@@ -132,6 +187,7 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     if (!measurable || actual === null || base.size === 0) return;
     const byCoin = new Map<string, { usd: number; valueUsd: number; pBefore: number; pNow: number }>();
     let price = 0;
+    const dropped: DroppedCoin[] = [];
     for (const r of rows) {
       if (r.added) continue;
       const b = base.get(r.id)!;
@@ -146,9 +202,12 @@ export async function getAnalytics(): Promise<AnalyticsView> {
         coins: c.coins
           .filter((x) => Math.abs(x.quantityUsd + x.revaluedUsd) >= 1)
           .slice(0, 4)
-          .map((x) => ({ ticker: tickerOf.get(x.key) ?? x.key, qtyBefore: x.qtyBefore, qtyAfter: x.qtyAfter, usd: x.quantityUsd + x.revaluedUsd, revalued: x.revaluedUsd !== 0 })),
+          .map((x) => ({ key: x.key, ticker: tickerOf.get(x.key) ?? x.key, qtyBefore: x.qtyBefore, qtyAfter: x.qtyAfter, usd: x.quantityUsd + x.revaluedUsd, revalued: x.revaluedUsd !== 0 })),
       };
       for (const x of c.coins) {
+        if (x.qtyAfter < x.qtyBefore && Math.abs(x.quantityUsd + x.revaluedUsd) >= 1) {
+          dropped.push({ walletId: r.id, key: x.key, symbol: symbolOf(x.key), drop: x.qtyBefore - x.qtyAfter, unitPrice: x.priceBefore ?? x.priceNow });
+        }
         if (x.priceBefore === null || x.priceNow === null || x.qtyBefore <= 0) continue;
         const cur = byCoin.get(x.key) ?? { usd: 0, valueUsd: 0, pBefore: x.priceBefore, pNow: x.priceNow };
         cur.usd += x.priceUsd;
@@ -164,6 +223,24 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     a.contributions = mergeByTicker(
       [...byCoin].map(([key, c]) => ({ key, ticker: tickerOf.get(key) ?? key, valueUsd: c.valueUsd, changePct: (c.pNow / c.pBefore - 1) * 100, usd: c.usd })),
     ).filter((c) => Math.abs(c.usd) >= 0.01);
+
+    // Where each coin that went down went, from stored transactions
+    // (transferMatch.ts). Skipped when a read failed — no line beats a
+    // wrong "not found".
+    if (txRows === null || assetsFailed) return;
+    const since = new Map([...base].map(([id, b]) => [id, b.created_at]));
+    const m = matchDestinations({ legs: txLegs, wallets: matchWallets, since, coins: dropped, priceOf: priceLookup(base, nowComposition, symbolOf), coveredFrom });
+    for (const r of rows) {
+      if (!r.exact) continue;
+      for (const c of r.exact.coins) if (c.qtyAfter < c.qtyBefore) c.destinations = m.byCoin.get(coinKey(r.id, c.key));
+      const mine = m.moves.filter((x) => x.fromWalletId === r.id || x.toWalletId === r.id);
+      if (mine.length === 0) continue;
+      const net = mine.some((x) => x.usd === null) ? null : mine.reduce((s, x) => s + (x.toWalletId === r.id ? 1 : -1) * (x.usd as number), 0);
+      // Moves out and in that cancel aren't a caption ("of which $0").
+      if (net === null || Math.abs(net) >= 1) r.exact.movedUsd = net;
+    }
+    byWallet[win].moves = m.moves;
+    byWallet[win].historyPartial = txPartial;
   });
 
   // What each window can honestly show: measured (exact) — from a later
@@ -219,5 +296,35 @@ export async function getAnalytics(): Promise<AnalyticsView> {
     risk,
     holdings,
     smallHoldings: { count: small.length, usd: small.reduce((s, g) => s + g.total, 0) },
+  };
+}
+
+/** A ticker's unit price from the user's own coins (held now, or in the
+ * window's base snapshots): null when none has it, or two of them disagree
+ * (a namesake). */
+function priceLookup(
+  base: ReadonlyMap<string, { assets: SnapshotAssets | null }>,
+  now: ReadonlyMap<string, { assets: SnapshotAssets }>,
+  symbolOf: (key: string) => string | null,
+): (ticker: string) => number | null {
+  const byTicker = new Map<string, Map<string, number>>();
+  // The snapshot's price first (the out-leg is valued at it too), else now.
+  const add = (assets: SnapshotAssets | null) => {
+    for (const [key, [, price]] of Object.entries(assets ?? {})) {
+      const sym = symbolOf(key)?.toUpperCase();
+      if (!sym || price === null || price <= 0) continue;
+      const prices = byTicker.get(sym) ?? new Map<string, number>();
+      if (!prices.has(key)) prices.set(key, price);
+      byTicker.set(sym, prices);
+    }
+  };
+  for (const b of base.values()) add(b.assets);
+  for (const c of now.values()) add(c.assets);
+  return (ticker) => {
+    const prices = [...(byTicker.get(ticker.toUpperCase())?.values() ?? [])];
+    if (prices.length === 0) return null;
+    const lo = Math.min(...prices);
+    const hi = Math.max(...prices);
+    return hi / lo - 1 > SAME_PRICE ? null : prices[0];
   };
 }
