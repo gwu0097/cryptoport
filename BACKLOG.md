@@ -72,6 +72,14 @@ DefiLlama's coins/prices API has no historical-mcap endpoint on the free tier �
 
 ## General cryptoport features
 
+### Solana cost basis in the token drawer — NEXT PRIORITY (owner 2026-10-14)
+**Raised**: after EVM cost basis shipped (9ec1ef4). **Status**: not started; next up.
+
+The drawer's cost basis (`api/token/cost-basis`, pure `costBasis.ts`) reads EVM wallets only; Solana wallets show "Cost basis reads EVM tokens for now". Goal: the same line (avg entry, cost, P/L %, "cost unknown" for transfers/airdrops) for a Solana wallet's token. Two candidate sources, to be checked live before building (§5):
+- **The token account's own history:** the wallet's account for that mint has its own signature list, so `getSignaturesForAddress` on it returns only the transactions that touched the token (1 Helius credit per 1,000), then each one parsed (`getTransaction`, 1 credit each, batched) and reduced as `readSolana` / `webhookTx.ts` do: the SOL/USDC that left the wallet in that transaction is what was paid, priced at that moment with `fetchLlamaHistorical` (the same as EVM). Cost: about 1 credit per buy or sale, so a few hundred credits for a busy memecoin, not the ~3,300–7,700 of a whole-wallet scan. Caveat: a closed and reopened token account has a new address, so older lots are missed (flag it as partial).
+- **Solana Tracker's per-token PnL** (`/pnl/{wallet}/{token}`, already integrated for trading records): one request out of 2,500 a month, and it gives cost basis directly. But it's a third party's number and their method, so cross-check it against the first option on 2–3 real holdings.
+- Keep guard `costBasis` 60/h; add a per-request credit cap (pages) and say "partial" when it's hit. State the worst-case credits per hour in the commit (§7 bot protection).
+
 ### Perp Scout follow-ups — open (owner 2026-10-06)
 - **Discord alerts**: built 2026-10-07 (`scripts/perp-alerts.ts` on the Mac
   mini, PLAN.md "Alerts"). Every followed trader's moves post, so tracked
