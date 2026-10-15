@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, Maximize2, Minimize2, X } from "lucide-react";
 import type { TokenOverview } from "@/lib/tokenOverview";
 import { holdingChangedSince, type SavedCostBasis } from "@/lib/costBasisStore";
 import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatStaleness, formatUsd } from "@/lib/format";
@@ -23,6 +23,11 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
   const [state, setState] = useState<{ key: string; data?: TokenOverview; error?: string } | null>(null);
   const { hidden } = useHideBalance();
   const shown = state?.key === tokenKey ? state : null;
+  // The chart expanded over the whole screen (owner 2026-10-15, like the
+  // Dashboard heatmap): its height in px, measured on the click; null = in
+  // the drawer. Esc closes it first, then the drawer.
+  const [bigChart, setBigChart] = useState<{ key: string; height: number } | null>(null);
+  const bigHeight = bigChart?.key === tokenKey ? bigChart.height : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +56,11 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
 
   // Esc closes; the page behind doesn't scroll while it's open.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (bigHeight !== null) setBigChart(null);
+      else onClose();
+    };
     window.addEventListener("keydown", onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -59,7 +68,7 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = overflow;
     };
-  }, [onClose]);
+  }, [onClose, bigHeight]);
 
   const d = shown?.data;
   const money = (n: number | null) => (n === null ? "—" : hidden ? "••••" : formatUsd(n));
@@ -106,7 +115,32 @@ export function TokenDrawer({ tokenKey, onClose }: { tokenKey: string; onClose: 
 
             <section>
               {d.chart.tradingView ? (
-                <TradingViewCompareChart baseTicker={d.chart.tradingView} height={320} interval="240" compact />
+                <>
+                  <div className="mb-1 flex justify-end">
+                    <button type="button" onClick={() => setBigChart({ key: tokenKey, height: Math.max(window.innerHeight - 96, 360) })} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition hover:bg-surface-raised hover:text-fg">
+                      <Maximize2 className="size-3.5" aria-hidden="true" />
+                      Expand chart
+                    </button>
+                  </div>
+                  <TradingViewCompareChart baseTicker={d.chart.tradingView} height={320} interval="240" compact />
+                  {bigHeight !== null && (
+                    <div className="fixed inset-0 z-[60] flex flex-col bg-black/70 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label={`${d.ticker} chart`}>
+                      <button type="button" aria-label="Collapse chart" onClick={() => setBigChart(null)} className="absolute inset-0 cursor-default" />
+                      <div className="relative flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-fg">
+                            {d.ticker} {d.name && <span className="font-normal text-fg-muted">{d.name}</span>}
+                          </p>
+                          <button type="button" onClick={() => setBigChart(null)} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition hover:bg-surface-raised hover:text-fg">
+                            <Minimize2 className="size-3.5" aria-hidden="true" />
+                            Collapse
+                          </button>
+                        </div>
+                        <TradingViewCompareChart baseTicker={d.chart.tradingView} height={bigHeight} interval="240" compact />
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : d.chart.closes.length >= 2 ? (
                 <>
                   <ValueChart points={d.chart.closes.map(([date, total]) => ({ date, total, kind: "real" as const }))} rangeStorageKey="cryptoport:tokenChartRange" heightClass="h-40" priceChart />
