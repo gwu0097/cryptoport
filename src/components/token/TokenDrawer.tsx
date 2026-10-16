@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ExternalLink, Maximize2, Minimize2, X } from "lucide-react";
 import type { TokenOverview } from "@/lib/tokenOverview";
 import { holdingChangedSince, type SavedCostBasis } from "@/lib/costBasisStore";
+import { historyMismatch } from "@/lib/costBasis";
 import { formatCompactUsd, formatPercent, formatPrice, formatQty, formatStaleness, formatUsd } from "@/lib/format";
 import { TokenIcon } from "../TokenIcon";
 import { CopyButton } from "../CopyButton";
@@ -313,6 +314,11 @@ function CostBasisLine({ tokenKey, walletId, ticker, price, saved, walletQty }: 
               </p>
             )}
             {c.partial && <p className="mt-0.5 text-warning">Long history: the oldest moves weren&apos;t read.</p>}
+            {historyMismatch(c) !== null && (
+              <p className="mt-0.5 text-warning">
+                Its history adds up to {formatQty(historyMismatch(c))} {ticker}, but the last sync shows {formatQty(c.holdingQty)} — sync this wallet, then Refresh.
+              </p>
+            )}
             <p className="mt-0.5 text-[10px] text-fg-muted">Estimate: each buy valued at the paid coin&apos;s price when it was paid.</p>
           </div>
         );

@@ -1118,15 +1118,22 @@ read by pages, a signed-in select policy. (DECISIONS: 2026-09-24 SQL in public)
   TradingView's own symbol search, `tradingViewPick.ts`; only for CoinGecko
   coins — a `jup:`/`nearcom:`/`hl:` coin's ticker may name another coin
   there), else our daily closes. A new table showing coins uses TokenLink, never plain text.
-  Each EVM wallet holding the token can show its **cost basis** on a click
-  (owner 2026-10-14; `api/token/cost-basis`, guard `costBasis` 60/h): the
-  token's transfers in that wallet and what each buy paid — ETH sent, other
-  tokens' Transfer logs from the wallet (`adapters/costBasisEvm.ts`, ~2–4
-  Alchemy calls) — each payment priced at the transaction's time by
+  Each EVM or Solana wallet holding the token can show its **cost basis** on
+  a click (owner 2026-10-14; `api/token/cost-basis`, guard `costBasis` 60/h):
+  the token's moves in that wallet and what each buy paid — on EVM, ETH sent
+  and other tokens' Transfer logs from the wallet (`adapters/costBasisEvm.ts`,
+  ~2–4 Alchemy calls); on Solana (owner 2026-10-16), only the transactions of
+  the wallet's own account for that mint, each reduced by `webhookTx.ts`
+  `rawTxChanges` (`adapters/costBasisSolana.ts`: ~1 Helius credit per
+  transaction, at most `SOLANA_TX_CAP` 300 — GEOD's 5 buys cost 7; a closed
+  and reopened token account's older moves aren't seen, so a history that
+  doesn't add up to the synced holding says so, `historyMismatch`) — each
+  payment priced at the transaction's time by
   DefiLlama's history (`llamaPrices.ts` `fetchLlamaHistorical`, one batched
-  call; the app's own closes only reach back months), averaged
+  call — a Solana token by `solana:<mint>`; the app's own closes only reach
+  back months), averaged
   (`costBasis.ts`). Coins in with no visible payment (transfers, airdrops)
-  are "cost unknown", never free. Solana waits (Helius credits). The answer
+  are "cost unknown", never free. The answer
   is saved (owner 2026-10-14: "don't see why we need to get it every single
   time") — one `app_settings` row per user, wallet and coin,
   `cost_basis:<user>:<wallet>:<price_key>` (`costBasisStore.ts`) — and

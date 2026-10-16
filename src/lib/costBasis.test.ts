@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { averageCost, valuePaid } from "./costBasis.ts";
+import { averageCost, historyMismatch, valuePaid, valueQtyPaid } from "./costBasis.ts";
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
@@ -51,4 +51,25 @@ test("a payment is valued when it was paid; an unpriced one makes the buy's cost
     priceOf,
   );
   assert.deepEqual(out.map((e) => e.paidUsd), [250, 125, null, null, null]);
+});
+
+test("payments in units (Solana): SOL and USDC valued when paid; an unpriced coin makes the buy unknown", () => {
+  const priceOf = (coin: string, at: string) => (coin === "coingecko:solana" ? (at.startsWith("2026-10-08") ? 200 : 210) : coin === "solana:USDC" ? 1 : null);
+  const out = valueQtyPaid(
+    [
+      { at: "2026-10-08T18:03:00Z", qty: 766, paid: [{ coin: "coingecko:solana", qty: 2 }] },
+      { at: "2026-10-06T15:31:00Z", qty: 1649, paid: [{ coin: "coingecko:solana", qty: 0.0015 }, { coin: "solana:USDC", qty: 500 }] },
+      { at: "2026-10-09T00:00:00Z", qty: 10, paid: [{ coin: "solana:MEME", qty: 5 }] },
+      { at: "2026-10-10T00:00:00Z", qty: -100, paid: [] },
+    ],
+    priceOf,
+  );
+  assert.deepEqual(out.map((e) => e.paidUsd), [400, 500.315, null, null]);
+});
+
+test("history vs synced holding: a sale since the last sync is named; agreement or unknown is not", () => {
+  assert.equal(historyMismatch({ costedQty: 0, unknownQty: 0, holdingQty: 2015 }), 0); // PYTH: all sold, sync older
+  assert.equal(historyMismatch({ costedQty: 100, unknownQty: 0.5, holdingQty: 100.5 }), null);
+  assert.equal(historyMismatch({ costedQty: 100, unknownQty: 0, holdingQty: 100.9 }), null); // within 1%
+  assert.equal(historyMismatch({ costedQty: 5, unknownQty: 0, holdingQty: null }), null);
 });

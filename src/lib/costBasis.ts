@@ -91,6 +91,29 @@ export function valuePaid(events: readonly PaidEvent[], priceOf: (contract: stri
   });
 }
 
+/** A movement whose payments are already in units (Solana's reader):
+ * `coin` names what was paid. */
+export interface QtyPaidEvent {
+  at: string;
+  qty: number;
+  paid: { coin: string; qty: number }[];
+}
+
+/** As `valuePaid`, for payments in units: `priceOf(coin, at)` is its dollar
+ * price then, or null — then the buy's cost is unknown, never partly counted. */
+export function valueQtyPaid(events: readonly QtyPaidEvent[], priceOf: (coin: string, at: string) => number | null): CostEvent[] {
+  return events.map((e) => {
+    if (e.qty <= 0 || e.paid.length === 0) return { at: e.at, qty: e.qty, paidUsd: null };
+    let usd = 0;
+    for (const p of e.paid) {
+      const px = priceOf(p.coin, e.at);
+      if (px === null) return { at: e.at, qty: e.qty, paidUsd: null };
+      usd += p.qty * px;
+    }
+    return { at: e.at, qty: e.qty, paidUsd: usd };
+  });
+}
+
 /** One holding's answer (api/token/cost-basis). */
 export interface CostBasisRow extends CostBasis {
   chain: string;
@@ -100,4 +123,13 @@ export interface CostBasisRow extends CostBasis {
   firstSeenAt: string | null;
   /** The history was longer than the pages read: the oldest moves are missing. */
   partial: boolean;
+}
+
+/** What the history adds up to, when it disagrees with the synced holding by
+ * more than 1% — a move since the last sync, or history the reader couldn't
+ * see. Null when they agree or either side is unknown. */
+export function historyMismatch(row: Pick<CostBasisRow, "costedQty" | "unknownQty" | "holdingQty">): number | null {
+  if (row.holdingQty === null) return null;
+  const history = row.costedQty + row.unknownQty;
+  return Math.abs(history - row.holdingQty) > 0.01 * Math.max(Math.abs(row.holdingQty), 1e-9) ? history : null;
 }
