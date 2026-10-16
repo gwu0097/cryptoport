@@ -4,6 +4,7 @@ import { createPublicClient, http, formatUnits, encodeFunctionData, decodeFuncti
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
 import type { AdapterHolding } from "./types";
+import { comboLabel, comboValue, isHeldCombo, type ComboPosition } from "../polymarketCombos";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
 const DATA_BASE = "https://data-api.polymarket.com";
@@ -61,6 +62,23 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
+/** Combos (parlays) aren't in /positions — their own endpoint (owner
+ * 2026-10-16: a combo bought didn't show). Lost ones are left out by the
+ * status filter; pages followed by cursor, at most COMBO_PAGES. */
+const COMBO_PAGES = 5;
+async function fetchCombos(proxyWallet: string): Promise<ComboPosition[]> {
+  const out: ComboPosition[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < COMBO_PAGES; page++) {
+    const url: string = `${DATA_BASE}/v2/positions/combos?user=${proxyWallet}&status=OPEN,PARTIAL,RESOLVED_PARTIAL,RESOLVED_WIN&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const body = await fetchJson<{ data: ComboPosition[]; pagination?: { next_cursor?: string | null } }>(url);
+    out.push(...(body.data ?? []));
+    cursor = body.pagination?.next_cursor ?? null;
+    if (!cursor) break;
+  }
+  return out;
+}
+
 /**
  * Polymarket trades never happen from a wallet's own EOA — every account
  * gets a deterministic proxy wallet (a Gnosis Safe) that actually holds the
@@ -96,10 +114,11 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
   const balanceData = encodeFunctionData({ abi: BALANCE_OF_ABI, functionName: "balanceOf", args: [proxyWallet] });
   const client = createPublicClient({ transport: http(POLYGON_RPC) });
 
-  const [positions, balanceResult] = await Promise.all([
+  const [positions, combos, balanceResult] = await Promise.all([
     fetchJson<PolymarketPosition[]>(
       `${DATA_BASE}/positions?user=${proxyWallet}&sizeThreshold=0&limit=500`,
     ),
+    fetchCombos(proxyWallet),
     client.call({ to: PUSD_CONTRACT, data: balanceData }),
   ]);
 
@@ -158,6 +177,32 @@ export async function fetchPolymarketHoldings(address: string): Promise<AdapterH
       position_entry_price: Number.isFinite(p.avgPrice) ? p.avgPrice : null, // average price paid per share
       position_pnl_usd: Number.isFinite(p.cashPnl) ? p.cashPnl : null,
       position_pnl_percent: Number.isFinite(p.percentPnl) ? p.percentPnl : null,
+    });
+  }
+
+  for (const c of combos) {
+    if (!isHeldCombo(c)) continue;
+    const v = comboValue(c);
+    const pnl = v.usd !== null && v.cost !== null ? v.usd - v.cost : null;
+    holdings.push({
+      // The combo's condition id ends in zeros — its leading digits are what differ.
+      ticker: `POLY-COMBO-${c.combo_condition_id.slice(2, 14)}`,
+      qty: v.shares,
+      // An estimate from the legs' prices (polymarketCombos.ts); null when a
+      // leg has no price — shown as "—", never 0.
+      usd_override: v.usd,
+      contract: null,
+      category: "defi",
+      chain: "polymarket",
+      icon_url: c.legs[0]?.market.icon_url || null,
+      protocol: "Polymarket",
+      // A combo has no event page of its own.
+      protocol_url: "https://polymarket.com/portfolio",
+      protocol_section: "Prediction",
+      display_label: comboLabel(c),
+      position_entry_price: Number.isFinite(Number(c.entry_avg_price_usdc)) ? Number(c.entry_avg_price_usdc) : null,
+      position_pnl_usd: pnl,
+      position_pnl_percent: pnl !== null && v.cost ? (pnl / v.cost) * 100 : null,
     });
   }
 

@@ -640,7 +640,9 @@ Every holdings read shows
 size × (mark − entry) when that mark is newer than the wallet's sync
 (`withCurrentPnl` in `getWalletDetail` / `getActiveWalletsWithHoldings`), and
 the Dashboard's Open positions section lists them, with Polymarket positions
-still worth something (`isOpenPosition`). Its **Refresh positions** button
+still worth something (`isOpenPosition`) — combos (parlays) included, read from
+their own endpoint and valued as shares × the open legs' prices multiplied, an
+estimate; a leg with no price leaves it "—" (`polymarketCombos.ts`). Its **Refresh positions** button
 (`api/positions/refresh` → `positionsRefresh.ts`) re-reads only the venue
 accounts with an open position, or one in the last 30 days
 (`venuesToRefresh`, `wallet_venue_activity`, written by every sync and
