@@ -419,6 +419,10 @@ owner's.
   `api/perp-scout/tracked/refresh`, guard `perpScoutTracked` 60/h). Why
   these choices: DECISIONS 2026-10-06 Perp Scout; open items in BACKLOG.
   **Alerts** (owner 2026-10-07; PLAN.md "Alerts"):
+  - **Off since 2026-10-19** (owner: managed in another app, no double
+    alerts): the launchd job is unloaded (`launchctl bootout`), its plist
+    left in `~/Library/LaunchAgents`. Back on: `launchctl bootstrap
+    gui/$(id -u) ~/Library/LaunchAgents/com.cryptoport.perp-alerts.plist`.
   - `scripts/perp-alerts.ts` runs on the owner's Mac mini under launchd
     (`scripts/launchd/com.cryptoport.perp-alerts.plist`), not Vercel. It
     polls every followed trader's positions every 30 s, with state in a
