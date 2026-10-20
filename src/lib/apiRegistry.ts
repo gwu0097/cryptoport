@@ -151,7 +151,7 @@ export const API_SERVICES: ApiService[] = [
     category: "Blockchain data",
     tier: "free-no-signup",
     plan: "Public API (no key for user sessions)",
-    limits: "Unpublished. A user-session access token lasts 15 minutes, its refresh token 30 days (doesn't rotate).",
+    limits: "Unpublished. A user-session access token lasts 15 minutes, its refresh token 7 days (doesn't rotate; measured 2026-10-19).",
     usedFor: "near.com wallets (Confidential Intents): a refresh and a balances read per sync, the public token list once an hour, and the sign-in when connecting.",
     scaling: "Calls grow with near.com wallets synced, not viewers. A Partner API key (1Click dashboard) gives authenticated limits if this is ever throttled.",
     env: [],

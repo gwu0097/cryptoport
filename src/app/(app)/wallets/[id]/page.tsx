@@ -233,7 +233,7 @@ export default async function WalletDetailPage(
                   exchangeSyncedAt={wallet.exchange_synced_at}
                   sync={syncExchangeHoldings.bind(null, wallet.id)}
                 />
-                {/* near.com's token lasts 30 days: a fresh signature renews it. */}
+                {/* near.com's token lasts 7 days (REFRESH_TOKEN_DAYS): a fresh signature renews it. */}
                 {wallet.provider === NEARCOM && <ConnectNearCom walletId={wallet.id} signedAt={await nearComSignedAt(wallet.id)} nowMs={requestNowSec() * 1000} />}
               </>
             ) : wallet.mode === "auto" ? (

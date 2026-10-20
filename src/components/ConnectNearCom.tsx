@@ -14,7 +14,7 @@ import { buttonClass } from "./ui/Button";
  * near.com (Confidential Intents, owner 2026-10-08; nearIntents.ts): your
  * wallet signs one EMPTY intent — proof the address is yours, nothing moves —
  * and near.com returns a read-only token the app stores encrypted, like an
- * exchange key. It lasts 30 days; `walletId` makes this the Reconnect for an
+ * exchange key. It lasts REFRESH_TOKEN_DAYS (7); `walletId` makes this the Reconnect for an
  * existing near.com wallet. Wallets found the same way as sign-in (EIP-6963,
  * window.ethereum as the fallback).
  */
@@ -87,7 +87,7 @@ export function ConnectNearCom({ walletId, signedAt, nowMs }: { walletId?: strin
           {error && <p className="rounded-lg border border-negative/30 bg-negative/10 px-4 py-3 text-sm text-negative">{error}</p>}
           <ul className="list-disc space-y-1 pl-4 text-xs text-fg-muted">
             <li>Sign once with the wallet you use on near.com. The message is an empty intent: it proves the address is yours and can&apos;t move funds.</li>
-            <li>near.com returns a read-only token, stored encrypted. It lasts 30 days — then click Reconnect and sign again.</li>
+            <li>near.com returns a read-only token, stored encrypted. It lasts {REFRESH_TOKEN_DAYS} days (near.com&apos;s limit) — then click Reconnect and sign again.</li>
           </ul>
           {!walletId && (
             <Field label="Name" hint="What to call this wallet in your list.">
@@ -113,11 +113,11 @@ export function ConnectNearCom({ walletId, signedAt, nowMs }: { walletId?: strin
   );
 }
 
-/** "Reconnect by Nov 7" — the token's 30 days, amber in the last 5 (the
+/** "Reconnect by Oct 26" — the token's REFRESH_TOKEN_DAYS, amber in the last 2 (the
  * request's clock, CLAUDE.md §6). */
 function ReconnectBy({ signedAt, nowMs: now }: { signedAt: string; nowMs: number }) {
   const due = Date.parse(signedAt) + REFRESH_TOKEN_DAYS * 86_400_000;
   const days = Math.ceil((due - now) / 86_400_000);
   const date = new Date(due).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return <p className={`text-xs ${days <= 5 ? "text-warning" : "text-fg-muted"}`}>{days > 0 ? `Reconnect by ${date} (${days} day${days === 1 ? "" : "s"})` : "Expired — reconnect to sync"}</p>;
+  return <p className={`text-xs ${days <= 2 ? "text-warning" : "text-fg-muted"}`}>{days > 0 ? `Reconnect by ${date} (${days} day${days === 1 ? "" : "s"})` : "Expired — reconnect to sync"}</p>;
 }

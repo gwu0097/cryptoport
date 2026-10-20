@@ -516,10 +516,10 @@ never leave a destructive script anywhere.
   one empty intent (`ConnectNearCom` → `connectNearCom`; pure
   `nearIntents.ts`: the versioned nonce — deadline in it, the contract's
   `current_salt` — the exact payload, the `secp256k1:` signature) for a
-  read-only 30-day refresh token, stored encrypted; each sync refreshes it
+  read-only refresh token (7 days — its own `exp`, measured 2026-10-19; `REFRESH_TOKEN_DAYS`), stored encrypted; each sync refreshes it
   and reads `/v0/account/balances` (`adapters/nearcom.ts`). Each balance is
   priced as the coin 1Click's token list names (`COIN_NAMING_VENUES` in
-  `assetIdentity.ts`). Reconnect (the wallet page) re-signs monthly.
+  `assetIdentity.ts`). Reconnect (the wallet page) re-signs weekly.
   Where a topic has both halves, the pure part lives in `src/lib/` under the
   same name (`cosmosMulti.ts`, `exchangeTickers.ts`).
 - `src/components/` — `ui/` (shared primitives), `jobs/` (background-job UI),

@@ -12,8 +12,25 @@ import type { AdapterHolding } from "./adapters/types.ts";
 /** The provider id (wallets.provider, holdings.chain). Not "near": that's the
  * NEAR chain's own wallet type. */
 export const NEARCOM = "nearcom";
-/** The refresh token's life (30 days, doesn't rotate): the user signs again. */
-export const REFRESH_TOKEN_DAYS = 30;
+/** The refresh token's life: 7 days, measured 2026-10-19 (the token's own
+ * exp − iat; it was taken for 30 at the start and the owner's connection
+ * failed after a week). It doesn't rotate — a refresh returns only an access
+ * token — so the user signs again. `nearComAuthenticate` warns if a new
+ * token's lifetime differs. */
+export const REFRESH_TOKEN_DAYS = 7;
+
+/** A refresh token's lifetime in days, from its own claims (a JWT's exp −
+ * iat); null when it isn't a readable JWT. */
+export function tokenLifetimeDays(token: string): number | null {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const { exp, iat } = JSON.parse(Buffer.from(part, "base64url").toString()) as { exp?: number; iat?: number };
+    return typeof exp === "number" && typeof iat === "number" ? (exp - iat) / 86_400 : null;
+  } catch {
+    return null;
+  }
+}
 
 // A versioned nonce, as intents.near checks it (the official SDK's
 // VersionedNonceBuilder, @defuse-protocol/intents-sdk expirable-nonce.ts):

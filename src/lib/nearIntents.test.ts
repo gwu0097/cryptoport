@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount } from "viem/accounts";
 import { recoverMessageAddress } from "viem";
-import { authPayload, balancesToHoldings, priceKeyFor, base58, erc191Signature, readAuthPayload, timestampedBytes, versionedNonce } from "./nearIntents.ts";
+import { authPayload, balancesToHoldings, priceKeyFor, base58, erc191Signature, readAuthPayload, timestampedBytes, tokenLifetimeDays, versionedNonce } from "./nearIntents.ts";
 
 test("the nonce matches intents.near's own example byte for byte (docs, 2025-05-21: its deadline in bytes 9–16)", () => {
   const example = "Vij2xgAlKBKzgNPJFViEQRgYyS7p2NEiYTTY4XmT8go=";
@@ -79,4 +79,11 @@ test("a token near.com names with its own id ('custom:qtc') is priced from near.
   assert.equal(priceKeyFor({ assetId: "nep141:arb-0xaf88.omft.near", coingeckoId: "usd-coin" }), "usd-coin");
   assert.equal(priceKeyFor({ assetId: "nep141:qtc.omft.near", coingeckoId: "custom:qtc" }), "nearcom:nep141:qtc.omft.near");
   assert.equal(priceKeyFor({ assetId: "nep141:x.near", coingeckoId: null }), "nearcom:nep141:x.near");
+});
+
+test("a token's lifetime comes from its own claims", () => {
+  const jwt = (claims: object) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
+  assert.equal(tokenLifetimeDays(jwt({ iat: 1_000_000, exp: 1_000_000 + 7 * 86_400 })), 7);
+  assert.equal(tokenLifetimeDays(jwt({ iat: 1 })), null);
+  assert.equal(tokenLifetimeDays("opaque-token"), null);
 });

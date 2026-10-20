@@ -1,14 +1,15 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
-import { balancesToHoldings, timestampedBytes, versionedNonce, authPayload, erc191Signature, type IntentsBalance, type IntentsToken } from "../nearIntents";
+import { REFRESH_TOKEN_DAYS, tokenLifetimeDays, balancesToHoldings, timestampedBytes, versionedNonce, authPayload, erc191Signature, type IntentsBalance, type IntentsToken } from "../nearIntents";
 import type { AdapterHolding } from "./types";
 
 // near.com balances (Confidential Intents) through NEAR Intents' 1Click API —
 // pure parts and the why in nearIntents.ts. Free, keyless for user sessions;
 // limits unpublished. Per sync: one refresh + one balances call (the token
 // list is kept an hour). Checked live 2026-10-08 with a throwaway key:
-// authenticate 201 (a 15-minute access token, a 30-day refresh token),
+// authenticate 201 (a 15-minute access token, a refresh token —
+// 7 days, measured 2026-10-19, REFRESH_TOKEN_DAYS),
 // refresh 201, balances 200.
 
 const API = "https://1click.chaindefuser.com/v0";
@@ -59,13 +60,15 @@ export async function nearComChallenge(address: string): Promise<string> {
   return authPayload(address, versionedNonce(await currentSalt(), deadline.getTime(), timestampedBytes(now, random7)), deadline);
 }
 
-/** The signed message for a refresh token (read-only, 30 days). */
+/** The signed message for a refresh token (read-only, REFRESH_TOKEN_DAYS). */
 export async function nearComAuthenticate(payload: string, signatureHex: string): Promise<string> {
   const { status, body } = await call<{ refreshToken?: string; message?: string }>("/auth/authenticate", {
     method: "POST",
     body: { signedData: { standard: "erc191", payload, signature: erc191Signature(signatureHex) } },
   });
   if (!body.refreshToken) throw new Error(`near.com didn't accept the signature (HTTP ${status}${body.message ? `: ${body.message}` : ""}).`);
+  const days = tokenLifetimeDays(body.refreshToken);
+  if (days !== null && Math.abs(days - REFRESH_TOKEN_DAYS) > 0.5) console.warn(`[nearcom] refresh token lasts ${days.toFixed(1)} days, the app assumes ${REFRESH_TOKEN_DAYS} — update REFRESH_TOKEN_DAYS`);
   return body.refreshToken;
 }
 
@@ -95,7 +98,7 @@ export async function nearComPrices(): Promise<Map<string, { usd: number; symbol
   return out;
 }
 
-export const NEARCOM_EXPIRED = "near.com connection expired — click Reconnect and sign again (it lasts 30 days).";
+export const NEARCOM_EXPIRED = "near.com connection expired — click Reconnect and sign again (it lasts 7 days).";
 
 /** The exchange fetcher (EXCHANGE_ADAPTERS): `keyName` is the account
  * (lowercase 0x address), `secret` the refresh token. Throws rather than
