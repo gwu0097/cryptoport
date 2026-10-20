@@ -1,7 +1,7 @@
 import "server-only";
 import { fetchWithRetry } from "./http";
 import { resolveTickerIcons } from "./coingecko";
-import { REFRESH_TOKEN_DAYS, tokenLifetimeDays, balancesToHoldings, timestampedBytes, versionedNonce, authPayload, erc191Signature, type IntentsBalance, type IntentsToken } from "../nearIntents";
+import { NEARCOM_EXPIRED, REFRESH_TOKEN_DAYS, tokenLifetimeDays, balancesToHoldings, timestampedBytes, versionedNonce, authPayload, erc191Signature, type IntentsBalance, type IntentsToken } from "../nearIntents";
 import type { AdapterHolding } from "./types";
 
 // near.com balances (Confidential Intents) through NEAR Intents' 1Click API —
@@ -98,7 +98,7 @@ export async function nearComPrices(): Promise<Map<string, { usd: number; symbol
   return out;
 }
 
-export const NEARCOM_EXPIRED = "near.com connection expired — click Reconnect and sign again (it lasts 7 days).";
+export { NEARCOM_EXPIRED } from "../nearIntents";
 
 /** The exchange fetcher (EXCHANGE_ADAPTERS): `keyName` is the account
  * (lowercase 0x address), `secret` the refresh token. Throws rather than

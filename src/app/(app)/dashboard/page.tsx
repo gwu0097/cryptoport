@@ -29,6 +29,8 @@ import { getWatchDayActivity, getWatchFeedTargets, getWatchMovements } from "@/l
 import { DashboardWatchActivity } from "@/components/dashboard/DashboardWatchActivity";
 import { DashboardTrackedTrades } from "@/components/dashboard/DashboardTrackedTrades";
 import { readTrackedTrades } from "@/lib/perpScoutScan";
+import { getExpiredNearCom } from "@/lib/nearComExpiryQuery";
+import { NearComExpiredNotice } from "@/components/dashboard/NearComExpiredNotice";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard · CryptoPort" };
@@ -74,7 +76,7 @@ export default async function DashboardPage({
   // costs no round trip — and every read below starts at once: nothing here
   // waits on another read (CLAUDE.md §6 round-trip budget).
   const user = await getUser();
-  const [{ groups, grand }, watchlists, history, priceState, positions, zone, listedItems, watch, trackedTrades] = await Promise.all([
+  const [{ groups, grand }, watchlists, history, priceState, positions, zone, listedItems, watch, trackedTrades, nearComExpired] = await Promise.all([
     getAssetsGroupedByTicker(),
     getWatchlists(),
     getValueHistory(),
@@ -87,6 +89,8 @@ export default async function DashboardPage({
     // Perp Scout's tracked trades (one app_settings read; a failure only
     // hides the card).
     user ? readTrackedTrades(user.id).catch(() => null) : null,
+    // near.com sign-ins that ended (one request; empty for most users).
+    user ? getExpiredNearCom(user.id, requestNowSec() * 1000) : [],
   ]);
   // The newest moment any position's PnL is from (a price refresh's mark, or
   // a wallet sync) — shown once for the section.
@@ -176,6 +180,11 @@ export default async function DashboardPage({
   return (
     <div data-page-width="full" className="grid grid-flow-row-dense grid-cols-1 gap-4 xl:grid-cols-12">
       <div className="order-1 xl:order-none xl:col-span-12">
+        {user && nearComExpired.length > 0 && (
+          <div className="mb-4">
+            <NearComExpiredNotice expired={nearComExpired} />
+          </div>
+        )}
         {user ? (
           <DashboardStats total={grand.total} change={change} positions={summary} watch={watchStats} refresh={<PriceRefreshButton priceState={priceState} compact />} />
         ) : (

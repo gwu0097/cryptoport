@@ -18,6 +18,18 @@ export const NEARCOM = "nearcom";
  * token — so the user signs again. `nearComAuthenticate` warns if a new
  * token's lifetime differs. */
 export const REFRESH_TOKEN_DAYS = 7;
+/** A sync's status when near.com refused the token (also how the Dashboard
+ * knows a connection died before its date). */
+export const NEARCOM_EXPIRED = "near.com connection expired — click Reconnect and sign again (it lasts 7 days).";
+
+/** A near.com connection to show as expired: past its REFRESH_TOKEN_DAYS, or
+ * its last sync was refused (a sign-in can end before its date). */
+export function nearComExpired(c: { signedAt: string | null; syncStatus: string | null }, nowMs: number): { since: string | null } | null {
+  const due = c.signedAt ? Date.parse(c.signedAt) + REFRESH_TOKEN_DAYS * 86_400_000 : NaN;
+  if (Number.isFinite(due) && due <= nowMs) return { since: new Date(due).toISOString() };
+  if (c.syncStatus?.includes(NEARCOM_EXPIRED)) return { since: null };
+  return null;
+}
 
 /** A refresh token's lifetime in days, from its own claims (a JWT's exp −
  * iat); null when it isn't a readable JWT. */

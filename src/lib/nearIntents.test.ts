@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount } from "viem/accounts";
 import { recoverMessageAddress } from "viem";
-import { authPayload, balancesToHoldings, priceKeyFor, base58, erc191Signature, readAuthPayload, timestampedBytes, tokenLifetimeDays, versionedNonce } from "./nearIntents.ts";
+import { authPayload, balancesToHoldings, priceKeyFor, base58, erc191Signature, readAuthPayload, timestampedBytes, tokenLifetimeDays, versionedNonce, nearComExpired, NEARCOM_EXPIRED } from "./nearIntents.ts";
 
 test("the nonce matches intents.near's own example byte for byte (docs, 2025-05-21: its deadline in bytes 9–16)", () => {
   const example = "Vij2xgAlKBKzgNPJFViEQRgYyS7p2NEiYTTY4XmT8go=";
@@ -86,4 +86,14 @@ test("a token's lifetime comes from its own claims", () => {
   assert.equal(tokenLifetimeDays(jwt({ iat: 1_000_000, exp: 1_000_000 + 7 * 86_400 })), 7);
   assert.equal(tokenLifetimeDays(jwt({ iat: 1 })), null);
   assert.equal(tokenLifetimeDays("opaque-token"), null);
+});
+
+test("a near.com connection is expired 7 days after signing, or when its sync was refused", () => {
+  const signedAt = "2026-10-08T19:20:00Z";
+  const day = 86_400_000;
+  const signed = Date.parse(signedAt);
+  assert.equal(nearComExpired({ signedAt, syncStatus: "ok" }, signed + 6 * day), null);
+  assert.deepEqual(nearComExpired({ signedAt, syncStatus: "ok" }, signed + 7 * day), { since: "2026-10-15T19:20:00.000Z" });
+  assert.deepEqual(nearComExpired({ signedAt, syncStatus: `Sync failed: ${NEARCOM_EXPIRED}` }, signed + day), { since: null });
+  assert.equal(nearComExpired({ signedAt: null, syncStatus: null }, signed), null);
 });
